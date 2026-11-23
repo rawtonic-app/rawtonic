@@ -226,8 +226,10 @@ const HUE_WINDOW_WIDENING: f64 = 1.15;
 /// Variance −1, growing linearly to it. Camera Raw 18.7 pushes the hue
 /// fully towards the swatch and the chroma and lightness much less. Fitted
 /// on 2 photos (4 swatches) and checked on 2 others (6 swatches) at −0.25 /
-/// −0.5 / −1; equal axes changed 2.3–4.0× Camera Raw's change on 8 of those
-/// 10 swatches (notes: benchmark-results/ptc2-2026-11-23).
+/// −0.5 / −1, in a Python model of the import without shifts: its error
+/// against Camera Raw's change (Σ|model − CR| / Σ|CR change|, Oklab) was
+/// 2.3–4.0 with equal axes on 8 of those 10 swatches, 0.34–1.04 on the 6
+/// held-out ones with this mapping (notes: benchmark-results/ptc2-2026-11-23).
 const VARIANCE_UNIFORMITY: [f64; 3] = [100.0, 30.0, 15.0];
 
 fn hue_difference(a: f64, b: f64) -> f64 {
@@ -393,6 +395,7 @@ fn point_color_ranges_from(swatches: &[String], variances: &[String]) -> Vec<Val
         let variance = variances
             .get(index)
             .and_then(|x| x.trim().parse::<f64>().ok())
+            .filter(|x| x.is_finite())
             .map_or(0.0, |x| (-x).clamp(0.0, 1.0));
         let [hue_uniformity, saturation_uniformity, lightness_uniformity] =
             VARIANCE_UNIFORMITY.map(|per_unit| variance * per_unit);
@@ -3644,10 +3647,10 @@ mod tests {
     fn negative_point_color_variance_becomes_measured_uniformities() {
         // Camera Raw 18.7 (PTC2, 4 photos, 10 swatches, Variance −0.25 / −0.5 /
         // −1): uniformity grows with the variance in the ratio hue 1 : chroma
-        // 0.3 : lightness 0.15, not equally on all three (equal axes changed
-        // 2.3–4.0× Camera Raw's change on 8 of 10 swatches; this mapping
-        // leaves 0.34–1.04 of it on the 6 hold-out swatches, 0.50–0.76 on the
-        // fitted ones). Positive variance has no mapping and stays at 0.
+        // 0.3 : lightness 0.15, not equally on all three (in a Python model
+        // without shifts, the error against Camera Raw's change was 2.3–4.0
+        // with equal axes on 8 of 10 swatches; 0.34–1.04 with this mapping on
+        // the 6 hold-out swatches, 0.50–0.76 on the fitted ones). Positive variance has no mapping and stays at 0.
         let swatch = "0.500000, 0.700000, 0.300000, 0.000000, 0.000000, 0.000000, 0.500000, 0.000000, 0.333333, 0.666667, 1.000000, 0.000000, 0.520000, 1.000000, 1.000000, 0.000000, 0.400000, 0.760000, 1.000000".to_string();
         let uniformities = |variance: &str| {
             let ranges = super::point_color_ranges_from(
@@ -3666,6 +3669,7 @@ mod tests {
         assert_eq!(uniformities("-1.000000"), [100.0, 30.0, 15.0]);
         assert_eq!(uniformities("-2.000000"), [100.0, 30.0, 15.0], "capped");
         assert_eq!(uniformities("0.500000"), [0.0, 0.0, 0.0]);
+        assert_eq!(uniformities("NaN"), [0.0, 0.0, 0.0], "malformed");
     }
 
     /// Eight Point Color swatches of different hues (Lightroom's limit per
