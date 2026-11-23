@@ -599,7 +599,12 @@ fn run(
                         }
                     }
                 }
-                queue.submit(Some(encoder.finish()));
+                rawtonic_rawdecode::gpu_submit::submit(
+                    queue,
+                    "edge fringe",
+                    0,
+                    Some(encoder.finish()),
+                );
             } else {
                 let data = target.data();
                 for (band_buffer, &(_, _, c0, c1)) in band_buffers.iter().zip(&groups) {
@@ -776,7 +781,12 @@ fn run(
                         depth_or_array_layers: 1,
                     },
                 );
-                queue.submit(Some(encoder.finish()));
+                rawtonic_rawdecode::gpu_submit::submit(
+                    queue,
+                    "edge fringe",
+                    0,
+                    Some(encoder.finish()),
+                );
                 let (sender, done) = std::sync::mpsc::channel();
                 queue.on_submitted_work_done(move || {
                     let _ = sender.send(());
@@ -795,7 +805,7 @@ fn run(
                 0,
                 ((x1 - x0) * (y1 - y0) * 12) as u64,
             );
-            queue.submit(Some(encoder.finish()));
+            rawtonic_rawdecode::gpu_submit::submit(queue, "edge fringe", 0, Some(encoder.finish()));
             if let Some(previous) = pending.replace((slot, [x0, y0, x1, y1]))
                 && let Target::Data(data) = &mut target
             {

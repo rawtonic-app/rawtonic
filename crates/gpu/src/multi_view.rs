@@ -779,7 +779,12 @@ impl MultiView {
                 depth_or_array_layers: 1,
             },
         );
-        queue.submit(Some(encoder.finish()));
+        rawtonic_rawdecode::gpu_submit::submit(
+            queue,
+            "multi view frame copy",
+            0,
+            Some(encoder.finish()),
+        );
         let texture = Self::make_texture(device, bindings, key, extent, texture);
         self.textures.insert(path.to_string(), texture);
         true

@@ -21627,6 +21627,7 @@ fn multiscale_color_noise_latency_probe() {
             let texture =
                 create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
             let mut source = GpuImageCache {
+                device: Arc::downgrade(&context.device),
                 texture_view: texture.create_view(&Default::default()),
                 texture,
                 width,
@@ -21784,6 +21785,7 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
             let texture =
                 create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
             let mut source = GpuImageCache {
+                device: Arc::downgrade(&context.device),
                 texture_view: texture.create_view(&Default::default()),
                 texture,
                 width,
@@ -21878,6 +21880,7 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
     let source = || {
         let texture = create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
         GpuImageCache {
+            device: Arc::downgrade(&context.device),
             texture_view: texture.create_view(&Default::default()),
             texture,
             width,
@@ -21963,6 +21966,7 @@ fn f16_rounded(image: &DynamicImage) -> DynamicImage {
 fn chroma_test_source(context: &GpuContext, image: &DynamicImage) -> GpuImageCache {
     let texture = create_input_texture(&context.device, &context.queue, image, 256).unwrap();
     GpuImageCache {
+        device: Arc::downgrade(&context.device),
         texture_view: texture.create_view(&Default::default()),
         texture,
         width: image.width(),
@@ -28927,10 +28931,15 @@ fn display_renders_in_short_submission_tiles_keep_their_bytes() {
         }))
     };
     let (large, small) = (slot(false), slot(true));
-    let render = |slot: &GpuProcessorSlot, render_version: u64, roi: Option<Roi>| {
+    let render_with = |slot: &GpuProcessorSlot,
+                       render_version: u64,
+                       roi: Option<Roi>,
+                       grain: u32,
+                       shader: ReadbackShader| {
         let recipe = json!({"exposure":0.4,"contrast":15,"clarity":60,"structure":20,
             "sharpness":40,"lumaNoiseReduction":20,"colorNoiseReduction":25,
-            "flareAmount":30,"vignetteAmount":-20,"renderVersion":render_version});
+            "flareAmount":30,"vignetteAmount":-20,"grainAmount":grain,
+            "renderVersion":render_version});
         let started = Instant::now();
         let image = process_and_get_dynamic_image_inner(
             &context,
@@ -28951,10 +28960,13 @@ fn display_renders_in_short_submission_tiles_keep_their_bytes() {
             false,
             None,
             None,
-            ReadbackShader::Display,
+            shader,
         )
         .expect("renders");
         (image, started.elapsed())
+    };
+    let render = |slot: &GpuProcessorSlot, render_version: u64, roi: Option<Roi>| {
+        render_with(slot, render_version, roi, 0, ReadbackShader::Display)
     };
     let region = Roi {
         x: 1100,
@@ -28968,6 +28980,20 @@ fn display_renders_in_short_submission_tiles_keep_their_bytes() {
         assert!(
             a.as_bytes() == b.as_bytes(),
             "renderVersion {render_version} {roi:?}: small display tiles change the bytes"
+        );
+    }
+    // DVL2: with film grain (its blocks), and the preview shader with its
+    // retained intermediates.
+    for (roi, shader) in [
+        (None, ReadbackShader::Display),
+        (Some(region), ReadbackShader::Preview),
+        (None, ReadbackShader::Preview),
+    ] {
+        let (a, _) = render_with(&large, 2, roi, 40, shader);
+        let (b, _) = render_with(&small, 2, roi, 40, shader);
+        assert!(
+            a.as_bytes() == b.as_bytes(),
+            "grain {roi:?} {shader:?}: small display tiles change the bytes"
         );
     }
     // One tile's render (warm: the second of each), whole frame for scale.

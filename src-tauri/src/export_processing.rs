@@ -1310,12 +1310,16 @@ pub(crate) async fn export_images_impl(
                         // A retry exports the same snapshot of the photo
                         // into the files the first attempt reserved.
                         let planned = PlannedFiles::default();
+                        // After a lost device the photo goes once more on
+                        // the new one the app starts (DVL2); later photos
+                        // take the newest device (`export_context`).
+                        let attempt = |context: &Arc<GpuContext>, wanted: &[usize]| {
                         rawtonic_runtime::gpu_memory::retry_out_of_memory(
-                            &wanted,
+                            wanted,
                             |wanted| {
                                 export_photo(
                                     &app_handle_clone,
-                                    &context_clone,
+                                    context,
                                     &settings,
                                     &targets,
                                     wanted,
@@ -1335,7 +1339,8 @@ pub(crate) async fn export_images_impl(
                             },
                             |target| planned.unpublished(target),
                             |again, wait| {
-                                // A lost device stays lost: no retry helps.
+                                // A lost device is no memory shortage: it goes again
+                                // on the new device (`retry_after_device_loss`).
                                 if rawtonic_gpu::device_start::device_lost() {
                                     return false;
                                 }
@@ -1343,8 +1348,23 @@ pub(crate) async fn export_images_impl(
                                     "Export: the graphics card ran out of memory for {} recipe(s) of {image_path_str}; again in {wait:?}",
                                     again.len()
                                 );
-                                release_gpu_memory(&app_handle_clone, &context_clone);
+                                release_gpu_memory(&app_handle_clone, context);
                                 wait_unless_cancelled(wait, &cancellation_token_clone)
+                            },
+                        )
+                        };
+                        rawtonic_runtime::gpu_memory::retry_after_device_loss(
+                            &wanted,
+                            export_context(&app_handle_clone, &context_clone),
+                            attempt,
+                            |target| planned.unpublished(target),
+                            |context, error| lost_under(&app_handle_clone, context, error),
+                            |context| {
+                                device_after_loss(
+                                    &app_handle_clone,
+                                    context,
+                                    &cancellation_token_clone,
+                                )
                             },
                         )
                     })
@@ -1492,6 +1512,62 @@ pub(crate) async fn export_images_impl(
 
     Ok(())
 }
+
+/// The context a photo of an export runs on: the app's current one, which
+/// is a new device after a loss (DVL2, `gpu_recovery`), else the run's.
+fn export_context(app_handle: &tauri::AppHandle, run: &Arc<GpuContext>) -> Arc<GpuContext> {
+    match app_handle.state::<crate::state::gpu::GpuState>().context() {
+        Some(current) if !Arc::ptr_eq(&current.device, &run.device) => Arc::new(current),
+        _ => Arc::clone(run),
+    }
+}
+
+/// Whether an export on `context` failed with `error` because its device
+/// was lost: the lost error, or any error once the app replaced the device
+/// (its objects fail with whatever they meet first).
+fn lost_under(app_handle: &tauri::AppHandle, context: &GpuContext, error: &str) -> bool {
+    error.contains(rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST)
+        || rawtonic_gpu::device_start::device_lost()
+        || app_handle
+            .state::<crate::state::gpu::GpuState>()
+            .context()
+            .is_some_and(|current| !Arc::ptr_eq(&current.device, &context.device))
+}
+
+/// The new device's context once the app replaced the lost `context`'s
+/// (`gpu_recovery`), waiting up to [`DEVICE_RECOVERY_WAIT`]; `None` when
+/// none came (the recovery gave up) or the export was cancelled.
+fn device_after_loss(
+    app_handle: &tauri::AppHandle,
+    context: &Arc<GpuContext>,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> Option<Arc<GpuContext>> {
+    let gpu = app_handle.state::<crate::state::gpu::GpuState>();
+    let started = std::time::Instant::now();
+    log::warn!("Export: the graphics device was lost; waiting for the new one to export again");
+    while started.elapsed() < DEVICE_RECOVERY_WAIT {
+        if cancelled.load(Ordering::SeqCst) {
+            return None;
+        }
+        if let Some(current) = gpu.context()
+            && !Arc::ptr_eq(&current.device, &context.device)
+            && !rawtonic_gpu::device_start::device_lost()
+        {
+            log::info!(
+                "Export: exporting again on the new graphics device after {:?}",
+                started.elapsed()
+            );
+            return Some(Arc::new(current));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    log::warn!("Export: no new graphics device within {DEVICE_RECOVERY_WAIT:?}");
+    None
+}
+
+/// How long an export waits for the app's new device after a loss: the
+/// recovery's back-off (10 s) and a device start, with room.
+const DEVICE_RECOVERY_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// What an export whose thread panicked reports: after a lost GPU device
 /// the clear device-lost error (G76/WCC6: the panic named only an invalid

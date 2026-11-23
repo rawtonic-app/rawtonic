@@ -296,7 +296,19 @@ mod tests {
         let second = start(&gpu);
         assert!(!std::sync::Arc::ptr_eq(&first.device, &second.device));
         assert!(!rawtonic_gpu::device_start::device_lost());
+        // A render that took the old context before the recovery and runs
+        // after it (the simulated device still works) leaves a processor
+        // and an upload of the old device behind: the next render on the
+        // new device makes its own (DVL2).
+        render(&first, &develop.gpu_image_cache).expect("the old device still renders");
         let after = render(&second, &develop.gpu_image_cache).expect("renders again");
         assert_eq!(before.as_bytes(), after.as_bytes());
+        let processor = gpu.processor.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            processor
+                .as_ref()
+                .is_some_and(|state| state.processor.uses(&second))
+        );
+        drop(processor);
     }
 }

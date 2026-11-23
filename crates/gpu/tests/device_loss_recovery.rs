@@ -17,7 +17,6 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use rawtonic_gpu::device_start::{self, LostDevice};
-use wgpu::util::DeviceExt;
 
 /// Words in the probe's buffer.
 const WORDS: u32 = 1 << 16;
@@ -92,11 +91,14 @@ fn run(gpu: &Gpu, shape: Shape) -> (Duration, Result<(), String>) {
         compilation_options: Default::default(),
         cache: None,
     });
-    let data = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("DVL1 data"),
-        contents: bytemuck::cast_slice(&vec![1u32; WORDS as usize]),
-        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-    });
+    let data = rawtonic_rawdecode::gpu_util::create_buffer_init(
+        device,
+        &wgpu::util::BufferInitDescriptor {
+            label: Some("DVL1 data"),
+            contents: bytemuck::cast_slice(&vec![1u32; WORDS as usize]),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        },
+    );
     let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout: &pipeline.get_bind_group_layout(0),
