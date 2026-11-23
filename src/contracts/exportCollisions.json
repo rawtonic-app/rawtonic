@@ -1,0 +1,9 @@
+{
+  "summary": {
+    "total": 4,
+    "unchangedOwn": { "count": 2, "names": ["a.jpg", "b.jpg"] },
+    "changedOwn": { "count": 1, "names": ["c.jpg"] },
+    "other": { "count": 1, "names": ["d.jpg"] },
+    "originals": 1
+  }
+}

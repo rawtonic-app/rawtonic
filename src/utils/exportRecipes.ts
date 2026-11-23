@@ -11,7 +11,7 @@ import {
   type TiffBitDepth
 } from '../components/ui/ExportImportProperties';
 
-export const EXISTING_FILES: ExistingFiles[] = ['keepBoth', 'skip', 'replaceIfChanged'];
+export const EXISTING_FILES: ExistingFiles[] = ['keepBoth', 'ask', 'skip', 'replaceIfChanged'];
 
 export const COLOR_SPACES: OutputColorSpace[] = ['srgb', 'displayP3', 'adobeRgb', 'proPhoto'];
 

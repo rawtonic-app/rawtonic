@@ -732,7 +732,7 @@ fn publish_with<'a>(
 /// The app's record of the files its exports wrote (for Replace if
 /// changed); None when it cannot be opened (exports then go on without it:
 /// Replace if changed keeps both).
-fn open_export_records(app_handle: &tauri::AppHandle) -> Option<ExportRecords> {
+pub(crate) fn open_export_records(app_handle: &tauri::AppHandle) -> Option<ExportRecords> {
     let dir = app_handle.path().app_data_dir().ok()?;
     match ExportRecords::open(&existing_files::records_path(&dir)) {
         Ok(records) => Some(records),
@@ -892,7 +892,7 @@ fn export_masks_for_image(
 
 /// The separate files of mask layer `layer` beside a main export file:
 /// the layer's rendered image and its alpha.
-fn mask_file_paths(output_path: &Path, layer: usize) -> [std::path::PathBuf; 2] {
+pub(crate) fn mask_file_paths(output_path: &Path, layer: usize) -> [std::path::PathBuf; 2] {
     let output_dir = output_path.parent().unwrap_or(output_path);
     let stem = output_path
         .file_stem()
@@ -1516,12 +1516,12 @@ fn stopped_short(jobs_going_on: impl IntoIterator<Item = bool>) -> bool {
 }
 
 /// A photo of an export run and its place in it.
-struct PhotoItem<'a> {
-    global_index: usize,
-    image_path_str: &'a str,
-    appearance_count: usize,
-    explicit_vc: Option<u32>,
-    total_paths: usize,
+pub(crate) struct PhotoItem<'a> {
+    pub(crate) global_index: usize,
+    pub(crate) image_path_str: &'a str,
+    pub(crate) appearance_count: usize,
+    pub(crate) explicit_vc: Option<u32>,
+    pub(crate) total_paths: usize,
 }
 
 /// The files a photo's recipes were given, by recipe: a retry of the
@@ -1624,6 +1624,91 @@ fn wait_unless_cancelled(wait: std::time::Duration, cancellation_token: &AtomicB
     !cancellation_token.load(Ordering::SeqCst)
 }
 
+/// The libraries the app knows besides the one managing a folder: a file
+/// any of them lists is a photo, never replaced.
+pub(crate) fn known_libraries(
+    settings: &crate::app_settings::AppSettings,
+) -> Vec<std::path::PathBuf> {
+    settings
+        .recent_libraries
+        .iter()
+        .flatten()
+        .map(std::path::PathBuf::from)
+        .chain(crate::session_bridge::active_library_directory())
+        .collect()
+}
+
+/// What is known of the file at `path`: an original when a known library
+/// lists it as a photo, else what an export recorded for it.
+pub(crate) fn previous_export(
+    path: &Path,
+    known_libraries: &[std::path::PathBuf],
+    records: Option<&ExportRecords>,
+) -> Previous {
+    if crate::session_bridge::is_library_photo(path, known_libraries) {
+        return Previous::Original;
+    }
+    records
+        .and_then(|records| match records.get(path) {
+            Ok(recorded) => recorded,
+            Err(e) => {
+                log::warn!("Export records: reading {} failed: {e}", path.display());
+                None
+            }
+        })
+        .into()
+}
+
+/// What decides a photo's exports besides each recipe, for Replace if
+/// changed: the photo as queued (its recipe, library metadata, corrected
+/// capture time and the original's file), the preferences the render reads
+/// and the LUT file it reads besides the photo. Not the EXIF cache: it is
+/// the original's own EXIF (the file is in `sourceIdentity`), cached only
+/// after a first decode, which would count as a change.
+pub(crate) fn photo_inputs(
+    pinned: &PinnedPhoto,
+    settings: &crate::app_settings::AppSettings,
+    is_raw: bool,
+) -> Value {
+    let lut_file = pinned.adjustments[effects::LUT_PATH.into_name()]
+        .as_str()
+        .filter(|path| !path.is_empty())
+        .map(|path| existing_files::file_fingerprint(Path::new(path)));
+    serde_json::json!({
+        "adjustments": &pinned.adjustments,
+        "metadata": &pinned.metadata,
+        "capture": &pinned.capture,
+        "sourceIdentity": &pinned.source_identity,
+        "lutFile": lut_file,
+        "decode": crate::image_loader::decode_preferences(settings),
+        // The photo's own (RAW or not), and the non-RAW one a LUT export uses.
+        "toneMapper": [
+            crate::image_processing::resolve_tonemapper_override(settings, is_raw),
+            crate::image_processing::resolve_tonemapper_override(settings, false),
+        ],
+    })
+}
+
+/// A recipe's inputs for one photo (`photo_inputs`): the recipe's settings
+/// and format, the watermark image it reads, under the app's version.
+pub(crate) fn target_inputs_hash(photo_inputs: &Value, target: &ExportTarget) -> String {
+    let export_settings = &target.export_settings;
+    let watermark_file = export_settings
+        .watermark
+        .as_ref()
+        .filter(|watermark| watermark.text.is_none() && !watermark.path.is_empty())
+        .map(|watermark| existing_files::file_fingerprint(Path::new(&watermark.path)));
+    existing_files::inputs_hash(
+        env!("CARGO_PKG_VERSION"),
+        &serde_json::json!({
+            "photo": photo_inputs,
+            "format": target.output_format.to_lowercase(),
+            "settings": existing_files::settings_for_hash(export_settings),
+            "watermarkFile": watermark_file,
+        }),
+    )
+}
+
 /// What a recipe does for a photo, decided before anything is rendered
 /// (the recipe's "If a file exists" choice, `rawtonic_export::existing_files`).
 #[derive(Debug, Clone, PartialEq)]
@@ -1676,7 +1761,7 @@ impl Planned {
 /// `existing_files::inputs_hash`, `previous` reads what was recorded for a
 /// file.
 #[allow(clippy::too_many_arguments)]
-fn plan_output_path(
+pub(crate) fn plan_output_path(
     target: &ExportTarget,
     item: &PhotoItem,
     source_path: &Path,
@@ -1687,6 +1772,7 @@ fn plan_output_path(
     source: &str,
     inputs: &str,
     previous: &dyn Fn(&Path) -> Previous,
+    create_folders: bool,
 ) -> Result<Planned, String> {
     let export_settings = &target.export_settings;
     let output_folder_path = Path::new(&target.output_folder_or_file);
@@ -1721,7 +1807,8 @@ fn plan_output_path(
             &target.base_origin_folders,
             &naming,
         )?;
-        if dir != output_folder_path
+        if create_folders
+            && dir != output_folder_path
             && let Err(e) = std::fs::create_dir_all(&dir)
         {
             return Err(format!(
@@ -1746,10 +1833,9 @@ fn plan_output_path(
             .collect::<Vec<_>>()
     };
 
-    // A file the user named (Save As): Keep both chooses no other name for
-    // it (taken, its write fails, as before); Skip and Replace if changed
-    // decide as for any file, and Replace if changed finding another
-    // program's file there numbers the new one beside it, as it promises.
+    // A file the user named (Save As): decided as for any file; Keep both and
+    // Replace if changed finding a file there number the new one beside it
+    // (never a failure at the write after the render).
     if target.is_explicit_file_path && total_paths == 1 {
         let exists = output_path.exists();
         let decision = existing_files::decide(
@@ -1772,9 +1858,7 @@ fn plan_output_path(
                 replace: Some(recorded),
                 kept: None,
             },
-            Decision::Number {
-                reported: Some(kept),
-            } => {
+            Decision::Number { reported } => {
                 let stem = output_path
                     .file_stem()
                     .map(|stem| stem.to_string_lossy().into_owned())
@@ -1797,10 +1881,10 @@ fn plan_output_path(
                 Planned::Write {
                     path: numbered,
                     replace: None,
-                    kept: Some(kept),
+                    kept: reported,
                 }
             }
-            Decision::Write | Decision::Number { reported: None } => Planned::Write {
+            Decision::Write => Planned::Write {
                 path: output_path,
                 replace: None,
                 kept: None,
@@ -2078,42 +2162,10 @@ fn export_photo(
     // settings, under the app's version. Not the EXIF cache: it is the
     // original's own EXIF (the file is in `sourceIdentity`), cached only
     // after a first decode, which would count as a change.
-    let lut_file = pinned.adjustments[effects::LUT_PATH.into_name()]
-        .as_str()
-        .filter(|path| !path.is_empty())
-        .map(|path| existing_files::file_fingerprint(Path::new(path)));
-    let pinned_inputs = serde_json::json!({
-        "adjustments": &pinned.adjustments,
-        "metadata": &pinned.metadata,
-        "capture": &pinned.capture,
-        "sourceIdentity": &pinned.source_identity,
-        "lutFile": lut_file,
-        "decode": crate::image_loader::decode_preferences(settings),
-        // The photo's own (RAW or not), and the non-RAW one a LUT export uses.
-        "toneMapper": [
-            crate::image_processing::resolve_tonemapper_override(settings, is_raw),
-            crate::image_processing::resolve_tonemapper_override(settings, false),
-        ],
-    });
+    let pinned_inputs = photo_inputs(&pinned, settings, is_raw);
     // Once per recipe, before it renders: the render reads these inputs
     // (the watermark file included) after this, and its record names them.
-    let hash_inputs = |target: usize| {
-        let export_settings = &targets[target].export_settings;
-        let watermark_file = export_settings
-            .watermark
-            .as_ref()
-            .filter(|watermark| watermark.text.is_none() && !watermark.path.is_empty())
-            .map(|watermark| existing_files::file_fingerprint(Path::new(&watermark.path)));
-        existing_files::inputs_hash(
-            env!("CARGO_PKG_VERSION"),
-            &serde_json::json!({
-                "photo": &pinned_inputs,
-                "format": targets[target].output_format.to_lowercase(),
-                "settings": existing_files::settings_for_hash(export_settings),
-                "watermarkFile": watermark_file,
-            }),
-        )
-    };
+    let hash_inputs = |target: usize| target_inputs_hash(&pinned_inputs, &targets[target]);
     let inputs_of: Vec<std::cell::OnceCell<String>> =
         targets.iter().map(|_| std::cell::OnceCell::new()).collect();
     let inputs = |target: usize| {
@@ -2128,13 +2180,7 @@ fn export_photo(
     let photo = photo_key.as_deref().unwrap_or_default();
     // The libraries the app knows besides the one managing a folder: a file
     // any of them lists is a photo, never replaced.
-    let known_libraries: Vec<std::path::PathBuf> = settings
-        .recent_libraries
-        .iter()
-        .flatten()
-        .map(std::path::PathBuf::from)
-        .chain(crate::session_bridge::active_library_directory())
-        .collect();
+    let known_libraries = known_libraries(settings);
     let records = std::cell::OnceCell::new();
     let records = || {
         records
@@ -2143,20 +2189,7 @@ fn export_photo(
     };
     // The previous export recorded at `path`, unless the file there is an
     // original by now (added to a library, or edited as a photo).
-    let previous = |path: &Path| {
-        if crate::session_bridge::is_library_photo(path, &known_libraries) {
-            return Previous::Original;
-        }
-        records()
-            .and_then(|records| match records.get(path) {
-                Ok(recorded) => recorded,
-                Err(e) => {
-                    log::warn!("Export records: reading {} failed: {e}", path.display());
-                    None
-                }
-            })
-            .into()
-    };
+    let previous = |path: &Path| previous_export(path, &known_libraries, records());
     // Named as before for every choice: the name may need the capture date
     // or facts (read from the original when the snapshot has none).
     let file_date = pinned.naming_date(original_path);
@@ -2189,6 +2222,7 @@ fn export_photo(
                     Some(_) => previous(path),
                     None => Previous::Unknown,
                 },
+                true,
             )
         })
     };
@@ -2258,7 +2292,10 @@ fn export_photo(
     let mut results = Vec::new();
     let mut wanted = wanted.to_vec();
     wanted.retain(|&target| {
-        if targets[target].export_settings.existing_files == ExistingFiles::KeepBoth {
+        if matches!(
+            targets[target].export_settings.existing_files,
+            ExistingFiles::KeepBoth | ExistingFiles::Ask
+        ) {
             return true;
         }
         match plan_target(target) {
@@ -3465,6 +3502,7 @@ mod tests {
             item.image_path_str,
             "inputs",
             &|_| Previous::Unknown,
+            true,
         )
         .map(|planned| planned.path().to_path_buf())
     }
@@ -4281,6 +4319,7 @@ mod tests {
                 "a.CR3",
                 "inputs",
                 &|_| Previous::Unknown,
+                true,
             )
         };
         let first = planned.once(0, plan).unwrap();
@@ -4360,14 +4399,16 @@ mod tests {
         assert_eq!(output, dir.path().join("a_1.jpg"));
         write(&target, &output).unwrap();
 
-        // An explicit single-file destination still hits no-clobber at publication.
+        // An explicit single-file destination on an original is numbered
+        // beside it before rendering (never written over, never a failure
+        // at publication).
         target.is_explicit_file_path = true;
         target.export_settings.destination_type = None;
-        for original in [&partner, &other] {
+        for (original, expected) in [(&partner, "a_2.jpg"), (&other, "b_3.jpg")] {
             target.output_folder_or_file = original.to_str().unwrap().to_owned();
             let output = plan(&target, &raw, 0, 1);
-            assert_eq!(&output, original);
-            assert!(write(&target, &output).is_err());
+            assert_eq!(output, dir.path().join(expected));
+            write(&target, &output).unwrap();
         }
         for (path, contents) in originals {
             assert_eq!(std::fs::read(path).unwrap(), contents);
@@ -4429,6 +4470,7 @@ mod tests {
                 item.image_path_str,
                 inputs,
                 &previous,
+                true,
             )
             .unwrap()
         };
@@ -4515,12 +4557,28 @@ mod tests {
         // choice promises; Skip leaves it.
         let mut save_as = target("replaceIfChanged", "{orig_base}");
         save_as.is_explicit_file_path = true;
+        save_as.export_settings.destination_type = None;
         save_as.output_folder_or_file = partner.to_string_lossy().into_owned();
         let planned = plan(&save_as, &raw, "v1");
         assert_eq!(planned.outcome(), Outcome::KeptBoth);
         assert_eq!(planned.path(), dir.path().join("a_1.jpg"));
         save_as.export_settings.existing_files = ExistingFiles::Skip;
         assert_eq!(plan(&save_as, &raw, "v1").outcome(), Outcome::SkippedExists);
+        // Keep both (and Ask, which reaches an export as Keep both) on a
+        // taken Save As name numbers a free sibling before anything renders,
+        // instead of failing at the write after the render.
+        for choice in [ExistingFiles::KeepBoth, ExistingFiles::Ask] {
+            save_as.export_settings.existing_files = choice;
+            let planned = plan(&save_as, &raw, "v1");
+            assert_eq!(planned.path(), dir.path().join("a_1.jpg"), "{choice:?}");
+            assert_eq!(planned.outcome(), Outcome::Written);
+        }
+        // A free Save As name is used as it is.
+        save_as.output_folder_or_file = dir.path().join("new.jpg").to_string_lossy().into_owned();
+        assert_eq!(
+            plan(&save_as, &raw, "v1").path(),
+            dir.path().join("new.jpg")
+        );
         assert_eq!(std::fs::read(&raw).unwrap(), b"original RAW");
         assert_eq!(std::fs::read(&partner).unwrap(), b"camera JPEG");
     }

@@ -10,6 +10,7 @@ import CreateFolderModal from './CreateFolderModal';
 import RenameFolderModal from './RenameFolderModal';
 import RenameFileModal, { type PlannedFile } from './RenameFileModal';
 import ConfirmModal from './ConfirmModal';
+import ExportCollisionDialog from './ExportCollisionDialog';
 import LibrarySwitchShield from './LibrarySwitchShield';
 import CollageModal, { type CollageSpec } from './CollageModal';
 import { DuplicatesDialogHost } from '../studio/DuplicatesDialog';
@@ -118,6 +119,7 @@ export default function AppModals(props: AppModalsProps) {
         onSave={props.handleSaveRename}
       />
       <ConfirmModal {...confirmModalState} onClose={closeConfirmModal} />
+      <ExportCollisionDialog />
       <LibrarySwitchShield />
       <DuplicatesDialogHost trash={props.executeDelete} />
       <ProofSheetDialogHost />
