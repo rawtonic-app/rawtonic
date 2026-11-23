@@ -231,12 +231,11 @@ pub fn dng_baseline_equivalent(path: &str) -> f32 {
 
 /// Runs `decode` of the RAW at `path` from `bytes`, the caller's own
 /// buffer of it (its mapping), stamped from the opened file's metadata.
-/// Reads the base look from that buffer too (`capture_info::with_held_source`).
-/// The renders that follow
-/// find it cached instead of reading the whole file again for each of its
-/// facts (CRD5: Develop open and edited thumbnails over a share). Only
-/// after the sensor data decoded: a failed decode or one that fell back to
-/// the embedded preview (a damaged file) caches nothing for the path.
+/// Prime the base look from this buffer only after a sensor decode succeeds
+/// (CRD5: Develop open and edited thumbnails over a share). A fallback to
+/// the embedded preview never primes the cache. Renders, including those
+/// of a fallback preview, can cache stamped facts read independently from
+/// the RAW by `base_look`.
 pub fn decode_with_base_look<T, E>(
     path: &str,
     bytes: crate::capture_info::SharedBuf,
@@ -270,8 +269,8 @@ fn base_look_for_file(path: &str, decoded_stamp: Option<FileStamp>) -> BaseLook 
         return look.to_base_look();
     }
     let read_stamp = || FileStamp::read(Path::new(path)).ok();
-    // An unstamped caller's buffer can still supply the look, but it may
-    // be a mapping of a file that has since been replaced.
+    // An unstamped caller's buffer supplies the look only for this call.
+    // The path's current metadata might describe a replacement file.
     let stamp = decoded_stamp.or_else(|| {
         if crate::capture_info::has_held_source(path) {
             None
@@ -383,7 +382,6 @@ fn base_look_for_file(path: &str, decoded_stamp: Option<FileStamp>) -> BaseLook 
     });
     if let Some(stamp) = stamp
         && has_source
-        && (decoded_stamp.is_some() || !crate::image_loader::has_preview_fallback(path, stamp))
         && read_stamp() == Some(stamp)
     {
         let mut cache = cache().lock().unwrap_or_else(|e| e.into_inner());
@@ -922,21 +920,35 @@ mod tests {
         tiff.build(ifd).unwrap();
         let damaged = damaged.into_inner();
         rawtonic_fs::atomic_write(&path, &damaged).unwrap();
-        load_base_image(
-            &damaged,
+        let (mmap, metadata) = crate::file_io::read_file_mapped_with_metadata(&path).unwrap();
+        let held: crate::capture_info::SharedBuf = std::sync::Arc::new(mmap);
+        super::decode_with_base_look(
             path_str,
-            false,
-            &BaseImageOptions::default(),
-            None,
+            held.clone(),
+            super::FileStamp::from_metadata(&metadata),
+            || {
+                load_base_image(
+                    (*held).as_ref(),
+                    path_str,
+                    false,
+                    &BaseImageOptions::default(),
+                    None,
+                )
+            },
         )
         .unwrap();
+        drop(held);
         assert!(preview_fallback_reason(path_str).is_some());
+        assert!(!super::cache().lock().unwrap().contains_key(path_str));
         let mut global = GlobalAdjustments::default();
         take_metadata_open_count();
         super::apply_base_look(&mut global, path_str, None, None);
         assert_eq!(global.baseline_exposure, super::ADOBE_BASELINE_OFFSET_EV);
         assert_eq!(take_metadata_open_count(), 1);
-        assert!(!super::cache().lock().unwrap().contains_key(path_str));
+        let mut repeated = GlobalAdjustments::default();
+        super::apply_base_look(&mut repeated, path_str, None, None);
+        assert_eq!(repeated.baseline_exposure, global.baseline_exposure);
+        assert_eq!(take_metadata_open_count(), 0);
 
         let restored = rawtonic_rawdecode::fingerprint::synthetic::synthetic_dng();
         rawtonic_fs::atomic_write(&path, &restored).unwrap();
