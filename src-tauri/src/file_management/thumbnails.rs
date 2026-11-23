@@ -1713,18 +1713,28 @@ fn thumbnail_files_exist(directory: &Path, hash: &str) -> bool {
 }
 
 fn embedded_thumbnail_allowed(path_str: &str, adjustments: &[u8], settings: &AppSettings) -> bool {
-    let (source, _) = parse_virtual_path(path_str);
-    (adjustments.is_empty() || adjustments == b"null")
-        && is_raw_file(&source)
-        && !settings.always_decode_raw_thumbnails.unwrap_or(false)
-        // The local proxy header first: a photo with a current proxy never
-        // shows its embedded preview, so its camera is not read (CRD6).
-        && !crate::preview_proxy::standard_header_is_current(
+    let (source, sidecar) = parse_virtual_path(path_str);
+    let header_current = || {
+        crate::preview_proxy::standard_header_is_current(
             &source,
             settings,
             &serde_json::Value::Null,
         )
-        && rawtonic_engine::develop_defaults::for_path(&source).is_none()
+    };
+    let defaults_apply = || rawtonic_engine::develop_defaults::for_path(&source).is_some();
+    (adjustments.is_empty() || adjustments == b"null")
+        && is_raw_file(&source)
+        && !settings.always_decode_raw_thumbnails.unwrap_or(false)
+        && if is_cloud_placeholder(&sidecar) {
+            // The header check reads the master sidecar, which would download
+            // an evicted one on the lookup worker: the camera first.
+            !defaults_apply() && !header_current()
+        } else {
+            // The local proxy header first: a photo with a current proxy
+            // never shows its embedded preview, so its camera is not read
+            // (CRD6).
+            !header_current() && !defaults_apply()
+        }
 }
 
 /// Track one current developed recipe per photo/copy. Only strict cache file

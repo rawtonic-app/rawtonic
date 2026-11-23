@@ -6,7 +6,8 @@
 //!
 //! Only the names the file itself carries are kept (make, model, serial as
 //! the decoder or the EXIF reads them); the camera's identity is made from
-//! them again on every load, so a newer camera catalog applies at once. An
+//! them again on every load; names read with another decoder's camera
+//! catalogue (`develop_defaults::naming_fingerprint`) are not used. An
 //! entry stands for its file only while the path, size, modification time
 //! and (where the system has one) file id are the ones it was read at. A
 //! missing, damaged or older store is no store: the files are read again.
@@ -84,6 +85,10 @@ struct Entry {
 #[derive(Default, Serialize, Deserialize)]
 struct Stored {
     version: u32,
+    /// The decoder's naming data the names were read with
+    /// (`develop_defaults::naming_fingerprint`).
+    #[serde(default)]
+    naming: String,
     entries: HashMap<PathBuf, Entry>,
 }
 
@@ -91,8 +96,23 @@ struct Stored {
 struct Store {
     path: Option<PathBuf>,
     entries: HashMap<PathBuf, Entry>,
+    /// The naming data the loaded entries were read with, until compared
+    /// with this build's on first use (None once compared).
+    unchecked_naming: Option<String>,
     clock: u64,
     dirty: bool,
+}
+
+impl Store {
+    /// Drops entries read with another decoder's naming data. Compared on
+    /// first use, not at start-up (the catalogue loads then).
+    fn check_naming(&mut self) {
+        if let Some(naming) = self.unchecked_naming.take()
+            && naming != crate::develop_defaults::naming_fingerprint()
+        {
+            self.entries.clear();
+        }
+    }
 }
 
 fn store() -> &'static Mutex<Store> {
@@ -104,15 +124,16 @@ fn store() -> &'static Mutex<Store> {
 /// what an earlier run kept there. Without it they are only kept in memory.
 pub fn set_dir(dir: &Path) {
     let path = dir.join(FILE_NAME);
-    let entries = std::fs::read(&path)
+    let (naming, entries) = std::fs::read(&path)
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Stored>(&bytes).ok())
         .filter(|stored| stored.version == VERSION)
-        .map(|stored| stored.entries)
+        .map(|stored| (stored.naming, stored.entries))
         .unwrap_or_default();
     let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
     store.clock = entries.values().map(|e| e.used).max().unwrap_or(0);
     store.entries = entries;
+    store.unchecked_naming = Some(naming);
     store.path = Some(path);
     store.dirty = false;
 }
@@ -120,6 +141,7 @@ pub fn set_dir(dir: &Path) {
 /// The names kept for `path` when they were read at `stamp`.
 pub(crate) fn get(path: &Path, stamp: &Stamp) -> Option<FileNames> {
     let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
+    store.check_naming();
     store.clock += 1;
     let clock = store.clock;
     let entry = store.entries.get_mut(path).filter(|e| e.stamp == *stamp)?;
@@ -132,6 +154,7 @@ pub(crate) fn get(path: &Path, stamp: &Stamp) -> Option<FileNames> {
 pub(crate) fn put(path: &Path, stamp: Stamp, names: FileNames) {
     {
         let mut store = store().lock().unwrap_or_else(|e| e.into_inner());
+        store.check_naming();
         store.clock += 1;
         let used = store.clock;
         store
@@ -189,8 +212,10 @@ pub fn flush() {
         let Some(path) = store.path.clone().filter(|_| store.dirty) else {
             return;
         };
+        store.check_naming();
         let stored = Stored {
             version: VERSION,
+            naming: crate::develop_defaults::naming_fingerprint().to_string(),
             entries: store.entries.clone(),
         };
         let Ok(bytes) = serde_json::to_vec(&stored) else {
@@ -270,6 +295,17 @@ mod tests {
             ..stamp
         };
         assert_eq!(get(&photo, &other), None);
+        // Names read with another decoder's naming data are not used.
+        let mut stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(store_dir.join(FILE_NAME)).unwrap()).unwrap();
+        assert_eq!(
+            stored["naming"],
+            crate::develop_defaults::naming_fingerprint()
+        );
+        stored["naming"] = "another catalogue".into();
+        std::fs::write(store_dir.join(FILE_NAME), stored.to_string()).unwrap();
+        set_dir(&store_dir);
+        assert_eq!(get(&photo, &stamp), None);
         // A damaged store is no store.
         std::fs::write(store_dir.join(FILE_NAME), b"{not json").unwrap();
         set_dir(&store_dir);

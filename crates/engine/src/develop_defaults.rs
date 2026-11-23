@@ -250,6 +250,32 @@ fn catalog_names() -> &'static CatalogNames {
     })
 }
 
+/// A digest of the decoder's camera naming data (every catalogue entry's
+/// file names, mode and clean names): the camera names a file gives through
+/// the decoder change with it, so names kept from another catalogue
+/// (`camera_store`) are not used.
+pub(crate) fn naming_fingerprint() -> &'static str {
+    static DIGEST: OnceLock<String> = OnceLock::new();
+    DIGEST.get_or_init(|| {
+        let mut cameras: Vec<_> = rawler::global_loader()
+            .get_cameras()
+            .iter()
+            .map(|((make, model, mode), camera)| {
+                [
+                    make.as_str(),
+                    model.as_str(),
+                    mode.as_str(),
+                    camera.clean_make.as_str(),
+                    camera.clean_model.as_str(),
+                ]
+                .join("\u{1f}")
+            })
+            .collect();
+        cameras.sort_unstable();
+        rawtonic_fs::sha256_hex(cameras.join("\u{1e}"))
+    })
+}
+
 /// A camera's make and model as a file or a settings entry names it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CameraName {

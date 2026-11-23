@@ -143,6 +143,26 @@ pub fn forget_kept_sidecar(path: &Path) {
 /// belongs to, against which its recipe's library resources
 /// (`rawtonic-resource:…`) resolve; None for a photo of no library.
 pub fn read_sidecar_file(sidecar_path: &Path, library: Option<&Path>) -> (ImageMetadata, bool) {
+    let kept = is_kept(sidecar_path);
+    let read = read_sidecar_parsed(sidecar_path, library);
+    // What the caller writes back must be the sidecar as it is now, not a
+    // text this thread kept while another saved the photo: read it again.
+    if read.1 && kept {
+        forget_kept_sidecar(sidecar_path);
+        return read_sidecar_parsed(sidecar_path, library);
+    }
+    read
+}
+
+fn is_kept(path: &Path) -> bool {
+    KEPT.with(|kept| {
+        kept.borrow()
+            .as_ref()
+            .is_some_and(|map| map.contains_key(path))
+    })
+}
+
+fn read_sidecar_parsed(sidecar_path: &Path, library: Option<&Path>) -> (ImageMetadata, bool) {
     let Some(content) = read_sidecar_text(sidecar_path) else {
         return (ImageMetadata::default(), false);
     };
@@ -463,5 +483,26 @@ mod kept_sidecar_tests {
             Some("{\"rating\":3}")
         );
         assert_eq!(read_sidecar_text(&dir.path().join("missing.rrdata")), None);
+    }
+
+    #[test]
+    fn a_sidecar_to_heal_is_read_again_not_taken_from_the_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let sidecar = dir.path().join("b.ARW.rrdata");
+        let long = "x".repeat(600);
+        let with = |rating: u8| {
+            serde_json::json!({ "rating": rating, "exif": { "Long": long } }).to_string()
+        };
+        std::fs::write(&sidecar, with(1)).unwrap();
+        with_sidecars_kept(|| {
+            assert!(read_sidecar_text(&sidecar).is_some());
+            // Saved on another thread meanwhile (its forget does not reach
+            // this thread's scope).
+            std::fs::write(&sidecar, with(5)).unwrap();
+            let (meta, healed) = read_sidecar_file(&sidecar, None);
+            assert!(healed);
+            // What the caller writes back is the save, not the kept text.
+            assert_eq!(meta.rating, 5);
+        });
     }
 }
