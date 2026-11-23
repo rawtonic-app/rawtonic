@@ -1006,11 +1006,10 @@ fn without_unembedded(
     repair(&mut current.rating, &registered.rating, &embedded.rating);
     repair(&mut current.label, &registered.label, &embedded.label);
     repair(&mut current.flag, &registered.flag, &embedded.flag);
-    repair(
-        &mut current.keywords,
-        &registered.keywords,
-        &embedded.keywords,
-    );
+    // Keyword by keyword, so one the user added since stays.
+    current.keywords.retain(|keyword| {
+        !registered.keywords.contains(keyword) || embedded.keywords.contains(keyword)
+    });
     repair(&mut current.title, &registered.title, &embedded.title);
     repair(
         &mut current.description,
@@ -2010,6 +2009,7 @@ mod tests {
         let mut meta = lib.metadata(&original.id).unwrap();
         meta.rating = 3;
         meta.flag = 1;
+        meta.keywords = vec!["Private client".into()];
         meta.title = "Harbour".into();
         meta.creator = "Ada".into();
         meta.copyright = "(c) Ada".into();
@@ -2105,7 +2105,13 @@ mod tests {
             sidecars.contains("Ada"),
             "the sync wrote the render's sidecar"
         );
-        for private in ["ada@example.org", "555 0100", "Kiel", "Harbour"] {
+        for private in [
+            "ada@example.org",
+            "555 0100",
+            "Kiel",
+            "Harbour",
+            "Private client",
+        ] {
             assert!(!sidecars.contains(private), "{private} in the sidecar");
         }
         assert_eq!(std::fs::read(&source).unwrap(), original);
@@ -2158,9 +2164,10 @@ mod tests {
         link_render(&lib, &source.to_string_lossy(), &render, Some(&full)).unwrap();
         let edit = lib.asset_at(&render).unwrap().unwrap();
         lib.sync_xmp(&edit.id).unwrap();
-        // The user retitled the render since.
+        // The user retitled the render and tagged it since.
         let mut retitled = lib.metadata(&edit.id).unwrap();
         retitled.title = "Harbour, retouched".into();
+        retitled.keywords.push("retouched".into());
         lib.set_metadata(&edit.id, &retitled).unwrap();
         drop(lib);
 
@@ -2182,6 +2189,11 @@ mod tests {
         let lib = Library::open(&dir).unwrap();
         let got = lib.metadata(&edit.id).unwrap();
         assert_eq!(got.title, "Harbour, retouched", "the user's edit stays");
+        assert_eq!(
+            got.keywords,
+            ["retouched"],
+            "only the inherited keyword goes"
+        );
         assert_eq!((got.rating, got.flag), (0, 0));
         assert_eq!(
             (got.creator.as_str(), got.copyright.as_str()),
@@ -2204,7 +2216,7 @@ mod tests {
             .map(|path| fs::read_to_string(path).unwrap())
             .collect::<String>();
         assert!(sidecar.contains("Harbour, retouched"));
-        for private in ["ada@example.org", "555 0100", "Kiel"] {
+        for private in ["ada@example.org", "555 0100", "Kiel", "Private client"] {
             assert!(!sidecar.contains(private), "{private} in the sidecar");
         }
         // A render the library does not list is left alone.

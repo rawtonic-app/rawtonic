@@ -1636,11 +1636,11 @@ pub fn stripped_metadata(
 }
 
 /// The library metadata (`metadata`) an export with these settings writes
-/// into its file, so a library that registers the file holds no more than
-/// the file does: with `keep_metadata` all of it but the culling flag and a
-/// Digital Source Type, which the export's XMP leaves out or sets itself
-/// (`export_xmp_with_source`; GPS is EXIF, never part of it), else
-/// [`stripped_metadata`]; nothing for a format that embeds none.
+/// into its file without generated areas (an Edit With render), so a
+/// library that registers the file holds no more than the file does: with
+/// `keep_metadata` all of it but the culling flag, which the export's XMP
+/// leaves out (`export_xmp_with_source`; GPS is EXIF, never part of it),
+/// else [`stripped_metadata`]; nothing for a format that embeds none.
 pub fn embedded_library_metadata(
     output_format: &str,
     keep_metadata: bool,
@@ -1651,7 +1651,6 @@ pub fn embedded_library_metadata(
         None
     } else if keep_metadata {
         metadata.flag = 0;
-        metadata.iptc.remove("digitalSourceType");
         Some(metadata)
     } else {
         Some(stripped_metadata(metadata, keep_creator_contact))
@@ -2591,6 +2590,10 @@ mod tests {
                 ("creatorEmail".into(), "photo@example.invalid".into()),
                 ("usageTerms".into(), "Licensed use only".into()),
                 ("city".into(), "Private city".into()),
+                (
+                    "digitalSourceType".into(),
+                    "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture".into(),
+                ),
             ]
             .into(),
             ..Default::default()
