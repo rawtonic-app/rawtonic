@@ -8216,7 +8216,8 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// L* 25 (Shadows) or of the pull above about L* 50 (Highlights), and the
 /// level's share is a tenth stronger, so the reach stays as it was while
 /// deep shadows and bright texture (clouds) keep more of their local
-/// contrast at every scale (slider atlas, 24 held-out frames at equal
+/// contrast (the atlas's detail bands at 2000 px; on six photos the
+/// factor is the same at full resolution; slider atlas, 24 held-out frames at equal
 /// effect: shadow detail at Shadows +100 0.13 below the better editor →
 /// 0.07, within the floor of Camera Raw's; bright detail at Highlights −100
 /// 0.10 below Capture One's → 0.04; no halo, noise or tone band outside the
