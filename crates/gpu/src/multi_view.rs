@@ -72,6 +72,10 @@ pub(crate) struct CellTexture {
     /// frame keeps the sampling it was shown with (the editor's maximum
     /// zoom) while its cell stays at that zoom, until replaced.
     pixelated_at: Option<f32>,
+    /// A primary's stand-in after a lost device: where its live frame was
+    /// placed (window device px), drawn there until the new live frame
+    /// shows the cell.
+    placed: Option<[f32; 4]>,
     _texture: wgpu::Texture,
     width: u32,
     height: u32,
@@ -384,6 +388,9 @@ impl MultiView {
         // zoom until its live frame shows it, not to fit (WMV4: 0.6–1.0 s
         // at fit after a click on a zoomed cell).
         if primary != self.primary {
+            for texture in self.textures.values_mut() {
+                texture.placed = None;
+            }
             self.primary_hold =
                 primary
                     .as_deref()
@@ -504,6 +511,7 @@ impl MultiView {
             key,
             extent,
             pixelated_at: None,
+            placed: None,
             _texture: texture,
             width,
             height,
@@ -599,8 +607,8 @@ impl MultiView {
     /// photograph as shown) as `path`'s stand-in (key 0, shown to fit) until
     /// its cell's own render replaces it: a cached image, so that a cell
     /// shows its photograph at once rather than the background. Never over a
-    /// texture the cell already has, and not for the primary unless
-    /// `with_primary`. Whether it was kept.
+    /// texture the cell already has, and not for the primary unless it has
+    /// `primary_placed`. Whether it was kept.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn stand_in(
         &mut self,
@@ -611,18 +619,15 @@ impl MultiView {
         width: u32,
         height: u32,
         rgba: &[u8],
-        with_primary: bool,
+        primary_placed: Option<[f32; 4]>,
         shown: impl FnOnce() -> Option<[f32; 2]>,
     ) -> bool {
-        // The primary is drawn live; `with_primary` lets a new display (a
-        // lost device, G74 DVL4) give it a stand-in while its live frame is
-        // not placed, but only where its zoom is known (the lock's shared
-        // zoom) or nothing is zoomed: a guessed fit would flash.
-        let primary_waits = with_primary
-            && self.primary() == Some(path)
-            && (self.zoom_of(path).is_some() || !self.is_zoomed());
+        // The primary is drawn live. After a lost device its live frame is
+        // gone: its stand-in goes where that frame was placed
+        // (`primary_placed`, G74 DVL4), whatever its zoom was.
+        let is_primary = self.primary() == Some(path);
         if self.cell(path).is_none()
-            || (self.primary() == Some(path) && !primary_waits)
+            || (is_primary && primary_placed.is_none())
             || self.textures.contains_key(path)
             || width == 0
             || height == 0
@@ -634,7 +639,9 @@ impl MultiView {
         // A zoomed cell shows the stand-in enlarged where its photograph's
         // size is known (a layout shown again after a lost device, DVL3),
         // not to fit until its own render arrives.
-        if self.zoom_of(path).is_some() {
+        if is_primary {
+            texture.placed = primary_placed;
+        } else if self.zoom_of(path).is_some() {
             texture.extent = shown().map(|shown| CellExtent {
                 shown,
                 region: None,
@@ -921,6 +928,9 @@ impl MultiView {
     }
 
     fn placement(&self, path: &str, area: [f32; 4], texture: &CellTexture) -> [f32; 4] {
+        if let Some(rect) = texture.placed {
+            return rect;
+        }
         match (self.drawn_zoom(path), texture.extent) {
             (Some(zoom), Some(extent)) => zoomed_rect(area, extent, zoom),
             _ => fit_rect(area, texture.width as f32, texture.height as f32),
@@ -1441,7 +1451,7 @@ mod tests {
                 10,
                 8,
                 &halves,
-                false,
+                None,
                 || shown
             ));
             let pixels = present(&gpu, &multi, None);
@@ -1473,7 +1483,7 @@ mod tests {
                 10,
                 8,
                 &magenta,
-                false,
+                None,
                 || None,
             )
         };
@@ -1498,7 +1508,7 @@ mod tests {
                 10,
                 9,
                 &magenta,
-                false,
+                None,
                 || None
             ),
             "a size its pixels do not have"
@@ -1533,7 +1543,7 @@ mod tests {
 
     #[test]
     #[ignore = "requires a native GPU; a primary without a live frame after a lost device"]
-    fn a_primary_without_a_live_frame_takes_a_stand_in_at_its_zoom() {
+    fn a_primary_without_a_live_frame_takes_a_stand_in_where_its_frame_was() {
         let gpu = offscreen();
         let bindings = DisplayBindings {
             layout: &gpu.layout,
@@ -1553,7 +1563,7 @@ mod tests {
                 },
             ]
         };
-        let take = |multi: &mut MultiView, with_primary: bool| {
+        let take = |multi: &mut MultiView, placed: Option<[f32; 4]>| {
             multi.stand_in(
                 &gpu.device,
                 &gpu.queue,
@@ -1562,23 +1572,27 @@ mod tests {
                 10,
                 8,
                 &magenta,
-                with_primary,
-                || Some([1000.0, 800.0]),
+                placed,
+                || None,
             )
         };
-        // At fit: drawn while no live frame shows the primary's cell.
         let mut multi = MultiView::default();
         multi.set_layout(Some("primary".into()), cells());
-        assert!(!take(&mut multi, false), "not unless asked for");
-        assert!(take(&mut multi, true));
+        assert!(!take(&mut multi, None), "no placement, no guess");
+        // Zoom Lock off, only the primary was zoomed (no cell zoom is known
+        // natively): its frame covered [-100, -80, 250, 200], so the cell
+        // shows the photograph enlarged, not to fit.
+        assert!(take(&mut multi, Some([-100.0, -80.0, 250.0, 200.0])));
         assert_eq!(multi.texture_key("primary"), Some(0));
-        assert!(!take(&mut multi, true), "never over a texture");
+        assert!(!take(&mut multi, Some([0.0; 4])), "never over a texture");
         let pixels = present(&gpu, &multi, None);
+        // At fit the 10 x 8 photograph would leave the cell's top edge bare.
         assert!(
-            close(pixel(&pixels, 50, 50), [255, 0, 255]),
+            close(pixel(&pixels, 50, 5), [255, 0, 255]),
             "{:?}",
-            pixel(&pixels, 50, 50)
+            pixel(&pixels, 50, 5)
         );
+        assert!(close(pixel(&pixels, 5, 95), [255, 0, 255]));
         // The live frame takes over.
         let live = live_frame(&gpu, [0.0, 0.0, 100.0, 100.0], [0.0, 0.0, 100.0, 100.0]);
         let pixels = present(
@@ -1592,25 +1606,23 @@ mod tests {
         );
         assert!(close(pixel(&pixels, 50, 50), [0, 0, 255]));
 
-        // Zoomed with the lock: enlarged, not to fit (the whole 1000 x 800
-        // photograph at 1:1 in a 100 x 100 cell shows its centre).
+        // At fit with another cell zoomed: shown to fit (letterboxed 10 x 8
+        // in 100 x 100: 100 x 80, y 10..90), not enlarged.
         let zoom = CellZoom {
             scale: 1.0,
             center: [0.5, 0.5],
         };
         let mut multi = MultiView::default();
         multi.set_layout(Some("primary".into()), cells());
-        multi.set_zooms(Some(zoom), HashMap::new());
-        assert!(take(&mut multi, true));
-        let extent = multi.textures["primary"].extent.expect("an extent");
-        assert_eq!(extent.shown, [1000.0, 800.0]);
-
-        // Zoomed without the lock and no zoom of its own known: its zoom is
-        // not guessed (it would flash at fit).
-        let mut multi = MultiView::default();
-        multi.set_layout(Some("primary".into()), cells());
         multi.set_zooms(None, HashMap::from([("b".to_string(), zoom)]));
-        assert!(!take(&mut multi, true));
+        assert!(take(&mut multi, Some([0.0, 10.0, 100.0, 80.0])));
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 50, 50), [255, 0, 255]));
+        assert!(close(pixel(&pixels, 50, 5), [35, 35, 35]), "letterbox");
+
+        // A stand-in does not outlive a change of primary.
+        multi.set_layout(Some("b".into()), cells());
+        assert!(multi.textures["primary"].placed.is_none());
     }
 
     #[test]

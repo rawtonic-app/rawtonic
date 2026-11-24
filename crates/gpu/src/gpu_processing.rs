@@ -3435,6 +3435,18 @@ impl WgpuDisplay {
     /// multi view only when it shows the primary photograph where the
     /// webview placed it (not the previous primary held while the next one's
     /// first frame is on its way, nor a frame the webview has hidden).
+    /// Where the live frame of the multi view's primary is drawn now
+    /// (window device px), for a new display after a lost device: None when
+    /// no frame shows the primary, while cropping or in a split.
+    pub fn primary_placement(&self) -> Option<[f32; 4]> {
+        (self.multi.is_active()
+            && self.live_frame_shown()
+            && !self.frame_uncropped
+            && self.split_x.is_none())
+        .then_some(self.geometry.rect)
+        .filter(|rect| rect[2] > 0.0 && rect[3] > 0.0)
+    }
+
     fn live_frame_shown(&self) -> bool {
         if !self.multi.is_active() {
             return true;
@@ -3696,7 +3708,7 @@ impl WgpuDisplay {
         width: u32,
         height: u32,
         rgba: &[u8],
-        with_primary: bool,
+        primary_placed: Option<[f32; 4]>,
         shown: impl FnOnce() -> Option<[f32; 2]>,
     ) -> bool {
         let mut multi = std::mem::take(&mut self.multi);
@@ -3708,7 +3720,7 @@ impl WgpuDisplay {
             width,
             height,
             rgba,
-            with_primary,
+            primary_placed,
             shown,
         );
         self.multi = multi;

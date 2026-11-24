@@ -242,7 +242,7 @@ pub(crate) async fn set_multi_view(
         )
     });
     tauri::async_runtime::spawn_blocking(move || {
-        show_cells(&app_handle, primary, cells, zooms, false)
+        show_cells(&app_handle, primary, cells, zooms, None)
     })
     .await
     .map_err(|e| format!("Multi view task failed: {e}"))
@@ -350,6 +350,8 @@ pub(crate) struct Shown {
     cells: Vec<CellPayload>,
     zoom: Option<CellZoom>,
     cell_zooms: HashMap<String, CellZoom>,
+    /// Where the primary's live frame was placed (window device px).
+    primary_placed: Option<[f32; 4]>,
 }
 
 /// What `display`'s multi view shows, when it is active.
@@ -367,6 +369,7 @@ pub(crate) fn shown_on(display: &gpu_processing::WgpuDisplay) -> Option<Shown> {
             .collect(),
         zoom: multi.zoom(),
         cell_zooms: multi.cell_zooms().clone(),
+        primary_placed: display.primary_placement(),
     })
 }
 
@@ -387,7 +390,7 @@ pub(crate) fn show_again(app_handle: &tauri::AppHandle, shown: Shown) {
         shown.primary,
         shown.cells,
         Some((zooms, seq)),
-        true,
+        shown.primary_placed,
     );
 }
 
@@ -396,7 +399,7 @@ fn show_cells(
     primary: Option<String>,
     cells: Vec<CellPayload>,
     zooms: Option<(CellZooms, u64)>,
-    after_loss: bool,
+    primary_placed: Option<[f32; 4]>,
 ) -> bool {
     let Ok(context) = gpu_processing::get_or_init_gpu_context(
         &app_handle.state::<crate::state::gpu::GpuState>(),
@@ -412,7 +415,11 @@ fn show_cells(
     // After a lost device the primary's live frame is gone with it: its
     // cached thumbnail stands in until the editor places the new one
     // (G74 DVL4; its cell was blank ~1.5 s).
-    let drawn_live = if after_loss { None } else { primary.clone() };
+    let drawn_live = if primary_placed.is_some() {
+        None
+    } else {
+        primary.clone()
+    };
     let mut early = early_stand_ins(&context, &drawn_live, &cells);
     let (zoomed, bare) = {
         let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
@@ -461,7 +468,7 @@ fn show_cells(
                 width,
                 height,
                 still.image.as_raw(),
-                after_loss,
+                primary_placed,
                 || shown_of(app_handle, path),
             )
         });
@@ -528,7 +535,7 @@ fn show_cells(
         refresh_regions(&region_worker(app_handle), file_changed, zoomed.is_some());
     }
     // Before the cells' renders start: theirs would slow these reads.
-    show_stand_ins(app_handle, &context, bare, after_loss);
+    show_stand_ins(app_handle, &context, bare, primary_placed);
     // A newer request may have come in during the reads: this one's job
     // never replaces it (it would be dropped as stale and leave its cells
     // without renders).
@@ -762,7 +769,7 @@ fn show_stand_ins(
     app_handle: &tauri::AppHandle,
     context: &GpuContext,
     paths: Vec<(String, (u32, u32))>,
-    with_primary: bool,
+    primary_placed: Option<[f32; 4]>,
 ) {
     if paths.is_empty() {
         return;
@@ -815,7 +822,7 @@ fn show_stand_ins(
             width,
             height,
             still.image.as_raw(),
-            with_primary,
+            primary_placed,
             || shown_of(app_handle, path),
         ) {
             shown += 1;
