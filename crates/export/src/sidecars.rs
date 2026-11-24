@@ -249,8 +249,14 @@ impl StampedTexts {
 fn read_stamped(path: &Path) -> SidecarText {
     let stamp = match rawtonic_fs::FileStamp::read(path) {
         Ok(stamp) => stamp,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return read_from_disk(path),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            stamped().remove(path);
+            return Ok(None);
+        }
+        Err(_) => {
+            stamped().remove(path);
+            return read_from_disk(path);
+        }
     };
     if !FRESH.with(std::cell::Cell::get)
         && let Some(text) = stamped().get(path, &stamp)
@@ -258,8 +264,10 @@ fn read_stamped(path: &Path) -> SidecarText {
         return Ok(Some(text));
     }
     let text = read_from_disk(path);
-    if let Ok(Some(text)) = &text {
-        stamped().insert(path, stamp, text.clone());
+    match &text {
+        Ok(Some(text)) => stamped().insert(path, stamp, text.clone()),
+        // Gone or unreadable now: no earlier text stands for it.
+        _ => stamped().remove(path),
     }
     text
 }
@@ -692,6 +700,27 @@ mod kept_sidecar_tests {
         set_mtime(&sidecar, listed + std::time::Duration::from_secs(2));
         forget_kept_sidecar(&sidecar);
         assert_eq!(read().as_deref(), Some("{\"rating\":5 }"));
+        // Unreadable when the folder is opened again: the earlier text is
+        // not taken afterwards either.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let readable = std::fs::metadata(&sidecar).unwrap().permissions();
+            std::fs::set_permissions(&sidecar, std::fs::Permissions::from_mode(0o000)).unwrap();
+            if std::fs::read(&sidecar).is_err() {
+                assert_eq!(
+                    with_sidecars_read_fresh(|| read_sidecar_text(&sidecar)),
+                    None
+                );
+                std::fs::set_permissions(&sidecar, readable.clone()).unwrap();
+                std::fs::write(&sidecar, "{\"rating\":6 }").unwrap();
+                set_mtime(&sidecar, listed + std::time::Duration::from_secs(2));
+                assert_eq!(read().as_deref(), Some("{\"rating\":6 }"));
+            } else {
+                // Running as root: permissions do not stop the read.
+                std::fs::set_permissions(&sidecar, readable).unwrap();
+            }
+        }
         // Removed: none.
         std::fs::remove_file(&sidecar).unwrap();
         assert_eq!(read(), None);
