@@ -5900,6 +5900,7 @@ dependencies = [
  "jxl-encoder",
  "jxl-oxide",
  "kamadak-exif",
+ "libc",
  "little_exif",
  "log",
  "memmap2",
