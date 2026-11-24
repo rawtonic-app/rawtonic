@@ -26,7 +26,8 @@
 //!   its blue toning 75).
 //! - Every entry is fitted into the sRGB cube: above it by lowering the
 //!   lightness (a tinted white is darker than white), below it by lowering
-//!   the chroma; lightness never falls with a lighter grey.
+//!   the chroma; a lighter grey stays at least a quarter of its step
+//!   lighter (where it would not, the tint gives way).
 //!
 //! The shape constants were fitted on Capture One 16.9.1 and Rawtonic's
 //! Lightroom-type colour grading (the proxy) on a grey ramp (three toned
@@ -50,6 +51,9 @@ const SHADOW_FALL: f64 = 1.9;
 /// Lightness lost per unit of chroma at density 100 (Capture One's toning
 /// darkens by 0.2–1.5 times its chroma, by hue).
 const DENSITY_GAIN: f64 = 2.0;
+/// The least a lighter grey's toned lightness rises, as a share of its own
+/// rise: density and the fit into sRGB compress tones at most fourfold.
+const MIN_SLOPE: f64 = 0.25;
 /// Oklab chroma per unit of saturation at full weight.
 const CHROMA_PER_UNIT: f64 = 0.0028;
 /// Hue turn in degrees per unit of lightness, and the lightness it turns
@@ -210,9 +214,14 @@ pub fn lut(toning: &BwToning) -> [[f32; 4]; BW_TONING_LUT_SIZE] {
         }
         *color = fit_chroma(lab);
     }
+    // Tones stay apart: each lighter grey at least MIN_SLOPE of its step
+    // lighter. Where density or the fit into sRGB would come closer, the
+    // tint gives way (less chroma at that lightness), not the tones.
+    let step = 1.0 / (BW_TONING_LUT_SIZE - 1) as f64;
     for i in 1..BW_TONING_LUT_SIZE {
-        if colors[i][0] < colors[i - 1][0] {
-            colors[i][0] = colors[i - 1][0];
+        let floor = colors[i - 1][0] + MIN_SLOPE * step;
+        if colors[i][0] < floor {
+            colors[i][0] = floor;
             colors[i] = fit_chroma(colors[i]);
         }
     }
@@ -376,7 +385,7 @@ mod tests {
         // Balance 0, Shadows saturation and density 80 (and the extremes):
         // every lighter grey stays lighter, by at least a fifth (a tenth at
         // the extremes) of its step.
-        for (saturation, density, share) in [(80.0, 80.0, 0.2), (100.0, 100.0, 0.1)] {
+        for (saturation, density, share) in [(80.0, 80.0, 0.25), (100.0, 100.0, 0.25)] {
             let toning = BwToning {
                 shadows: tone(220.0, saturation, density),
                 ..BwToning::default()
@@ -386,8 +395,42 @@ mod tests {
                 let step =
                     (grey_l(i) + table[i][0] as f64) - (grey_l(i - 1) + table[i - 1][0] as f64);
                 assert!(
-                    step > share * grey_l(1),
+                    step >= share * grey_l(1) - 1e-6,
                     "{saturation}/{density}: step {step} at {i}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn toned_highlights_keep_their_texture() {
+        // Blue highlights (little room in sRGB near white) with density and
+        // some Paper, and the extremes of every control.
+        let mut cases = vec![BwToning {
+            highlights: tone(220.0, 80.0, 50.0),
+            paper: 40.0,
+            ..BwToning::default()
+        }];
+        for hue in (0..360).step_by(30) {
+            for paper in [0.0, 40.0, 100.0] {
+                for balance in [-100.0, 0.0, 100.0] {
+                    cases.push(BwToning {
+                        shadows: tone(hue as f64 + 180.0, 100.0, 100.0),
+                        highlights: tone(hue as f64, 100.0, 100.0),
+                        balance,
+                        paper,
+                    });
+                }
+            }
+        }
+        for toning in cases {
+            let table = lut(&toning);
+            for i in 1..BW_TONING_LUT_SIZE {
+                let step =
+                    (grey_l(i) + table[i][0] as f64) - (grey_l(i - 1) + table[i - 1][0] as f64);
+                assert!(
+                    step >= 0.25 * grey_l(1) - 1e-6,
+                    "{toning:?}: step {step} at {i}"
                 );
             }
         }
