@@ -425,6 +425,8 @@ impl Drop for FrameWaits<'_> {
 }
 
 impl IdleCompiles {
+    /// A queue without a start window (tests of their own).
+    #[cfg(test)]
     pub(super) fn new() -> Arc<Self> {
         Self::with_start_window(None)
     }
