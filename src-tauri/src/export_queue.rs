@@ -85,7 +85,7 @@ pub struct ExportRequest {
     /// submitted: only that file is replaced (`export_images_batch` sets
     /// it, never the interface).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub confirmed_file: Option<rawtonic_fs::FileStamp>,
+    pub confirmed_file: Option<rawtonic_fs::ConfirmedFile>,
     /// The file's stamp as the interface read it the moment the save panel
     /// returned (`save_as_target_stamp`); None when the name was free then.
     /// Only a stamp that still matches the file confirms it
@@ -1215,7 +1215,7 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
         targets.push(ExportTarget {
             output_folder_or_file: request.output_folder_or_file.clone(),
             is_explicit_file_path: request.is_explicit_file_path,
-            confirmed: request.confirmed_file,
+            confirmed: request.confirmed_file.clone(),
             base_origin_folders: request.base_origin_folders.clone(),
             export_settings: request.export_settings.clone(),
             output_format: request.output_format.clone(),

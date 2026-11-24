@@ -71,19 +71,19 @@ pub fn replace_previous_output_with(
 }
 
 /// Replaces the file at `path` the user confirmed replacing (Save As, the
-/// save panel's Replace; `confirmed` its stamp then) with the content
+/// save panel's Replace; `confirmed` the file as it was then) with the content
 /// `fill` writes into a synced temporary file beside it, in one atomic
 /// rename (`rawtonic_fs::replace_confirmed`). A `protected` path (a photo,
 /// its sidecar), a file changed since it was confirmed, or a failing
 /// `fill` leave `path` as it was, without a temporary file.
 pub fn replace_confirmed_output_with(
     path: &Path,
-    confirmed: rawtonic_fs::FileStamp,
+    confirmed: &rawtonic_fs::ConfirmedFile,
     protected: &dyn Fn(&Path) -> bool,
     fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
     let parent = output_folder(path).ok_or_else(|| io::Error::other("Missing output folder"))?;
-    if protected(path) {
+    if path.symlink_metadata().is_ok() && protected(path) {
         return Err(io::Error::other(format!(
             "{} is a photo or one of its files; it is not replaced",
             path.display()
@@ -110,7 +110,7 @@ pub enum Publish<'a> {
         source: &'a str,
     },
     Confirmed {
-        stamp: rawtonic_fs::FileStamp,
+        confirmed: &'a rawtonic_fs::ConfirmedFile,
         protected: &'a dyn Fn(&Path) -> bool,
     },
 }
@@ -155,9 +155,10 @@ impl Publish<'_> {
             Publish::Replace { previous, source } => {
                 replace_previous_output_with(path, previous, source, fill)?
             }
-            Publish::Confirmed { stamp, protected } => {
-                replace_confirmed_output_with(path, stamp, protected, fill)?
-            }
+            Publish::Confirmed {
+                confirmed,
+                protected,
+            } => replace_confirmed_output_with(path, confirmed, protected, fill)?,
         }
         written.ok_or_else(|| io::Error::other("Nothing was written"))
     }
@@ -269,8 +270,10 @@ mod tests {
         fs::write(&path, b"another program's print").unwrap();
         fs::write(&original, b"raw").unwrap();
         let protected = |p: &Path| p == original;
+        let print = rawtonic_fs::ConfirmedFile::read(&path).unwrap();
+        let raw = rawtonic_fs::ConfirmedFile::read(&original).unwrap();
         let confirmed = |p: &Path| Publish::Confirmed {
-            stamp: rawtonic_fs::FileStamp::of_file(p).unwrap(),
+            confirmed: if p == path { &print } else { &raw },
             protected: &protected,
         };
         // The encoder fails: the confirmed file stays, no temporary file.

@@ -444,12 +444,13 @@ fn replace_matching(
 /// Publishes the finished temporary file `temp` (created beside `path`,
 /// written and synced by the caller) over the file at `path` that the user
 /// confirmed replacing (the save panel's Replace): `confirmed` is that
-/// file's stamp ([`FileStamp::of_file`]) taken when the choice was made.
+/// file as read when the choice was made ([`ConfirmedFile::read`]).
 /// One atomic rename, never a delete followed by a write: until it, `path`
 /// holds the old file, and on any refusal or failure it still does and
 /// `temp` is removed. Refused: a `path` that `protected` names (a photo,
 /// its sidecar), a symlink or non-file, on Windows a read-only file, and a
-/// file changed or put in its place since it was confirmed (checked right
+/// file changed or put in its place since it was confirmed (its content
+/// digest checked first, its identity, size and modification time right
 /// before each rename attempt, as [`replace_existing`] does), and a
 /// confirmed file gone meanwhile (nothing is created in its place: the
 /// temporary file's owner-only permissions are for a replace, which gives
@@ -457,27 +458,55 @@ fn replace_matching(
 pub fn replace_confirmed(
     temp: tempfile::NamedTempFile,
     path: &Path,
-    confirmed: FileStamp,
+    confirmed: &ConfirmedFile,
     protected: impl Fn(&Path) -> bool,
 ) -> Result<()> {
-    ensure!(
-        !protected(path),
-        "{} is a photo or one of its files; it is not replaced",
-        path.display()
-    );
     ensure!(
         fs::symlink_metadata(path).is_ok(),
         "{} is gone since you chose to replace it; nothing is written",
         path.display()
     );
     ensure!(
-        replace_matching(temp, path, |path| {
-            Ok(FileStamp::of_file(path).is_ok_and(|now| now == confirmed))
-        })?,
+        !protected(path),
+        "{} is a photo or one of its files; it is not replaced",
+        path.display()
+    );
+    ensure!(
+        replace_matching(temp, path, |path| Ok(confirmed.matches(path)))?,
         "{} changed since you chose to replace it; it is not replaced",
         path.display()
     );
     Ok(())
+}
+
+/// A file the user confirmed replacing, as it was then: its stamp and the
+/// SHA-256 of its content (an edit that keeps size and modification time,
+/// as some metadata editors do, still tells it apart).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ConfirmedFile {
+    stamp: FileStamp,
+    sha256: String,
+}
+
+impl ConfirmedFile {
+    /// Reads the regular file at `path` (a symlink or non-file is refused);
+    /// fails if it changes while it is read.
+    pub fn read(path: &Path) -> io::Result<Self> {
+        let stamp = FileStamp::of_file(path)?;
+        let sha256 = sha256_hex_read(&mut fs::File::open(path)?)?;
+        if FileStamp::of_file(path)? != stamp {
+            return Err(io::Error::other(format!(
+                "{} changed while it was read",
+                path.display()
+            )));
+        }
+        Ok(Self { stamp, sha256 })
+    }
+
+    /// Whether the file at `path` is still this one, unchanged.
+    pub fn matches(&self, path: &Path) -> bool {
+        Self::read(path).is_ok_and(|now| now == *self)
+    }
 }
 
 /// Whether `a` and `b` name the same file (one directory entry reached
@@ -688,11 +717,11 @@ mod tests {
             fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
             fs::metadata(&path).unwrap().ino()
         };
-        let confirmed = FileStamp::of_file(&path).unwrap();
+        let confirmed = ConfirmedFile::read(&path).unwrap();
         // The old file is open while it is replaced: it keeps its bytes (a
         // rename, never a truncate or a delete-then-write).
         let mut open = fs::File::open(&path).unwrap();
-        replace_confirmed(temp_with(b"new export"), &path, confirmed, |_| false).unwrap();
+        replace_confirmed(temp_with(b"new export"), &path, &confirmed, |_| false).unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"new export");
         let mut old = Vec::new();
         open.read_to_end(&mut old).unwrap();
@@ -729,20 +758,34 @@ mod tests {
             assert_eq!(names, ["print.jpg"]);
         };
         fs::write(&path, b"old").unwrap();
-        let confirmed = FileStamp::of_file(&path).unwrap();
+        let confirmed = ConfirmedFile::read(&path).unwrap();
         // A protected file (the photo, its sidecar) is never replaced.
-        let error = replace_confirmed(temp_with(b"new"), &path, confirmed, |p| p == path);
+        let error = replace_confirmed(temp_with(b"new"), &path, &confirmed, |p| p == path);
         assert!(error.unwrap_err().to_string().contains("not replaced"));
         assert_eq!(fs::read(&path).unwrap(), b"old");
         only_print();
         // Changed since the user confirmed it: untouched.
         fs::write(&path, b"retouched since").unwrap();
-        assert!(replace_confirmed(temp_with(b"new"), &path, confirmed, |_| false).is_err());
+        assert!(replace_confirmed(temp_with(b"new"), &path, &confirmed, |_| false).is_err());
         assert_eq!(fs::read(&path).unwrap(), b"retouched since");
         only_print();
+        // Edited in place keeping size and modification time (a metadata
+        // editor that preserves timestamps): told by its content.
+        let confirmed = ConfirmedFile::read(&path).unwrap();
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        fs::write(&path, b"RETOUCHED SINCE").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+        assert!(replace_confirmed(temp_with(b"new"), &path, &confirmed, |_| false).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"RETOUCHED SINCE");
+        only_print();
         // Another file put in its place right before the rename: untouched.
-        let confirmed = FileStamp::of_file(&path).unwrap();
-        let swapped = replace_confirmed(temp_with(b"new"), &path, confirmed, |p| {
+        let confirmed = ConfirmedFile::read(&path).unwrap();
+        let swapped = replace_confirmed(temp_with(b"new"), &path, &confirmed, |p| {
             let copy = p.with_extension("synced");
             fs::write(&copy, b"a synced copy, longer").unwrap();
             fs::rename(&copy, p).unwrap();
@@ -755,17 +798,17 @@ mod tests {
         {
             let link = dir.path().join("link.jpg");
             std::os::unix::fs::symlink(&path, &link).unwrap();
-            assert!(FileStamp::of_file(&link).is_err());
-            let confirmed = FileStamp::of_file(&path).unwrap();
+            assert!(ConfirmedFile::read(&link).is_err());
+            let confirmed = ConfirmedFile::read(&path).unwrap();
             let mut temp = temp::file_for(&link).unwrap();
             temp.write_all(b"via link").unwrap();
-            assert!(replace_confirmed(temp, &link, confirmed, |_| false).is_err());
+            assert!(replace_confirmed(temp, &link, &confirmed, |_| false).is_err());
             assert_eq!(fs::read(&path).unwrap(), b"a synced copy, longer");
             fs::remove_file(&link).unwrap();
         }
         // Gone since it was confirmed: nothing is created in its place.
         fs::remove_file(&path).unwrap();
-        assert!(replace_confirmed(temp_with(b"new"), &path, confirmed, |_| false).is_err());
+        assert!(replace_confirmed(temp_with(b"new"), &path, &confirmed, |_| false).is_err());
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 

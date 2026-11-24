@@ -767,8 +767,8 @@ fn publish_with<'a>(
     use rawtonic_export::output::Publish;
     match replacing {
         Some(Replacing::Previous(previous)) => Publish::Replace { previous, source },
-        Some(Replacing::Confirmed(stamp)) => Publish::Confirmed {
-            stamp: *stamp,
+        Some(Replacing::Confirmed(confirmed)) => Publish::Confirmed {
+            confirmed,
             protected,
         },
         None => Publish::New,
@@ -816,7 +816,42 @@ pub(crate) fn save_as_protected(
             ]
             .contains(&e.as_str())
         });
-    (same_folder && named_after && !image) || crate::formats::is_raw_file(path) || is_original(path)
+    (same_folder && named_after && !image) || camera_raw_or_unknown(path) || is_original(path)
+}
+
+/// Whether `path` may be a camera RAW: by its extension, or a TIFF whose
+/// content is not positively an image (a camera RAW written as `.TIF`, or
+/// one that cannot be read to tell: a cloud placeholder, an unreadable
+/// file).
+fn camera_raw_or_unknown(path: &Path) -> bool {
+    let tiff = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(crate::formats::is_tiff_extension);
+    if !tiff {
+        return crate::formats::is_raw_file(path);
+    }
+    rawtonic_fs::is_cloud_placeholder(path)
+        || std::fs::File::open(path).is_err()
+        || rawtonic_rawdecode::raw_tiff::classify(path).is_raw()
+}
+
+/// What Save As never replaces: [`save_as_protected`] with the libraries
+/// the app knows, asked for their photos and for the files they keep with
+/// one (the camera JPEG of a RAW+JPEG pair).
+pub(crate) fn save_as_protected_in(
+    path: &Path,
+    source: &Path,
+    known: &[std::path::PathBuf],
+) -> bool {
+    save_as_protected(path, source, &|path| library_file(path, known))
+}
+
+/// A photo of a library the app knows, or a file one keeps with a photo
+/// (the camera JPEG of a RAW+JPEG pair).
+fn library_file(path: &Path, known: &[std::path::PathBuf]) -> bool {
+    crate::session_bridge::is_library_photo(path, known)
+        || crate::session_bridge::is_library_companion(path, known)
 }
 
 /// The app's record of the files its exports wrote (for Replace if
@@ -1206,7 +1241,7 @@ pub(crate) struct ExportTarget {
     pub is_explicit_file_path: bool,
     /// Save As over an existing file the user confirmed replacing: that
     /// file as it was then (`ExportRequest::confirmed_file`).
-    pub confirmed: Option<rawtonic_fs::FileStamp>,
+    pub confirmed: Option<rawtonic_fs::ConfirmedFile>,
     pub base_origin_folders: Vec<String>,
     pub export_settings: ExportSettings,
     pub output_format: String,
@@ -1973,7 +2008,7 @@ pub(crate) enum Replacing {
     /// The photo's previous export recorded so (Replace if changed).
     Previous(Recorded),
     /// The file the user confirmed replacing in Save As, as it was then.
-    Confirmed(rawtonic_fs::FileStamp),
+    Confirmed(rawtonic_fs::ConfirmedFile),
 }
 
 impl Planned {
@@ -2094,16 +2129,12 @@ pub(crate) fn plan_output_path<'a>(
     let occupied = |path: &Path| path.symlink_metadata().is_ok();
     let mut used = used_paths.lock().unwrap();
     let taken = |path: &Path| family(path).iter().any(|path| used.contains(path));
-    // Save As checks the file the user named and, with separate mask files,
-    // their names beside it, as a folder export does: a mask image of
-    // another export there numbers the whole family before anything is
-    // written, instead of failing after the main file was published.
     // Save As over a file the user confirmed replacing in the save panel:
     // that file, while it is still as it was then, is replaced whatever
     // "If a file exists" says (the panel asked). Never the photo, its
     // sidecar or a library's photo; with separate mask files only when
     // none of theirs is in the way (those were not asked about).
-    if named_file && let Some(confirmed) = target.confirmed {
+    if named_file && let Some(confirmed) = &target.confirmed {
         if save_as_protected(&slot, source_path, history.is_original) {
             return Err(format!(
                 "{} is a photo or one of its files; Save As does not replace it",
@@ -2111,15 +2142,19 @@ pub(crate) fn plan_output_path<'a>(
             ));
         }
         let masks_free = family(&slot).iter().skip(1).all(|path| !occupied(path));
-        if masks_free && rawtonic_fs::FileStamp::of_file(&slot).is_ok_and(|now| now == confirmed) {
+        if masks_free && confirmed.matches(&slot) {
             return Ok(Planned::Write {
                 path: slot.clone(),
                 slot,
-                replace: Some(Replacing::Confirmed(confirmed)),
+                replace: Some(Replacing::Confirmed(confirmed.clone())),
                 kept: None,
             });
         }
     }
+    // Save As checks the file the user named and, with separate mask files,
+    // their names beside it, as a folder export does: a mask image of
+    // another export there numbers the whole family before anything is
+    // written, instead of failing after the main file was published.
     let exists = family(&slot).iter().any(|path| occupied(path));
     let (mut output_path, decision) = history.decide(
         policy,
@@ -2430,7 +2465,7 @@ fn export_photo(
     };
     // What Save As never replaces, even confirmed (checked again right
     // before the file is swapped in).
-    let protected = |path: &Path| save_as_protected(path, original_path, history.is_original);
+    let protected = |path: &Path| save_as_protected_in(path, original_path, &known_libraries);
     // Named as before for every choice: the name may need the capture date
     // or facts (read from the original when the snapshot has none).
     let file_date = pinned.naming_date(original_path);
@@ -3113,7 +3148,7 @@ pub async fn export_images_batch(
     let settings = crate::state::settings::current(&app_handle);
     let requests = tauri::async_runtime::spawn_blocking(move || {
         let known = known_libraries(&settings);
-        let is_original = |path: &Path| crate::session_bridge::is_library_photo(path, &known);
+        let is_original = |path: &Path| library_file(path, &known);
         for request in &mut requests {
             confirm_replace(request, &is_original)?;
         }
@@ -3137,8 +3172,8 @@ pub async fn save_as_target_stamp(path: String) -> Option<String> {
 }
 
 pub(crate) fn stamp_save_target(path: String) -> Option<String> {
-    let stamp = rawtonic_fs::FileStamp::of_file(Path::new(&path)).ok()?;
-    serde_json::to_string(&stamp).ok()
+    let confirmed = rawtonic_fs::ConfirmedFile::read(Path::new(&path)).ok()?;
+    serde_json::to_string(&confirmed).ok()
 }
 
 /// Save As: confirms replacing the file the user confirmed in the system's
@@ -3170,12 +3205,9 @@ pub(crate) fn confirm_replace(
             path.display()
         ));
     }
-    let stamp = rawtonic_fs::FileStamp::of_file(path)
-        .map_err(|e| format!("{} cannot be replaced: {e}", path.display()))?;
-    let confirmed = panel_stamp
-        .and_then(|token| serde_json::from_str::<rawtonic_fs::FileStamp>(&token).ok())
-        .is_some_and(|then| then == stamp);
-    request.confirmed_file = confirmed.then_some(stamp);
+    request.confirmed_file = panel_stamp
+        .and_then(|token| serde_json::from_str::<rawtonic_fs::ConfirmedFile>(&token).ok())
+        .filter(|then| then.matches(path));
     Ok(())
 }
 
@@ -4866,7 +4898,7 @@ mod tests {
         // Without the panel's confirmation, or at a free name, nothing is
         // confirmed; a stamp the interface sends is dropped.
         let mut unconfirmed = request(&print, false);
-        unconfirmed.confirmed_file = Some(rawtonic_fs::FileStamp::of_file(&print).unwrap());
+        unconfirmed.confirmed_file = Some(rawtonic_fs::ConfirmedFile::read(&print).unwrap());
         unconfirmed.panel_stamp = super::stamp_save_target(print.to_string_lossy().into_owned());
         confirm_replace(&mut unconfirmed, &is_original).unwrap();
         assert_eq!(unconfirmed.confirmed_file, None);
@@ -4884,7 +4916,7 @@ mod tests {
         let confirmed = stamp_of(&print).unwrap();
         assert!(confirmed.is_some());
         for choice in ["keepBoth", "skip", "replaceIfChanged", "ask"] {
-            let planned = plan(&target(&print, choice, confirmed), 0).unwrap();
+            let planned = plan(&target(&print, choice, confirmed.clone()), 0).unwrap();
             assert_eq!(planned.path(), print, "{choice}");
             assert_eq!(planned.outcome(), Outcome::Replaced, "{choice}");
         }
@@ -4943,14 +4975,14 @@ mod tests {
         assert_eq!(names, ["a.jpg", "print.jpg"]);
 
         // A folder export ignores a confirmation: its file is numbered.
-        let stamp = rawtonic_fs::FileStamp::of_file(&delivery.join("a.jpg")).unwrap();
+        let stamp = rawtonic_fs::ConfirmedFile::read(&delivery.join("a.jpg")).unwrap();
         for (choice, outcome) in [
             ("keepBoth", Outcome::Written),
             ("skip", Outcome::SkippedExists),
             ("replaceIfChanged", Outcome::KeptBoth),
         ] {
             let folder = ExportTarget {
-                confirmed: Some(stamp),
+                confirmed: Some(stamp.clone()),
                 ..ExportTarget {
                     export_settings: settings(choice),
                     ..folder.clone()
@@ -5013,8 +5045,8 @@ mod tests {
         for own in &own_files {
             let error = stamp_of(own).unwrap_err();
             assert!(error.contains("does not replace"), "{error}");
-            let stamp = rawtonic_fs::FileStamp::of_file(own).unwrap();
-            assert!(plan(&target(own, "keepBoth", Some(stamp)), 0).is_err());
+            let stamp = rawtonic_fs::ConfirmedFile::read(own).unwrap();
+            assert!(plan(&target(own, "keepBoth", Some(stamp.clone())), 0).is_err());
             assert!(
                 super::publish_with(Some(&Replacing::Confirmed(stamp)), "a.CR3\nkey", &protected)
                     .write_with(own, |file| std::io::Write::write_all(file, b"jpeg"))
@@ -5023,6 +5055,20 @@ mod tests {
         }
         assert_eq!(std::fs::read(&raw).unwrap(), b"original RAW");
         assert_eq!(std::fs::read(&camera_tif).unwrap(), iiq);
+        // A TIFF that cannot be read to tell an image from a camera RAW is
+        // not replaced either; one that is positively an image is.
+        let rgb_tif = delivery.join("print.tif");
+        image::RgbImage::new(4, 4).save(&rgb_tif).unwrap();
+        assert!(!super::save_as_protected(&rgb_tif, &raw, &|_| false));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&rgb_tif, std::fs::Permissions::from_mode(0o000)).unwrap();
+            if std::fs::File::open(&rgb_tif).is_err() {
+                assert!(super::save_as_protected(&rgb_tif, &raw, &|_| false));
+            }
+            std::fs::set_permissions(&rgb_tif, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
         assert_eq!(std::fs::read(&sidecar).unwrap(), b"<xmp/>");
         assert_eq!(std::fs::read(&library_photo).unwrap(), b"a library's JPEG");
     }
