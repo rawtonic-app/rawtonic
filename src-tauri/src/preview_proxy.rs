@@ -496,10 +496,26 @@ fn preview_paths<'a>(
     recipe: Option<&'a Value>,
 ) -> Box<dyn Iterator<Item = PathBuf> + 'a> {
     let own = proxy_path_of(source, kind);
+    // Without a preview of this kind there is nothing to try either way, and
+    // asking whether the original is available opens it (GRD2: four opens
+    // per Library tile lookup, 18 ms each on a Wi-Fi share). The kept ones
+    // are looked for only when the photograph's own is missing, as callers
+    // go on to them then.
+    let kept = match &own {
+        Some(own) if own.is_file() => None,
+        _ => Some(kept_paths(source, kind, recipe)),
+    };
+    if kept.as_ref().is_some_and(Vec::is_empty) {
+        return Box::new(std::iter::empty());
+    }
     if source_available(source) {
         return Box::new(
-            own.into_iter()
-                .chain(std::iter::once_with(move || kept_paths(source, kind, recipe)).flatten()),
+            own.into_iter().chain(
+                std::iter::once_with(move || {
+                    kept.unwrap_or_else(|| kept_paths(source, kind, recipe))
+                })
+                .flatten(),
+            ),
         );
     }
     let master;
@@ -573,7 +589,53 @@ fn kept_paths(source: &Path, kind: ProxyKind, recipe: Option<&Value>) -> Vec<Pat
 /// cloud file waiting to be downloaded (reading that starts the download).
 /// Otherwise the photograph is offline and opens on its proxies.
 pub fn source_available(source: &Path) -> bool {
-    !crate::file_management::is_cloud_placeholder(source) && source_readable(source)
+    let known = AVAILABILITY.with(|known| {
+        known
+            .borrow()
+            .as_ref()
+            .and_then(|known| known.get(source).copied())
+    });
+    if let Some(available) = known {
+        return available;
+    }
+    let available =
+        !crate::file_management::is_cloud_placeholder(source) && source_readable(source);
+    AVAILABILITY.with(|known| {
+        if let Some(known) = known.borrow_mut().as_mut() {
+            known.insert(source.to_path_buf(), available);
+        }
+    });
+    available
+}
+
+thread_local! {
+    /// Inside `with_availability_kept`: each original's `source_available`.
+    static AVAILABILITY: std::cell::RefCell<Option<HashMap<PathBuf, bool>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `f` with `source_available` asked once per original: one Library
+/// tile lookup computes several keys, each of which may ask it, and each
+/// answer opens the RAW (GRD2: 18 ms on a Wi-Fi share). The outermost scope
+/// drops the answers at its end.
+pub(crate) fn with_availability_kept<R>(f: impl FnOnce() -> R) -> R {
+    struct Scope(bool);
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            if self.0 {
+                AVAILABILITY.with(|known| known.borrow_mut().take());
+            }
+        }
+    }
+    let _scope = Scope(AVAILABILITY.with(|known| {
+        let mut known = known.borrow_mut();
+        let outermost = known.is_none();
+        if outermost {
+            *known = Some(HashMap::new());
+        }
+        outermost
+    }));
+    f()
 }
 
 /// Whether the RAW exists and can be opened (a cloud file not downloaded
