@@ -312,11 +312,12 @@ impl MultiView {
 
     /// Whether the primary's own frames, kept at the zoom its cell had,
     /// stay drawn instead of its live frame placed at `placed` (None: not a normal placement) at `now`. They stay while
-    /// the live frame sits where it was first placed and not at that zoom
-    /// (the editor has not applied it yet: WMV4, a zoomed cell clicked
-    /// beside a primary at fit). The live frame takes over once it is
-    /// placed at the zoom, moves (the editor applied it, clamped it, or the
-    /// photograph is panned), or after [`PRIMARY_HOLD_LIMIT`].
+    /// the live frame sits where it was first placed or at fit in the cell,
+    /// and not at that zoom (the editor has not applied it yet: WMV4, a
+    /// zoomed cell clicked beside a primary at fit). The live frame takes
+    /// over once it is placed at the zoom, moves elsewhere (the editor
+    /// applied another zoom or the photograph is panned), or after
+    /// [`PRIMARY_HOLD_LIMIT`].
     pub(crate) fn holds_primary(
         &mut self,
         placed: Option<[f32; 4]>,
@@ -328,34 +329,35 @@ impl MultiView {
         // Where the live frame would sit at the zoom: the photograph's shown
         // size is the held frame's (the live frame's own placement cannot
         // tell a fit from a zoom of a smaller photograph).
-        let at_zoom = self.primary.as_deref().and_then(|path| {
+        let cell = self.primary.as_deref().and_then(|path| {
             let shown = self.textures.get(path)?.extent?.shown;
             let area = self.cells.iter().find(|cell| cell.path == path)?.area;
-            Some(zoomed_rect(
-                area,
-                CellExtent {
-                    shown,
-                    region: None,
-                },
-                hold.zoom,
-            ))
+            let extent = CellExtent {
+                shown,
+                region: None,
+            };
+            Some((area, zoomed_rect(area, extent, hold.zoom)))
         });
         let near = |a: [f32; 4], b: [f32; 4], tolerance: f32| {
             a.iter()
                 .zip(b.iter())
                 .all(|(a, b)| (a - b).abs() <= tolerance)
         };
-        let keep = match (at_zoom, placed) {
-            (Some(at_zoom), Some(rect))
+        let keep = match (cell, placed) {
+            (Some((area, at_zoom)), Some(rect))
                 if now.duration_since(hold.since) < PRIMARY_HOLD_LIMIT
                     && !near(rect, at_zoom, 2.0 + 0.01 * at_zoom[2].max(at_zoom[3])) =>
             {
+                // Still at fit in its cell (also re-fitted, e.g. the window
+                // resized while the photograph loads): the editor has not
+                // applied the zoom yet.
+                let at_fit = near(rect, fit_rect(area, rect[2], rect[3]), 1.0);
                 match hold.first {
                     None => {
                         hold.first = Some(rect);
                         true
                     }
-                    Some(first) => near(first, rect, 0.5),
+                    Some(first) => at_fit || near(first, rect, 0.5),
                 }
             }
             _ => false,
@@ -2103,16 +2105,48 @@ mod tests {
                     None,
                 );
             };
-            // A live frame that moves (the editor applied, clamped or panned
-            // it) takes over too.
+            // Re-fitted (here: another fit size in the cell) it still holds;
+            // a live frame that moves elsewhere (the editor applied another
+            // zoom, or a pan) takes over.
             hold_again(&mut multi);
             assert!(multi.holds_primary(Some(at_fit), now), "{label}");
-            let moved = [at_fit[0] + 4.0, at_fit[1], at_fit[2], at_fit[3]];
-            assert!(!multi.holds_primary(Some(moved), now), "{label}");
+            let refit = fit_rect(area, 16.0, 16.0);
+            let refit = [refit[0] + 0.25, refit[1] - 0.25, refit[2], refit[3]];
+            assert!(multi.holds_primary(Some(refit), now), "{label}");
+            let twice = [
+                at_zoom[0] + 8.0,
+                at_zoom[1],
+                at_zoom[2] / 2.0,
+                at_zoom[3] / 2.0,
+            ];
+            assert!(!multi.holds_primary(Some(twice), now), "{label}");
+            // The rendered sequence: two fit placements show the cell's own
+            // zoomed frames, the placement at the zoom shows the live frame.
+            hold_again(&mut multi);
+            let live = live_frame(&gpu, at_zoom, area);
+            for (rect, held) in [(at_fit, true), (refit, true), (at_zoom, false)] {
+                let hold = multi.holds_primary(Some(rect), now);
+                assert_eq!(hold, held, "{label}: {rect:?}");
+                let pixels = present(
+                    &gpu,
+                    &multi,
+                    (!hold).then_some(PrimaryDraw {
+                        bind_group: &live,
+                        before: &gpu.empty_before,
+                        clip: area,
+                    }),
+                );
+                let expected = if held { [0, 255, 255] } else { [0, 0, 255] };
+                assert!(
+                    close(pixel(&pixels, 22, 50), expected),
+                    "{label}: {rect:?} {:?}",
+                    pixel(&pixels, 22, 50)
+                );
+            }
             // And after the limit, wherever it is; or when it is not placed
             // normally (crop editing, a split).
             hold_again(&mut multi);
-            let late = now + PRIMARY_HOLD_LIMIT + std::time::Duration::from_millis(1);
+            let late = std::time::Instant::now() + PRIMARY_HOLD_LIMIT;
             assert!(!multi.holds_primary(Some(at_fit), late), "{label}");
             hold_again(&mut multi);
             assert!(!multi.holds_primary(None, now), "{label}");
