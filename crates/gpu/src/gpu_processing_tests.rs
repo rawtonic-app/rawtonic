@@ -530,6 +530,7 @@ fn anchor_v23_levels_are_the_default_curves() {
             constant("SH_V23_FROM") - constant("SH_V23_WIDTH"),
         ),
         ("HL_V23_FROM_SCENE", constant("HL_V23_FROM")),
+        ("SH_V20_TO_SCENE", constant("SH_V20_TO")),
     ] {
         assert!(
             (constant(scene) - inverse(display)).abs() < 1e-6,
@@ -15913,6 +15914,65 @@ fn tone_version_23_anchor_keeps_deep_and_bright_texture() {
             "{recipe}: dL* {k_23:.2} (version 22 {k_22:.2})"
         );
     }
+    // Direction: raised Shadows never renders a pixel darker than Shadows 0
+    // does, lowered Highlights none brighter than Highlights 0, at any
+    // amount: with a level that lifts little (dark texture on a bright
+    // ground, the textured ramp's light end) the anchor's take-back, and
+    // near 0 the linear give-back against the pull's amount^1.7, must not
+    // reverse the slider.
+    // On the smooth ramp no pixel moves against the slider; on the textured
+    // one no more than version 22's (whose lowered Highlights lifts texture
+    // peaks a little: bright detail restored above the pixel).
+    let against =
+        |view: &wgpu::TextureView, recipe: &serde_json::Value, version: u64, raise: bool| {
+            let neutral = render_raw_look(
+                &processor,
+                view,
+                (width, height),
+                &with(&json!({}), version),
+                look,
+            );
+            let img = render_raw_look(
+                &processor,
+                view,
+                (width, height),
+                &with(recipe, version),
+                look,
+            );
+            img.iter()
+                .zip(&neutral)
+                .map(|(e, n)| {
+                    let d = lstar_of_codes(e) - lstar_of_codes(n);
+                    if raise { -d } else { d }
+                })
+                .fold(0.0f64, f64::max)
+        };
+    for (recipe, raise) in [
+        (json!({ "shadows": 1 }), true),
+        (json!({ "shadows": 5 }), true),
+        (json!({ "shadows": 30 }), true),
+        (json!({ "shadows": 100 }), true),
+        (json!({ "highlights": -1 }), false),
+        (json!({ "highlights": -5 }), false),
+        (json!({ "highlights": -30 }), false),
+    ] {
+        let flat = against(&smooth, &recipe, 23, raise);
+        assert!(
+            flat < 0.02,
+            "{recipe}: a flat tone moves {flat:.3} L* against the slider"
+        );
+        let (old, new) = (
+            against(&textured, &recipe, 22, raise),
+            against(&textured, &recipe, 23, raise),
+        );
+        eprintln!(
+            "{recipe}: against the slider, smooth {flat:.3}, textured {old:.3} → {new:.3} L*"
+        );
+        assert!(
+            new < old + 0.05,
+            "{recipe}: texture moves {new:.3} L* against the slider (version 22 {old:.3})"
+        );
+    }
     // Order: on the smooth ramp a brighter scene tone never renders darker,
     // with Blacks raised too and with both sliders at once.
     for recipe in [
@@ -16193,9 +16253,11 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
                 look,
             )
         };
-        // The gaps' mean dL* minus the far panel's (x ≥ 800).
-        let neutral = render(&grating, 20, 0);
-        let gap_lift = |img: &[[u16; 3]]| {
+        // The gaps' mean dL* minus the far panel's (x ≥ 800), against the
+        // version's own render at Shadows 0 (version 22's Whites differs).
+        let neutral_20 = render(&grating, 20, 0);
+        let neutral_23 = render(&grating, 23, 0);
+        let gap_lift = |img: &[[u16; 3]], neutral: &[[u16; 3]]| {
             let (mut gap, mut far, mut ng, mut nf) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
             for y in rows.clone() {
                 for x in 200..560 {
@@ -16213,8 +16275,11 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
             }
             gap / ng - far / nf
         };
-        let gap_19 = gap_lift(&render(&grating, 19, amount));
-        let gap_20 = gap_lift(&render(&grating, 20, amount));
+        let gap_19 = gap_lift(&render(&grating, 19, amount), &neutral_20);
+        let gap_20 = gap_lift(&render(&grating, 20, amount), &neutral_20);
+        // Version 23's stronger level and anchor leave the gaps as version
+        // 20 does.
+        let gap_23 = gap_lift(&render(&grating, 23, amount), &neutral_23);
         // The shadows of the textured ramp (below −4 EV): mean dL* and
         // texture (std of L* minus the row's 9-pixel mean) against neutral.
         let neutral = render(&ramp, 20, 0);
@@ -16242,7 +16307,11 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
         let (lift_19, det_19) = shadows(&render(&ramp, 19, amount));
         let (lift_20, det_20) = shadows(&render(&ramp, 20, amount));
         eprintln!(
-            "Shadows +{amount}, Exposure {exposure}, Whites {whites}: gap dL* {gap_19:.2} → {gap_20:.2}, shadows dL* {lift_19:.3} → {lift_20:.3}, texture {det_19:.4} → {det_20:.4}"
+            "Shadows +{amount}, Exposure {exposure}, Whites {whites}: gap dL* {gap_19:.2} → {gap_20:.2} (version 23 {gap_23:.2}), shadows dL* {lift_19:.3} → {lift_20:.3}, texture {det_19:.4} → {det_20:.4}"
+        );
+        assert!(
+            gap_23 > -0.3 && gap_23 < most,
+            "Shadows +{amount}, Exposure {exposure}: version 23 gap dL* {gap_23:.2} (version 20 {gap_20:.2})"
         );
         // Measured on Vulkan (RTX 3080): gaps +50 1.35 → 0.00, +100 3.83 →
         // 0.00 L*, at Exposure −0.7 11.84 → 2.41, +0.7 0.84 → 0.00; the
@@ -16486,7 +16555,7 @@ fn tone_version_20_stage_is_version_13s_but_for_the_gain() {
         "        // Apart from the line above, so pipelines without ANCHOR_V23\n",
         "        // compile the code they always had.\n",
         "        if (ANCHOR_V23 && adjustments.global.tone_version > 22.5) {\n",
-        "            gain = shadows_v23_gain(gain, tonal_level * exposure_gain, safe_pixel_luma, sh, bl);\n",
+        "            gain = shadows_v23_gain(gain, level_luma * exposure_gain, tonal_level * exposure_gain, safe_pixel_luma, sh, bl);\n",
         "        }\n",
         "        rgb *= gain;"
     );
@@ -16585,8 +16654,9 @@ fn tone_version_20_shadows_keeps_fine_detail_in_order() {
                 (100, 0.0, 0, 60),
                 (100, 0.0, 0, -60),
             ] {
-                let mut worst = [0.0f64; 2];
-                for (slot, version) in [19u64, 20].into_iter().enumerate() {
+                // Version 23's anchor and stronger share keep the order too.
+                let mut worst = [0.0f64; 3];
+                for (slot, version) in [19u64, 20, 23].into_iter().enumerate() {
                     let img = render_raw_look(
                         &processor,
                         &view,
@@ -16613,13 +16683,13 @@ fn tone_version_20_shadows_keeps_fine_detail_in_order() {
                                     if excess > worst[slot] {
                                         worst[slot] = excess;
                                     }
-                                    if version == 20 && excess > 1.0 {
+                                    if version >= 20 && excess > 1.0 {
                                         let line_ev = SHADOWS_V20_LINE_LOW_EV
                                             * (1.0 - y as f32 / (height - 1) as f32);
                                         failures.push((
                                             excess,
                                             format!(
-                                                "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: ground {} EV, {line} px line at {line_ev:.2} EV falls {ev:.3} EV",
+                                                "version {version} {scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: ground {} EV, {line} px line at {line_ev:.2} EV falls {ev:.3} EV",
                                                 SHADOWS_V20_LINE_GROUNDS[band]
                                             ),
                                         ));
@@ -16631,8 +16701,8 @@ fn tone_version_20_shadows_keeps_fine_detail_in_order() {
                     }
                 }
                 eprintln!(
-                    "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: worst fall (limits) version 19 {:.2}, version 20 {:.2}",
-                    worst[0], worst[1]
+                    "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: worst fall (limits) version 19 {:.2}, version 20 {:.2}, version 23 {:.2}",
+                    worst[0], worst[1], worst[2]
                 );
                 worst_19 = worst_19.max(worst[0]);
             }

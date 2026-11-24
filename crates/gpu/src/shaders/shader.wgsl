@@ -3026,9 +3026,11 @@ fn shadows_v20_gain(level: f32, tonal: f32, pixel: f32, sh: f32, bl: f32, fade: 
 // (times the amount) over the next SH_V23_WIDTH EV down (to about L* 10),
 // so the deepest pixels keep more of their contrast against what is lifted
 // around them; Shadows' share of the level's gain is SH_V23_LEVEL times
-// version 20's, so the darkest quarter is lifted as before. The term rises
+// version 20's (fading out for pixels above their level), so the darkest
+// quarter is lifted as before. The term rises
 // with the pixel (a brighter pixel is never rendered darker for it) and
-// takes nothing from Blacks' share, and no pixel renders below Shadows 0.
+// takes nothing from Blacks' share, no pixel renders below Shadows 0, and
+// version 20's second bound (SH_V20_TO) still holds.
 // The idea of a level term plus a pixel term is a public note on Camera
 // Raw's Shadows (notes: reference/rawmakase-2026-11-24-shadows-highlights-
 // note.md); the shape and its three numbers are ours, chosen on 24 of the
@@ -3036,13 +3038,18 @@ fn shadows_v20_gain(level: f32, tonal: f32, pixel: f32, sh: f32, bl: f32, fade: 
 // whose tone bands are no further from the references than version 22's,
 // halos and noise within the atlas's floors) and held out on the other 24:
 // shadow
-// detail 0.13 → 0.06 below the better editor at +100 (Camera Raw's level),
-// 0.07 → 0.04 at +50, no halo or noise beyond the floors, darkest-quarter
-// lift 13.9 → 14.6 L*.
+// detail 0.13 → 0.07 below the better editor at +100 (within the atlas's
+// floor of Camera Raw's), 0.07 → 0.04 at +50, no halo or noise beyond the
+// floors, darkest-quarter lift 13.9 → 14.5 L*. Reviewed (round 1) and
+// re-measured with the Shadows-0 floor, version 20's second bound and the
+// fade above the level (SH_V23_ABOVE; with no fade the hold-out was 0.06,
+// with 1 / 3 EV 0.12 / 0.08).
 const SH_V23_ANCHOR: f32 = 0.15;
 const SH_V23_FROM: f32 = -4.5;
 const SH_V23_WIDTH: f32 = 2.0;
 const SH_V23_LEVEL: f32 = 1.1;
+// EV above its level over which a pixel's stronger share fades out.
+const SH_V23_ABOVE: f32 = 6.0;
 // The renderer's Shadows at +100 (amount / 120, image_processing.rs SCALES).
 const SH_V23_K100: f32 = 0.8333333;
 // The scene EV the default tone curve shows at the anchors' display levels
@@ -3054,6 +3061,8 @@ const SH_V23_K100: f32 = 0.8333333;
 const SH_V23_FROM_SCENE: f32 = -4.4379787;
 const SH_V23_TO_SCENE: f32 = -5.8157253;
 const HL_V23_FROM_SCENE: f32 = -3.0484676;
+// The same for version 20's second bound (SH_V20_TO).
+const SH_V20_TO_SCENE: f32 = -1.0384731;
 
 // `cr_curve_level(display)` for the anchors: `scene` is the default curve's
 // scene EV at `display`, so only a file's own curve is searched.
@@ -3069,20 +3078,35 @@ fn anchor_v23_level(display: f32, scene: f32) -> f32 {
 // Version 20's gain `gain` with version 23's anchor: `tonal` is the tonal
 // level (Blacks' share is read there), `pixel` the pixel's luminance, both
 // with Exposure and after Whites.
-fn shadows_v23_gain(gain: f32, tonal: f32, pixel: f32, sh: f32, bl: f32) -> f32 {
+fn shadows_v23_gain(gain: f32, level: f32, tonal: f32, pixel: f32, sh: f32, bl: f32) -> f32 {
     let amount = clamp(sh / SH_V23_K100, 0.0, 1.0);
     var blacks_tonal = 0.0;
-    var at_shadows_0 = 0.0;
     if (bl != 0.0) {
-        at_shadows_0 = camera_raw_shadows_blacks_gain(tonal, 0.0, bl);
-        blacks_tonal = log2(max(at_shadows_0, 1e-9));
+        blacks_tonal = log2(max(camera_raw_shadows_blacks_gain(tonal, 0.0, bl), 1e-9));
     }
     let share = log2(max(gain, 1e-9)) - blacks_tonal;
+    let safe_pixel = max(pixel, 1e-9);
+    // The share SH_V23_LEVEL times as strong, the extra fading out over
+    // SH_V23_ABOVE EV above the pixel's level: where a pixel far above its
+    // level is held by version 20's bounds (a light line on a black ground),
+    // the bound share falls about as fast as the pixel rises, and scaling it
+    // all turned light pixels up to 0.013 EV darker than darker ones (Blacks
+    // +50, a file's own curve; `tone_version_20_shadows_keeps_fine_detail_
+    // in_order`).
+    let above = clamp(1.0 - log2(safe_pixel / max(level, 1e-9)) / SH_V23_ABOVE, 0.0, 1.0);
+    let boost = (SH_V23_LEVEL - 1.0) * max(share, 0.0) * above;
     let top = log2(max(anchor_v23_level(SH_V23_FROM, SH_V23_FROM_SCENE), 1e-9));
     let bottom = log2(max(anchor_v23_level(SH_V23_FROM - SH_V23_WIDTH, SH_V23_TO_SCENE), 1e-9));
-    let x = clamp((top - log2(max(pixel, 1e-9))) / max(top - bottom, 1e-3), 0.0, 1.0);
+    let x = clamp((top - log2(safe_pixel)) / max(top - bottom, 1e-3), 0.0, 1.0);
     let anchor = -x * x * (3.0 - 2.0 * x);
-    return max(exp2(blacks_tonal + SH_V23_LEVEL * share + amount * SH_V23_ANCHOR * anchor), at_shadows_0);
+    // Version 20's second bound holds for the stronger share too: where it
+    // holds a light pixel at the tone of SH_V20_TO, a share beyond it would
+    // turn brighter pixels darker. Below 0 the share would render
+    // the pixel darker than Shadows 0 does (the anchor's take-back where
+    // the level's lift is small).
+    let bound = max(share, log2(max(anchor_v23_level(SH_V20_TO, SH_V20_TO_SCENE), 1e-9) / safe_pixel) - blacks_tonal);
+    let lifted = clamp(share + boost + amount * SH_V23_ANCHOR * anchor, 0.0, max(bound, 0.0));
+    return exp2(blacks_tonal + lifted);
 }
 
 // The texture gain on top of the wide level's lift `gain`.
@@ -4010,7 +4034,7 @@ fn apply_tonal_adjustments_v20(
         // Apart from the line above, so pipelines without ANCHOR_V23
         // compile the code they always had.
         if (ANCHOR_V23 && adjustments.global.tone_version > 22.5) {
-            gain = shadows_v23_gain(gain, tonal_level * exposure_gain, safe_pixel_luma, sh, bl);
+            gain = shadows_v23_gain(gain, level_luma * exposure_gain, tonal_level * exposure_gain, safe_pixel_luma, sh, bl);
         }
         rgb *= gain;
     } else if (sh != 0.0 || bl != 0.0) {
@@ -4366,7 +4390,7 @@ const HL_V14_INV_TWO_LOG_RANGE_SQ: f32 = 1.0 / (2.0 * HL_V14_LOG_RANGE * HL_V14_
 // brightest-quarter pull within 0.5 L* of version 22's) and held out on
 // the other 24: bright detail 0.10 → 0.04 below Capture One's (above
 // Camera Raw's at the two finer scales), the tone bands closer to both
-// references (1.10 → 0.84 L* outside them), no halo or noise beyond the
+// references (1.10 → 0.83 L* outside them), no halo or noise beyond the
 // floors, brightest quarter −12.3 → −11.7 L*.
 const HL_V23_ANCHOR: f32 = 0.2;
 const HL_V23_FROM: f32 = -2.5;
@@ -4380,7 +4404,14 @@ fn highlights_v23_target(target_luma: f32, pixel_luma: f32, highlights_adj: f32)
     let start = log2(max(anchor_v23_level(HL_V23_FROM, HL_V23_FROM_SCENE), 1e-9));
     let white = log2(max(anchor_v23_level(0.0, 0.0), 1e-9));
     let x = clamp((log2(pixel_luma) - start) / max(white - start, 1e-3), 0.0, 1.0);
-    return pixel_luma * exp2(HL_V23_LEVEL * pull + amount * HL_V23_ANCHOR * x * x * (3.0 - 2.0 * x));
+    // The give-back is at most half of the pull: near Highlights 0 the pull
+    // (amount^1.7, `HL_V2_AMOUNT_EXPONENT`) is smaller than the linear
+    // give-back, which would brighten a flat highlight. Where version 14
+    // lifts (detail restored above the pixel) nothing is given back and the
+    // lift is not made stronger.
+    let pulled = min(HL_V23_LEVEL * pull, pull);
+    let give_back = min(amount * HL_V23_ANCHOR * x * x * (3.0 - 2.0 * x), max(-0.5 * pulled, 0.0));
+    return pixel_luma * exp2(pulled + give_back);
 }
 
 fn apply_highlights_adjustment_v14(

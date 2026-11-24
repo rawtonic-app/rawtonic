@@ -8218,8 +8218,10 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// deep shadows and bright texture (clouds) keep more of their local
 /// contrast at every scale (slider atlas, 24 held-out frames at equal
 /// effect: shadow detail at Shadows +100 0.13 below the better editor →
-/// 0.06, Camera Raw's level; bright detail at Highlights −100 0.10 below
-/// Capture One's → 0.04; no halo, noise or tone band outside the floors;
+/// 0.07, within the floor of Camera Raw's; bright detail at Highlights −100
+/// 0.10 below Capture One's → 0.04; no halo, noise or tone band outside the
+/// floors; raising Shadows never darkens and lowering Highlights never
+/// brightens a pixel against its render at 0;
 /// notes: benchmark-results/hsb1-2026-11-24).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
