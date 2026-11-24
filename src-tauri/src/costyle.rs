@@ -498,6 +498,12 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
             continue;
         }
         let uniformity = (skin || advanced) && [f[14], f[16], f[17]].iter().any(|u| *u != 0.0);
+        // The centre is also the uniformity target: a component is the
+        // picked colour's where it is a target (always for skin), otherwise
+        // the selection's own. The lightness band is open, so its centre
+        // selects nothing.
+        let picked_hue = skin || (uniformity && f[14] != 0.0);
+        let picked_chroma = skin || (uniformity && f[16] != 0.0);
         if f[3] == 0.0 && f[4] == 0.0 && f[5] == 0.0 && !uniformity {
             continue;
         }
@@ -519,9 +525,9 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
         untranslated |= skin
             || f[12] != 100.0
             || (advanced && f[11] != -100.0)
-            // A range centred on its pick (skin, uniformity) cannot keep
-            // asymmetric hue edges.
-            || ((skin || uniformity) && (f[9] + f[10]).abs() > 1e-6)
+            // A range centred on its picked hue cannot keep asymmetric hue
+            // edges.
+            || (picked_hue && (f[9] + f[10]).abs() > 1e-6)
             || !(0.0..=50.0).contains(&f[13])
             || !(-100.0..=100.0).contains(&f[11])
             || (uniformity
@@ -538,7 +544,9 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
         let below = hue_difference(srgb_to_oklch(turn_hsv_hue(rgb, f[9])).2, hue);
         let above = hue_difference(srgb_to_oklch(turn_hsv_hue(rgb, f[10])).2, hue);
         let turn = hue_difference(srgb_to_oklch(turn_hsv_hue(rgb, f[3])).2, hue);
-        // The Skin Tone tab's amounts act at about half the Advanced tab's.
+        // The Skin Tone tab's hue and lightness amounts act at 0.57 of the
+        // Advanced tab's (CER1); saturation ±5 changed too little in Capture
+        // One to fit, so its factor is assumed the same.
         let amount = if skin { SKIN_AMOUNT } else { 1.0 };
         let saturation = amount
             * if f[4] > 0.0 {
@@ -581,11 +589,13 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
         if skin {
             range["kind"] = json!("skin");
         }
-        if skin || uniformity {
-            // The centre is also the uniformity target: retain the picked
-            // colour, not a typical-pixel proxy.
+        if picked_hue {
             range[recipe_color::RANGE_HUE.name()] = json!(round(picked_h));
+        }
+        if picked_chroma {
             range[recipe_color::RANGE_CHROMA.name()] = json!((picked_c * 1e6).round() / 1e6);
+        }
+        if skin || uniformity {
             range[recipe_color::RANGE_LIGHTNESS.name()] = json!((picked_l * 1e6).round() / 1e6);
             for (key, field, scale) in [
                 (
@@ -1616,12 +1626,21 @@ mod tests {
         assert_eq!(r["saturationUniformity"], json!(12.0));
         assert_eq!(r["lightnessUniformity"], json!(15.0));
         assert_eq!(r["chromaRange"].as_f64(), Some(100.0));
-        // With uniformity the centre is the pick, so asymmetric hue edges
-        // cannot be kept: reported.
+        // Lightness uniformity keeps the selection's hue midpoint and chroma
+        // centre, so asymmetric hue edges come over; hue uniformity centres
+        // the range on the picked hue and reports them.
+        let asymmetric = "1,1,0,10,0,0,145,108,88,-5,60,-100,100,20,0,0,0,40";
+        let (ranges, untranslated) = super::color_editor_ranges(asymmetric);
+        let (shift_only, _) =
+            super::color_editor_ranges(&asymmetric.replace(",0,0,0,40", ",0,0,0,0"));
+        assert!(!untranslated);
+        assert_eq!(ranges[0]["hue"], shift_only[0]["hue"]);
+        assert_eq!(ranges[0]["chroma"], shift_only[0]["chroma"]);
+        assert!((ranges[0]["lightness"].as_f64().unwrap() - l).abs() < 0.001);
         let (ranges, untranslated) =
-            super::color_editor_ranges("1,1,0,10,0,0,145,108,88,-5,60,-100,100,20,0,0,40,0");
-        assert_eq!(ranges.len(), 1);
+            super::color_editor_ranges(&asymmetric.replace(",0,0,0,40", ",40,0,0,0"));
         assert!(untranslated);
+        assert!((ranges[0]["hue"].as_f64().unwrap() - h).abs() < 0.001);
         // A restricted lower saturation bound is dropped too: reported.
         let (ranges, untranslated) =
             super::color_editor_ranges("1,1,0,30,0,0,145,108,88,-20,20,-50,100,20,0,0,0,0");
