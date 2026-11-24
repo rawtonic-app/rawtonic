@@ -489,6 +489,57 @@ fn whites_version_22_compiles_only_for_its_recipes() {
     );
 }
 
+/// The anchors' scene levels (shader `SH_V23_FROM_SCENE`, …) are the
+/// default tone curve's inverse at their display levels, as
+/// `default_tone_curve_inverse` finds it.
+#[test]
+fn anchor_v23_levels_are_the_default_curves() {
+    let shader = include_str!("shaders/shader.wgsl");
+    let constant = |name: &str| -> f32 {
+        let key = format!("const {name}: f32 = ");
+        let start = shader
+            .find(&key)
+            .unwrap_or_else(|| panic!("{name} is missing"))
+            + key.len();
+        shader[start..start + shader[start..].find(';').unwrap()]
+            .parse()
+            .unwrap()
+    };
+    let start = shader
+        .find("const DEFAULT_TONE_CURVE = array<f32, 49>(")
+        .unwrap();
+    let body = &shader[start..];
+    let body = &body[body.find(">(").unwrap() + 2..body.find(");").unwrap()];
+    let table: Vec<f32> = body
+        .split(',')
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .map(|v| v.parse().unwrap())
+        .collect();
+    assert_eq!(table.len(), 49);
+    let start_ev = constant("DEFAULT_TONE_CURVE_START_EV");
+    let inverse = |level: f32| {
+        let i = (0..48).rev().find(|&k| table[k] <= level).unwrap_or(0);
+        let t = ((level - table[i]) / (table[i + 1] - table[i]).max(1e-6)).clamp(0.0, 1.0);
+        start_ev + (i as f32 + t) * 0.25
+    };
+    for (scene, display) in [
+        ("SH_V23_FROM_SCENE", constant("SH_V23_FROM")),
+        (
+            "SH_V23_TO_SCENE",
+            constant("SH_V23_FROM") - constant("SH_V23_WIDTH"),
+        ),
+        ("HL_V23_FROM_SCENE", constant("HL_V23_FROM")),
+    ] {
+        assert!(
+            (constant(scene) - inverse(display)).abs() < 1e-6,
+            "{scene}: {} against {}",
+            constant(scene),
+            inverse(display)
+        );
+    }
+}
+
 #[test]
 fn anchor_version_23_compiles_only_for_its_recipes() {
     // The anchor applies only under the Camera Raw look, so the tests run

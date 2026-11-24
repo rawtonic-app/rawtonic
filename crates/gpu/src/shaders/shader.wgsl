@@ -3032,8 +3032,10 @@ fn shadows_v20_gain(level: f32, tonal: f32, pixel: f32, sh: f32, bl: f32, fade: 
 // The idea of a level term plus a pixel term is a public note on Camera
 // Raw's Shadows (notes: reference/rawmakase-2026-11-24-shadows-highlights-
 // note.md); the shape and its three numbers are ours, chosen on 24 of the
-// atlas's frames (the strongest anchor tried whose tone bands stay as close
-// to the references as version 22's) and held out on the other 24: shadow
+// atlas's frames (of the anchors tried, the one with the least detail gap
+// whose tone bands are no further from the references than version 22's,
+// halos and noise within the atlas's floors) and held out on the other 24:
+// shadow
 // detail 0.13 → 0.06 below the better editor at +100 (Camera Raw's level),
 // 0.07 → 0.04 at +50, no halo or noise beyond the floors, darkest-quarter
 // lift 13.9 → 14.6 L*.
@@ -3043,6 +3045,26 @@ const SH_V23_WIDTH: f32 = 2.0;
 const SH_V23_LEVEL: f32 = 1.1;
 // The renderer's Shadows at +100 (amount / 120, image_processing.rs SCALES).
 const SH_V23_K100: f32 = 0.8333333;
+// The scene EV the default tone curve shows at the anchors' display levels
+// (`default_tone_curve_inverse` of SH_V23_FROM, SH_V23_FROM − SH_V23_WIDTH
+// and HL_V23_FROM; gpu_processing_tests.rs
+// `anchor_v23_levels_are_the_default_curves`): the anchors read their levels
+// for every pixel, and `cr_curve_level`'s table scan made a Shadows drag
+// 2.4 ms slower on Metal (`tone_version_23_anchor_drag_render_time`).
+const SH_V23_FROM_SCENE: f32 = -4.4379787;
+const SH_V23_TO_SCENE: f32 = -5.8157253;
+const HL_V23_FROM_SCENE: f32 = -3.0484676;
+
+// `cr_curve_level(display)` for the anchors: `scene` is the default curve's
+// scene EV at `display`, so only a file's own curve is searched.
+fn anchor_v23_level(display: f32, scene: f32) -> f32 {
+    let flag = adjustments.global.profile_curve[15].w;
+    if ((flag > 0.5 && flag < 1.5) || (flag > 2.5 && flag < 4.5)) {
+        return cr_curve_level(display);
+    }
+    let black = camera_raw_black();
+    return (exp2(scene) * (1.0 - black) + black) / exp2(adjustments.global.baseline_exposure);
+}
 
 // Version 20's gain `gain` with version 23's anchor: `tonal` is the tonal
 // level (Blacks' share is read there), `pixel` the pixel's luminance, both
@@ -3056,8 +3078,8 @@ fn shadows_v23_gain(gain: f32, tonal: f32, pixel: f32, sh: f32, bl: f32) -> f32 
         blacks_tonal = log2(max(at_shadows_0, 1e-9));
     }
     let share = log2(max(gain, 1e-9)) - blacks_tonal;
-    let top = log2(max(cr_curve_level(SH_V23_FROM), 1e-9));
-    let bottom = log2(max(cr_curve_level(SH_V23_FROM - SH_V23_WIDTH), 1e-9));
+    let top = log2(max(anchor_v23_level(SH_V23_FROM, SH_V23_FROM_SCENE), 1e-9));
+    let bottom = log2(max(anchor_v23_level(SH_V23_FROM - SH_V23_WIDTH, SH_V23_TO_SCENE), 1e-9));
     let x = clamp((top - log2(max(pixel, 1e-9))) / max(top - bottom, 1e-3), 0.0, 1.0);
     let anchor = -x * x * (3.0 - 2.0 * x);
     return max(exp2(blacks_tonal + SH_V23_LEVEL * share + amount * SH_V23_ANCHOR * anchor), at_shadows_0);
@@ -4338,12 +4360,14 @@ const HL_V14_INV_TWO_LOG_RANGE_SQ: f32 = 1.0 / (2.0 * HL_V14_LOG_RANGE * HL_V14_
 // keep their contrast against the tones just below them; version 14's pull
 // is HL_V23_LEVEL times as strong in log, so the brightest quarter comes
 // down about as far as before. The term rises with the pixel. Chosen on 24
-// of the atlas's frames (the strongest anchor tried whose brightest-quarter
-// pull stays within 0.5 L* of version 22's) and held out on the other 24:
-// bright detail 0.10 → 0.04 below Capture One's (Camera Raw's now below
-// ours), the tone bands closer to both references (1.10 → 0.84 L* outside
-// them), no halo or noise beyond the floors, brightest quarter −12.3 →
-// −11.7 L*.
+// of the atlas's frames (of the anchors tried, the one with the least
+// detail gap whose tone bands are no further from the references than
+// version 22's, halos and noise within the atlas's floors, and
+// brightest-quarter pull within 0.5 L* of version 22's) and held out on
+// the other 24: bright detail 0.10 → 0.04 below Capture One's (above
+// Camera Raw's at the two finer scales), the tone bands closer to both
+// references (1.10 → 0.84 L* outside them), no halo or noise beyond the
+// floors, brightest quarter −12.3 → −11.7 L*.
 const HL_V23_ANCHOR: f32 = 0.2;
 const HL_V23_FROM: f32 = -2.5;
 const HL_V23_LEVEL: f32 = 1.1;
@@ -4353,8 +4377,8 @@ const HL_V23_LEVEL: f32 = 1.1;
 fn highlights_v23_target(target_luma: f32, pixel_luma: f32, highlights_adj: f32) -> f32 {
     let amount = min(-highlights_adj / HL_K100, 1.0);
     let pull = log2(max(target_luma, 1e-9) / pixel_luma);
-    let start = log2(max(cr_curve_level(HL_V23_FROM), 1e-9));
-    let white = log2(max(cr_curve_level(0.0), 1e-9));
+    let start = log2(max(anchor_v23_level(HL_V23_FROM, HL_V23_FROM_SCENE), 1e-9));
+    let white = log2(max(anchor_v23_level(0.0, 0.0), 1e-9));
     let x = clamp((log2(pixel_luma) - start) / max(white - start, 1e-3), 0.0, 1.0);
     return pixel_luma * exp2(HL_V23_LEVEL * pull + amount * HL_V23_ANCHOR * x * x * (3.0 - 2.0 * x));
 }
