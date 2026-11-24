@@ -1,3 +1,5 @@
+use rawtonic_runtime::{cli_eprintln, cli_println};
+
 #[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
 use mimalloc::MiMalloc;
 
@@ -232,7 +234,7 @@ fn start(args: Vec<String>) {
     // helper processes by paths relative to `$APPDIR/usr`.
     let launch_req = parse_launch_args(&args, invocation_dir.as_deref());
     if let LaunchRequest::InvalidHeadless(error) = &launch_req {
-        eprintln!("Headless export failed: {}", error);
+        cli_eprintln!("Headless export failed: {}", error);
         std::process::exit(2);
     }
     let is_headless = launch_req.is_headless();
@@ -589,7 +591,7 @@ fn start(args: Vec<String>) {
                     };
                     let ort_library_path = resource_path.join(ort_library_name);
                     std::env::set_var("ORT_DYLIB_PATH", &ort_library_path);
-                    println!("Set ORT_DYLIB_PATH to: {}", ort_library_path.display());
+                    cli_println!("Set ORT_DYLIB_PATH to: {}", ort_library_path.display());
                     ai_processing::configure_acceleration(
                         &app_handle,
                         &resource_path,
@@ -671,11 +673,11 @@ fn start(args: Vec<String>) {
                     tauri::async_runtime::spawn(async move {
                         match crate::export_processing::run_headless_export(session, app_handle_clone.clone()).await {
                             Ok(_) => {
-                                println!("Headless export completed successfully.");
+                                cli_println!("Headless export completed successfully.");
                                 app_handle_clone.exit(0);
                             }
                             Err(e) => {
-                                eprintln!("Headless export failed: {}", e);
+                                cli_eprintln!("Headless export failed: {}", e);
                                 app_handle_clone.exit(1);
                             }
                         }

@@ -295,9 +295,8 @@ const SPLIT_LABELS = {
 } as const;
 /** Height of the split handles' strip under the plot, in curve units. */
 const SPLIT_STRIP = 16;
-/** How near the pointer must press to grab a curve point, in screen px
- * (14 curve units at the former 210 px plot). */
-const CURVE_GRAB_PX = 11.5;
+/** Grab radius in screen pixels, independent of the plot size. */
+const CURVE_GRAB_PX = 12;
 const CURVE_ARROW_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
 
 const selectHistogram = (s: ReturnType<typeof useEditorStore.getState>) => s.histogram;
@@ -467,6 +466,8 @@ export function PointCurve({
   const send = useDragSend((next: Coord[]) => onChange({ ...curves, [channel]: next }));
   const svgRef = useRef<SVGSVGElement>(null);
   const dragging = useRef(false);
+  const dragPointer = useRef<Coord | null>(null);
+  const dragTarget = useRef<Coord | null>(null);
   const interaction = useRef(onInteraction);
   interaction.current = onInteraction;
   useEffect(() => {
@@ -579,7 +580,15 @@ export function PointCurve({
           // size: a larger plot places points more finely.
           const scale = e.currentTarget.getScreenCTM()?.a || 1;
           const reach = CURVE_GRAB_PX / scale;
-          const nearest = points.findIndex((q) => Math.hypot(q.x - p.x, q.y - p.y) < reach);
+          let nearest = -1;
+          let bestDistance = reach;
+          for (let i = 0; i < points.length; i++) {
+            const distance = Math.hypot(points[i].x - p.x, points[i].y - p.y);
+            if (distance <= reach && (nearest === -1 || distance < bestDistance)) {
+              nearest = i;
+              bestDistance = distance;
+            }
+          }
           // No two points share an input level: a press on a point's level
           // but out of its reach neither adds nor grabs one.
           if (nearest === -1 && points.some((q) => Math.abs(q.x - p.x) < 1)) return;
@@ -593,6 +602,9 @@ export function PointCurve({
             svgRef.current?.querySelector<SVGElement>(`[data-curve-point="${index}"]`)?.focus({ preventScroll: true })
           );
           if (nearest === -1) onChange({ ...curves, [channel]: next });
+          latest.current = next;
+          dragPointer.current = p;
+          dragTarget.current = next[index];
           dragging.current = true;
           onInteraction(true);
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -604,6 +616,16 @@ export function PointCurve({
           setHoverInput(overSplit || e.buttons ? null : Math.round(p.x));
           if (disabled || !dragging.current || !e.buttons || selected === null) return;
           const points = latest.current;
+          const previous = dragPointer.current ?? p;
+          dragPointer.current = p;
+          const speed = e.shiftKey ? 0.2 : 1;
+          const anchor = dragTarget.current ?? points[selected];
+          const target = {
+            x: anchor.x + (p.x - previous.x) * speed,
+            y: anchor.y + (p.y - previous.y) * speed
+          };
+          // Retain overshoot so reversing the pointer follows its original path.
+          dragTarget.current = target;
           const next = points.map((q, i) =>
             i === selected
               ? {
@@ -612,8 +634,8 @@ export function PointCurve({
                       ? 0
                       : i === points.length - 1
                         ? 255
-                        : Math.max(points[i - 1].x + 1, Math.min(points[i + 1].x - 1, p.x)),
-                  y: p.y
+                        : Math.max(points[i - 1].x + 1, Math.min(points[i + 1].x - 1, target.x)),
+                  y: Math.max(0, Math.min(255, target.y))
                 }
               : q
           );

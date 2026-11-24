@@ -115,6 +115,9 @@ pub struct Item {
     /// How its file ended when it was not simply written ("If a file
     /// exists": skipped, replaced, kept both); None for a plain write.
     pub outcome: Option<crate::existing_files::Outcome>,
+    /// The JPEG's file size limit could not be met: the smallest file was
+    /// written (`ExportSettings::max_file_kb`); None otherwise.
+    pub size_limit_miss: Option<crate::size_limit::SizeLimitMiss>,
     /// When the last attempt started and ended (Unix ms), for durations.
     pub started_ms: Option<i64>,
     pub finished_ms: Option<i64>,
@@ -157,7 +160,7 @@ pub struct Job {
     pub error: Option<String>,
 }
 
-const QUEUE_VERSION: u32 = 5;
+const QUEUE_VERSION: u32 = 6;
 
 pub struct ExportQueue {
     conn: Connection,
@@ -199,6 +202,7 @@ impl ExportQueue {
                finished_ms INTEGER,
                snapshot TEXT,
                outcome TEXT,
+               size_limit_miss TEXT,
                PRIMARY KEY(job_id, idx));",
         )?;
         if version < 2 {
@@ -257,6 +261,20 @@ impl ExportQueue {
                 tx.execute_batch("ALTER TABLE jobs ADD COLUMN error TEXT;")?;
             }
             tx.execute_batch("PRAGMA user_version=5;")?;
+            tx.commit()?;
+        }
+        if version < 6 {
+            // Versions 1 to 5 did not record a missed file size limit.
+            let tx = conn.unchecked_transaction()?;
+            let has_miss: bool = tx.query_row(
+                "SELECT count(*) FROM pragma_table_info('items') WHERE name='size_limit_miss'",
+                [],
+                |r| r.get(0),
+            )?;
+            if !has_miss {
+                tx.execute_batch("ALTER TABLE items ADD COLUMN size_limit_miss TEXT;")?;
+            }
+            tx.execute_batch("PRAGMA user_version=6;")?;
             tx.commit()?;
         }
         Ok(Self { conn })
@@ -483,7 +501,7 @@ impl ExportQueue {
     /// from now, without an output until `item_started` plans one.
     pub fn item_began(&self, job: &str, index: usize) -> Result<()> {
         self.conn.execute(
-            "UPDATE items SET state=?, output=NULL, outcome=NULL, attempts=attempts+1,
+            "UPDATE items SET state=?, output=NULL, outcome=NULL, size_limit_miss=NULL, attempts=attempts+1,
                started_ms=?, finished_ms=NULL WHERE job_id=? AND idx=?",
             params![ItemState::Running.as_str(), now_ms(), job, index as i64],
         )?;
@@ -528,6 +546,21 @@ impl ExportQueue {
                 job,
                 index as i64
             ],
+        )?;
+        Ok(())
+    }
+
+    /// A photo's JPEG stayed above its file size limit at the lowest
+    /// quality: the smallest file was written.
+    pub fn item_size_limit_miss(
+        &self,
+        job: &str,
+        index: usize,
+        miss: crate::size_limit::SizeLimitMiss,
+    ) -> Result<()> {
+        self.conn.execute(
+            "UPDATE items SET size_limit_miss=? WHERE job_id=? AND idx=?",
+            params![serde_json::to_string(&miss)?, job, index as i64],
         )?;
         Ok(())
     }
@@ -832,7 +865,7 @@ impl ExportQueue {
     /// The photos of `job` in order, or only photo `index`.
     fn read_items(&self, job: &str, index: Option<usize>) -> Result<Vec<Item>> {
         let mut q = self.conn.prepare_cached(
-            "SELECT idx,path,state,output,error,attempts,started_ms,finished_ms,outcome
+            "SELECT idx,path,state,output,error,attempts,started_ms,finished_ms,outcome,size_limit_miss
              FROM items WHERE job_id=?1 AND (?2 IS NULL OR idx=?2) ORDER BY idx",
         )?;
         let rows = q.query_map(params![job, index.map(|i| i as i64)], |r| {
@@ -847,11 +880,19 @@ impl ExportQueue {
                 r.get::<_, i64>(5)?,
                 (r.get::<_, Option<i64>>(6)?, r.get::<_, Option<i64>>(7)?),
                 r.get::<_, Option<String>>(8)?,
+                r.get::<_, Option<String>>(9)?,
             ))
         })?;
         rows.map(|row| {
-            let ((index, path, state), output, error, attempts, (started_ms, finished_ms), outcome) =
-                row?;
+            let (
+                (index, path, state),
+                output,
+                error,
+                attempts,
+                (started_ms, finished_ms),
+                outcome,
+                miss,
+            ) = row?;
             Ok(Item {
                 index: index as usize,
                 path,
@@ -859,7 +900,10 @@ impl ExportQueue {
                 output: output.map(PathBuf::from),
                 error,
                 attempts: attempts as u32,
-                outcome: outcome.as_deref().and_then(crate::existing_files::Outcome::parse),
+                outcome: outcome
+                    .as_deref()
+                    .and_then(crate::existing_files::Outcome::parse),
+                size_limit_miss: miss.and_then(|json| serde_json::from_str(&json).ok()),
                 started_ms,
                 finished_ms,
             })
@@ -1201,6 +1245,29 @@ mod tests {
         assert_eq!(items[3].outcome, None);
         q.item_began(&job, 0).unwrap();
         assert_eq!(q.item(&job, 0).unwrap().outcome, None);
+    }
+
+    #[test]
+    fn a_missed_size_limit_is_kept_with_its_photo_and_a_new_attempt_forgets_it() {
+        use crate::size_limit::SizeLimitMiss;
+        let (dir, q) = queue();
+        let job = q.enqueue("Export 2", &json!({}), &paths(2)).unwrap();
+        q.start_next().unwrap();
+        for index in 0..2 {
+            q.item_began(&job, index).unwrap();
+            q.item_started(&job, index, &dir.path().join(format!("{index}.jpg")))
+                .unwrap();
+        }
+        let miss = SizeLimitMiss {
+            limit_bytes: 1000,
+            bytes: 4321,
+        };
+        q.item_size_limit_miss(&job, 1, miss).unwrap();
+        q.item_done(&job, 1).unwrap();
+        assert_eq!(q.item(&job, 0).unwrap().size_limit_miss, None);
+        assert_eq!(q.item(&job, 1).unwrap().size_limit_miss, Some(miss));
+        q.item_began(&job, 1).unwrap();
+        assert_eq!(q.item(&job, 1).unwrap().size_limit_miss, None);
     }
 
     #[test]

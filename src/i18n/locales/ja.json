@@ -3601,9 +3601,13 @@
         "format": "形式",
         "jxlLossless": "画質 100 はロスレスです。",
         "legend": "ファイル設定",
+        "limitSize": "ファイルサイズの上限",
+        "limitSizeAria": "ファイルサイズの上限（KB）",
+        "limitSizeHint": "メタデータを含むファイル全体が上限に収まる高い画質を探します。最低画質でも大きすぎる場合は最小のファイルを書き出し、書き出し結果でお知らせします。画像が縮小されることはありません。",
         "proPhotoWarning": "ProPhoto RGB には 16 ビット TIFF が必要です。8 ビット/チャンネルではバンディングが生じることがあります。",
         "quality": "画質",
         "qualityAria": "{{format}} の画質",
+        "qualityAuto": "自動",
         "template": "ファイル名テンプレート",
         "templateHelp": "{{original}}、{{sequence}}、撮影日時 {{date}} を使用できます。"
       },
@@ -3630,7 +3634,8 @@
       "plan": {
         "fullSize": "フルサイズ",
         "legend": "この書き出し",
-        "quality": "画質 {{quality}}"
+        "quality": "画質 {{quality}}",
+        "sizeLimit": "≤ {{kb}} KB"
       },
       "progress": {
         "cancelling": "キャンセル中…",
@@ -3723,6 +3728,7 @@
           "rendering": "レンダリングと書き込み中…",
           "replaced": "以前の書き出しを置き換えました",
           "selecting": "AI 選択範囲を計算中…",
+          "sizeLimitMissed": "最小のファイルを書き出しました：{{size}} KB（上限 {{limit}} KB を超過）",
           "skippedExists": "スキップ：同名のファイルがあります",
           "skippedUnchanged": "スキップ：前回の書き出しから変更なし",
           "waiting": "待機中"

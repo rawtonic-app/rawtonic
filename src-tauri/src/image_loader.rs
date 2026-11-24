@@ -55,15 +55,18 @@ pub struct LoadImageResult {
     /// The source was developed with `DeadTest::Adjacent` or `Isolated`
     /// (`renderVersion` 3); None for preview data.
     pub dead_pixel_adjacent: Option<bool>,
-    /// ... with `DeadTest::Isolated`, `IsolatedTexture` or `IsolatedBlack`
-    /// (`renderVersion` 15); None for preview data.
+    /// ... with `DeadTest::Isolated`, `IsolatedTexture`, `IsolatedBlack` or
+    /// `IsolatedCross` (`renderVersion` 15); None for preview data.
     pub defects_isolated: Option<bool>,
-    /// ... with `DeadTest::IsolatedTexture` or `IsolatedBlack`
-    /// (`renderVersion` 16); None for preview data.
+    /// ... with `DeadTest::IsolatedTexture`, `IsolatedBlack` or
+    /// `IsolatedCross` (`renderVersion` 16); None for preview data.
     pub defects_texture: Option<bool>,
-    /// ... with `DeadTest::IsolatedBlack` (`renderVersion` 17); None for
-    /// preview data.
+    /// ... with `DeadTest::IsolatedBlack` or `IsolatedCross`
+    /// (`renderVersion` 17); None for preview data.
     pub defects_black: Option<bool>,
+    /// ... with `DeadTest::IsolatedCross` (`renderVersion` 18); None for
+    /// preview data.
+    pub defects_cross: Option<bool>,
     /// The `sourceFrameVersion` a first edit made on what is shown carries
     /// when it is not the newest (`new_edit_frame`); None otherwise.
     pub new_edit_frame: Option<u32>,
@@ -809,6 +812,7 @@ fn decoded_cache_key_for(
         DeadTest::Isolated => key.push_str("\u{1}defects-isolated"),
         DeadTest::IsolatedTexture => key.push_str("\u{1}defects-texture"),
         DeadTest::IsolatedBlack => key.push_str("\u{1}defects-black"),
+        DeadTest::IsolatedCross => key.push_str("\u{1}defects-cross"),
     }
     if variant.frame > 0 {
         key.push_str(&format!("\u{1}frame {}", variant.frame));
@@ -881,7 +885,8 @@ fn publish_cancelled() -> CommandError {
 /// its stored recipe's) and for its dead-photosite test
 /// (`dead_pixel_adjacent`: `DeadTest::Adjacent`, with `defects_isolated`
 /// `Isolated`, with `defects_texture` `IsolatedTexture`, with
-/// `defects_black` `IsolatedBlack`; None: its stored recipe's), black handling (`unbiased_black`: `BlackLevels::Unbiased`,
+/// `defects_black` `IsolatedBlack`, with `defects_cross` `IsolatedCross`;
+/// None: its stored recipe's), black handling (`unbiased_black`: `BlackLevels::Unbiased`,
 /// with `border_black` `UnbiasedBorder`; None: its stored recipe's) and
 /// highlight rebuild (`highlight_ratios`:
 /// `HighlightRebuild::Ratios`; None: its stored recipe's) and the planes a
@@ -904,6 +909,7 @@ pub async fn apply_ai_denoise(
     defects_isolated: Option<bool>,
     defects_texture: Option<bool>,
     defects_black: Option<bool>,
+    defects_cross: Option<bool>,
     unbiased_black: Option<bool>,
     border_black: Option<bool>,
     highlight_ratios: Option<bool>,
@@ -935,19 +941,27 @@ pub async fn apply_ai_denoise(
             dead_pixel_adjacent.unwrap_or(stored.dead_test != DeadTest::SameColour),
             defects_isolated.unwrap_or(matches!(
                 stored.dead_test,
-                DeadTest::Isolated | DeadTest::IsolatedTexture | DeadTest::IsolatedBlack
+                DeadTest::Isolated
+                    | DeadTest::IsolatedTexture
+                    | DeadTest::IsolatedBlack
+                    | DeadTest::IsolatedCross
             )),
             defects_texture.unwrap_or(matches!(
                 stored.dead_test,
-                DeadTest::IsolatedTexture | DeadTest::IsolatedBlack
+                DeadTest::IsolatedTexture | DeadTest::IsolatedBlack | DeadTest::IsolatedCross
             )),
-            defects_black.unwrap_or(stored.dead_test == DeadTest::IsolatedBlack),
+            defects_black.unwrap_or(matches!(
+                stored.dead_test,
+                DeadTest::IsolatedBlack | DeadTest::IsolatedCross
+            )),
+            defects_cross.unwrap_or(stored.dead_test == DeadTest::IsolatedCross),
         ) {
-            (_, _, _, true) => DeadTest::IsolatedBlack,
-            (_, _, true, false) => DeadTest::IsolatedTexture,
-            (_, true, false, false) => DeadTest::Isolated,
-            (true, false, false, false) => DeadTest::Adjacent,
-            (false, false, false, false) => DeadTest::SameColour,
+            (_, _, _, _, true) => DeadTest::IsolatedCross,
+            (_, _, _, true, false) => DeadTest::IsolatedBlack,
+            (_, _, true, false, false) => DeadTest::IsolatedTexture,
+            (_, true, false, false, false) => DeadTest::Isolated,
+            (true, false, false, false, false) => DeadTest::Adjacent,
+            (false, false, false, false, false) => DeadTest::SameColour,
         },
         frame: open.and_then(|(frame, _)| frame).unwrap_or(stored.frame),
         black: match (
@@ -1634,13 +1648,20 @@ pub async fn load_image(
         dead_pixel_adjacent: Some(variant.dead_test != DeadTest::SameColour),
         defects_isolated: Some(matches!(
             variant.dead_test,
-            DeadTest::Isolated | DeadTest::IsolatedTexture | DeadTest::IsolatedBlack
+            DeadTest::Isolated
+                | DeadTest::IsolatedTexture
+                | DeadTest::IsolatedBlack
+                | DeadTest::IsolatedCross
         )),
         defects_texture: Some(matches!(
             variant.dead_test,
-            DeadTest::IsolatedTexture | DeadTest::IsolatedBlack
+            DeadTest::IsolatedTexture | DeadTest::IsolatedBlack | DeadTest::IsolatedCross
         )),
-        defects_black: Some(variant.dead_test == DeadTest::IsolatedBlack),
+        defects_black: Some(matches!(
+            variant.dead_test,
+            DeadTest::IsolatedBlack | DeadTest::IsolatedCross
+        )),
+        defects_cross: Some(variant.dead_test == DeadTest::IsolatedCross),
         new_edit_frame: is_raw
             .then(|| new_edit_frame(&source_path_str, variant.frame))
             .flatten(),
@@ -1861,6 +1882,7 @@ async fn open_offline(
             defects_isolated: None,
             defects_texture: None,
             defects_black: None,
+            defects_cross: None,
             new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
             unbiased_black: None,
             border_black: None,
@@ -1947,6 +1969,7 @@ async fn open_offline(
         defects_isolated: None,
         defects_texture: None,
         defects_black: None,
+        defects_cross: None,
         new_edit_frame: new_edit_frame(&source.to_string_lossy(), proxy_frame),
         unbiased_black: None,
         border_black: None,
@@ -2148,6 +2171,7 @@ mod activation_tests {
         let isolated = key("/p/A.NEF", ms(true, DeadTest::Isolated));
         let texture = key("/p/A.NEF", ms(true, DeadTest::IsolatedTexture));
         let black = key("/p/A.NEF", ms(true, DeadTest::IsolatedBlack));
+        let cross = key("/p/A.NEF", ms(true, DeadTest::IsolatedCross));
         // The default variant's base keeps the key it always had, the
         // multi-scale one too.
         assert_eq!(plain, "/p/A.NEF");
@@ -2158,6 +2182,8 @@ mod activation_tests {
         assert_ne!(texture, isolated);
         assert_ne!(texture, adjacent);
         assert_ne!(black, texture);
+        assert_ne!(cross, black);
+        assert_ne!(cross, texture);
         assert_ne!(black, isolated);
         assert_ne!(key("/p/A.NEF", ms(false, DeadTest::Adjacent)), plain);
         assert!(adjacent.starts_with("/p/A.NEF\u{1}"));
@@ -2207,7 +2233,7 @@ mod activation_tests {
             stored_decode_variant(&raw_str),
             DecodeVariant {
                 multiscale: true,
-                dead_test: DeadTest::IsolatedBlack,
+                dead_test: DeadTest::IsolatedCross,
                 frame: 0,
                 black: BlackLevels::UnbiasedBorder,
                 highlights: HighlightRebuild::Ratios,

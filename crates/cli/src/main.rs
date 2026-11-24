@@ -1,3 +1,5 @@
+use rawtonic_runtime::cli_eprintln;
+
 // The app's allocator, so exports free memory as the app does (the export
 // crate returns freed pages through it, `allocator::release_freed_memory`).
 #[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
@@ -316,6 +318,12 @@ struct ExportArgs {
     adjustments: Option<PathBuf>,
     #[arg(long, default_value_t = 90, value_parser = clap::value_parser!(u8).range(1..=100))]
     quality: u8,
+    /// JPEG only: limit the whole file (metadata and ICC profile included)
+    /// to this many kilobytes (1000 bytes). The quality is then searched for
+    /// (a high one that fits; --quality is not used); a limit even the lowest quality
+    /// cannot meet writes the smallest file and says so.
+    #[arg(long, value_name = "KB", value_parser = clap::value_parser!(u32).range(1..))]
+    max_file_kb: Option<u32>,
     #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u8).range(8..=16))]
     tiff_bit_depth: u8,
     /// Copy all source EXIF and session metadata. Creator, copyright
@@ -454,7 +462,7 @@ fn with_face_retouch(
     let analysis = rawtonic_faces::analyze(&image, models)?;
     let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait)
         .map_err(anyhow::Error::msg)?;
-    eprintln!("{source}: {} face(s)", faces.len());
+    cli_eprintln!("{source}: {} face(s)", faces.len());
     recipe["faceRetouch"] = serde_json::json!({
         "settings": settings,
         "faces": faces,
@@ -546,7 +554,7 @@ impl rawtonic_export::export_processing::Enlarger for SuperResolution {
         let started = std::time::Instant::now();
         let (width, height) = (image.width(), image.height());
         let enlarged = self.0.enlarge(image, cancelled)?;
-        eprintln!(
+        cli_eprintln!(
             "Super Resolution: {width}x{height} enlarged on {} in {:.2} s",
             self.0.backend_name(),
             started.elapsed().as_secs_f64()
@@ -655,7 +663,10 @@ impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
 }
 
 pub(crate) fn print(value: impl serde::Serialize) -> Result<()> {
-    println!("{}", serde_json::to_string_pretty(&value)?);
+    rawtonic_runtime::cli_output::write_result_line(
+        std::io::stdout(),
+        &serde_json::to_string_pretty(&value)?,
+    )?;
     Ok(())
 }
 fn run() -> Result<()> {
@@ -715,7 +726,7 @@ fn run() -> Result<()> {
                     }
                     Err(e) => {
                         failed += 1;
-                        eprintln!("{}: {e:#}", path.display());
+                        cli_eprintln!("{}: {e:#}", path.display());
                     }
                 }
             }
@@ -748,7 +759,7 @@ fn run() -> Result<()> {
                     }))?,
                     Err(e) => {
                         failed += 1;
-                        eprintln!("{}: {e:#}", source.display());
+                        cli_eprintln!("{}: {e:#}", source.display());
                     }
                 }
             }
@@ -891,7 +902,7 @@ fn run() -> Result<()> {
             for a in l.assets(None)? {
                 if let Err(e) = l.sync_xmp(&a.id) {
                     failed += 1;
-                    eprintln!("{}: {e:#}", a.rel_path);
+                    cli_eprintln!("{}: {e:#}", a.rel_path);
                 }
             }
             print(l.summary()?)?;
@@ -973,7 +984,7 @@ fn ai_bench(args: AiBenchArgs) -> Result<()> {
         if !only.is_empty() && !only.iter().any(|o| name.starts_with(o.as_str())) {
             continue;
         }
-        eprintln!("{name}");
+        cli_eprintln!("{name}");
         let r = bench_file(&path, provider, args.runs, &dirs, &picture)?;
         reports.push(serde_json::json!({
             "file": r.file,
@@ -1005,7 +1016,7 @@ fn merge(args: MergeArgs) -> Result<()> {
     use rawtonic_merge::{dng, frame};
     let options = rawtonic_engine::image_loader::BaseImageOptions::default();
     let started = Instant::now();
-    let progress = |msg: &str| eprintln!("{msg}");
+    let progress = |msg: &str| cli_eprintln!("{msg}");
     let mut lens_applied = false;
     let (image, reference, color, metadata, report) = match args.kind.as_str() {
         "single" => {
@@ -1211,6 +1222,7 @@ fn export(args: ExportArgs) -> Result<()> {
         adjustments,
         format,
         quality,
+        max_file_kb,
         tiff_bit_depth,
         keep_metadata,
         strip_gps,
@@ -1286,6 +1298,7 @@ fn export(args: ExportArgs) -> Result<()> {
             }
         }),
         existing_files: Default::default(),
+        max_file_kb,
     };
 
     // (photo path, output) pairs. A folder exports every supported image below
@@ -1591,6 +1604,8 @@ fn export(args: ExportArgs) -> Result<()> {
         || {},
     );
     let exporter = &exporter;
+    // Files that stayed above --max-file-kb at the lowest JPEG quality.
+    let size_limit_missed = std::sync::Mutex::new(Vec::new());
     let outcomes = rawtonic_export::workers::run_in_lanes(&pools, jobs.len(), |i| {
         let (photo, output, replace, _, named_index) = &jobs[i];
         let named_index = *named_index;
@@ -1660,7 +1675,7 @@ fn export(args: ExportArgs) -> Result<()> {
                 _ => !output.exists(),
             },
             |_, wait| {
-                eprintln!(
+                cli_eprintln!(
                     "Rawtonic: the graphics card ran out of memory for {photo}; again in {wait:?}"
                 );
                 std::thread::sleep(wait);
@@ -1685,11 +1700,34 @@ fn export(args: ExportArgs) -> Result<()> {
                         )
                     });
                     if let Err(e) = recorded {
-                        eprintln!(
+                        cli_eprintln!(
                             "Rawtonic: recording {} in the export records failed: {e:#}",
                             output.display()
                         );
                     }
+                }
+                if let (Some(limit), Some(file)) = (
+                    rawtonic_export::size_limit::limit_bytes(settings.max_file_kb),
+                    &written_file,
+                ) && file.size > limit
+                    && matches!(
+                        output
+                            .extension()
+                            .map_or(format.as_str(), |ext| ext.to_str().unwrap_or_default())
+                            .to_lowercase()
+                            .as_str(),
+                        "jpg" | "jpeg"
+                    )
+                {
+                    let miss = rawtonic_export::size_limit::SizeLimitMiss {
+                        limit_bytes: limit,
+                        bytes: file.size,
+                    };
+                    eprintln!("Rawtonic: {}: {}", output.display(), miss.describe());
+                    size_limit_missed
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(serde_json::json!({"output": output, "limitBytes": limit, "bytes": file.size}));
                 }
                 Ok(output.clone())
             }
@@ -1723,7 +1761,10 @@ fn export(args: ExportArgs) -> Result<()> {
             .with_context(|| format!("Write {}", path.display()))?;
         written.push(path.clone());
     }
-    print(serde_json::json!({
+    let size_limit_missed = size_limit_missed
+        .into_inner()
+        .unwrap_or_else(|e| e.into_inner());
+    let mut result = serde_json::json!({
         "written": written,
         "skipped": skipped,
         "replaced": replaced,
@@ -1732,7 +1773,13 @@ fn export(args: ExportArgs) -> Result<()> {
         "failed": failed,
         "seconds": started.elapsed().as_secs_f64(),
         "metadata": if keep_metadata { "source EXIF and session catalog metadata" } else if keep_creator_contact { "creator, copyright, creator contact details and usage terms" } else { "creator, copyright and usage terms" },
-    }))?;
+    });
+    // Only an export that missed a --max-file-kb names them: other runs
+    // print what they always did.
+    if !size_limit_missed.is_empty() {
+        result["sizeLimitMissed"] = size_limit_missed.into();
+    }
+    print(result)?;
     anyhow::ensure!(
         failed.is_empty(),
         "{} of {} exports failed",
@@ -1910,7 +1957,7 @@ fn with_recipe_models(
     for model in ai_models {
         match ai_denoiser(models.clone(), model) {
             Ok(denoiser) => exporter = exporter.with_mosaic_denoiser(model, denoiser),
-            Err(e) => eprintln!("AI Denoise model {model} unavailable: {e:#}"),
+            Err(e) => cli_eprintln!("AI Denoise model {model} unavailable: {e:#}"),
         }
     }
     // Automatic selections a never-opened photo holds without their bitmap
@@ -1930,7 +1977,7 @@ fn with_recipe_models(
                 exporter = exporter
                     .with_selection_detector(std::sync::Arc::new(SelectionModels::new(dir)));
             }
-            Err(e) => eprintln!("AI selections unavailable: {e:#}"),
+            Err(e) => cli_eprintln!("AI selections unavailable: {e:#}"),
         }
     }
     exporter
@@ -2112,7 +2159,7 @@ fn main() {
     let code = match result {
         Ok(Ok(())) => 0,
         Ok(Err(e)) => {
-            eprintln!("Rawtonic: {e:#}");
+            cli_eprintln!("Rawtonic: {e:#}");
             1
         }
         // The panic message has already been printed by the panic hook.

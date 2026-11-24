@@ -47,6 +47,8 @@ export interface ExportItem {
   attempts: number;
   /** How its file ended when it was not simply written ("If a file exists"). */
   outcome?: ExportOutcome | null;
+  /** The JPEG stayed above its file size limit at the lowest quality; the smallest file was written. */
+  sizeLimitMiss?: { limitBytes: number; bytes: number } | null;
   /** When its last attempt started and ended (Unix ms). */
   startedMs: number | null;
   finishedMs: number | null;
