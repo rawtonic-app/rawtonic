@@ -33,7 +33,7 @@ import {
   type OfflineFolder
 } from '../../utils/offline';
 import { useContextMenu } from '../../context/ContextMenuContext';
-import { requestFolderSync } from '../../utils/folderSync';
+import { IMPORTS_CHANGED, requestFolderSync } from '../../utils/folderSync';
 import {
   Invokes,
   OPTION_SEPARATOR,
@@ -522,12 +522,17 @@ export function StudioFolders({ onNavigate, actions }: { onNavigate(path: string
       void loadFolders();
     };
     load();
+    // An import (Capture One, Lightroom, a hot folder, a synchronization)
+    // may have put photographs into folders the list has not seen.
+    const imported = () => void loadFolders();
     window.addEventListener(OFFLINE_CHANGED, load);
     window.addEventListener(OFFLINE_COUNTED, counted);
+    window.addEventListener(IMPORTS_CHANGED, imported);
     return () => {
       live = false;
       window.removeEventListener(OFFLINE_CHANGED, load);
       window.removeEventListener(OFFLINE_COUNTED, counted);
+      window.removeEventListener(IMPORTS_CHANGED, imported);
     };
   }, [sessionRoot, trees, rootsKey, t]);
 
