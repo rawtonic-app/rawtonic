@@ -6685,6 +6685,12 @@ impl Drop for SmallVariant {
 /// The one small compile that may run (`CompileWeight::Small`).
 static SMALL_SLOT: Mutex<()> = Mutex::new(());
 
+/// Detail-cache passes whose compile thread went past its start wait
+/// (`GpuProcessor::detail_pipeline_after`).
+#[cfg(test)]
+static DETAIL_COMPILES_STARTED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 /// Heavy compiles waiting for a compile slot or running
 /// (`background_compile_slot`: an idle compile starts only without one).
 static HEAVY_PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -7340,6 +7346,11 @@ impl StartGate {
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
         open.1 = true;
         self.opened.notify_all();
+    }
+
+    /// Whether the gate is open now.
+    fn is_open(&self) -> bool {
+        self.open.lock().unwrap_or_else(|e| e.into_inner()).0
     }
 
     /// Whether the gate opened (false: cancelled first).
@@ -9022,7 +9033,7 @@ impl GpuProcessor {
             relight_pattern_cache: Mutex::new(None),
             main_bgl,
             main_pipeline,
-            start_gate,
+            start_gate: Arc::clone(&start_gate),
             compiles_ahead: ahead,
             edge_pipelines: Default::default(),
             profile_pipelines: Default::default(),
@@ -9043,8 +9054,11 @@ impl GpuProcessor {
             preview_failed,
             layer_sum_pipelines: Arc::new(variant_table()),
             layer_sum_compilation: Arc::new(variant_table()),
-            idle_compiles: (display_variants && !ahead)
-                .then(|| idle_compiles::IdleCompilesOwner(idle_compiles::IdleCompiles::new())),
+            idle_compiles: (display_variants && !ahead).then(|| {
+                idle_compiles::IdleCompilesOwner(idle_compiles::IdleCompiles::after_first_frame(
+                    Arc::clone(&start_gate),
+                ))
+            }),
             sharpen_view_pipelines: Arc::new(variant_table()),
             sharpen_view_compilation: variant_table(),
             preview_shader: shader_module,
@@ -10230,8 +10244,12 @@ impl GpuProcessor {
         // (a preview: no response 8) and after. A first session compiled
         // both when the first edit needed them (5.8–6.5 s on a Radeon 680M,
         // G76/WSMOKE18, WCOLD1).
-        self.detail_pipeline_for(0);
-        self.detail_pipeline_for(sharpen_level(adjustments));
+        // After the first frame has its pipelines (`IdleCompiles::started`):
+        // beside the RAW default variant they took the small compile slot
+        // between its pipelines (G76/WCC4).
+        for slot in [0, sharpen_level(adjustments)] {
+            self.detail_pipeline_after(slot, Some(Arc::clone(&idle.0)));
+        }
     }
 
     /// What an idle compile needs (`idle_compiles`).
@@ -10286,6 +10304,9 @@ impl GpuProcessor {
         if on_screen && let Some(idle) = idle {
             idle.frame();
         }
+        // Idle compiles wait while it does at the start (`StartWindow`;
+        // `render_window` ends the window once the frame has every pipeline).
+        let _waits = idle.filter(|_| on_screen).map(|idle| idle.frame_waits());
         #[cfg(test)]
         if self
             .force_legacy_curves
@@ -10352,6 +10373,9 @@ impl GpuProcessor {
         // runs now (a superset of its features) instead of queueing its own
         // behind it; shown as a compile the photo waits for.
         let mut waits_for_idle = None;
+        // At the start a frame within the RAW default variant waits for
+        // that one while it compiles (`start_variant_covers`).
+        let mut waits_for_start = false;
         // Under a compile limit a frame no planned variant covers compiles
         // the variant its export renders with (`export_display_features`, a
         // superset): the export then compiles nothing, and the photo's later
@@ -10370,6 +10394,12 @@ impl GpuProcessor {
                 // them (G76/WGT14: Blacks 220 s, with repeated memory
                 // pressure on a 15 GB Radeon 680M laptop).
                 Some(_) if served() => {}
+                // At the start the RAW default variant compiles already and
+                // covers it: the frame waits for that, and no planned
+                // superset is rushed beside it (`StartWindow`).
+                Some(idle) if !idle.started() && self.start_variant_covers(features) => {
+                    waits_for_start = true;
+                }
                 // Glow on a never-edited photo too, although its own
                 // variant is small (9–12 s on a Radeon 680M): compiling it
                 // stops the helper, whose compile then starts over, so the
@@ -10418,6 +10448,15 @@ impl GpuProcessor {
                     idle.plan(features, adjustments, || self.idle_target());
                 }
                 return Ok((pipeline, true));
+            }
+            // The RAW default variant failed: the frame's own compiles.
+            if waits_for_start
+                && self.preview_failed[RAW_DEFAULT_PREVIEW_FEATURES]
+                    .load(std::sync::atomic::Ordering::Acquire)
+            {
+                waits_for_start = false;
+                self.compile_preview_variant(own);
+                continue;
             }
             // The idle compile ended without serving this frame (it
             // failed): the frame's own variant compiles now.
@@ -10619,6 +10658,19 @@ impl GpuProcessor {
         self.compile_preview_variant_gated(features, None);
     }
 
+    /// Whether the RAW default display variant, started with the processor,
+    /// compiles now (or is compiled) and covers `features`: in the start
+    /// window a frame waits for it rather than rush a planned superset
+    /// beside it (`idle_compiles::StartWindow`).
+    fn start_variant_covers(&self, features: usize) -> bool {
+        small_display_variant(features)
+            && self.preview_compilation[RAW_DEFAULT_PREVIEW_FEATURES]
+                .get()
+                .is_some()
+            && !self.preview_failed[RAW_DEFAULT_PREVIEW_FEATURES]
+                .load(std::sync::atomic::Ordering::Acquire)
+    }
+
     /// Compile a display variant once the start gate opens (see `StartGate`).
     fn compile_preview_variant_after_start(&self, features: usize) {
         self.compile_preview_variant_gated(features, Some(Arc::clone(&self.start_gate)));
@@ -10665,6 +10717,17 @@ impl GpuProcessor {
     /// Slot 0 plain, 1 with response 7's Masking, 2 with response 8, 3 the
     /// mask view (response 7's code), 4 the mask view with response 8's.
     fn detail_pipeline_slot(&self, slot: usize) -> Option<&wgpu::ComputePipeline> {
+        self.detail_pipeline_after(slot, None)
+    }
+
+    /// `detail_pipeline_slot`, its compile once `start` (if any) has
+    /// started (`IdleCompiles::wait_started`); a frame that asks for it
+    /// before computes the detail stage inline.
+    fn detail_pipeline_after(
+        &self,
+        slot: usize,
+        start: Option<Arc<idle_compiles::IdleCompiles>>,
+    ) -> Option<&wgpu::ComputePipeline> {
         if self.detail_pipeline[slot].get().is_none() {
             self.detail_compilation[slot].get_or_init(|| {
                 let pipeline = Arc::clone(&self.detail_pipeline[slot]);
@@ -10672,6 +10735,13 @@ impl GpuProcessor {
                 let shader = self.preview_shader.clone();
                 let layout = self.detail_layout.clone();
                 spawn_device_thread("pipeline-compile", move || {
+                    if let Some(start) = start
+                        && !start.wait_started()
+                    {
+                        return;
+                    }
+                    #[cfg(test)]
+                    DETAIL_COMPILES_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let _ = pipeline.set(compile_detail_pipeline(&device, &shader, &layout, slot));
                 });
             });
@@ -11367,6 +11437,14 @@ impl GpuProcessor {
         streams: &mut [Option<RowStream<'_>>],
         readback_analytics: bool,
     ) -> Result<(Vec<RenderedPixels>, u32, u32, u32, u32), String> {
+        // A frame for the window holds idle compiles back at the start until
+        // it has every pipeline it needs, its effect passes' too
+        // (`StartWindow`).
+        let first_frame = self
+            .idle_compiles
+            .as_ref()
+            .filter(|_| output_to_display)
+            .map(|idle| (&idle.0, idle.0.frame_waits()));
         let mut request = request;
         if request.lut.is_none() {
             // A recipe whose LUT file did not load renders without it, not
@@ -11933,9 +12011,6 @@ impl GpuProcessor {
         } else {
             0
         };
-        if let Some(passes) = passes.filter(|_| output_to_display) {
-            passes.compile_ahead(device, export_display_features(&request.adjustments));
-        }
         // The finish pass after a main pass, into the tile the frame or
         // export reads (`output_tile_view`): with grain, which the main
         // pass does not hold, and for an export whose outputs are encoded
@@ -11968,6 +12043,16 @@ impl GpuProcessor {
             )),
             _ => None,
         };
+        if let Some((idle, waits)) = first_frame {
+            idle.frame_served();
+            drop(waits);
+        }
+        // Only now, with every pass of this frame there: started before the
+        // frame's own finish pass, the terms passes it does not use took the
+        // small compile slot that pass waits for (G76/WCC5).
+        if let Some(passes) = passes.filter(|_| output_to_display) {
+            passes.compile_ahead(device, export_display_features(&request.adjustments));
+        }
         let blur_requirements = if force_full_preparation {
             [true; 5]
         } else {

@@ -25,6 +25,7 @@
 
 ### Fixes
 
+- Windows with AMD graphics (Vulkan): on the first start after an install, an update or a new graphics driver, the first photo no longer waits for shaders prepared ahead that it does not need. The Basic-panel shader that compiles in a helper process for later edits, and the detail passes, now start only once the first photo's frame has its shaders (or, with no photo open, once the first shader is ready). A first photo that already needs the Basic-panel shader, such as one with saved edits, still has it compiled at once. On every computer, the effect passes prepared ahead for Glow, Halation and Grain now start only after the frame's own effect passes are ready. On a Radeon 680M, two of those compiles had pushed the first frame from 11 s to 17 s in two of three cold starts. The gain on that laptop is not measured yet.
 - Automatic keyword suggestions respect the requested total count, including parent and colour keywords, and keep a stable order.
 
 - Hold Shift while dragging a curve point for finer control; clicks within 12 pixels grab the nearest point, including endpoints.
