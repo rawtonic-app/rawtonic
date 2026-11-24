@@ -2918,7 +2918,7 @@ pub async fn run_headless_export(
         output_sharpening: None,
         super_resolution: false,
         provenance: None,
-        existing_files: Default::default(),
+        existing_files: session.existing_files,
     };
 
     let mut custom_adjustments = None;

@@ -2776,6 +2776,10 @@ fn cached_detail_of_sharpening_7_and_8_matches_inline_detail_and_follows_the_ton
             "colorNoiseReduction": 25});
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         adjustments.global.noise_level = 0.01;
+        for i in 0..49 {
+            adjustments.global.profile_curve[i / 4][i % 4] = -12.0 + i as f32 * 0.25;
+        }
+        adjustments.global.profile_curve[15][3] = 3.0;
         prepare_preview_pipeline(&processor, preview_features(&adjustments));
         let render = |adjustments: &AllAdjustments, inline: bool| {
             processor
@@ -2838,7 +2842,22 @@ fn cached_detail_of_sharpening_7_and_8_matches_inline_detail_and_follows_the_ton
         assert_eq!(
             brighter_cached,
             render(&adjustments, true),
-            "stale detail cache of response {version} (Masking {masking}) after the tone curve changed"
+            "stale detail cache of response {version} (Masking {masking}) after baseline exposure changed"
+        );
+        // Keep baseline exposure and the profile flag fixed and change only
+        // the profile's curve samples.
+        for i in 0..49 {
+            adjustments.global.profile_curve[i / 4][i % 4] =
+                -12.0 + 12.0 * (i as f32 / 48.0).powi(2);
+        }
+        let curved_cached = render(&adjustments, false);
+        assert!(
+            curved_cached == render(&adjustments, true),
+            "stale detail cache of response {version} (Masking {masking}) after the profile curve changed"
+        );
+        assert!(
+            curved_cached != brighter_cached,
+            "the profile curve must affect the rendered image"
         );
     }
 }

@@ -22,6 +22,10 @@
 
 ### Fixes
 
+- For a capture without an embedded date, a metadata preset gets its copyright year from the source file's verified modification time.
+- Linux Edit With follows applications-directory precedence when reading MIME associations, so a system removal leaves a higher-priority user desktop entry available.
+- When a hot folder retries registering a verified RAW copy, it adopts the copy's XMP and applies the metadata preset over it.
+- Start watching waits for the hot folder's metadata preset to finish saving so the watch keeps its saved preset ID.
 - An automatic sidecar repair never overwrites a newer save.
 - **The Library on a network share no longer reads each never-edited RAW's camera on every start while Develop defaults are set (tested: Linux, kio-fuse SMB, shaped link).** To pick a photo's camera default, each tile read the RAW's camera tags from the share once per app start: 45–90 ms per RAW at 110 MB/s, 80–190 ms at 40 MB/s. Rawtonic now keeps the names a file gives its camera in its own cache folder (never next to your photos), for the file as it is (path, size, modification time and file id); the next start reads them from there (12 test RAWs at 110 MB/s: 746 ms → 2 ms in all), and the camera's name is made from them as before, so the result is identical (2171 test files of 14 formats). Checking whether a tile may show the camera's embedded preview no longer reads the camera when its Standard preview is current (making a never-edited tile still reads it once, then it is kept). A missing or damaged store just means the files are read again. A Library tile also reads each sidecar once per lookup and render instead of up to three times (about 22 ms per read at 110 MB/s, 52 ms at 40 MB/s). Not measured in the running app (engine calls only); kernel CIFS, macOS and Windows shares were not measured.
 - Restoring or replacing a RAW at the same path refreshes its base look the next time it is read. A damaged file's embedded preview no longer leaves a stale look that lasts until restart.

@@ -544,7 +544,11 @@ fn add_one(
         library.add_files_with_metadata_edit(
             &[source.to_path_buf()],
             |photo, metadata, initialized| {
-                let embedded = crate::metadata::ImportMetadata::embedded(photo, source, None)?;
+                let embedded = crate::metadata::ImportMetadata::embedded(
+                    photo,
+                    || fs::metadata(source).and_then(|m| m.modified()).ok(),
+                    None,
+                )?;
                 note = preset.merge(source, embedded, metadata, initialized);
                 Ok(())
             },
