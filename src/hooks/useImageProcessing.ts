@@ -684,6 +684,7 @@ export function useImageProcessing(
   const developDefectsTexture = sourceDevelop?.defectsTexture;
   const developDefectsBlack = sourceDevelop?.defectsBlack;
   const developDefectsCross = sourceDevelop?.defectsCross;
+  const developDefectsMedian = sourceDevelop?.defectsMedian;
   const developUnbiasedBlack = sourceDevelop?.unbiasedBlack;
   const developBorderBlack = sourceDevelop?.borderBlack;
   const developHighlightRatios = sourceDevelop?.highlightRatios;
@@ -707,6 +708,7 @@ export function useImageProcessing(
     const defectsTexture = developDefectsTexture;
     const defectsBlack = developDefectsBlack;
     const defectsCross = developDefectsCross;
+    const defectsMedian = developDefectsMedian;
     const unbiasedBlack = developUnbiasedBlack;
     const borderBlack = developBorderBlack;
     const highlightRatios = developHighlightRatios;
@@ -722,6 +724,7 @@ export function useImageProcessing(
     const changesTextureRule = defectsTexture !== current.defectsTexture;
     const changesBlackRule = defectsBlack !== current.defectsBlack;
     const changesCrossRule = defectsCross !== current.defectsCross;
+    const changesMedianRule = defectsMedian !== current.defectsMedian;
     const changesBlack = unbiasedBlack !== current.unbiasedBlack;
     const changesBorderBlack = borderBlack !== current.borderBlack;
     const changesHighlights = highlightRatios !== current.highlightRatios;
@@ -742,6 +745,7 @@ export function useImageProcessing(
       defectsTexture,
       defectsBlack,
       defectsCross,
+      defectsMedian,
       unbiasedBlack,
       borderBlack,
       highlightRatios,
@@ -769,6 +773,7 @@ export function useImageProcessing(
             ...(defectsTexture === undefined ? {} : { defectsTexture }),
             ...(defectsBlack === undefined ? {} : { defectsBlack }),
             ...(defectsCross === undefined ? {} : { defectsCross }),
+            ...(defectsMedian === undefined ? {} : { defectsMedian }),
             ...(unbiasedBlack === undefined ? {} : { unbiasedBlack }),
             ...(borderBlack === undefined ? {} : { borderBlack }),
             ...(highlightRatios === undefined ? {} : { highlightRatios }),
@@ -812,6 +817,7 @@ export function useImageProcessing(
                   ...(!changesAiDenoise && changesTextureRule ? { defectsTextureFailed: defectsTexture } : {}),
                   ...(!changesAiDenoise && changesBlackRule ? { defectsBlackFailed: defectsBlack } : {}),
                   ...(!changesAiDenoise && changesCrossRule ? { defectsCrossFailed: defectsCross } : {}),
+                  ...(!changesAiDenoise && changesMedianRule ? { defectsMedianFailed: defectsMedian } : {}),
                   ...(!changesAiDenoise && changesBlack ? { unbiasedBlackFailed: unbiasedBlack } : {}),
                   ...(!changesAiDenoise && changesBorderBlack ? { borderBlackFailed: borderBlack } : {}),
                   ...(!changesAiDenoise && changesHighlights ? { highlightRatiosFailed: highlightRatios } : {}),
@@ -843,6 +849,7 @@ export function useImageProcessing(
     developDefectsTexture,
     developDefectsBlack,
     developDefectsCross,
+    developDefectsMedian,
     developUnbiasedBlack,
     developBorderBlack,
     developHighlightRatios,
