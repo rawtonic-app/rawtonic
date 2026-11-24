@@ -1557,6 +1557,8 @@ struct DevelopInput<'a> {
     flare_samples: Option<Arc<image_processing::FlareSamples>>,
     /// What of `image` is developed (all of it when `None`).
     roi: Option<gpu_processing::Roi>,
+    /// What identifies `image`'s pixels in the image cache (its
+    /// `transform_hash`).
     key: u64,
     /// Whose render it is at the GPU processor (`gpu_processing`'s turns):
     /// [`CELL_RENDER`], [`LIVE_RENDER`] or the colour target's
@@ -1567,6 +1569,31 @@ struct DevelopInput<'a> {
     /// A probe the shader writes instead of the developed colour
     /// (`output_space.w`, e.g. `image_processing::color_range_input_probe`).
     probe: Option<u32>,
+}
+
+/// The second window's region source on the GPU, with its colour noise
+/// pyramid ([`gpu_processing::SECOND_WINDOW_CALLER`]): kept from edit to
+/// edit of the same region ([`region_source_id`]), freed when the window
+/// closes ([`SecondBases::clear`]).
+static SECOND_WINDOW_SOURCE: Mutex<Option<gpu_processing::GpuImageCache>> = Mutex::new(None);
+
+/// What identifies the pixels of the cut `rect` (x, y, width, height) of
+/// `base` of `path`: the same for every recipe that develops from the same
+/// base, so a kept upload of the region serves the next edit.
+fn region_source_id(path: &str, base: &RegionBase, rect: [u32; 4]) -> u64 {
+    let mut hash = DefaultHasher::new();
+    (
+        path,
+        base.file_stamp,
+        base.decode_generation,
+        base.preparation_key,
+        base.scale.to_bits(),
+        base.region.map(f32::to_bits),
+        Arc::as_ptr(&base.image) as usize,
+        rect,
+    )
+        .hash(&mut hash);
+    hash.finish()
 }
 
 /// The cell worker's renders: background renders at the GPU processor,
@@ -1639,10 +1666,17 @@ fn develop_rgba(
     let lut = recipe[effects::LUT_PATH.into_name()]
         .as_str()
         .and_then(|p| crate::lut_processing::get_or_load_lut(&luts, p).ok());
+    // The second window keeps its region's source; the other callers'
+    // background renders take a transient one (`gpu_processing`).
+    let image_cache = if input.caller == gpu_processing::SECOND_WINDOW_CALLER {
+        &SECOND_WINDOW_SOURCE
+    } else {
+        &develop.gpu_image_cache
+    };
     let developed = gpu_processing::process_and_get_dynamic_image_inner(
         context,
         &gpu.processor,
-        &develop.gpu_image_cache,
+        image_cache,
         RenderSource::Image {
             image: input.image,
             transform_hash: input.key,
@@ -1659,7 +1693,16 @@ fn develop_rgba(
         None,
         None,
         ReadbackShader::Display,
-    )?;
+    )
+    .inspect_err(|_| {
+        // A failed render (e.g. out of graphics memory) may leave a source
+        // the GPU never made: the next edit uploads it again.
+        if input.caller == gpu_processing::SECOND_WINDOW_CALLER {
+            *SECOND_WINDOW_SOURCE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+        }
+    })?;
     Ok(developed.to_rgba8())
 }
 
@@ -1796,6 +1839,9 @@ impl SecondBases {
     /// Forgets everything (the window closed).
     pub(crate) fn clear(&self) {
         *self.memory.lock().unwrap_or_else(|e| e.into_inner()) = Memory::default();
+        *SECOND_WINDOW_SOURCE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
         self.regions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -3552,7 +3598,15 @@ fn develop_region_in(
     };
     let (x0, y0) = (origin(base.region[0], x), origin(base.region[1], y));
     let (x, y, w, h) = (x0, y0, w + x - x0, h + y - y0);
-    let image = base.image.crop_imm(x, y, w, h);
+    let image = gpu_processing::crop_image(
+        &base.image,
+        gpu_processing::Roi {
+            x,
+            y,
+            width: w,
+            height: h,
+        },
+    );
     // The live path (the primary's preview worker) never builds a whole
     // base: `live_region` leaves a region without a kept measurement (or
     // flare samples) to the region worker.
@@ -3619,7 +3673,7 @@ fn develop_region_in(
                 width: cw,
                 height: ch,
             }),
-            key,
+            key: region_source_id(path, &base, [x, y, w, h]),
             caller,
             space,
             probe,

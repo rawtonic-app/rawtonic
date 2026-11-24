@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The second window at 100 % shows the sharp region about 118 ms after a settled edit on macOS (p50 117.6 ms to the log line written just after its present, 96 edits on a shared host; was about 395 ms): it keeps its region's upload and colour noise pyramid from edit to edit, develops at once after a single edit, first only what it shows with a turn of its own at the GPU; once the window rests, the margin around it for short pans follows in the background (not on Linux). Each region is developed as from a fresh upload; its 8-bit display dither may differ by one code from before where the region now starts elsewhere. Exports are unchanged.
+
 - Smart albums and the Library search list a virtual copy by its own rating, colour label and keywords, as Lightroom does: a five-star copy of a one-star photo is in "rating ≥ 4" without its photo, and a copy shows up in a smart album's grid and count. Copies still share their photo's flag, and ordinary albums still hold photos only.
 
 - A camera's RAW and JPEG files are one camera in the Library: the Camera list, searches and smart albums use one make and model for both (e.g. `Nikon` / `D750`, not also `NIKON CORPORATION` / `NIKON D750` for the JPEG). Existing libraries are renamed when opened, so a smart album saved from the JPEG spelling ("Camera is NIKON D750") now also contains that camera's RAW files. Lightroom smart collections with "Camera is" (and "is not") now import, except for a camera Rawtonic names once for several models Lightroom tells apart (such as Olympus Stylus 1 and 1s), which the import report lists as not imported.

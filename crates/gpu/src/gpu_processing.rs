@@ -14147,18 +14147,29 @@ pub const MULTI_VIEW_LIVE_CALLER: &str = "multi_view_live";
 /// ~280 ms, notes: parity-gaps/G11 TGT5).
 pub const COLOR_TARGET_CALLER: &str = "color_target";
 
+/// The second window's zoomed region after a settled edit: the photograph
+/// the user watches on the other display. As a background render it waited
+/// out the pause after the main window's frame (~100 ms of its ~240 ms on
+/// Metal) and uploaded its source and built its colour noise pyramid again
+/// for every edit (~60–100 ms more; notes: benchmark-results/swc5-2026-11-24).
+/// It takes a foreground turn and keeps its source in the image cache its
+/// caller passes (the second window's own, never the Develop view's: it
+/// would evict the primary's).
+pub const SECOND_WINDOW_CALLER: &str = "second_window";
+
 /// Renders that take a foreground turn at the processor
 /// ([`processor_turns`]): the foreground renders, the multi view's live
 /// cells, which as background renders waited out the pause after the
 /// primary's frame (~250 ms) before the first cell changed (they share the
 /// primary's worker, so they cannot hold up its frames), and the colour
-/// target's measurements (a small block each, ~10–30 ms). Their sources
-/// stay out of the Develop view's image cache (each would evict the
-/// primary's).
+/// target's measurements (a small block each, ~10–30 ms), and the second
+/// window's settled region ([`SECOND_WINDOW_CALLER`]). Their sources stay
+/// out of the Develop view's image cache (each would evict the primary's).
 fn foreground_turn(caller_id: &str, output_to_display: bool) -> bool {
     foreground_render(caller_id, output_to_display)
         || caller_id == MULTI_VIEW_LIVE_CALLER
         || caller_id == COLOR_TARGET_CALLER
+        || caller_id == SECOND_WINDOW_CALLER
 }
 
 #[cfg(test)]
@@ -15000,13 +15011,6 @@ impl PlacedSource {
                 Ok(Arc::new(mask.extend_edges(left, top, right, bottom)))
             })
             .collect::<Result<_, String>>()?;
-        let cut;
-        let image = if whole {
-            image
-        } else {
-            cut = image.crop_imm(cx, cy, real.width, real.height);
-            &cut
-        };
         use std::hash::{Hash, Hasher};
         let mut hasher = std::hash::DefaultHasher::new();
         (
@@ -15015,8 +15019,14 @@ impl PlacedSource {
             (window.x, window.y, window.width, window.height),
         )
             .hash(&mut hasher);
+        let cut = Roi {
+            x: cx,
+            y: cy,
+            width: real.width,
+            height: real.height,
+        };
         Ok(Self {
-            image: extend_image_edges(image, left, top, right, bottom),
+            image: extend_image_rect(image, cut, (left, top, right, bottom)),
             transform_hash: hasher.finish(),
             photo_width: placement.photo_width,
             photo_height: placement.photo_height,
@@ -15051,29 +15061,42 @@ fn roi_pieces(roi: Roi, piece: u32) -> Vec<Roi> {
     pieces
 }
 
-/// `image` grown by `left`, `top`, `right` and `bottom` pixels, each new
-/// pixel the nearest edge pixel's.
-fn extend_image_edges(
-    image: &DynamicImage,
-    left: u32,
-    top: u32,
-    right: u32,
-    bottom: u32,
-) -> DynamicImage {
+/// `rect` (x, y, width, height) of `image`, the pixels of
+/// `DynamicImage::crop_imm` copied row by row on the global pool (`crop_imm`
+/// copies pixel by pixel on one thread: 10–50 ms for a 4.7 MP float region,
+/// notes: benchmark-results/swc5-2026-11-24).
+pub fn crop_image(image: &DynamicImage, rect: Roi) -> DynamicImage {
+    match image {
+        DynamicImage::ImageRgb32F(_)
+        | DynamicImage::ImageRgba32F(_)
+        | DynamicImage::ImageRgb16(_)
+        | DynamicImage::ImageRgba16(_)
+        | DynamicImage::ImageRgb8(_)
+        | DynamicImage::ImageRgba8(_) => extend_image_rect(image, rect, (0, 0, 0, 0)),
+        other => other.crop_imm(rect.x, rect.y, rect.width, rect.height),
+    }
+}
+
+/// `rect` (x, y, width, height) of `image` grown by `left`, `top`, `right`
+/// and `bottom` pixels, each new pixel the nearest edge pixel's of `rect`.
+fn extend_image_rect(image: &DynamicImage, rect: Roi, sides: (u32, u32, u32, u32)) -> DynamicImage {
     fn extend<P: image::Pixel<Subpixel: Send + Sync>>(
         buffer: &ImageBuffer<P, Vec<P::Subpixel>>,
+        rect: Roi,
         (left, top, right, bottom): (u32, u32, u32, u32),
     ) -> ImageBuffer<P, Vec<P::Subpixel>> {
-        let (w, h) = buffer.dimensions();
+        let stride = buffer.width() as usize;
+        let (w, h) = (rect.width, rect.height);
         let channels = P::CHANNEL_COUNT as usize;
         let (nw, nh) = (w + left + right, h + top + bottom);
-        let mut out = vec![buffer.as_raw()[0]; nw as usize * nh as usize * channels];
         let raw = buffer.as_raw();
+        let mut out = vec![raw[0]; nw as usize * nh as usize * channels];
         out.par_chunks_mut(nw as usize * channels)
             .enumerate()
             .for_each(|(row, out)| {
-                let sy = (row as u32).saturating_sub(top).min(h - 1) as usize;
-                let source = &raw[sy * w as usize * channels..(sy + 1) * w as usize * channels];
+                let sy = rect.y as usize + (row as u32).saturating_sub(top).min(h - 1) as usize;
+                let start = (sy * stride + rect.x as usize) * channels;
+                let source = &raw[start..start + w as usize * channels];
                 let first = &source[..channels];
                 let last = &source[source.len() - channels..];
                 let (head, rest) = out.split_at_mut(left as usize * channels);
@@ -15086,15 +15109,33 @@ fn extend_image_edges(
             });
         ImageBuffer::from_raw(nw, nh, out).expect("an extended buffer")
     }
-    let sides = (left, top, right, bottom);
+    let fits = rect.width > 0
+        && rect.height > 0
+        && rect.x + rect.width <= image.width()
+        && rect.y + rect.height <= image.height();
+    assert!(
+        fits,
+        "a {rect:?} cut of a {}x{} image",
+        image.width(),
+        image.height()
+    );
     match image {
-        DynamicImage::ImageRgb32F(b) => DynamicImage::ImageRgb32F(extend(b, sides)),
-        DynamicImage::ImageRgba32F(b) => DynamicImage::ImageRgba32F(extend(b, sides)),
-        DynamicImage::ImageRgb16(b) => DynamicImage::ImageRgb16(extend(b, sides)),
-        DynamicImage::ImageRgba16(b) => DynamicImage::ImageRgba16(extend(b, sides)),
-        DynamicImage::ImageRgb8(b) => DynamicImage::ImageRgb8(extend(b, sides)),
-        DynamicImage::ImageRgba8(b) => DynamicImage::ImageRgba8(extend(b, sides)),
-        other => DynamicImage::ImageRgba32F(extend(&other.to_rgba32f(), sides)),
+        DynamicImage::ImageRgb32F(b) => DynamicImage::ImageRgb32F(extend(b, rect, sides)),
+        DynamicImage::ImageRgba32F(b) => DynamicImage::ImageRgba32F(extend(b, rect, sides)),
+        DynamicImage::ImageRgb16(b) => DynamicImage::ImageRgb16(extend(b, rect, sides)),
+        DynamicImage::ImageRgba16(b) => DynamicImage::ImageRgba16(extend(b, rect, sides)),
+        DynamicImage::ImageRgb8(b) => DynamicImage::ImageRgb8(extend(b, rect, sides)),
+        DynamicImage::ImageRgba8(b) => DynamicImage::ImageRgba8(extend(b, rect, sides)),
+        other => {
+            let cut = other.crop_imm(rect.x, rect.y, rect.width, rect.height);
+            let whole = Roi {
+                x: 0,
+                y: 0,
+                width: rect.width,
+                height: rect.height,
+            };
+            DynamicImage::ImageRgba32F(extend(&cut.to_rgba32f(), whole, sides))
+        }
     }
 }
 
@@ -15253,7 +15294,9 @@ fn render_dynamic_image(
     let background_image_cache = Mutex::new(uploaded);
     let image_cache = if let Some(kept) = kept {
         &kept.cache
-    } else if !preuploaded && foreground_render(caller_id, output_to_display) {
+    } else if !preuploaded
+        && (foreground_render(caller_id, output_to_display) || caller_id == SECOND_WINDOW_CALLER)
+    {
         image_cache
     } else {
         &background_image_cache
