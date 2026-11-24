@@ -3603,7 +3603,7 @@
         "legend": "文件设置",
         "limitSize": "限制文件大小为",
         "limitSizeAria": "文件大小上限（KB）",
-        "limitSizeHint": "使用整个文件（含元数据）不超过上限的最高质量。若连最低质量也过大，则写入最小的文件，并在导出结果中提示；图像绝不会被缩小。",
+        "limitSizeHint": "查找使整个文件（含元数据）不超过上限的较高质量。若连最低质量也过大，则写入最小的文件，并在导出结果中提示；图像绝不会被缩小。",
         "proPhotoWarning": "ProPhoto RGB 需要 16 位 TIFF；每通道 8 位可能出现色带。",
         "quality": "质量",
         "qualityAria": "{{format}} 质量",

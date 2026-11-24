@@ -3707,7 +3707,7 @@
         "legend": "File settings",
         "limitSize": "Limit file size to",
         "limitSizeAria": "File size limit in KB",
-        "limitSizeHint": "The highest quality whose whole file fits, metadata included. If even the lowest quality is too big, the smallest file is written and the export result says so; the picture is never resized.",
+        "limitSizeHint": "Finds a high quality whose whole file, metadata included, fits. If even the lowest quality is too big, the smallest file is written and the export result says so; the picture is never resized.",
         "proPhotoWarning": "ProPhoto RGB needs 16-bit TIFF; 8 bits per channel can band.",
         "quality": "Quality",
         "qualityAria": "{{format}} quality",

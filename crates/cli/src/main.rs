@@ -317,8 +317,8 @@ struct ExportArgs {
     #[arg(long, default_value_t = 90, value_parser = clap::value_parser!(u8).range(1..=100))]
     quality: u8,
     /// JPEG only: limit the whole file (metadata and ICC profile included)
-    /// to this many kilobytes (1000 bytes). The quality is then the highest
-    /// that fits and --quality is not used; a limit even the lowest quality
+    /// to this many kilobytes (1000 bytes). The quality is then searched for
+    /// (a high one that fits; --quality is not used); a limit even the lowest quality
     /// cannot meet writes the smallest file and says so.
     #[arg(long, value_name = "KB", value_parser = clap::value_parser!(u32).range(1..))]
     max_file_kb: Option<u32>,
@@ -1705,7 +1705,14 @@ fn export(args: ExportArgs) -> Result<()> {
                     rawtonic_export::size_limit::limit_bytes(settings.max_file_kb),
                     &written_file,
                 ) && file.size > limit
-                    && matches!(format.to_lowercase().as_str(), "jpg" | "jpeg")
+                    && matches!(
+                        output
+                            .extension()
+                            .map_or(format.as_str(), |ext| ext.to_str().unwrap_or_default())
+                            .to_lowercase()
+                            .as_str(),
+                        "jpg" | "jpeg"
+                    )
                 {
                     let miss = rawtonic_export::size_limit::SizeLimitMiss {
                         limit_bytes: limit,

@@ -4030,7 +4030,7 @@
         "legend": "Ustawienia pliku",
         "limitSize": "Ogranicz rozmiar pliku do",
         "limitSizeAria": "Limit rozmiaru pliku w KB",
-        "limitSizeHint": "Najwyższa jakość, przy której cały plik z metadanymi mieści się w limicie. Jeśli nawet najniższa jakość jest za duża, zapisywany jest najmniejszy plik, a wynik eksportu o tym informuje; obraz nigdy nie jest zmniejszany.",
+        "limitSizeHint": "Szuka wysokiej jakości, przy której cały plik z metadanymi mieści się w limicie. Jeśli nawet najniższa jakość jest za duża, zapisywany jest najmniejszy plik, a wynik eksportu o tym informuje; obraz nigdy nie jest zmniejszany.",
         "proPhotoWarning": "ProPhoto RGB wymaga 16-bitowego TIFF; przy 8 bitach na kanał mogą pojawić się pasma.",
         "quality": "Jakość",
         "qualityAria": "Jakość {{format}}",

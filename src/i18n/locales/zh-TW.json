@@ -3603,7 +3603,7 @@
         "legend": "檔案設定",
         "limitSize": "限制檔案大小為",
         "limitSizeAria": "檔案大小上限（KB）",
-        "limitSizeHint": "使用整個檔案（含中繼資料）不超過上限的最高品質。若連最低品質也過大，則寫入最小的檔案，並在匯出結果中提示；影像絕不會被縮小。",
+        "limitSizeHint": "尋找使整個檔案（含中繼資料）不超過上限的較高品質。若連最低品質也過大，則寫入最小的檔案，並在匯出結果中提示；影像絕不會被縮小。",
         "proPhotoWarning": "ProPhoto RGB 需要 16 位元 TIFF；每色版 8 位元可能出現色階斷層。",
         "quality": "品質",
         "qualityAria": "{{format}} 品質",

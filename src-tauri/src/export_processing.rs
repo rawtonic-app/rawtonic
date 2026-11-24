@@ -689,6 +689,34 @@ pub(crate) fn missing_source(source: &Path) -> Option<String> {
     })
 }
 
+/// Whether the JPEG file size limit applies to an export in `format`.
+fn size_limited(export_settings: &ExportSettings, format: &str) -> bool {
+    rawtonic_export::size_limit::limit_bytes(export_settings.max_file_kb).is_some()
+        && matches!(format.to_lowercase().as_str(), "jpg" | "jpeg")
+}
+
+/// The quality the size estimate encodes at: with a size limit the quality
+/// is automatic, so the estimate starts from the best quality.
+fn estimate_quality(export_settings: &ExportSettings, format: &str) -> u8 {
+    if size_limited(export_settings, format) {
+        100
+    } else {
+        export_settings.jpeg_quality
+    }
+}
+
+/// A photo's estimated size under its JPEG size limit: what the best
+/// quality would give, but never above the limit (a limit even the lowest
+/// quality misses is reported when the file is written).
+fn cap_estimate(bytes: usize, export_settings: &ExportSettings, format: &str) -> usize {
+    match rawtonic_export::size_limit::limit_bytes(export_settings.max_file_kb) {
+        Some(limit) if size_limited(export_settings, format) => {
+            bytes.min(usize::try_from(limit).unwrap_or(usize::MAX))
+        }
+        _ => bytes,
+    }
+}
+
 fn save_image_with_metadata(
     image: DynamicImage,
     output_path: &std::path::Path,
@@ -699,6 +727,11 @@ fn save_image_with_metadata(
 ) -> Result<(), String> {
     let exif_sidecar = || pinned.exif(Path::new(source_path_str));
     let catalog = || pinned.metadata.clone();
+    // Mask images are auxiliary files: the size limit is the main file's.
+    let export_settings = &ExportSettings {
+        max_file_kb: None,
+        ..export_settings.clone()
+    };
     save_export_image(
         image,
         source_path_str,
@@ -3387,7 +3420,7 @@ fn estimate_sizes(
         let preview_bytes = encode_image_to_bytes(
             &processed_preview,
             &output_format,
-            export_settings.jpeg_quality,
+            estimate_quality(&export_settings, &output_format),
             export_settings.tiff_bit_depth,
             export_settings.color_space,
             None,
@@ -3409,7 +3442,11 @@ fn estimate_sizes(
             1.0
         };
 
-        (preview_byte_size as f64 * pixel_ratio) as usize
+        cap_estimate(
+            (preview_byte_size as f64 * pixel_ratio) as usize,
+            &export_settings,
+            &output_format,
+        )
     } else {
         let metadata = crate::exif_processing::load_sidecar(&sidecar_path);
         let mut js_adjustments = metadata.adjustments;
@@ -3562,7 +3599,7 @@ fn estimate_sizes(
         let preview_bytes = encode_image_to_bytes(
             &processed_preview,
             &output_format,
-            export_settings.jpeg_quality,
+            estimate_quality(&export_settings, &output_format),
             export_settings.tiff_bit_depth,
             export_settings.color_space,
             None,
@@ -3583,7 +3620,11 @@ fn estimate_sizes(
             1.0
         };
 
-        (single_image_estimated_size as f64 * pixel_ratio) as usize
+        cap_estimate(
+            (single_image_estimated_size as f64 * pixel_ratio) as usize,
+            &export_settings,
+            &output_format,
+        )
     };
 
     Ok(single_image_extrapolated_size * paths.len())
@@ -3591,6 +3632,30 @@ fn estimate_sizes(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_size_estimate_follows_a_jpeg_size_limit() {
+        let settings = |kb: Option<u32>| -> super::ExportSettings {
+            serde_json::from_value(serde_json::json!({
+                "jpegQuality": 100, "keepMetadata": false, "stripGps": false, "maxFileKb": kb,
+            }))
+            .unwrap()
+        };
+        // Limited: encoded at the best quality, then held to the limit.
+        let limited = settings(Some(500));
+        assert_eq!(super::estimate_quality(&limited, "jpg"), 100);
+        assert_eq!(super::cap_estimate(4_000_000, &limited, "jpg"), 500_000);
+        assert_eq!(super::cap_estimate(300_000, &limited, "jpeg"), 300_000);
+        // Without a limit, or in another format, the estimate is as before.
+        let mut manual = settings(None);
+        manual.jpeg_quality = 72;
+        assert_eq!(super::estimate_quality(&manual, "jpg"), 72);
+        assert_eq!(super::cap_estimate(4_000_000, &manual, "jpg"), 4_000_000);
+        assert_eq!(super::cap_estimate(4_000_000, &limited, "png"), 4_000_000);
+        let mut other = limited.clone();
+        other.jpeg_quality = 64;
+        assert_eq!(super::estimate_quality(&other, "webp"), 64);
+    }
+
     use super::{
         ExportTarget, History, PhotoItem, PlannedFiles, crashed_export_error, export_in_turn,
         is_open_edit, render_groups_for_streaming_tiffs,

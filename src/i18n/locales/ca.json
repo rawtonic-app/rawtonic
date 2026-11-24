@@ -3869,7 +3869,7 @@
         "legend": "Configuració del fitxer",
         "limitSize": "Limita la mida del fitxer a",
         "limitSizeAria": "Límit de mida del fitxer en KB",
-        "limitSizeHint": "La qualitat més alta el fitxer sencer de la qual, metadades incloses, cap dins el límit. Si fins i tot la qualitat més baixa és massa gran, s'escriu el fitxer més petit i el resultat de l'exportació ho indica; la imatge mai no es redimensiona.",
+        "limitSizeHint": "Cerca una qualitat alta el fitxer sencer de la qual, metadades incloses, càpiga dins el límit. Si fins i tot la qualitat més baixa és massa gran, s'escriu el fitxer més petit i el resultat de l'exportació ho indica; la imatge mai no es redimensiona.",
         "proPhotoWarning": "ProPhoto RGB necessita TIFF de 16 bits; amb 8 bits per canal poden aparèixer bandes.",
         "quality": "Qualitat",
         "qualityAria": "Qualitat {{format}}",

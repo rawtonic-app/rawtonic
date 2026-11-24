@@ -2865,7 +2865,7 @@ fn embed_with_marking_fallback(
 }
 
 /// [`encode_with_metadata`] with the file size limit of a JPEG
-/// (`ExportSettings::max_file_kb`) applied: the highest quality whose whole
+/// (`ExportSettings::max_file_kb`) applied: the highest quality (by binary search) whose whole
 /// file fits, and the notice when even the lowest quality does not. Without
 /// a limit, or for another format, the bytes of `encode_with_metadata`.
 fn encode_limited(

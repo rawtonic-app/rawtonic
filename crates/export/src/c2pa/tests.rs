@@ -978,6 +978,68 @@ mod export {
         }
     }
 
+    /// A signed JPEG with a size limit is measured with its manifest in:
+    /// a limit the bare picture meets but the signed file cannot is missed
+    /// and reported; a limit the signed file meets keeps the best quality
+    /// and a valid signature.
+    #[test]
+    fn a_size_limit_counts_the_signed_manifest() {
+        let (_dir, identity) = identity();
+        let run = |kb: u32| {
+            let mut settings = settings(true);
+            settings.max_file_kb = Some(kb);
+            let miss = std::rc::Rc::new(RefCell::new(None));
+            let (into, missed) = (std::rc::Rc::new(RefCell::new(None)), miss.clone());
+            let write = {
+                let into = into.clone();
+                move |_: &Path, _: &str, encoded: EncodedExport<'_>| {
+                    *missed.borrow_mut() = encoded.size_limit_miss();
+                    *into.borrow_mut() = Some(encoded.into_bytes()?);
+                    Ok(())
+                }
+            };
+            let catalog = || None;
+            save_rendered_export(
+                render(),
+                "/photos/DSC0001.ARW",
+                &json!({}),
+                &settings,
+                &ExportOutput {
+                    path: Path::new("/out/photo.jpg"),
+                    format: "jpg",
+                    exif_sidecar: &|| None,
+                    catalog: &catalog,
+                    enlarger: None,
+                    write: &write,
+                    provenance: Some(&identity),
+                },
+                &|| Ok(()),
+            )
+            .unwrap();
+            (into.take().unwrap(), miss.take())
+        };
+        // The same picture and metadata, unsigned and at quality 100.
+        let mut bare = settings(false);
+        bare.jpeg_quality = 100;
+        let (result, unsigned) = export("jpg", &bare, None, &json!({}));
+        result.unwrap();
+        let unsigned = unsigned.unwrap().len();
+        // Just above the bare file: the manifest does not fit in.
+        let tight = (unsigned as u32).div_ceil(1000);
+        assert!(u64::from(tight) * 1000 >= unsigned as u64);
+        let (file, miss) = run(tight);
+        let miss = miss.expect("the signed file is above the limit");
+        assert_eq!(miss.bytes, file.len() as u64);
+        assert!(miss.bytes > u64::from(tight) * 1000);
+        validate(&file, &jpeg_store(&file));
+        // Room for the manifest: met, signed, validated.
+        let roomy = (file.len() as u32).div_ceil(1000) + 1;
+        let (file, miss) = run(roomy);
+        assert!(miss.is_none());
+        assert!(file.len() as u64 <= u64::from(roomy) * 1000);
+        validate(&file, &jpeg_store(&file));
+    }
+
     #[test]
     fn without_the_option_nothing_changes() {
         let (_dir, identity) = identity();

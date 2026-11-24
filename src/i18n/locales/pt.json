@@ -3869,7 +3869,7 @@
         "legend": "Configurações do arquivo",
         "limitSize": "Limitar o tamanho do arquivo a",
         "limitSizeAria": "Limite de tamanho do arquivo em KB",
-        "limitSizeHint": "A qualidade mais alta cujo arquivo inteiro, com os metadados, cabe no limite. Se até a qualidade mais baixa for grande demais, o menor arquivo é gravado e o resultado da exportação avisa; a imagem nunca é redimensionada.",
+        "limitSizeHint": "Procura uma qualidade alta cujo arquivo inteiro, com os metadados, caiba no limite. Se até a qualidade mais baixa for grande demais, o menor arquivo é gravado e o resultado da exportação avisa; a imagem nunca é redimensionada.",
         "proPhotoWarning": "ProPhoto RGB exige TIFF de 16 bits; com 8 bits por canal podem surgir faixas.",
         "quality": "Qualidade",
         "qualityAria": "Qualidade {{format}}",
