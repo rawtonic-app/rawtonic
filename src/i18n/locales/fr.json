@@ -1071,6 +1071,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "Le pilote graphique a cessé de répondre plusieurs fois. Vos réglages sont intacts ; quittez puis rouvrez Rawtonic pour continuer à développer. Détails : {{details}}",
+    "gpuDeviceRecovered": "Le pilote graphique ne répondait plus. Rawtonic a redémarré le traitement graphique ; vos réglages sont intacts.",
     "gpuStartFailed": "Rawtonic n'a pas pu démarrer le processeur graphique : les photos ne peuvent être ni développées ni exportées. Réinitialisez les réglages graphiques et réessayez ; si cela ne suffit pas, mettez à jour le pilote graphique. Détails : {{details}}",
     "operationFailed": "L’opération n’a pas pu être terminée."
   },

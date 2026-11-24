@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { wheelAction } from '../../utils/viewerWheel';
+import { onGpuRecovered } from '../../utils/gpuRecovery';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -172,6 +173,11 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
     if (!active) return;
     let sent: ZoomPayload | undefined;
     let frame = 0;
+    // A new GPU device after a lost one starts its display at fit
+    // (utils/gpuRecovery): the zoom goes again.
+    const stopRecovered = onGpuRecovered(() => {
+      sent = undefined;
+    });
     const tick = () => {
       frame = requestAnimationFrame(tick);
       const { primary, shown, shownSize, zoomLock, areas } = live.current;
@@ -209,7 +215,10 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
       }
     };
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      stopRecovered();
+    };
   }, [active, transformWrapperRef]);
 
   /** Zooms or pans the other cell `path` (lock off); false when it cannot

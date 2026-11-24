@@ -779,7 +779,13 @@ impl MultiView {
                 depth_or_array_layers: 1,
             },
         );
-        queue.submit(Some(encoder.finish()));
+        rawtonic_rawdecode::gpu_submit::submit(
+            device,
+            queue,
+            "multi view frame copy",
+            0,
+            Some(encoder.finish()),
+        );
         let texture = Self::make_texture(device, bindings, key, extent, texture);
         self.textures.insert(path.to_string(), texture);
         true
@@ -2151,6 +2157,36 @@ mod tests {
         multi.set_zooms(None, HashMap::from([("a".to_string(), one)]));
         multi.set_layout(Some("p".into()), vec![cell("p"), cell("b")]);
         assert!(!multi.is_zoomed());
+    }
+
+    /// A new device's display gets the lost one's zooms before its layout
+    /// (`multi_view::show_again` in the app, WDVL3): the new multi view
+    /// keeps them when the layout comes, and when the webview sends the
+    /// same layout again.
+    #[test]
+    fn zooms_set_before_the_layout_stay() {
+        let cell = |path: &str| MultiViewCell {
+            path: path.into(),
+            area: [0.0, 0.0, 10.0, 10.0],
+        };
+        let one = CellZoom {
+            scale: 1.0,
+            center: [0.25, 0.75],
+        };
+        let mut multi = MultiView::default();
+        multi.set_zooms(None, HashMap::from([("a".to_string(), one)]));
+        assert!(!multi.is_active());
+        let layout = vec![cell("p"), cell("a"), cell("b")];
+        multi.set_layout(Some("p".into()), layout.clone());
+        assert_eq!(multi.zoom_of("a"), Some(one));
+        assert_eq!(multi.zoom_of("b"), None);
+        multi.set_layout(Some("p".into()), layout);
+        assert_eq!(multi.zoom_of("a"), Some(one));
+        // The zoom lock's shared zoom too.
+        let mut locked = MultiView::default();
+        locked.set_zoom(Some(one));
+        locked.set_layout(Some("p".into()), vec![cell("p"), cell("b")]);
+        assert_eq!(locked.zoom_of("b"), Some(one));
     }
 
     #[test]

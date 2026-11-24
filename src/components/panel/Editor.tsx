@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect, useImperativeHandle } from 'react';
 import { wheelAction, listenForPinch } from '../../utils/viewerWheel';
+import { onGpuRecovered } from '../../utils/gpuRecovery';
 import { Crop, PercentCrop } from 'react-image-crop';
 import { Loader2 } from 'lucide-react';
 import clsx from 'clsx';
@@ -1909,10 +1910,18 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         scheduleSync();
     });
 
+    // A new GPU device after a lost one (utils/gpuRecovery) starts with a
+    // display of its own: it gets the placement again, not only the pixels.
+    const stopRecovered = onGpuRecovered(() => {
+      lastWgpuTransformRef.current = null;
+      scheduleSync();
+    });
+
     return () => {
       isEffectActive = false;
       unsubscribeSplit();
       unsubscribeLayout();
+      stopRecovered();
       if (wgpuSyncRef.current !== null) {
         cancelAnimationFrame(wgpuSyncRef.current);
         wgpuSyncRef.current = null;

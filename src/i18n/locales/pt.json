@@ -1071,6 +1071,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "O driver gráfico deixou de responder várias vezes. As suas edições estão seguras; feche e reabra o Rawtonic para continuar a revelar. Detalhes: {{details}}",
+    "gpuDeviceRecovered": "O driver gráfico deixou de responder. O Rawtonic reiniciou os gráficos; as suas edições estão seguras.",
     "gpuStartFailed": "O Rawtonic não conseguiu iniciar o processador gráfico, por isso não é possível revelar nem exportar fotos. Redefina as configurações gráficas e tente de novo; se não ajudar, atualize o driver gráfico. Detalhes: {{details}}",
     "operationFailed": "Não foi possível concluir a operação."
   },

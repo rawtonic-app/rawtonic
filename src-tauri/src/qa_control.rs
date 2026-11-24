@@ -145,6 +145,12 @@ fn handle(app: &AppHandle, method: &str, params: Value) -> Result<Value, String>
                 crate::ai_lifecycle::UnloadReason::MemoryPressure,
             ),
         })),
+        // A lost GPU device without a driver reset: the app's recovery
+        // runs as after a real loss (gpu_recovery, DVL1).
+        "gpu.simulate_lost" => Ok(json!({
+            "device": rawtonic_gpu::device_start::simulate_lost("simulated (qa-control)")
+                .map(|lost| lost.generation),
+        })),
         _ => forward(app, method, params),
     }
 }

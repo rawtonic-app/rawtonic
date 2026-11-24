@@ -17,6 +17,8 @@ import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useActivityStore } from '../store/useActivityStore';
 import { useLibraryStore } from '../store/useLibraryStore';
+import { useMultiViewStore } from '../store/useMultiViewStore';
+import { GPU_DEVICE_LOST, GPU_DEVICE_RECOVERED } from '../utils/gpuRecovery';
 import { followPathMoves } from '../utils/pathKeyedState';
 import { libraryImageIndex, libraryImagePath } from '../utils/libraryIndex';
 import { setMergeStateFor } from './useProductivityActions';
@@ -877,6 +879,19 @@ export function useTauriListeners({
       }),
       listen<string>('gpu-start-failed', (event) => {
         if (isEffectActive) showGpuStartError(event.payload);
+      }),
+      // DVL1: the GPU device was lost and replaced (src-tauri gpu_recovery):
+      // one quiet notice; the cells develop again on the new device (the
+      // editor's frame renders again in useImageProcessing).
+      listen(GPU_DEVICE_RECOVERED, () => {
+        if (!isEffectActive) return;
+        notify.info(i18n.t('errors.gpuDeviceRecovered'), { toastId: GPU_DEVICE_RECOVERED, autoClose: 8000 });
+        useMultiViewStore.getState().recipesSaved();
+      }),
+      // Repeated losses: no new device; the photo stays as last shown.
+      listen<string>(GPU_DEVICE_LOST, (event) => {
+        if (!isEffectActive) return;
+        notify.error(i18n.t('errors.gpuDeviceLost', { details: event.payload }), { toastId: GPU_DEVICE_LOST });
       }),
       listen<boolean>('gpu-compiling', (event) => {
         if (isEffectActive) compiles.event(event.payload);
