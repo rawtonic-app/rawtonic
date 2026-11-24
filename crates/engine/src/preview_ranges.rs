@@ -8,7 +8,7 @@
 //! cache the mapping then reads from, so [`read_ahead`] finds where the
 //! preview lies with the same container parsers the preview is then read
 //! with (`image_loader::FileBytes`, over a probe that reads only the blocks
-//! they ask for), reads those ranges once each, lets rawler's own structure
+//! they ask for), reads those ranges in a few large reads, lets rawler's own structure
 //! parsers read what its decoder reads for the camera crop through the
 //! probe too, and leaves every decode to the mapping: the preview and its
 //! pixels are the same as without it. On macOS smbfs over Wi-Fi the reads
@@ -39,6 +39,12 @@ const MAX_PROBE_READS: usize = 12;
 const MAX_STRUCTURE_READS: usize = 16;
 /// Larger reads are made in parts of this size.
 const READ_PART: usize = 4 << 20;
+/// The probe keeps at most this many bytes of structure (an ORF's maker
+/// note is 1.5 MB); a structure claiming more is left to the mapping.
+const MAX_STRUCTURE_BYTES: u64 = 16 << 20;
+/// A located range longer than this is no camera preview (a damaged
+/// length) and is left to the mapping.
+const MAX_RANGE_BYTES: u64 = 64 << 20;
 
 /// What [`read_ahead`] read: the located preview ranges (offset, length,
 /// clipped to the file), and the reads and bytes it took in all.
@@ -51,8 +57,8 @@ pub struct ReadAhead {
 
 /// Reads the byte ranges `file`'s embedded preview and its camera crop are
 /// read from (the JPEG, Canon's timed metadata, the structure rawler's
-/// decoder parses) into the system's cache, one read each, ahead of the
-/// file's mapping reading them. Never fails the caller: an unknown or
+/// decoder parses) into the system's cache, in a few large reads, ahead of
+/// the file's mapping reading them. Never fails the caller: an unknown or
 /// unreadable structure reads only what the probe read. `len` is the
 /// file's length.
 pub fn read_ahead(file: &File, len: u64) -> ReadAhead {
@@ -64,11 +70,12 @@ pub fn read_ahead(file: &File, len: u64) -> ReadAhead {
         .flatten()
         .filter(|_| !probe.failed.get());
     let mut ranges = Vec::new();
+    let mut part = Vec::new();
     for (offset, length) in located.unwrap_or_default() {
         let end = offset.saturating_add(length).min(len);
-        if offset < end {
+        if offset < end && end - offset <= MAX_RANGE_BYTES {
             ranges.push((offset, end - offset));
-            probe.read(offset, end);
+            probe.read_through(offset, end, &mut part);
         }
     }
     if !probe.failed.get() {
@@ -92,13 +99,12 @@ fn read_structure(probe: &Probe) {
     let mut reader = ProbeReader { probe, at: 0 };
     if image_loader::raf_jpeg_range(probe).is_some() {
         let word = |at| bytes_at::<4>(probe, at).map(u32::from_be_bytes);
-        if let (Some(tags), Some(length)) = (word(92), word(96)) {
-            probe.read(
-                u64::from(tags),
-                u64::from(tags)
-                    .saturating_add(u64::from(length))
-                    .min(probe.len),
-            );
+        if let (Some(tags), Some(length)) = (word(92), word(96))
+            && u64::from(length) <= MAX_RANGE_BYTES
+        {
+            let tags = u64::from(tags);
+            let end = tags.saturating_add(u64::from(length)).min(probe.len);
+            probe.read_through(tags, end, &mut Vec::new());
         }
         if let Some(raw) = word(100) {
             let _ = rawler::formats::tiff::IFD::new_root_with_correction(
@@ -181,15 +187,17 @@ fn cr3_ranges(probe: &Probe) -> Option<Vec<(u64, u64)>> {
 
 /// A file read in `BLOCK`s as the parsers ask for its bytes: the head at
 /// once, any other block with one read for each run of missing blocks, up
-/// to `limit` reads in all (`MAX_PROBE_READS` after the head at first). A
-/// read it may not or cannot make marks it `failed` (its answers are then
-/// incomplete, unlike a `None` for bytes past the end of the file).
+/// to `limit` reads in all (`MAX_PROBE_READS` after the head at first) and
+/// `MAX_STRUCTURE_BYTES` kept. A read it may not or cannot make marks it
+/// `failed` (its answers are then incomplete, unlike a `None` for bytes
+/// past the end of the file).
 struct Probe<'f> {
     file: &'f File,
     len: u64,
     blocks: RefCell<BTreeMap<u64, Vec<u8>>>,
     reads: Cell<usize>,
     bytes: Cell<u64>,
+    kept: Cell<u64>,
     limit: Cell<usize>,
     failed: Cell<bool>,
 }
@@ -202,6 +210,7 @@ impl<'f> Probe<'f> {
             blocks: RefCell::default(),
             reads: Cell::new(0),
             bytes: Cell::new(0),
+            kept: Cell::new(0),
             limit: Cell::new(1 + MAX_PROBE_READS),
             failed: Cell::new(false),
         };
@@ -222,6 +231,10 @@ impl<'f> Probe<'f> {
         if start >= end {
             return;
         }
+        if self.kept.get() + (end - start) > MAX_STRUCTURE_BYTES {
+            self.failed.set(true);
+            return;
+        }
         let mut data = vec![0; (end - start) as usize];
         if read_exact_at(self.file, &mut data, start).is_err() {
             self.failed.set(true);
@@ -229,6 +242,7 @@ impl<'f> Probe<'f> {
         }
         self.reads.set(self.reads.get() + 1);
         self.bytes.set(self.bytes.get() + data.len() as u64);
+        self.kept.set(self.kept.get() + data.len() as u64);
         let mut blocks = self.blocks.borrow_mut();
         for (index, block) in data.chunks(BLOCK).enumerate() {
             blocks.insert(first + index as u64, block.to_vec());
@@ -267,24 +281,31 @@ impl<'f> Probe<'f> {
         !self.failed.get()
     }
 
-    /// Reads the blocks of `start..end` it has not read, whatever its
-    /// limit (a located range, read in any case).
-    fn read(&self, start: u64, end: u64) {
-        let first = start / BLOCK as u64;
-        let mut missing = None;
-        for block in first..end.div_ceil(BLOCK as u64) {
-            let read = self.blocks.borrow().contains_key(&block);
-            match (read, missing) {
-                (false, None) => missing = Some(block),
-                (true, Some(from)) => {
-                    self.fetch(from, block - from);
-                    missing = None;
-                }
-                _ => {}
+    /// Reads the parts of `start..end` outside its blocks into the system's
+    /// cache through `part` (in `READ_PART`s, whatever its limit, keeping
+    /// nothing): a located range, which the mapping reads next.
+    fn read_through(&self, start: u64, end: u64, part: &mut Vec<u8>) {
+        let kept = |at: u64| self.blocks.borrow().contains_key(&(at / BLOCK as u64));
+        let block_end = |at: u64| ((at / BLOCK as u64 + 1) * BLOCK as u64).min(end);
+        let mut at = start;
+        while at < end {
+            if kept(at) {
+                at = block_end(at);
+                continue;
             }
-        }
-        if let Some(from) = missing {
-            self.fetch(from, end.div_ceil(BLOCK as u64) - from);
+            // The run of blocks not kept from `at`, up to `READ_PART`.
+            let mut stop = block_end(at);
+            while stop < end && !kept(stop) && stop - at < READ_PART as u64 {
+                stop = block_end(stop);
+            }
+            let stop = stop.min(at + READ_PART as u64);
+            part.resize((stop - at) as usize, 0);
+            if read_exact_at(self.file, part, at).is_err() {
+                return;
+            }
+            self.reads.set(self.reads.get() + 1);
+            self.bytes.set(self.bytes.get() + (stop - at));
+            at = stop;
         }
     }
 }
@@ -436,18 +457,36 @@ mod tests {
         (offset as u64, part.len() as u64)
     }
 
-    /// The bytes of the head and of the blocks `ranges` lie in, in a file
-    /// of `len` bytes.
-    fn blocks_of(ranges: &[(u64, u64)], len: u64) -> u64 {
+    /// The bytes read for a file of `len` bytes: the head's and the
+    /// `structure`'s blocks (kept by the probe), and the parts of `ranges`
+    /// outside them (read through).
+    fn read_for(structure: &[(u64, u64)], ranges: &[(u64, u64)], len: u64) -> u64 {
         let block = BLOCK as u64;
         let mut blocks: std::collections::BTreeSet<u64> = (0..HEAD_BLOCKS as u64).collect();
-        for &(offset, length) in ranges {
+        for &(offset, length) in structure {
             blocks.extend(offset / block..(offset + length).div_ceil(block));
         }
-        blocks
-            .into_iter()
+        let kept: u64 = blocks
+            .iter()
             .map(|b| ((b + 1) * block).min(len).saturating_sub(b * block))
-            .sum()
+            .sum();
+        let outside: u64 = ranges
+            .iter()
+            .flat_map(|&(offset, length)| offset..offset + length)
+            .filter(|at| !blocks.contains(&(at / block)))
+            .count() as u64;
+        kept + outside
+    }
+
+    /// A file of `len` bytes (sparse beyond `bytes`).
+    fn read_ahead_of_sparse(bytes: &[u8], len: u64) -> ReadAhead {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.raw");
+        std::fs::write(&path, bytes).unwrap();
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(len).unwrap();
+        let file = File::open(&path).unwrap();
+        read_ahead(&file, len)
     }
 
     #[test]
@@ -468,7 +507,7 @@ mod tests {
         assert_eq!(done.ranges, vec![expected]);
         // The head, then the JPEG past it: two reads, not the raw data.
         assert_eq!(done.reads, 2);
-        assert_eq!(done.bytes, blocks_of(&done.ranges, raf.len() as u64));
+        assert_eq!(done.bytes, read_for(&[], &done.ranges, raf.len() as u64));
     }
 
     /// A little-endian TIFF RAW: IFD0 (orientation) with two SubIFDs, a
@@ -576,7 +615,10 @@ mod tests {
         assert_eq!(done.ranges.len(), 1);
         // The head, then the rest of the note: not the raw data after it.
         assert_eq!(done.reads, 2);
-        assert_eq!(done.bytes, blocks_of(&[(note, note_len)], orf.len() as u64));
+        assert_eq!(
+            done.bytes,
+            read_for(&[(note, note_len)], &[], orf.len() as u64)
+        );
     }
 
     #[test]
@@ -597,8 +639,13 @@ mod tests {
         assert_eq!(done.ranges, vec![(148, preview.len() as u64)]);
         // The head (with the JPEG), the tag block, the raw data's IFD.
         assert_eq!(done.reads, 3);
-        let structure = [(tags as u64, tags_len as u64), (raw as u64, 26)];
-        assert_eq!(done.bytes, blocks_of(&structure, raf.len() as u64));
+        // The tag block read through, the IFD's block kept.
+        let read = read_for(
+            &[(raw as u64, 26)],
+            &[(tags as u64, tags_len as u64)],
+            raf.len() as u64,
+        );
+        assert_eq!(done.bytes, read);
     }
 
     #[test]
@@ -619,8 +666,27 @@ mod tests {
         assert_eq!(done.reads, 2);
         assert_eq!(
             done.bytes,
-            blocks_of(&[(at as u64, preview.len() as u64)], rw2.len() as u64)
+            read_for(&[(at as u64, preview.len() as u64)], &[], rw2.len() as u64)
         );
+    }
+
+    #[test]
+    fn a_damaged_length_reads_no_more_than_the_caps() {
+        // A RAF whose JPEG claims 100 MB: no camera preview, left to the
+        // mapping.
+        let mut raf = raf_with_jpeg(&jpeg(8, 8));
+        raf[88..92].copy_from_slice(&(100u32 << 20).to_be_bytes());
+        let done = read_ahead_of_sparse(&raf, 101 << 20);
+        assert_eq!(done.ranges, Vec::new());
+        assert_eq!((done.reads, done.bytes), (1, (HEAD_BLOCKS * BLOCK) as u64));
+        // A TIFF tag value claiming 40 MB: the probe keeps at most
+        // `MAX_STRUCTURE_BYTES` and then stops.
+        let mut tiff = b"II\x2a\0\x08\0\0\0\x01\0\x2e\0\x07\0".to_vec();
+        tiff.extend((40u32 << 20).to_le_bytes());
+        tiff.extend((1u32 << 20).to_le_bytes());
+        tiff.extend(0u32.to_le_bytes());
+        let done = read_ahead_of_sparse(&tiff, 48 << 20);
+        assert!(done.bytes <= (HEAD_BLOCKS * BLOCK) as u64 + MAX_STRUCTURE_BYTES);
     }
 
     /// An ISO BMFF box.
@@ -709,7 +775,7 @@ mod tests {
         );
         // The head (ftyp, moov, mdat's header), the preview, the metadata.
         assert_eq!(done.reads, 3);
-        assert_eq!(done.bytes, blocks_of(&done.ranges, len as u64));
+        assert_eq!(done.bytes, read_for(&[], &done.ranges, len as u64));
     }
 
     #[test]
