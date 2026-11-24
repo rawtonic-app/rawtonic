@@ -306,10 +306,13 @@ async fn landscape_run(
         return Err(task_cancelled());
     }
     // As `auto_mask`: not beside an idle shader compile or an export where
-    // they take turns, waited for without this kind's lock.
+    // they take turns, waited for without this kind's lock. Always a run
+    // the photographer asked for (a Landscape mask added, pasted or shown),
+    // whether or not it may download: a compile a frame waits for starts
+    // beside a run made ahead only (`memory_turns`, DVL5 review r1).
     let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
         drop(_run);
-        let turn = crate::ai_lifecycle::turn(download).await;
+        let turn = crate::ai_lifecycle::turn(true).await;
         _run = ai_state.landscape_lock.lock().await;
         if let Some(run) = cached(ai_state) {
             return Ok(run);
@@ -1118,9 +1121,13 @@ async fn auto_mask(
     // (model load included); a cached mask above needs none. The wait is
     // without this kind's lock: a click must not queue behind a run made
     // ahead that waits for a compile (the click stops that compile).
+    // Asked for is a request for the open photo (`asked`), whether or not
+    // it may download (a pasted mask uses only an installed model); only
+    // background requests are runs made ahead, which a compile a frame
+    // waits for does not wait for (`memory_turns`, DVL5 review r1).
     let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
         drop(_run);
-        let turn = crate::ai_lifecycle::turn(download).await;
+        let turn = crate::ai_lifecycle::turn(asked.is_some()).await;
         _run = kind.lock(ai_state).lock().await;
         if let Some(mask) = cached_mask(ai_state, kind, &key) {
             return Ok(Some(mask));
