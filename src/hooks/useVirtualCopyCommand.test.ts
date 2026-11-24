@@ -90,7 +90,14 @@ it('adds a copy made in a library album to that album', async () => {
     sessionDirectory: '/job'
   });
   vi.mocked(invoke).mockImplementation(async (command: string) =>
-    command === 'create_virtual_copy' ? '/job/a.CR3?vc=abc123' : undefined
+    command === 'create_virtual_copy'
+      ? '/job/a.CR3?vc=abc123'
+      : command === 'session_albums'
+        ? [
+            { id: 'a1', kind: 'album' },
+            { id: 's1', kind: 'smart' }
+          ]
+        : undefined
   );
   expect(runAppCommand('virtual_copy')).toBe(true);
   await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
@@ -101,6 +108,13 @@ it('adds a copy made in a library album to that album', async () => {
     paths: ['/job/a.CR3?vc=abc123']
   });
   expect(invoke).not.toHaveBeenCalledWith('get_albums');
+  // In a smart album the copy is shown by the album's rules, never added.
+  vi.mocked(invoke).mockClear();
+  refresh.mockClear();
+  useLibraryStore.setState({ activeAlbumId: 'session-album:s1' });
+  expect(runAppCommand('virtual_copy')).toBe(true);
+  await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+  expect(invoke).not.toHaveBeenCalledWith('session_album_add', expect.anything());
   useLibraryStore.setState({ activeAlbumId: null, sessionDirectory: null });
   hook.unmount();
 });

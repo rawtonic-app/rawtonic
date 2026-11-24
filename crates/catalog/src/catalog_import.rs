@@ -378,30 +378,25 @@ impl Library {
             digests.normalize(edit, root);
         }
         let mut copies = BTreeMap::new();
-        let rows: Vec<(String, Option<String>, bool)> = self
+        let rows: Vec<(String, Option<String>, i8)> = self
             .conn
             .prepare(
-                "SELECT v.name,v.legacy_state,v.flag != coalesce(m.flag,0) FROM versions v
-                 LEFT JOIN metadata m ON m.asset_id=v.asset_id WHERE v.asset_id=? AND v.is_primary=0",
+                "SELECT name,legacy_state,flag FROM versions WHERE asset_id=? AND is_primary=0",
             )?
             .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<rusqlite::Result<_>>()?;
-        for (name, text, own_flag) in rows {
+        for (name, text, flag) in rows {
             let mut value: Value = text
                 .as_deref()
                 .map(serde_json::from_str)
                 .transpose()?
                 .unwrap_or(Value::Null);
             digests.normalize(&mut value, root);
-            // A copy's own flag where it differs from its photograph's (each
-            // copy had its photograph's before schema 35, so earlier
-            // baselines still compare equal).
-            if own_flag {
-                let flag: i8 = self.conn.query_row(
-                    "SELECT flag FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
-                    params![asset, name],
-                    |r| r.get(0),
-                )?;
+            // A copy's own flag, when it has one (an unflagged copy
+            // compares as before schema 35; a flagged copy of a baseline
+            // recorded before it shows as changed once, on both sides, and
+            // is kept as it is here by default).
+            if flag != 0 {
                 value = serde_json::json!({"state": value, "flag": flag});
             }
             copies.insert(name, value);
@@ -772,13 +767,17 @@ impl Library {
     }
 
     /// The albums holding `asset` or one of its virtual copies, by id, each
-    /// with the member: '' for the photograph, else the copy's id.
+    /// with the member: '' for the photograph, else the copy's id. A copy
+    /// the library forgot (its sidecar in the Trash) is in none: its kept
+    /// memberships wait for its Undo there.
     fn album_memberships(&self, asset: &str) -> Result<Vec<(String, String)>> {
         Ok(self
             .conn
             .prepare(
                 "SELECT c.id,ca.copy FROM collection_assets ca JOIN collections c ON c.id=ca.collection_id
-                 WHERE ca.asset_id=? AND c.kind='album' ORDER BY c.id,ca.copy",
+                 WHERE ca.asset_id=? AND c.kind='album' AND (ca.copy='' OR EXISTS(
+                   SELECT 1 FROM versions v WHERE v.asset_id=ca.asset_id AND v.name=ca.copy AND v.is_primary=0))
+                 ORDER BY c.id,ca.copy",
             )?
             .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?)

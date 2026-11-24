@@ -51,8 +51,14 @@ export async function createVirtualCopy(
     });
     // In an album the copy joins it, as a member of its own: its
     // membership first, then the list.
+    // An ordinary album only: a smart album shows the copy when its rules
+    // match it.
     if (libraryAlbum && copy) {
-      await invoke(Invokes.SessionAlbumAdd, { directory: sessionDirectory, id: libraryAlbum, paths: [copy] });
+      const albums = await invoke<{ id: string; kind?: string }[]>(Invokes.SessionAlbums, {
+        directory: sessionDirectory
+      });
+      if (albums.find((album) => album.id === libraryAlbum)?.kind === 'album')
+        await invoke(Invokes.SessionAlbumAdd, { directory: sessionDirectory, id: libraryAlbum, paths: [copy] });
       window.dispatchEvent(new CustomEvent(SESSION_ALBUMS_CHANGED));
     } else if (albumId) {
       const albumTree = await invoke<AlbumItem[]>(Invokes.GetAlbums);

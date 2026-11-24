@@ -662,6 +662,93 @@ fn a_copys_own_flag_and_album_membership_come_back() {
     assert_eq!(members, ["a.arw?vc=c0ffee"]);
 }
 
+/// Only the side whose copy flag changed counts as changed: a pick of the
+/// copy made here stays when the exported catalog changed only its
+/// photograph's flag, or only a snapshot; a copy gone to the Trash there
+/// brings no album membership back.
+#[test]
+fn a_copys_pick_here_stays_through_other_changes_there() {
+    let (_tmp, w) = world_with(|main, ids| {
+        main.save_copy_state(
+            &ids[0],
+            "c0ffee",
+            &json!({"version": 1, "rating": 1, "tags": [], "adjustments": {"exposure": 0.5}}),
+        )
+        .unwrap();
+    });
+    // Here both are picked, there only the photograph.
+    w.main
+        .set_item_flags(&[
+            (w.ids[0].clone(), None, 1),
+            (w.ids[0].clone(), Some("c0ffee".into()), 1),
+        ])
+        .unwrap();
+    w.laptop
+        .set_item_flags(&[(w.ids[0].clone(), None, 1)])
+        .unwrap();
+    // There the copy also joins an album and then goes to the Trash.
+    let client = w.laptop.create_collection("Client", None).unwrap();
+    w.laptop
+        .add_items_to_collection(&client.id, &[(w.ids[0].clone(), Some("c0ffee".into()))])
+        .unwrap();
+    assert!(w.laptop.remove_copy(&w.ids[0], "c0ffee").unwrap());
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(w.main.copy_flag(&w.ids[0], "c0ffee").unwrap(), 1);
+    let client = w
+        .main
+        .collections()
+        .unwrap()
+        .into_iter()
+        .find(|c| c.name == "Client");
+    assert!(
+        client
+            .as_ref()
+            .is_none_or(|c| w.main.collection_item_paths(&c.id).unwrap().is_empty()),
+        "{client:?}"
+    );
+}
+
+/// A snapshot of a copy made there comes back; the copy's pick made here
+/// stays.
+#[test]
+fn a_copys_snapshot_there_keeps_its_pick_here() {
+    let (_tmp, w) = world_with(|main, ids| {
+        main.save_copy_state(
+            &ids[0],
+            "c0ffee",
+            &json!({"version": 1, "rating": 1, "tags": [], "adjustments": {"exposure": 0.5}}),
+        )
+        .unwrap();
+    });
+    w.main
+        .set_item_flags(&[(w.ids[0].clone(), Some("c0ffee".into()), -1)])
+        .unwrap();
+    let there = w
+        .laptop
+        .version_for(&w.ids[0], Some("c0ffee"))
+        .unwrap()
+        .unwrap();
+    w.laptop
+        .add_snapshot(&there, "There", json!({"exposure": 1.0}))
+        .unwrap();
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(w.main.copy_flag(&w.ids[0], "c0ffee").unwrap(), -1);
+}
+
 #[test]
 fn conflict_choices_keep_virtual_copy_and_changed_here_only() {
     let (_tmp, w) = world();
