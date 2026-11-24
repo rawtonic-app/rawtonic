@@ -823,6 +823,7 @@ fn variant_part(variant: DecodeVariant) -> String {
         DeadTest::IsolatedTexture => key + ";dead=texture",
         DeadTest::IsolatedBlack => key + ";dead=black",
         DeadTest::IsolatedCross => key + ";dead=cross",
+        DeadTest::IsolatedMedian => key + ";dead=median",
     };
     let key = if variant.frame > 0 {
         format!("{key};frame={}", variant.frame)
@@ -857,7 +858,9 @@ fn decoder_settings(decoder: &str) -> &str {
 pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
     DecodeVariant {
         multiscale: decoder.contains(";cnrms=1"),
-        dead_test: if decoder.contains(";dead=cross") {
+        dead_test: if decoder.contains(";dead=median") {
+            DeadTest::IsolatedMedian
+        } else if decoder.contains(";dead=cross") {
             DeadTest::IsolatedCross
         } else if decoder.contains(";dead=black") {
             DeadTest::IsolatedBlack
@@ -2433,7 +2436,7 @@ pub(crate) mod frame_fixture {
 pub(crate) fn write_for_test(source: &Path, image: &DynamicImage, size: u32) {
     let variant = DecodeVariant {
         multiscale: true,
-        dead_test: DeadTest::IsolatedCross,
+        dead_test: DeadTest::IsolatedMedian,
         frame: 0,
         black: BlackLevels::UnbiasedBorder,
         highlights: HighlightRebuild::Ratios,
@@ -2470,7 +2473,7 @@ pub(crate) mod tests {
     /// What a never-edited RAW's decode is made for.
     const NEW_EDIT: DecodeVariant = DecodeVariant {
         multiscale: true,
-        dead_test: DeadTest::IsolatedCross,
+        dead_test: DeadTest::IsolatedMedian,
         frame: 0,
         black: BlackLevels::UnbiasedBorder,
         highlights: HighlightRebuild::Ratios,
@@ -2886,6 +2889,7 @@ pub(crate) mod tests {
                 DeadTest::IsolatedTexture,
                 DeadTest::IsolatedBlack,
                 DeadTest::IsolatedCross,
+                DeadTest::IsolatedMedian,
             ] {
                 for frame in [0, 1] {
                     for black in [
@@ -3542,9 +3546,9 @@ pub(crate) mod tests {
     }
 
     /// PXR1 (G11/G17, HOT4 review): after a decode-variant bump (render
-    /// version 17 → 18), Build 1:1 Previews on the never-edited master
+    /// version 18 → 19), Build 1:1 Previews on the never-edited master
     /// writes previews of the master's new variant. A virtual copy saved at
-    /// 17 asks for the older variant: its previews are kept beside the new
+    /// 18 asks for the older variant: its previews are kept beside the new
     /// ones, so it still opens offline at full resolution (they were
     /// replaced, and the copy could no longer be opened with the drive
     /// unplugged). Online nothing changes: the copy decodes the RAW.
@@ -3553,20 +3557,20 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let path = photo.to_string_lossy().to_string();
-        let copy = serde_json::json!({ "exposure": 0.5, "renderVersion": 17 });
-        let v17 = crate::image_loader::decode_variant_for_frame(&copy, &path, 0);
+        let copy = serde_json::json!({ "exposure": 0.5, "renderVersion": 18 });
+        let v18 = crate::image_loader::decode_variant_for_frame(&copy, &path, 0);
         let master = crate::image_loader::stored_decode_variant(&path);
         assert_eq!(
-            (v17.dead_test, master.dead_test),
-            (DeadTest::IsolatedBlack, DeadTest::IsolatedCross)
+            (v18.dead_test, master.dead_test),
+            (DeadTest::IsolatedCross, DeadTest::IsolatedMedian)
         );
         save_copy(&photo, "a1b2c3", &copy);
         let settings = AppSettings::default();
         let image = gradient(80, 60);
         // Made before the upgrade, when the never-edited master asked for
-        // 17's variant; then Build 1:1 Previews after it.
-        write(&photo, &image, 40, &settings, v17, None).unwrap();
-        write_full(&photo, &image, &settings, v17, None).unwrap();
+        // 18's variant; then Build 1:1 Previews after it.
+        write(&photo, &image, 40, &settings, v18, None).unwrap();
+        write_full(&photo, &image, &settings, v18, None).unwrap();
         write(&photo, &image, 40, &settings, master, None).unwrap();
         write_full(&photo, &image, &settings, master, None).unwrap();
         let kinds = [ProxyKind::Standard, ProxyKind::Full];
@@ -3580,16 +3584,16 @@ pub(crate) mod tests {
         source_facts::forget(&path);
         for kind in kinds {
             let read = read_kind(&photo, kind, &settings, Some(&copy)).expect("the copy's preview");
-            assert_eq!(variant_of_key(&read.key.decoder), v17, "{kind:?}");
+            assert_eq!(variant_of_key(&read.key.decoder), v18, "{kind:?}");
             let read = read_kind(&photo, kind, &settings, None).expect("the master's preview");
             assert_eq!(variant_of_key(&read.key.decoder), master, "{kind:?}");
             assert_eq!(stands_for(&photo, &copy, kind), Some(true), "{kind:?}");
         }
         let rows = read_full_rows(&photo, &settings, (0, 4), (0, 4), Some(&copy)).unwrap();
-        assert_eq!(variant_of_key(&rows.key.decoder), v17);
+        assert_eq!(variant_of_key(&rows.key.decoder), v18);
         assert_eq!(full_size(&photo, &settings, Some(&copy)), Some((80, 60)));
         let key = full_key(&photo, &settings, Some(&copy)).expect("the copy's 1:1 preview");
-        assert_eq!(variant_of_key(&key.decoder), v17);
+        assert_eq!(variant_of_key(&key.decoder), v18);
         assert_eq!(stands_for_by_recipe(&photo, &copy), Some(true));
         assert!(standard_header_is_current(&photo, &settings, &copy));
         source_facts::forget(&path);
@@ -3662,7 +3666,7 @@ pub(crate) mod tests {
         build(master);
         assert_eq!(counts(), (1, 1));
         assert!(!kept_full.exists());
-        // Edited to 18 it no longer asks for them either.
+        // Edited to 19 (the master's) it no longer asks for them either.
         discard_source(&photo, &both);
         save_copy(&photo, "a1b2c3", &copy);
         build(v17);
@@ -3671,7 +3675,7 @@ pub(crate) mod tests {
         save_copy(
             &photo,
             "a1b2c3",
-            &serde_json::json!({ "exposure": 0.5, "renderVersion": 18 }),
+            &serde_json::json!({ "exposure": 0.5, "renderVersion": 19 }),
         );
         build(master);
         assert_eq!(counts(), (1, 1));
@@ -3969,11 +3973,11 @@ pub(crate) mod tests {
         let old = serde_json::json!({ "exposure": 0.5, "renderVersion": 17 });
         let v17 = crate::image_loader::decode_variant_for_frame(&old, &path, 0);
         let master = crate::image_loader::stored_decode_variant(&path);
-        // Its content (were it read) asks for 18's variant, not 17's.
+        // Its content (were it read) asks for 19's variant, not 17's.
         let sidecar = save_copy(
             &photo,
             "a1b2c3",
-            &serde_json::json!({ "renderVersion": 18 }),
+            &serde_json::json!({ "renderVersion": 19 }),
         );
         crate::file_management::simulate_cloud_placeholder(&sidecar);
         let settings = AppSettings::default();

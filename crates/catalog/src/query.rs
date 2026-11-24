@@ -130,6 +130,10 @@ pub enum Field {
     Suggestion,
     /// In a stack (`true`) or not (`false`).
     Stacked,
+    /// A virtual copy (`true`) or a photograph (`false`): Lightroom's
+    /// "Copy Status" (`vcStatus`: virtual copies / masters, every
+    /// photograph that is not a copy; notes: benchmark-results/smr5-2026-11-24).
+    VirtualCopy,
 }
 
 /// How a condition compares.
@@ -324,15 +328,15 @@ struct Compiler<'a> {
 
 /// A virtual copy as searches see it (`Library::search_items`): its own
 /// rating, colour label and keywords (from its recorded editor state, as
-/// `copy_metadata` reads them), and its photograph's flag (flags belong to
-/// the photograph) and other metadata. `m` in a copy condition.
+/// `copy_metadata` reads them), its own flag (`versions.flag`, as in
+/// Lightroom), and its photograph's other metadata. `m` in a copy condition.
 const COPY_ITEMS: &str = "WITH copy_items(asset_id, copy, rating, label, flag, data) AS (
     SELECT v.asset_id, v.name,
            max(0, min(5, coalesce(CAST(json_extract(v.legacy_state, '$.rating') AS INTEGER), 0))),
            coalesce((SELECT lower(substr(t.value, 7)) FROM json_each(v.legacy_state, '$.tags') t
                      WHERE t.type='text' AND substr(t.value, 1, 6)='color:'
                      ORDER BY t.key DESC LIMIT 1), ''),
-           md.flag, md.data
+           v.flag, md.data
     FROM versions v JOIN metadata md ON md.asset_id=v.asset_id
     WHERE v.is_primary=0 AND json_valid(v.legacy_state)),
   copy_keywords(asset_id, copy, keyword) AS (
@@ -732,6 +736,85 @@ impl<'a> Compiler<'a> {
         })
     }
 
+    /// A camera model or maker contains, starts or ends with `value`: in
+    /// its one name, or in a name its files state (`contains NIKON` finds
+    /// a D750's files, named `Nikon` / `D750`, as a rule saved before one
+    /// name per camera did and as Lightroom, which matches the EXIF model,
+    /// does). The library's cameras are few, so their stated names are
+    /// tested here and the matching cameras listed.
+    fn camera_text(&mut self, field: Field, op: Op, value: &Value) -> Result<String> {
+        use rawtonic_raw_format::camera_names;
+        let column = if field == Field::Camera {
+            "a.camera"
+        } else {
+            "a.make"
+        };
+        let own = self.text_column_of(column, op, value, true)?;
+        let wanted: Vec<String> = match op {
+            Op::Contains | Op::ContainsAny | Op::NotContains | Op::Words => words(value)?,
+            Op::StartsWith | Op::EndsWith => vec![text_value(value)?],
+            _ => return Ok(own),
+        };
+        let wanted: Vec<String> = wanted.iter().map(|w| crate::fold(w)).collect();
+        let Some(library) = self.library else {
+            return Ok(own);
+        };
+        if wanted.iter().all(String::is_empty) {
+            return Ok(own);
+        }
+        let holds = |name: &str| {
+            let name = crate::fold(name);
+            let word = |w: &String| name.split_whitespace().any(|n| n == w);
+            match op {
+                Op::Contains => wanted.iter().all(|w| name.contains(w.as_str())),
+                Op::ContainsAny | Op::NotContains => {
+                    wanted.iter().any(|w| name.contains(w.as_str()))
+                }
+                Op::Words => wanted.iter().all(word),
+                Op::StartsWith => name.starts_with(wanted[0].as_str()),
+                _ => name.ends_with(wanted[0].as_str()),
+            }
+        };
+        let cameras: Vec<(String, String)> = library
+            .conn
+            .prepare_cached(
+                "SELECT DISTINCT make, camera FROM assets WHERE make!='' AND camera!=''",
+            )?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let stated: Vec<(String, String)> = cameras
+            .into_iter()
+            .filter(|(make, model)| {
+                camera_names::stated_names(make, model).into_iter().any(
+                    |(file_make, file_model)| {
+                        holds(if field == Field::Camera {
+                            file_model
+                        } else {
+                            file_make
+                        })
+                    },
+                )
+            })
+            .collect();
+        if stated.is_empty() {
+            return Ok(own);
+        }
+        let list: Vec<String> = stated
+            .into_iter()
+            .map(|(make, model)| {
+                self.push(make);
+                self.push(model);
+                "(a.make=? AND a.camera=?)".to_string()
+            })
+            .collect();
+        let list = list.join(" OR ");
+        Ok(if op == Op::NotContains {
+            format!("({own} AND NOT ({list}))")
+        } else {
+            format!("({own} OR {list})")
+        })
+    }
+
     /// `number_column_inner`, false (not NULL) for a photograph without the
     /// value: "none of [ISO ≥ 800]" keeps the photographs without an ISO,
     /// as "no rule holds" says. (Other columns are never NULL; wrapping
@@ -953,8 +1036,7 @@ impl<'a> Compiler<'a> {
             Field::Camera | Field::Make if matches!(op, Op::Is | Op::IsNot) => {
                 self.camera_name(field, op, value)
             }
-            Field::Camera => self.text_column_of("a.camera", op, value, true),
-            Field::Make => self.text_column_of("a.make", op, value, true),
+            Field::Camera | Field::Make => self.camera_text(field, op, value),
             Field::Lens => self.text_column_of("a.lens", op, value, true),
             // Lightroom's name where an import recorded one (empty: it has
             // none), else the file's: a photograph ingested after the
@@ -1287,6 +1369,16 @@ impl<'a> Compiler<'a> {
                     _ => bail!("Use is / is not for stacked"),
                 }
             }
+            Field::VirtualCopy => {
+                let wanted = value.as_bool().context("Virtual copy is true or false")?;
+                let copy = if self.copies { "1" } else { "0" };
+                let not = if self.copies { "0" } else { "1" };
+                match (op, wanted) {
+                    (Op::Is, true) | (Op::IsNot, false) => Ok(copy.into()),
+                    (Op::Is, false) | (Op::IsNot, true) => Ok(not.into()),
+                    _ => bail!("Use is / is not for virtual copies"),
+                }
+            }
             Field::Album => {
                 let id = text_value(value)?;
                 let test = self.album(&id)?;
@@ -1343,11 +1435,18 @@ impl<'a> Compiler<'a> {
             ))?;
         Ok(match row {
             None => "0".into(),
-            // An album holds photographs; a virtual copy is never in one.
-            Some((kind, _)) if kind == crate::ALBUM && self.copies => "0".into(),
+            // An album holds photographs and virtual copies, each as
+            // added (a copy without its photograph, as in Lightroom).
+            Some((kind, _)) if kind == crate::ALBUM && self.copies => {
+                self.push(id.to_string());
+                "EXISTS(SELECT 1 FROM collection_assets ca WHERE ca.collection_id=? \
+                 AND ca.asset_id=a.id AND ca.copy=m.copy)"
+                    .into()
+            }
             Some((kind, _)) if kind == crate::ALBUM => {
                 self.push(id.to_string());
-                "a.id IN (SELECT asset_id FROM collection_assets WHERE collection_id=?)".into()
+                "a.id IN (SELECT asset_id FROM collection_assets WHERE collection_id=? AND copy='')"
+                    .into()
             }
             Some((kind, _)) if kind == crate::GROUP => {
                 // A group being expanded (a smart album in it naming it)
@@ -1900,7 +1999,14 @@ impl Library {
         fields: &[Field],
         listed: Option<&Path>,
     ) -> Result<BTreeMap<Field, Vec<FacetValue>>, CatalogError> {
-        let compiled = self.compile_visible(rule, self.visible_assets_for_listing(listed))?;
+        let visible = self.visible_assets_for_listing(listed);
+        let compiled = self.compile_visible(rule, visible)?;
+        // The virtual copies the rule matches count as items of their own,
+        // with their own rating, flag, label, keywords and AI facts, as
+        // smart albums list them (Lightroom's Library Filter counts them so).
+        let copies = self.compile_copies(rule, visible)?;
+        const COPIES_FROM: &str =
+            "assets a JOIN copy_items m ON m.asset_id=a.id JOIN roots r ON r.id=a.root_id";
         for field in fields {
             ensure!(FACETS.contains(field), "No value list for {field:?}");
         }
@@ -1912,19 +2018,36 @@ impl Library {
             .iter()
             .any(|f| matches!(f, Field::Rating | Field::Flag | Field::Label));
         if !tallies.is_empty() {
-            let mut query = self.conn.prepare(&format!(
-                "SELECT substr({},1,7), a.camera, a.lens, a.kind, a.iso, a.focal_length, a.aperture, {},
-                        a.source_type
-                 FROM {} WHERE {}",
+            let columns =
+                format!(
+                "substr({},1,7), a.camera, a.lens, a.kind, a.iso, a.focal_length, a.aperture, {},
+                        a.source_type",
                 crate::capture_time::EFFECTIVE,
                 if culling { "m.rating, m.flag, m.label" } else { "0, 0, ''" },
-                compiled.from(culling, false),
-                compiled.condition
-            ))?;
-            let mut rows = query.query(compiled.params().as_slice())?;
-            while let Some(row) = rows.next()? {
-                for (field, column, tally) in tallies.iter_mut() {
-                    tally.add(*field, row.get_ref(*column)?);
+            );
+            for (sql, params) in [
+                (
+                    format!(
+                        "SELECT {columns} FROM {} WHERE {}",
+                        compiled.from(culling, false),
+                        compiled.condition
+                    ),
+                    compiled.params(),
+                ),
+                (
+                    format!(
+                        "{COPY_ITEMS} SELECT {columns} FROM {COPIES_FROM} WHERE {}",
+                        copies.condition
+                    ),
+                    copies.params(),
+                ),
+            ] {
+                let mut query = self.conn.prepare(&sql)?;
+                let mut rows = query.query(params.as_slice())?;
+                while let Some(row) = rows.next()? {
+                    for (field, column, tally) in tallies.iter_mut() {
+                        tally.add(*field, row.get_ref(*column)?);
+                    }
                 }
             }
         }
@@ -1943,17 +2066,33 @@ impl Library {
             // (10× slower for a narrow search, measured on 50,000); so a
             // photograph's keywords come one after another (the inner loop),
             // which counts each photograph once without sorting.
-            let mut query = self.conn.prepare(&format!(
-                "SELECT a.id, k.keyword FROM {} CROSS JOIN asset_keywords k ON k.asset_id=a.id
-                 WHERE {}",
-                compiled.from(false, false),
-                compiled.condition
-            ))?;
             // Folded path → (spelling, photographs, the last photograph counted).
             let mut tally: HashMap<String, (String, usize, i64)> = HashMap::new();
             let mut photo: Option<String> = None;
             let mut nth: i64 = 0;
-            let mut rows = query.query(compiled.params().as_slice())?;
+            for (sql, params) in [
+                (
+                    format!(
+                        "SELECT a.id, k.keyword FROM {} CROSS JOIN asset_keywords k ON k.asset_id=a.id
+                 WHERE {}",
+                        compiled.from(false, false),
+                        compiled.condition
+                    ),
+                    compiled.params(),
+                ),
+                // A copy's own keywords, each copy's together.
+                (
+                    format!(
+                        "{COPY_ITEMS} SELECT a.id || '?' || m.copy, k.keyword FROM {COPIES_FROM} \
+                         JOIN copy_keywords k ON k.asset_id=a.id AND k.copy=m.copy \
+                         WHERE {} ORDER BY 1",
+                        copies.condition
+                    ),
+                    copies.params(),
+                ),
+            ] {
+            let mut query = self.conn.prepare(&sql)?;
+            let mut rows = query.query(params.as_slice())?;
             while let Some(row) = rows.next()? {
                 let id: String = row.get(0)?;
                 if photo.as_deref() != Some(id.as_str()) {
@@ -1980,6 +2119,7 @@ impl Library {
                     }
                 }
             }
+            }
             let mut values: Vec<(String, FacetValue)> = tally
                 .into_iter()
                 .map(|(folded, (value, count, _))| (folded, FacetValue { value, count }))
@@ -1996,6 +2136,16 @@ impl Library {
                 compiled.params().as_slice(),
                 |r| r.get(0),
             )?;
+            let copies_without: i64 = self.conn.query_row(
+                &format!(
+                    "{COPY_ITEMS} SELECT count(*) FROM {COPIES_FROM} WHERE ({}) AND NOT EXISTS(\
+                     SELECT 1 FROM copy_keywords k WHERE k.asset_id=a.id AND k.copy=m.copy)",
+                    copies.condition
+                ),
+                copies.params().as_slice(),
+                |r| r.get(0),
+            )?;
+            let without = without + copies_without;
             if without > 0 {
                 values.push(FacetValue {
                     value: String::new(),
@@ -2005,7 +2155,7 @@ impl Library {
             result.insert(Field::Keyword, values);
         }
         if fields.contains(&Field::Ai) {
-            result.insert(Field::Ai, self.ai_facet(&compiled)?);
+            result.insert(Field::Ai, self.ai_facet(&compiled, &copies)?);
         }
         Ok(result)
     }
@@ -2027,15 +2177,32 @@ impl Library {
     /// order of `AI_FACTS`, each with how many photographs have it (their
     /// recipe or a virtual copy's; `RAW_ONLY` facts on RAW files only, as
     /// the rule), and `""` for those without any.
-    fn ai_facet(&self, compiled: &Compiled) -> Result<Vec<FacetValue>> {
-        let mut query = self.conn.prepare(&format!(
-            "SELECT a.id, v.ai_facts, a.kind FROM {} JOIN versions v ON v.asset_id=a.id AND v.ai_facts != 0
-             WHERE {}",
-            compiled.from(false, false),
-            compiled.condition
-        ))?;
+    fn ai_facet(&self, compiled: &Compiled, copies: &Compiled) -> Result<Vec<FacetValue>> {
         let mut facts: HashMap<String, u32> = HashMap::new();
-        let mut rows = query.query(compiled.params().as_slice())?;
+        for (sql, params) in [
+            (
+                format!(
+                    "SELECT a.id, v.ai_facts, a.kind FROM {} JOIN versions v ON v.asset_id=a.id AND v.ai_facts != 0
+             WHERE {}",
+                    compiled.from(false, false),
+                    compiled.condition
+                ),
+                compiled.params(),
+            ),
+            // A copy has the facts of its own version.
+            (
+                format!(
+                    "{COPY_ITEMS} SELECT a.id || '?' || m.copy, v.ai_facts, a.kind \
+                     FROM assets a JOIN copy_items m ON m.asset_id=a.id JOIN roots r ON r.id=a.root_id \
+                     JOIN versions v ON v.asset_id=a.id AND v.name=m.copy AND v.is_primary=0 \
+                     AND v.ai_facts != 0 WHERE {}",
+                    copies.condition
+                ),
+                copies.params(),
+            ),
+        ] {
+        let mut query = self.conn.prepare(&sql)?;
+        let mut rows = query.query(params.as_slice())?;
         while let Some(row) = rows.next()? {
             let mut bits = row.get::<_, i64>(1)? as u32;
             let kind: String = row.get(2)?;
@@ -2045,6 +2212,7 @@ impl Library {
             if bits != 0 {
                 *facts.entry(row.get(0)?).or_default() |= bits;
             }
+        }
         }
         let mut values: Vec<FacetValue> = AI_FACTS
             .iter()
@@ -2062,6 +2230,15 @@ impl Library {
             ),
             compiled.params().as_slice(),
             |r| r.get(0),
+        )?;
+        let all = all + self.conn.query_row(
+            &format!(
+                "{COPY_ITEMS} SELECT count(*) FROM assets a JOIN copy_items m ON m.asset_id=a.id \
+                     JOIN roots r ON r.id=a.root_id WHERE {}",
+                copies.condition
+            ),
+            copies.params().as_slice(),
+            |r| r.get::<_, i64>(0),
         )?;
         let without = (all as usize).saturating_sub(facts.len());
         if without > 0 {

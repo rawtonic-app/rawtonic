@@ -62,6 +62,15 @@
 //! times the median ratio of its green neighbours to the red and blue
 //! around each, as red and blue ones take green's (notes:
 //! benchmark-results/hot4-2026-11-24/).
+//!
+//! Each such repair still missed in some texture, but not the same one.
+//! `DeadTest::IsolatedMedian` (`renderVersion` 19) finds the same samples
+//! and gives a dead one the median of three repairs: that colour ratio;
+//! the ratio of the four same-colour neighbours whose other colours lie
+//! nearest its own; and the colour difference of the nearest same-colour
+//! pair along the smoothest direction. Chosen among eleven repairs by
+//! their error over all sites of an injected copy, checked on a second
+//! copy (notes: benchmark-results/hot5-2026-11-24/).
 
 use rawler::CFA;
 use rayon::prelude::*;
@@ -109,6 +118,11 @@ const LINE_GUARD: f32 = 0.6;
 const BLACK_RATIO: f32 = 0.1;
 const NOISE_MARGIN: f32 = 4.0;
 const BLACK_LINE_GUARD: f32 = 0.5;
+/// `DeadTest::IsolatedMedian`: how many same-colour neighbours, nearest in
+/// their other colours, set the second repair's ratio, and the smallest
+/// level of the other colours a ratio divides by.
+const NEAREST_RATIOS: usize = 4;
+const RATIO_FLOOR: f32 = 1.0 / 16384.0;
 /// The noise is measured on every `NOISE_ROW_STEP`th row (a prime, so
 /// every row of a 2-, 6- or 12-row pattern takes its turn), per colour and
 /// half octave of level (band 0 holds every level at or below
@@ -168,6 +182,11 @@ pub enum DeadTest {
     /// neighbours' ratio to the other colours around them too
     /// (`renderVersion` 18).
     IsolatedCross,
+    /// `IsolatedCross`, and a dead sample takes the median of three
+    /// repairs: `IsolatedCross`'s colour ratio, the ratio of the
+    /// neighbours whose other colours lie nearest its own, and the colour
+    /// difference along the smoothest direction (`renderVersion` 19).
+    IsolatedMedian,
 }
 
 impl DeadTest {
@@ -186,6 +205,7 @@ impl DeadTest {
                 | DeadTest::IsolatedTexture
                 | DeadTest::IsolatedBlack
                 | DeadTest::IsolatedCross
+                | DeadTest::IsolatedMedian
         )
     }
 
@@ -193,24 +213,207 @@ impl DeadTest {
     fn texture(self) -> bool {
         matches!(
             self,
-            DeadTest::IsolatedTexture | DeadTest::IsolatedBlack | DeadTest::IsolatedCross
+            DeadTest::IsolatedTexture
+                | DeadTest::IsolatedBlack
+                | DeadTest::IsolatedCross
+                | DeadTest::IsolatedMedian
         )
     }
 
     /// Whether samples at black are tested against the photo's noise and
     /// dead samples take their neighbours' colour ratio.
     fn black(self) -> bool {
-        matches!(self, DeadTest::IsolatedBlack | DeadTest::IsolatedCross)
+        matches!(
+            self,
+            DeadTest::IsolatedBlack | DeadTest::IsolatedCross | DeadTest::IsolatedMedian
+        )
+    }
+
+    /// Whether dead green samples take their neighbours' ratio to the other
+    /// colours (and the looser line guard holds for samples at black).
+    fn cross(self) -> bool {
+        matches!(self, DeadTest::IsolatedCross | DeadTest::IsolatedMedian)
     }
 
     /// The line guard of the rule for samples at black.
     fn black_line_guard(self) -> f32 {
-        if self == DeadTest::IsolatedCross {
+        if self.cross() {
             BLACK_LINE_GUARD
         } else {
             LINE_GUARD
         }
     }
+}
+
+/// The level a dead sample at (`row`, `col`) takes under `dead_test` (a
+/// `black()` test), before the fallback to its same-colour median (None).
+fn dead_repair(
+    cfa: &CFA,
+    same: &[(isize, isize)],
+    row: usize,
+    col: usize,
+    dead_test: DeadTest,
+    wb: [f32; 3],
+    at: impl Fn(usize, usize) -> f32,
+) -> Option<f32> {
+    let cross = dead_test.cross().then_some(wb);
+    let ratio = colour_ratio_repair(cfa, same, row, col, cross, &at)?;
+    if dead_test != DeadTest::IsolatedMedian {
+        return Some(ratio);
+    }
+    match (
+        nearest_ratio_repair(cfa, same, row, col, wb, &at),
+        smoothest_difference_repair(cfa, same, row, col, wb, &at),
+    ) {
+        (Some(near), Some(along)) => Some(middle(&mut [ratio, near, along])),
+        _ => Some(ratio),
+    }
+}
+
+/// The level of the colours other than that of the sample at (`row`,
+/// `col`) around it, in its own colour's terms before the ratio: the mean
+/// of the green samples in its 3 × 3 neighbourhood for red and blue, the
+/// white-balanced mean of the red and blue ones there for green. None
+/// without such samples.
+fn other_colours(
+    cfa: &CFA,
+    wb: [f32; 3],
+    row: usize,
+    col: usize,
+    at: &impl Fn(usize, usize) -> f32,
+) -> Option<f32> {
+    let green = cfa.color_at(row, col) == 1;
+    let (mut sum, mut n) = (0.0f32, 0u32);
+    for dy in -1isize..=1 {
+        for dx in -1isize..=1 {
+            let (y, x) = ((row as isize + dy) as usize, (col as isize + dx) as usize);
+            let colour = cfa.color_at(y, x);
+            if (dy, dx) == (0, 0) || colour >= 3 || (colour == 1) == green {
+                continue;
+            }
+            sum += if green {
+                at(y, x) * wb[colour] / wb[1]
+            } else {
+                at(y, x)
+            };
+            n += 1;
+        }
+    }
+    (n > 0).then(|| sum / n as f32)
+}
+
+/// The range of the same-colour neighbours of (`row`, `col`).
+fn same_range(
+    same: &[(isize, isize)],
+    row: usize,
+    col: usize,
+    at: &impl Fn(usize, usize) -> f32,
+) -> (f32, f32) {
+    same.iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &(dy, dx)| {
+            let s = at((row as isize + dy) as usize, (col as isize + dx) as usize);
+            (lo.min(s), hi.max(s))
+        })
+}
+
+/// `DeadTest::IsolatedMedian`'s second repair: the other colours around
+/// the sample (`other_colours`) times the median ratio of the
+/// `NEAREST_RATIOS` same-colour neighbours whose other colours lie nearest
+/// its own, within the neighbours' range: in texture the neighbours on the
+/// sample's own side of an edge carry its ratio.
+fn nearest_ratio_repair(
+    cfa: &CFA,
+    same: &[(isize, isize)],
+    row: usize,
+    col: usize,
+    wb: [f32; 3],
+    at: &impl Fn(usize, usize) -> f32,
+) -> Option<f32> {
+    let own = other_colours(cfa, wb, row, col, at)?;
+    let mut near = [(0f32, 0f32); 24];
+    let mut n = 0;
+    for &(dy, dx) in same {
+        let (r, c) = ((row as isize + dy) as usize, (col as isize + dx) as usize);
+        let other = other_colours(cfa, wb, r, c, at)?;
+        near[n] = ((other - own).abs(), at(r, c) / other.max(RATIO_FLOOR));
+        n += 1;
+    }
+    let near = &mut near[..n];
+    near.sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    let mut ratios = [0f32; NEAREST_RATIOS];
+    let k = n.min(NEAREST_RATIOS);
+    if k == 0 {
+        return None;
+    }
+    for (ratio, &(_, r)) in ratios.iter_mut().zip(near.iter()) {
+        *ratio = r;
+    }
+    let (lo, hi) = same_range(same, row, col, at);
+    let value = own * middle(&mut ratios[..k]);
+    (lo <= hi && value.is_finite()).then(|| value.clamp(lo, hi))
+}
+
+/// `DeadTest::IsolatedMedian`'s third repair: the other colours around the
+/// sample (`other_colours`) plus the mean difference of the nearest pair
+/// of same-colour samples along the smoothest of the four directions
+/// (horizontal, vertical and the diagonals, judged on every colour,
+/// white-balanced) to the other colours around each, within the
+/// neighbours' range: along an edge the colour difference holds.
+fn smoothest_difference_repair(
+    cfa: &CFA,
+    same: &[(isize, isize)],
+    row: usize,
+    col: usize,
+    wb: [f32; 3],
+    at: &impl Fn(usize, usize) -> f32,
+) -> Option<f32> {
+    let colour = cfa.color_at(row, col);
+    let v = |dy: isize, dx: isize| -> Option<f32> {
+        let (y, x) = ((row as isize + dy) as usize, (col as isize + dx) as usize);
+        let c = cfa.color_at(y, x);
+        (c < 3).then(|| at(y, x) * wb[c] / wb[1])
+    };
+    let d = |a: (isize, isize), b: (isize, isize)| -> Option<f32> {
+        Some((v(a.0, a.1)? - v(b.0, b.1)?).abs())
+    };
+    // Pairs mirrored through the sample (or, for the diagonals, the
+    // adjacent pairs on either side of it) along each direction.
+    let gradients = [
+        d((0, -1), (0, 1))? + d((-1, -1), (-1, 1))? + d((1, -1), (1, 1))? + d((0, -2), (0, 2))?,
+        d((-1, 0), (1, 0))? + d((-1, -1), (1, -1))? + d((-1, 1), (1, 1))? + d((-2, 0), (2, 0))?,
+        d((-1, -1), (1, 1))? + d((-2, -2), (2, 2))? + d((-1, 0), (0, 1))? + d((0, -1), (1, 0))?,
+        d((-1, 1), (1, -1))? + d((-2, 2), (2, -2))? + d((-1, 0), (0, -1))? + d((0, 1), (1, 0))?,
+    ];
+    let mut smoothest = 0;
+    for (i, g) in gradients.iter().enumerate() {
+        if *g < gradients[smoothest] {
+            smoothest = i;
+        }
+    }
+    let (sy, sx) = [(0, 1), (1, 0), (1, 1), (1, -1)][smoothest];
+    // The nearest same-colour samples along it, one and then two pixels
+    // away on either side.
+    let mut pair = [(0isize, 0isize); 2];
+    let mut n = 0;
+    for (dy, dx) in [(-sy, -sx), (sy, sx), (-2 * sy, -2 * sx), (2 * sy, 2 * sx)] {
+        let (y, x) = ((row as isize + dy) as usize, (col as isize + dx) as usize);
+        if n < 2 && cfa.color_at(y, x) == colour {
+            pair[n] = (dy, dx);
+            n += 1;
+        }
+    }
+    if n < 2 {
+        return None;
+    }
+    let own = other_colours(cfa, wb, row, col, at)?;
+    let mut difference = 0.0f32;
+    for (dy, dx) in pair {
+        let (y, x) = ((row as isize + dy) as usize, (col as isize + dx) as usize);
+        difference += at(y, x) - other_colours(cfa, wb, y, x, at)?;
+    }
+    let (lo, hi) = same_range(same, row, col, at);
+    let value = own + 0.5 * difference;
+    (lo <= hi && value.is_finite()).then(|| value.clamp(lo, hi))
 }
 
 /// The level a dead sample at (`row`, `col`) takes under
@@ -620,14 +823,13 @@ pub fn suppress<T: Copy + Send + Sync>(
     // `DeadTest::IsolatedBlack`'s level for a dead sample whose
     // same-colour median is `median`.
     let black = dead_test.black();
-    let cross = (dead_test == DeadTest::IsolatedCross).then_some(wb);
     let black_guard = dead_test.black_line_guard();
     // None (no repair) when that is not a number, as around not-a-number
     // neighbours of a float mosaic.
     let dead_level = |row: usize, col: usize, median: f32| -> Option<f32> {
         if black {
             let same = &neighbours.same[neighbours.phase(row, col)];
-            Some(colour_ratio_repair(cfa, same, row, col, cross, at).unwrap_or(median))
+            Some(dead_repair(cfa, same, row, col, dead_test, wb, at).unwrap_or(median))
                 .filter(|v| v.is_finite())
         } else {
             Some(median)
@@ -970,6 +1172,7 @@ mod tests {
                 DeadTest::IsolatedTexture,
                 DeadTest::IsolatedBlack,
                 DeadTest::IsolatedCross,
+                DeadTest::IsolatedMedian,
             ] {
                 let (w, h) = (203usize, 150usize);
                 let active = (5, 3, 190, 141);
@@ -1515,6 +1718,79 @@ mod tests {
         let mut data = line.clone();
         assert_eq!(run(DeadTest::IsolatedCross, &mut data), 0);
         assert_eq!(data, line);
+    }
+
+    /// Dead photosites in fine stripes (a period of 6 px along a diagonal,
+    /// as fabric or a fence far away) in a patch of a smooth frame: the median of three repairs
+    /// (`DeadTest::IsolatedMedian`) follows the stripes, where renderVersion
+    /// 18's colour ratio takes the green across them; in coarser texture it
+    /// repairs at least as well; and it finds the same samples.
+    #[test]
+    fn dead_photosites_in_fine_stripes_take_the_median_of_three_repairs() {
+        let cfa = bayer();
+        let (w, h) = (256, 256);
+        let mut state = 0x51ed_270bu32;
+        let mut uniform = move || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 8) as f32 / (1u32 << 24) as f32
+        };
+        let wb = [2.0f32, 1.0, 1.5, 1.0];
+        let share = [0.5f32, 1.0, 0.4];
+        let mosaic =
+            |grey: &dyn Fn(f32, f32) -> f32, uniform: &mut dyn FnMut() -> f32| -> Vec<f32> {
+                (0..w * h)
+                    .map(|i| {
+                        let (y, x) = (i / w, i % w);
+                        let c = cfa.color_at(y, x);
+                        // The pattern in a patch, a smooth ramp around it.
+                        let level = if (64..192).contains(&y) && (64..192).contains(&x) {
+                            grey(x as f32, y as f32)
+                        } else {
+                            0.2 + 0.2 * x as f32 / w as f32
+                        };
+                        share[c] * level / wb[c] * (1.0 + 0.01 * (uniform() - 0.5))
+                    })
+                    .collect()
+            };
+        let stripes = mosaic(
+            &|x, y| 0.3 * (1.0 + 0.2 * (std::f32::consts::TAU * (x + y) / 6.0).sin()),
+            &mut uniform,
+        );
+        let texture = mosaic(
+            &|x, y| 0.3 * (1.0 + 0.3 * (0.9 * x + 0.3 * y).sin() * (0.7 * y).cos()),
+            &mut uniform,
+        );
+        let run = |test: DeadTest, data: &mut Vec<f32>| {
+            suppress(data, w, (0, 0, w, h), &cfa, wb, test, |v| v, |v| v)
+        };
+        // Squared relative errors of each test's repairs, one dead sample at
+        // a time.
+        let errors = |scene: &[f32]| {
+            let (mut median, mut cross) = (0.0f32, 0.0f32);
+            let mut found = 0;
+            for k in 0..200 {
+                let (y, x) = (70 + (k * 11) % 116, 70 + (k * 7) % 116);
+                let at = y * w + x;
+                let mut dead = scene.to_vec();
+                dead[at] = 0.0;
+                let (mut m, mut c) = (dead.clone(), dead.clone());
+                let n = run(DeadTest::IsolatedMedian, &mut m);
+                assert_eq!(n, run(DeadTest::IsolatedCross, &mut c));
+                assert_eq!(m[at] == 0.0, c[at] == 0.0);
+                if m[at] != 0.0 {
+                    found += 1;
+                    median += ((m[at] - scene[at]) / scene[at]).powi(2);
+                    cross += ((c[at] - scene[at]) / scene[at]).powi(2);
+                }
+            }
+            (found, median, cross)
+        };
+        let (found, median, cross) = errors(&stripes);
+        assert!(found >= 150, "{found}");
+        assert!(median < 0.5 * cross, "{median} {cross}");
+        let (found, median, cross) = errors(&texture);
+        assert!(found >= 150, "{found}");
+        assert!(median < cross, "{median} {cross}");
     }
 
     /// A 12 × 12 pattern (DNG CFAs up to 12 × 12 and 2 × 8 exist): the
