@@ -2383,18 +2383,11 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
     if let Some(lens) = &photo.lens {
         catalog.set_imported_lens(&id, lens)?;
     }
-    if let rawtonic_metadata::CaptureWrite::Set(value) = &photo.metadata.capture
-        && catalog.capture_override(&id)?.is_none()
-    {
-        // Keep the camera facts independent, including when they are read later.
-        // Reimport must preserve a correction the photographer already made here.
-        catalog.set_capture_times(&[rawtonic_catalog::capture_time::CaptureChange {
-            asset_id: id.clone(),
-            expected: None,
-            new: Some(rawtonic_catalog::capture_time::CaptureTime::from_xmp(
-                value,
-            )?),
-        }])?;
+    if let rawtonic_metadata::CaptureWrite::Set(value) = &photo.metadata.capture {
+        if let Some(facts) = rawtonic_ingest::capture::capture_facts(&photo.path) {
+            catalog.record_facts(&id, &facts)?;
+        }
+        catalog.import_wall_capture_time(&id, value)?;
     }
     let version = catalog.version_for(&id, None)?;
     if matches!(rule, Reimport::Apply | Reimport::Same)
@@ -3969,11 +3962,13 @@ mod tests {
             rawtonic_metadata::XmpDateTime::parse("2016-09-11T18:16:08.7").unwrap(),
         );
         let (id, _) = import_photo(&lib, &source).unwrap();
+        assert!(lib.capture_override(&id).unwrap().is_none());
         lib.record_facts(
             &id,
             &rawtonic_catalog::CaptureFacts {
                 captured: Some("2016-09-10 18:16:08".into()),
                 captured_subsec: Some("7".into()),
+                captured_offset: Some("+02:00".into()),
                 ..Default::default()
             },
         )
@@ -3981,6 +3976,14 @@ mod tests {
         assert_eq!(
             lib.capture_override(&id).unwrap().unwrap().local,
             "2016-09-11 18:16:08"
+        );
+        assert_eq!(
+            lib.capture_override(&id)
+                .unwrap()
+                .unwrap()
+                .offset
+                .as_deref(),
+            Some("+02:00")
         );
         let current = lib.capture_override(&id).unwrap();
         lib.set_capture_times(&[rawtonic_catalog::capture_time::CaptureChange {

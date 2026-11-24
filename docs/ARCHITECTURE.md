@@ -133,7 +133,10 @@ New Rust workspace crates isolate data and file safety.
   arithmetic keeping fraction digits and UTC offset; the editor state's EXIF map carries the correction on read and
   save; search uses the effective time; app glue `src-tauri/src/capture_time.rs` with preview/plan/apply commands,
   exports take it through `PinnedPhoto::capture` and `rawtonic_export::exif_processing::apply_corrected_capture_time`,
-  UI `CaptureTimeDialog`). The XMP sidecar carries it as `exif:DateTimeOriginal` + `photoshop:DateCreated`
+  UI `CaptureTimeDialog`). Foreign catalog wall times wait in `pending_capture_times` (schema 33) until
+  camera facts are known; equal wall times/fractions create no correction, real shifts keep the camera offset.
+  The comparison and application run in the facts transaction; a photographer’s correction/reset wins.
+  The XMP sidecar carries it as `exif:DateTimeOriginal` + `photoshop:DateCreated`
   (`capture_write` → `rawtonic_metadata::CaptureWrite`; `metadata.xmp_capture`, schema 27, is the value the library
   owns there, so a reset removes only that); a sidecar's differing `exif:DateTimeOriginal` becomes the correction on
   import, Use XMP, adopt and the first facts read (`adopt_sidecar`), compared with the file's whole time (facts keep its
