@@ -1108,3 +1108,23 @@ it('offers Save As beside Export for one photo only, and exports the named file 
   expect(exported()[1]).toMatchObject({ isExplicitFilePath: false });
   expect(save).not.toHaveBeenCalled();
 });
+
+it('keeps Save As available when only the subfolder, which it does not use, is invalid', async () => {
+  const { save } = await import('@tauri-apps/plugin-dialog');
+  useLibraryStore.setState({ multiSelectedPaths: ['/p/a.RAF'], sessionDirectory: '/job' });
+  render(<StudioExport />);
+  fireEvent.change(screen.getByLabelText('Put in subfolder'), { target: { value: '../Delivery' } });
+  expect((document.querySelector('.studio-export-submit') as HTMLButtonElement).disabled).toBe(true);
+  const saveAs = screen.getByRole('button', { name: 'Save As…' }) as HTMLButtonElement;
+  expect(saveAs.disabled).toBe(false);
+  vi.mocked(save).mockResolvedValueOnce('/Delivery/a.jpg');
+  fireEvent.click(saveAs);
+  await vi.waitFor(() =>
+    expect(exported()).toEqual([
+      expect.objectContaining({
+        outputFolderOrFile: '/Delivery/a.jpg',
+        exportSettings: expect.objectContaining({ subfolder: '' })
+      })
+    ])
+  );
+});

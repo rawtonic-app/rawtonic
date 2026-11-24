@@ -2019,13 +2019,11 @@ pub(crate) fn plan_output_path<'a>(
 
     let mut used = used_paths.lock().unwrap();
     let taken = |path: &Path| family(path).iter().any(|path| used.contains(path));
-    // Save As checks the file the user named. Numbered names still reserve
-    // their entire family, as they do for folder exports.
-    let exists = if explicit {
-        slot.exists()
-    } else {
-        family(&slot).iter().any(|path| path.exists())
-    };
+    // Save As checks the file the user named and, with separate mask files,
+    // their names beside it, as a folder export does: a mask image of
+    // another export there numbers the whole family before anything is
+    // written, instead of failing after the main file was published.
+    let exists = family(&slot).iter().any(|path| path.exists());
     let (mut output_path, decision) = history.decide(
         policy,
         &slot,
@@ -4673,6 +4671,29 @@ mod tests {
             .collect();
         names.sort();
         assert_eq!(names, ["a.jpg", "client a.jpg"]);
+
+        // With separate mask files, a mask image of another export at the
+        // named file's mask names numbers the whole family before anything
+        // is written (it used to publish the main file, then fail).
+        let mut masked = save_as.clone();
+        masked.export_settings.export_masks = true;
+        masked.output_folder_or_file = delivery.join("client b.jpg").to_string_lossy().into_owned();
+        let foreign_alpha = delivery.join("client b_mask_0_alpha.png");
+        std::fs::write(&foreign_alpha, b"other export's mask").unwrap();
+        let used = std::sync::Mutex::new(std::collections::HashSet::new());
+        let item = PhotoItem {
+            global_index: 0,
+            image_path_str: raw.to_str().unwrap(),
+            appearance_count: 1,
+            explicit_vc: None,
+            total_paths: 1,
+        };
+        let output = plan_output_path(&masked, &item, &raw, &date, None, 1, &used).unwrap();
+        assert_eq!(output, delivery.join("client b_1.jpg"));
+        assert_eq!(
+            std::fs::read(&foreign_alpha).unwrap(),
+            b"other export's mask"
+        );
         assert_eq!(std::fs::read(&raw).unwrap(), b"original RAW");
     }
 

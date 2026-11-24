@@ -417,10 +417,14 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   };
 
   // Save As names one file: one photo and one recipe (or the form).
+  // The form's subfolder does not apply to it, so only its other checks hold it.
   const canSaveAs = paths.length === 1 && planned.length === 1;
+  const saveAsInvalid =
+    !checked.length &&
+    (watermarkMissing || !validNamingTemplate(draft.template, 'export') || !validSequenceStart(draft.sequenceStart));
   const run = async (saveAs = false) => {
-    if (!paths.length || choosing || (!checked.length && formInvalid) || unsignable.length) return;
-    if (saveAs && !canSaveAs) return;
+    if (!paths.length || choosing || unsignable.length) return;
+    if (saveAs ? !canSaveAs || saveAsInvalid : !checked.length && formInvalid) return;
     setChoosing(true);
     try {
       // Signed with the certificate the panel showed: the queue refuses
@@ -1372,7 +1376,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             type="button"
             className="studio-export-save-as"
             onClick={() => void run(true)}
-            disabled={choosing || !canSaveAs || (!checked.length && formInvalid) || unsignable.length > 0}
+            disabled={choosing || !canSaveAs || saveAsInvalid || unsignable.length > 0}
             title={canSaveAs ? t('studio.export.actions.saveAsHint') : t('studio.export.actions.saveAsOneRecipe')}
           >
             {t('studio.export.actions.saveAs')}

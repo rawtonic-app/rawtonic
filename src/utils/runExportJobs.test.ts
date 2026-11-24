@@ -267,6 +267,45 @@ describe('Save As (one photo, a file the photographer names)', () => {
     }
   );
 
+  it("refuses a virtual copy's source file", async () => {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    named('a.jpg');
+    vi.mocked(save).mockResolvedValueOnce('/p/a.jpg');
+    expect(await runExportJobs([planFor({})], ['/p/a.jpg?vc=2'], { saveAs: true })).toBe(0);
+    expect(requests()).toEqual([]);
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('a.jpg'));
+  });
+
+  it("keeps a ticked recipe's own destination", async () => {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    named('a.jpg');
+    vi.mocked(save).mockResolvedValueOnce('/Delivery/client.jpg');
+    const handleSettingsChange = vi.fn(async () => {});
+    const preset = presetFromDraft({ ...DEFAULT_RECIPE_DRAFT, where: 'choose', folder: undefined }, 'web', 'Web');
+    useSettingsStore.setState({ appSettings: { exportPresets: [preset] } as never, handleSettingsChange });
+    const draft = draftFromPreset(preset);
+    expect(
+      await runExportJobs([{ recipe: preset, draft, ...exportSettingsFromDraft(draft) }], ['/p/a.NEF'], {
+        saveAs: true
+      })
+    ).toBe(1);
+    expect(requests()[0]).toMatchObject({ outputFolderOrFile: '/Delivery/client.jpg', isExplicitFilePath: true });
+    expect(handleSettingsChange).not.toHaveBeenCalled();
+  });
+
+  it("leaves Export's own one-photo file dialog as it was: no refusal, the recipe's format", async () => {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    named('a.jpg');
+    vi.mocked(save).mockResolvedValueOnce('/p/a.TIF');
+    const job = planFor({ where: 'choose', folder: undefined, format: 'jpg' });
+    expect(await runExportJobs([job], ['/p/a.TIF'])).toBe(1);
+    expect(requests()[0]).toMatchObject({
+      outputFolderOrFile: '/p/a.TIF',
+      isExplicitFilePath: true,
+      outputFormat: 'jpg'
+    });
+  });
+
   it('does nothing when the save dialog is cancelled', async () => {
     const { save } = await import('@tauri-apps/plugin-dialog');
     named('a.jpg');

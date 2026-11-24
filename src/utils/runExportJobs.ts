@@ -17,6 +17,7 @@ import { readJobName } from './exportJob';
 import { joinPath } from './path';
 import { usableSessionFolder } from './sessionFolders';
 import { askAboutExistingFiles } from './askAboutExistingFiles';
+import { sourceOf } from '../entities/photo/photoRef';
 
 /** The library an export is submitted from, as `export_images` takes it:
  * always stated, so an export from no library never takes one opened later. */
@@ -151,7 +152,9 @@ export async function runExportJobs(
       )
     });
     if (typeof file !== 'string') return null;
-    const refused = saveAsRefusal(file, paths[0]);
+    // Save As refuses the photo's own files; the older one-photo dialog of
+    // Export keeps its conflict handling (a numbered name beside them).
+    const refused = saveAs ? saveAsRefusal(file, sourceOf(paths[0])) : null;
     if (refused) throw new Error(refused);
     return { path: file, isFile: true };
   };
@@ -215,12 +218,14 @@ export async function runExportJobs(
       // A file named with another image format's extension is exported in
       // that format, with the recipe's other settings.
       let { outputFormat, settings } = job;
-      if (destination.isFile && formatOfFile(destination.path, outputFormat) !== outputFormat) {
+      if (saveAs && formatOfFile(destination.path, outputFormat) !== outputFormat) {
         outputFormat = formatOfFile(destination.path, outputFormat);
         settings = { ...settings, maxFileKb: sizeLimitKb({ ...job.draft, format: outputFormat }) };
       }
       // A recipe keeps the folder chosen for it, as Capture One's do.
-      if (job.recipe && job.draft.where === 'choose' && !job.draft.folder) {
+      // A file named in Save As is not a folder: the recipe keeps its own
+      // destination (the dialog remembers the file's folder).
+      if (!destination.isFile && job.recipe && job.draft.where === 'choose' && !job.draft.folder) {
         const { id } = job.recipe;
         changeRecipes((current) => current.map((r) => (r.id === id ? { ...r, lastExportPath: destination.path } : r)));
       }
