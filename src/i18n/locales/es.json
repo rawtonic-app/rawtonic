@@ -2512,7 +2512,7 @@
       "notAssigned": "No asignado",
       "optimization": "Optimización del dispositivo de entrada",
       "optimizationDesc": "Elige el dispositivo de entrada principal que usas para desplazar y hacer zoom en el lienzo.",
-      "reassignedFrom": "Reassigned from {{commands}}",
+      "reassignedFrom": "Reasignado de {{commands}}",
       "pressKey": "Presiona una tecla... (Esc para borrar)",
       "resetDefaults": "Restablecer todo a los valores predeterminados",
       "speed": "Velocidad",

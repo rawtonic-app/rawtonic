@@ -2375,7 +2375,7 @@
       "notAssigned": "Nicht zugewiesen",
       "optimization": "Eingabegeräte-Optimierung",
       "optimizationDesc": "Wähle das primäre Eingabegerät zum Schwenken und Zoomen.",
-      "reassignedFrom": "Reassigned from {{commands}}",
+      "reassignedFrom": "Neu zugewiesen von {{commands}}",
       "pressKey": "Taste drücken... (Esc zum Löschen)",
       "resetDefaults": "Alles auf Standard zurücksetzen",
       "speed": "Geschwindigkeit",

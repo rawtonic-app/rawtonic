@@ -2279,7 +2279,7 @@
       "notAssigned": "未分配",
       "optimization": "输入设备优化",
       "optimizationDesc": "选择您用于平移和缩放画布的主要输入设备。",
-      "reassignedFrom": "Reassigned from {{commands}}",
+      "reassignedFrom": "从 {{commands}} 重新分配",
       "pressKey": "按下按键...（Esc 清除）",
       "resetDefaults": "全部重置为默认值",
       "speed": "速度",

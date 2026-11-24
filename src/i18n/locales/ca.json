@@ -2512,7 +2512,7 @@
       "notAssigned": "No assignat",
       "optimization": "Optimització del dispositiu d'entrada",
       "optimizationDesc": "Trieu el dispositiu d'entrada principal que utilitzeu per desplaçar-vos i fer zoom al llenç.",
-      "reassignedFrom": "Reassigned from {{commands}}",
+      "reassignedFrom": "Reassignat de {{commands}}",
       "pressKey": "Premeu una tecla... (Esc per esborrar)",
       "resetDefaults": "Restablir-ho tot als valors per defecte",
       "speed": "Velocitat",

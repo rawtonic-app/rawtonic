@@ -2648,7 +2648,7 @@
       "notAssigned": "Не назначено",
       "optimization": "Оптимизация устройств ввода",
       "optimizationDesc": "Выберите основное устройство ввода для перемещения и масштабирования холста.",
-      "reassignedFrom": "Reassigned from {{commands}}",
+      "reassignedFrom": "Переназначено из {{commands}}",
       "pressKey": "Нажмите клавишу... (Esc для очистки)",
       "resetDefaults": "Сбросить настройки управления",
       "speed": "Скорость",
