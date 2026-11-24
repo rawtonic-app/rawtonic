@@ -1740,7 +1740,7 @@ export const SHARPEN_VERSION = 8;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 17;
+export const RENDER_VERSION = 18;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
@@ -1787,6 +1787,17 @@ export const BLACK_DEAD_RENDER_VERSION = 17;
  * decides (`image_loader::decode_variant`). */
 export const defectsBlack = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= BLACK_DEAD_RENDER_VERSION;
+
+/** The render version from which the rule for dead photosites at black
+ * takes a looser line guard and dead green photosites take the other
+ * colours' ratio (crates/engine/src/image_loader.rs
+ * `CROSS_DEAD_RENDER_VERSION`). */
+export const CROSS_DEAD_RENDER_VERSION = 18;
+
+/** Whether a recipe's RAW is developed with those rules, as the backend
+ * decides (`image_loader::decode_variant`). */
+export const defectsCross = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= CROSS_DEAD_RENDER_VERSION;
 
 /** The render version from which a RAW's shadows keep their means through
  * the black clip and the demosaic (crates/engine/src/image_loader.rs

@@ -8,6 +8,7 @@ import {
   defectsIsolated,
   defectsTexture,
   defectsBlack,
+  defectsCross,
   highlightRatios,
   unbiasedBlack,
   type Adjustments
@@ -104,6 +105,9 @@ export interface SourceDevelop {
    * the colour-ratio repair (`renderVersion` 17;
    * undefined: the stored recipe's). */
   defectsBlack?: boolean;
+  /** With the looser line guard at black and the green colour-ratio repair
+   * (`renderVersion` 18; undefined: the stored recipe's). */
+  defectsCross?: boolean;
   /** With unbiased blacks (`renderVersion` 8; undefined: the stored
    * recipe's). */
   unbiasedBlack?: boolean;
@@ -124,7 +128,7 @@ export interface SourceDevelop {
  * its colour noise filter (`colorNoiseMultiscale`: reset of a legacy
  * edit, paste or a preset can change `colorNoiseVersion`) or its
  * dead-photosite test (`deadPixelAdjacent`, `defectsIsolated`, `defectsTexture`,
- * `defectsBlack`), its black handling
+ * `defectsBlack`, `defectsCross`), its black handling
  * (`unbiasedBlack`, `borderBlack`), its highlight rebuild (`highlightRatios`)
  * or a DNG's lens warp (`cameraPlaneWarp`) differs from the source's. Other
  * formats only develop again when their preprocessing preferences change.
@@ -150,6 +154,8 @@ export function sourceDevelopToApply(
     | 'defectsTextureFailed'
     | 'defectsBlack'
     | 'defectsBlackFailed'
+    | 'defectsCross'
+    | 'defectsCrossFailed'
     | 'unbiasedBlack'
     | 'unbiasedBlackFailed'
     | 'borderBlack'
@@ -191,6 +197,10 @@ export function sourceDevelopToApply(
   const haveDeadBlack = image.defectsBlack;
   const wantedDeadBlack = image.offline || haveDeadBlack === undefined ? haveDeadBlack : defectsBlack(adjustments);
   const deadBlack = wantedDeadBlack === image.defectsBlackFailed ? haveDeadBlack : wantedDeadBlack;
+  // And for the looser guard and green ratio repair (`renderVersion` 18).
+  const haveCross = image.defectsCross;
+  const wantedCross = image.offline || haveCross === undefined ? haveCross : defectsCross(adjustments);
+  const cross = wantedCross === image.defectsCrossFailed ? haveCross : wantedCross;
   // And for the black handling (`renderVersion` 8).
   const haveBlack = image.unbiasedBlack;
   const wantedBlack = image.offline || haveBlack === undefined ? haveBlack : unbiasedBlack(adjustments);
@@ -215,6 +225,7 @@ export function sourceDevelopToApply(
     isolated === haveIsolated &&
     texture === haveTexture &&
     deadBlack === haveDeadBlack &&
+    cross === haveCross &&
     black === haveBlack &&
     border === haveBorder &&
     ratios === haveRatios &&
@@ -230,6 +241,7 @@ export function sourceDevelopToApply(
     defectsIsolated: isolated,
     defectsTexture: texture,
     defectsBlack: deadBlack,
+    defectsCross: cross,
     unbiasedBlack: black,
     borderBlack: border,
     highlightRatios: ratios,
@@ -283,6 +295,7 @@ export function developmentSignature(
     defectsIsolated(adjustments),
     defectsTexture(adjustments),
     defectsBlack(adjustments),
+    defectsCross(adjustments),
     ...(warpPlanes ? [cameraPlaneWarp(adjustments)] : [])
   ]);
 }

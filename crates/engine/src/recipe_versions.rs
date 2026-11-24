@@ -119,6 +119,13 @@ impl RenderVersion {
         self.0 >= crate::image_loader::BLACK_DEAD_RENDER_VERSION
     }
 
+    /// The rule for dead photosites at black takes a looser line guard,
+    /// and dead green photosites take the other colours' ratio
+    /// (`image_loader::DeadTest::IsolatedCross`).
+    pub fn cross_dead_test(self) -> bool {
+        self.0 >= crate::image_loader::CROSS_DEAD_RENDER_VERSION
+    }
+
     /// Colours outside the output space keep their hue.
     pub fn gamut_mapping(self) -> bool {
         self.0 >= ip::GAMUT_MAPPING_RENDER_VERSION

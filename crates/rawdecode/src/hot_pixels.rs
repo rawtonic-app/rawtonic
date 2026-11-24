@@ -46,11 +46,22 @@
 //! black, darker than 0.1 of every same-colour neighbour, when no sample
 //! within two pixels is dark against its own colour, but only where the
 //! darkest same-colour neighbour stands four times the photo's own noise
-//! above the sample, so the black-clipped noise of very high ISOs stays as
-//! it is; elsewhere the texture rule decides as before. A dead sample takes the green around it times
-//! the median ratio of its same-colour neighbours to the green around
-//! them, within their range: in texture the colour ratio varies far less
-//! than the level (notes: benchmark-results/hot3-2026-11-23/).
+//! above the sample (a frame-wide estimate per colour and level), so the
+//! black-clipped noise of very high ISOs stays as it is where the estimated
+//! noise allows; elsewhere the texture rule decides as before. A dead
+//! sample takes the green around it times the median ratio of its
+//! same-colour neighbours to the green around them, within their range: in
+//! texture the colour ratio varies far less than the level (notes:
+//! benchmark-results/hot3-2026-11-23/).
+//!
+//! `DeadTest::IsolatedCross` (`renderVersion` 18) lets that rule repair a
+//! sample at black beside samples down to 0.5 (not 0.6) of their own
+//! colour's median, as dark texture holds them (the synthetic thin dark
+//! lines keep as many changed samples as before); and a dead green sample
+//! takes the white-balanced mean of the red and blue samples around it
+//! times the median ratio of its green neighbours to the red and blue
+//! around each, as red and blue ones take green's (notes:
+//! benchmark-results/hot4-2026-11-24/).
 
 use rawler::CFA;
 use rayon::prelude::*;
@@ -94,8 +105,10 @@ const LINE_GUARD: f32 = 0.6;
 /// same-colour neighbour needs only the line guard where the darkest
 /// same-colour neighbour lies more than `NOISE_MARGIN` times the noise at
 /// its level above it; elsewhere the texture rule decides.
+/// `DeadTest::IsolatedCross` takes `BLACK_LINE_GUARD` for that guard.
 const BLACK_RATIO: f32 = 0.1;
 const NOISE_MARGIN: f32 = 4.0;
+const BLACK_LINE_GUARD: f32 = 0.5;
 /// The noise is measured on every `NOISE_ROW_STEP`th row (a prime, so
 /// every row of a 2-, 6- or 12-row pattern takes its turn), per colour and
 /// half octave of level (band 0 holds every level at or below
@@ -150,6 +163,11 @@ pub enum DeadTest {
     /// where their neighbours stand clear of the photo's noise; dead
     /// samples take their neighbours' colour ratio (`renderVersion` 17).
     IsolatedBlack,
+    /// `IsolatedBlack` with a looser line guard for samples at black
+    /// (`BLACK_LINE_GUARD`), and dead green samples take their
+    /// neighbours' ratio to the other colours around them too
+    /// (`renderVersion` 18).
+    IsolatedCross,
 }
 
 impl DeadTest {
@@ -164,13 +182,34 @@ impl DeadTest {
     fn isolated(self) -> bool {
         matches!(
             self,
-            DeadTest::Isolated | DeadTest::IsolatedTexture | DeadTest::IsolatedBlack
+            DeadTest::Isolated
+                | DeadTest::IsolatedTexture
+                | DeadTest::IsolatedBlack
+                | DeadTest::IsolatedCross
         )
     }
 
     /// Whether the isolation test also repairs dead samples in texture.
     fn texture(self) -> bool {
-        matches!(self, DeadTest::IsolatedTexture | DeadTest::IsolatedBlack)
+        matches!(
+            self,
+            DeadTest::IsolatedTexture | DeadTest::IsolatedBlack | DeadTest::IsolatedCross
+        )
+    }
+
+    /// Whether samples at black are tested against the photo's noise and
+    /// dead samples take their neighbours' colour ratio.
+    fn black(self) -> bool {
+        matches!(self, DeadTest::IsolatedBlack | DeadTest::IsolatedCross)
+    }
+
+    /// The line guard of the rule for samples at black.
+    fn black_line_guard(self) -> f32 {
+        if self == DeadTest::IsolatedCross {
+            BLACK_LINE_GUARD
+        } else {
+            LINE_GUARD
+        }
     }
 }
 
@@ -180,12 +219,17 @@ impl DeadTest {
 /// median ratio of its same-colour neighbours (`same`) to the green mean
 /// around each of them; within the neighbours' range. None (the median
 /// then) without green around a sample, or with green below
-/// `ISOLATED_FLOOR`.
+/// `ISOLATED_FLOOR`. With `cross` (`DeadTest::IsolatedCross`, the white
+/// balance) a green one takes the white-balanced mean of the other colours
+/// in its 3 × 3 neighbourhood times the median ratio of its green
+/// neighbours to that mean around each, as red and blue ones do with
+/// green; the green mean where such a mean is below `ISOLATED_FLOOR`.
 fn colour_ratio_repair(
     cfa: &CFA,
     same: &[(isize, isize)],
     row: usize,
     col: usize,
+    cross: Option<[f32; 3]>,
     at: impl Fn(usize, usize) -> f32,
 ) -> Option<f32> {
     let green = |r: usize, c: usize| -> Option<f32> {
@@ -221,7 +265,9 @@ fn colour_ratio_repair(
     }
     let g = green(row, col)?;
     let value = if colour == 1 {
-        g
+        cross
+            .and_then(|wb| other_ratio_repair(cfa, same, row, col, wb, &at))
+            .unwrap_or(g)
     } else {
         if g < ISOLATED_FLOOR || n == 0 {
             return None;
@@ -230,6 +276,46 @@ fn colour_ratio_repair(
     };
     // Not-a-number neighbours (a float mosaic) leave no range to keep.
     (lo <= hi && value.is_finite()).then(|| value.clamp(lo, hi))
+}
+
+/// `colour_ratio_repair`'s level for a green sample under
+/// `DeadTest::IsolatedCross`, before the clamp to its neighbours' range.
+fn other_ratio_repair(
+    cfa: &CFA,
+    same: &[(isize, isize)],
+    row: usize,
+    col: usize,
+    wb: [f32; 3],
+    at: &impl Fn(usize, usize) -> f32,
+) -> Option<f32> {
+    // The white-balanced mean of the red and blue samples in the 3 × 3
+    // neighbourhood, at or above `ISOLATED_FLOOR`.
+    let other = |r: usize, c: usize| -> Option<f32> {
+        let (mut sum, mut n) = (0.0f32, 0u32);
+        for dy in -1isize..=1 {
+            for dx in -1isize..=1 {
+                let (y, x) = ((r as isize + dy) as usize, (c as isize + dx) as usize);
+                let colour = cfa.color_at(y, x);
+                if colour == 0 || colour == 2 {
+                    sum += at(y, x) * wb[colour] / wb[1];
+                    n += 1;
+                }
+            }
+        }
+        let mean = sum / n.max(1) as f32;
+        (n > 0 && mean >= ISOLATED_FLOOR).then_some(mean)
+    };
+    let mut ratios = [0f32; 24];
+    let mut n = 0;
+    for &(dy, dx) in same {
+        let (r, c) = ((row as isize + dy) as usize, (col as isize + dx) as usize);
+        ratios[n] = at(r, c) / other(r, c)?;
+        n += 1;
+    }
+    if n == 0 {
+        return None;
+    }
+    Some(other(row, col)? * middle(&mut ratios[..n]))
 }
 
 /// The noise of each colour per half octave of level, measured on the photo
@@ -533,13 +619,15 @@ pub fn suppress<T: Copy + Send + Sync>(
     let at = |row: usize, col: usize| level(source[row * width + col]);
     // `DeadTest::IsolatedBlack`'s level for a dead sample whose
     // same-colour median is `median`.
-    let black = dead_test == DeadTest::IsolatedBlack;
+    let black = dead_test.black();
+    let cross = (dead_test == DeadTest::IsolatedCross).then_some(wb);
+    let black_guard = dead_test.black_line_guard();
     // None (no repair) when that is not a number, as around not-a-number
     // neighbours of a float mosaic.
     let dead_level = |row: usize, col: usize, median: f32| -> Option<f32> {
         if black {
             let same = &neighbours.same[neighbours.phase(row, col)];
-            Some(colour_ratio_repair(cfa, same, row, col, at).unwrap_or(median))
+            Some(colour_ratio_repair(cfa, same, row, col, cross, at).unwrap_or(median))
                 .filter(|v| v.is_finite())
         } else {
             Some(median)
@@ -686,7 +774,7 @@ pub fn suppress<T: Copy + Send + Sync>(
         for &(dy, dx) in &WINDOW {
             let (r, c) = ((row as isize + dy) as usize, (col as isize + dx) as usize);
             let value = at(r, c);
-            if value < LINE_GUARD * median_around(r, c, None) {
+            if value < black_guard * median_around(r, c, None) {
                 return None;
             }
         }
@@ -853,7 +941,9 @@ mod tests {
         store: impl Fn(f32) -> T + Sync,
     ) -> usize {
         if dead_test.isolated() {
-            super::hot_pixels_reference::isolated(data, width, active, cfa, dead_test, level, store)
+            super::hot_pixels_reference::isolated(
+                data, width, active, cfa, wb, dead_test, level, store,
+            )
         } else {
             super::hot_pixels_reference::suppress(
                 data, width, active, cfa, wb, dead_test, level, store,
@@ -879,6 +969,7 @@ mod tests {
                 DeadTest::Isolated,
                 DeadTest::IsolatedTexture,
                 DeadTest::IsolatedBlack,
+                DeadTest::IsolatedCross,
             ] {
                 let (w, h) = (203usize, 150usize);
                 let active = (5, 3, 190, 141);
@@ -1317,6 +1408,112 @@ mod tests {
         }
         let mut data = line.clone();
         assert_eq!(run(DeadTest::IsolatedBlack, &mut data), 0);
+        assert_eq!(data, line);
+    }
+
+    /// `DeadTest::IsolatedCross` on the dark texture patch of
+    /// `dead_photosites_at_black_in_dark_texture_are_repaired`: a dead
+    /// green photosite lands nearer its level with the other colours' ratio
+    /// than with the green mean; a dead photosite beside a sample at 0.55 of
+    /// its own colour's median is repaired (the guard of
+    /// `DeadTest::IsolatedBlack` leaves it); black-clipped noise and a dark
+    /// line are left as `DeadTest::IsolatedBlack` leaves them.
+    #[test]
+    fn dead_green_photosites_at_black_take_the_other_colours_ratio() {
+        let cfa = bayer();
+        let (w, h) = (256, 256);
+        let mut state = 0x9e37_79b9u32;
+        let mut uniform = move || {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (state >> 8) as f32 / (1u32 << 24) as f32
+        };
+        let share = [0.5f32, 1.0, 1.0 / 3.0];
+        let wb = [2.0, 1.0, 3.0, 1.0];
+        let green: Vec<f32> = (0..w * h)
+            .map(|i| {
+                let (y, x) = ((i / w) as f32, (i % w) as f32);
+                if (96.0..160.0).contains(&y) && (96.0..160.0).contains(&x) {
+                    0.06 + 0.015 * (1.1 * x + 0.4 * y).sin() * (0.8 * y - 0.5 * x).cos()
+                } else {
+                    0.03 + 0.06 * x / w as f32
+                }
+            })
+            .collect();
+        let texture: Vec<f32> = (0..w * h)
+            .map(|i| {
+                share[cfa.color_at(i / w, i % w)] * green[i] * (1.0 + 0.01 * (uniform() - 0.5))
+            })
+            .collect();
+        let run = |test: DeadTest, data: &mut Vec<f32>| {
+            suppress(data, w, (0, 0, w, h), &cfa, wb, test, |v| v, |v| v)
+        };
+        // A dead green photosite at each of 64 places in the patch, one at a
+        // time.
+        let (mut cross_error, mut black_error) = (0.0f32, 0.0f32);
+        let mut both = 0;
+        for k in 0..64 {
+            let (y, x) = (100 + 7 * (k / 8), 100 + 7 * (k % 8));
+            let (y, x) = (y - y % 2, x - x % 2 + 1);
+            let at = y * w + x;
+            let mut dead = texture.clone();
+            dead[at] = 0.0;
+            let (mut cross, mut black) = (dead.clone(), dead.clone());
+            run(DeadTest::IsolatedCross, &mut cross);
+            run(DeadTest::IsolatedBlack, &mut black);
+            if cross[at] != 0.0 && black[at] != 0.0 {
+                both += 1;
+                cross_error += (cross[at] - texture[at]).abs();
+                black_error += (black[at] - texture[at]).abs();
+            }
+        }
+        assert!(both >= 48, "{both}");
+        assert!(
+            cross_error < 0.8 * black_error,
+            "{cross_error} {black_error}"
+        );
+        // A dead red photosite two pixels from a red sample at 0.55 of its
+        // own colour's median.
+        let (y, x) = (120, 120);
+        let mut dead = texture.clone();
+        dead[y * w + x] = 0.0;
+        let mut same = [
+            (-2isize, -2isize),
+            (-2, 0),
+            (-2, 2),
+            (0, -2),
+            (0, 2),
+            (2, -2),
+            (2, 0),
+            (2, 2),
+        ]
+        .map(|(dy, dx)| texture[(y as isize + 2 + dy) as usize * w + (x as isize + dx) as usize]);
+        dead[(y + 2) * w + x] = 0.55 * middle(&mut same);
+        let (mut cross, mut black) = (dead.clone(), dead.clone());
+        run(DeadTest::IsolatedCross, &mut cross);
+        run(DeadTest::IsolatedBlack, &mut black);
+        assert_eq!(black[y * w + x], 0.0);
+        assert!(cross[y * w + x] > 0.5 * texture[y * w + x]);
+        // Very high ISO: black-clipped noise around a dark level.
+        let noisy: Vec<f32> = (0..w * h)
+            .map(|_| {
+                let g = (-2.0 * uniform().max(1e-7).ln()).sqrt()
+                    * (std::f32::consts::TAU * uniform()).cos();
+                (0.02 + 0.012 * g).max(0.0)
+            })
+            .collect();
+        let mut texture_run = noisy.clone();
+        let mut cross_run = noisy.clone();
+        run(DeadTest::IsolatedTexture, &mut texture_run);
+        run(DeadTest::IsolatedCross, &mut cross_run);
+        let changed = |data: &[f32]| data.iter().zip(&noisy).filter(|(a, b)| a != b).count();
+        assert!(changed(&cross_run) <= changed(&texture_run));
+        // A dark one-photosite line through the texture keeps its samples.
+        let mut line = texture.clone();
+        for x in 96..160 {
+            line[110 * w + x] = 0.0;
+        }
+        let mut data = line.clone();
+        assert_eq!(run(DeadTest::IsolatedCross, &mut data), 0);
         assert_eq!(data, line);
     }
 

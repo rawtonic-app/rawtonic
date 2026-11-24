@@ -96,18 +96,29 @@ pub fn suppress<T: Copy + Send + Sync>(
 
 /// RapidRAW v1.7.1's per-sample test (`Sensor::repair`) on the levels
 /// `suppress` takes: black 0, white 1.
+#[allow(clippy::too_many_arguments)]
 pub fn isolated<T: Copy + Send + Sync>(
     data: &mut [T],
     width: usize,
     active: (usize, usize, usize, usize),
     cfa: &CFA,
+    wb: [f32; 4],
     dead_test: DeadTest,
     level: impl Fn(T) -> f32 + Sync,
     store: impl Fn(f32) -> T + Sync,
 ) -> usize {
     const REACH: isize = 2;
     let texture = dead_test.texture();
-    let black = dead_test == DeadTest::IsolatedBlack;
+    let black = dead_test.black();
+    let wb: [f32; 3] = std::array::from_fn(|i| {
+        if wb[i] > 0.0 && wb[i].is_finite() {
+            wb[i]
+        } else {
+            1.0
+        }
+    });
+    let cross = (dead_test == DeadTest::IsolatedCross).then_some(wb);
+    let black_guard = dead_test.black_line_guard();
     let period = [cfa.width, cfa.height].map(|p| if p % 2 == 0 { p.max(2) } else { 2 * p });
     let mut offsets: Vec<(isize, isize)> = (-REACH..=REACH)
         .flat_map(|dy| (-REACH..=REACH).map(move |dx| (dx, dy)))
@@ -152,7 +163,7 @@ pub fn isolated<T: Copy + Send + Sync>(
     // no repair when that is not a number.
     let dead_level = |x: usize, y: usize| -> Option<f32> {
         let level = black
-            .then(|| colour_ratio_repair(cfa, site(x, y), y, x, |r, c| value(c, r)))
+            .then(|| colour_ratio_repair(cfa, site(x, y), y, x, cross, |r, c| value(c, r)))
             .flatten()
             .unwrap_or_else(|| median(x, y, None));
         (!black || level.is_finite()).then_some(level)
@@ -226,7 +237,8 @@ pub fn isolated<T: Copy + Send + Sync>(
                 for dy in -REACH..=REACH {
                     for dx in -REACH..=REACH {
                         let (nx, ny) = ((x as isize + dx) as usize, (y as isize + dy) as usize);
-                        if (dx != 0 || dy != 0) && value(nx, ny) < LINE_GUARD * median(nx, ny, None)
+                        if (dx != 0 || dy != 0)
+                            && value(nx, ny) < black_guard * median(nx, ny, None)
                         {
                             return None;
                         }
