@@ -186,7 +186,7 @@ pub struct Incoming {
     pub matched_by: Option<&'static str>,
     pub status: Status,
     /// For a changed photograph, what differs: "edit", "copies",
-    /// "metadata", "captureTime", "eyes", "snapshots", "albums".
+    /// "copyFlags", "metadata", "captureTime", "eyes", "snapshots", "albums".
     pub changes: Vec<&'static str>,
     /// For a changed photograph, which catalog changed it since their last
     /// common state: the default is Replace only when the other alone did.
@@ -289,6 +289,10 @@ pub struct Report {
 struct Facts {
     edit: Option<Value>,
     copies: BTreeMap<String, Value>,
+    /// Each virtual copy's own flag (schema 35), compared on its own: a
+    /// baseline recorded before it has none, so which side changed one is
+    /// then unknown.
+    copy_flags: BTreeMap<String, i8>,
     metadata: Metadata,
     capture: Option<Value>,
     eyes: Vec<(i64, Option<String>)>,
@@ -378,6 +382,7 @@ impl Library {
             digests.normalize(edit, root);
         }
         let mut copies = BTreeMap::new();
+        let mut copy_flags = BTreeMap::new();
         let rows: Vec<(String, Option<String>, i8)> = self
             .conn
             .prepare(
@@ -392,13 +397,7 @@ impl Library {
                 .transpose()?
                 .unwrap_or(Value::Null);
             digests.normalize(&mut value, root);
-            // A copy's own flag, when it has one (an unflagged copy
-            // compares as before schema 35; a flagged copy of a baseline
-            // recorded before it shows as changed once, on both sides, and
-            // is kept as it is here by default).
-            if flag != 0 {
-                value = serde_json::json!({"state": value, "flag": flag});
-            }
+            copy_flags.insert(name.clone(), flag);
             copies.insert(name, value);
         }
         let eyes = self
@@ -426,6 +425,7 @@ impl Library {
         Ok(Facts {
             edit,
             copies,
+            copy_flags,
             metadata: self.metadata(asset)?,
             capture: self
                 .capture_override(asset)?
@@ -458,6 +458,10 @@ impl Library {
         let mut out = BTreeMap::new();
         out.insert("edit".into(), hash(serde_json::to_string(&facts.edit)?));
         out.insert("copies".into(), hash(serde_json::to_string(&facts.copies)?));
+        out.insert(
+            "copyFlags".into(),
+            hash(serde_json::to_string(&facts.copy_flags)?),
+        );
         out.insert(
             "metadata".into(),
             hash(serde_json::to_string(&facts.metadata)?),
@@ -1005,6 +1009,13 @@ impl Library {
             {
                 changes.push("copies");
             }
+            if theirs
+                .copy_flags
+                .iter()
+                .any(|(name, flag)| ours.copy_flags.get(name) != Some(flag))
+            {
+                changes.push("copyFlags");
+            }
             if theirs.metadata != ours.metadata {
                 changes.push("metadata");
             }
@@ -1511,7 +1522,10 @@ fn replace(
             Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         })?
         .collect::<rusqlite::Result<_>>()?;
-    if changes.contains(&"copies") || changes.contains(&"snapshots") {
+    if changes.contains(&"copies")
+        || changes.contains(&"copyFlags")
+        || changes.contains(&"snapshots")
+    {
         for (their_copy, name, state, flag) in copies {
             let existing: Option<String> = tx
                 .query_row(
@@ -1522,11 +1536,11 @@ fn replace(
                 .optional()?;
             let here = match existing {
                 Some(here) => {
-                    // Their flag only when their copies changed (a
+                    // Their flag only when their copies' flags changed (a
                     // snapshot-only change keeps the pick made here).
                     tx.execute(
                         "UPDATE versions SET legacy_state=?,flag=CASE WHEN ? THEN ? ELSE flag END WHERE id=?",
-                        params![state, changes.contains(&"copies"), flag, here],
+                        params![state, changes.contains(&"copyFlags"), flag, here],
                     )?;
                     here
                 }

@@ -1638,6 +1638,7 @@
         "albums": "アルバム",
         "captureTime": "撮影日時",
         "copies": "仮想コピー",
+        "copyFlags": "仮想コピーのフラグ",
         "edit": "編集",
         "eyes": "目のチェック",
         "metadata": "メタデータ",

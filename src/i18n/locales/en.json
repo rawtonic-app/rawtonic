@@ -1683,6 +1683,7 @@
         "albums": "albums",
         "captureTime": "capture time",
         "copies": "virtual copies",
+        "copyFlags": "virtual copies' flags",
         "edit": "edit",
         "eyes": "eye checks",
         "metadata": "metadata",

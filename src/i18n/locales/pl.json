@@ -1851,6 +1851,7 @@
         "albums": "albumy",
         "captureTime": "czas wykonania",
         "copies": "kopie wirtualne",
+        "copyFlags": "flagi kopii wirtualnych",
         "edit": "edycja",
         "eyes": "kontrole oczu",
         "metadata": "metadane",

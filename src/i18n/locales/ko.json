@@ -1638,6 +1638,7 @@
         "albums": "앨범",
         "captureTime": "촬영 시간",
         "copies": "가상 복사본",
+        "copyFlags": "가상 복사본 플래그",
         "edit": "편집",
         "eyes": "눈 검사",
         "metadata": "메타데이터",

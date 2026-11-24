@@ -1638,6 +1638,7 @@
         "albums": "相册",
         "captureTime": "拍摄时间",
         "copies": "虚拟副本",
+        "copyFlags": "虚拟副本的旗标",
         "edit": "编辑",
         "eyes": "眼睛检查",
         "metadata": "元数据",

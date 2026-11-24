@@ -1767,6 +1767,7 @@
         "albums": "albums",
         "captureTime": "heure de prise de vue",
         "copies": "copies virtuelles",
+        "copyFlags": "drapeaux des copies virtuelles",
         "edit": "retouche",
         "eyes": "contrôles des yeux",
         "metadata": "métadonnées",

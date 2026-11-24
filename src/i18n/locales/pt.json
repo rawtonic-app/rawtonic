@@ -1767,6 +1767,7 @@
         "albums": "álbuns",
         "captureTime": "hora da captura",
         "copies": "cópias virtuais",
+        "copyFlags": "sinalizadores das cópias virtuais",
         "edit": "edição",
         "eyes": "verificações de olhos",
         "metadata": "metadados",
