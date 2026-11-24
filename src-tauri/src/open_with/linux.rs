@@ -88,7 +88,7 @@ fn apps_in(dirs: &Dirs, files: &[&Path], edit_with: bool) -> (Vec<AppChoice>, Op
                     .filter(|entry| {
                         !mime_ids.contains(entry.id.as_str())
                             && entry.offers_raster_editing(&dirs.desktops)
-                            && !family.iter().any(|mime| assoc.is_removed(mime, &entry.id))
+                            && !family.iter().any(|mime| assoc.is_removed(mime, entry))
                     })
                     .map(|entry| (entry, false)),
             );
