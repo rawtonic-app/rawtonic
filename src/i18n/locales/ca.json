@@ -3123,7 +3123,18 @@
           "yellow": "Groc"
         },
         "convert": "Converteix a blanc i negre",
-        "title": "Blanc i negre"
+        "title": "Blanc i negre",
+        "toning": {
+          "balance": "Equilibri",
+          "density": "Densitat",
+          "densityAria": "{{tone}}: densitat",
+          "highlights": "To de llums",
+          "hueAria": "{{tone}}: to",
+          "paper": "Paper",
+          "saturationAria": "{{tone}}: saturació",
+          "shadows": "To d'ombres",
+          "title": "Virat B/N"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3620,6 +3631,7 @@
       "params": {
         "blackAndWhite": "Blanc i negre",
         "bwMix": "Mescla B/N",
+        "bwToning": "Virat B/N",
         "calibration": "Calibratge",
         "colorDetail": "Detall de color",
         "colorGrading": "Gradació de color",

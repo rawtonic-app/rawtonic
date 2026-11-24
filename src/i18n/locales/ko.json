@@ -2871,7 +2871,18 @@
           "yellow": "노랑"
         },
         "convert": "흑백으로 변환",
-        "title": "흑백"
+        "title": "흑백",
+        "toning": {
+          "balance": "균형",
+          "density": "농도",
+          "densityAria": "{{tone}} 농도",
+          "highlights": "하이라이트 톤",
+          "hueAria": "{{tone}} 색조",
+          "paper": "인화지",
+          "saturationAria": "{{tone}} 채도",
+          "shadows": "섀도 톤",
+          "title": "흑백 토닝"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3358,6 +3369,7 @@
       "params": {
         "blackAndWhite": "흑백",
         "bwMix": "흑백 혼합",
+        "bwToning": "흑백 토닝",
         "calibration": "보정",
         "colorDetail": "색상 디테일",
         "colorGrading": "컬러 그레이딩",

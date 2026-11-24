@@ -341,4 +341,38 @@ mod tests {
         assert!(at(-100.0) > at(0.0) && at(0.0) > at(100.0));
         assert_eq!(at(100.0), 0.0);
     }
+
+    #[test]
+    fn the_recipe_tones_only_a_black_and_white_photo() {
+        use crate::image_processing::get_all_adjustments_from_json;
+        use serde_json::json;
+        let toning = json!({"highlights": {"hue": 40, "saturation": 50}, "paper": 30});
+        let global = |recipe| get_all_adjustments_from_json(&recipe, true, None).global;
+        let toned = global(json!({"blackAndWhite": true, "blackAndWhiteToning": toning}));
+        assert_eq!(toned.bw_toning_active, 1);
+        assert!(toned.bw_toning_lut.iter().any(|entry| entry[2] != 0.0));
+        // In colour, without saturation, or with the colour section hidden:
+        // the uniforms are those of the same recipe without the key.
+        for (with, without) in [
+            (
+                json!({"blackAndWhiteToning": toning}),
+                json!({}),
+            ),
+            (
+                json!({"blackAndWhite": true, "blackAndWhiteToning": {"paper": 100, "balance": 50}}),
+                json!({"blackAndWhite": true}),
+            ),
+            (
+                json!({"blackAndWhite": true, "blackAndWhiteToning": toning,
+                       "sectionVisibility": {"color": false}}),
+                json!({"blackAndWhite": true, "sectionVisibility": {"color": false}}),
+            ),
+        ] {
+            assert_eq!(
+                bytemuck::bytes_of(&global(with.clone())),
+                bytemuck::bytes_of(&global(without)),
+                "{with}"
+            );
+        }
+    }
 }

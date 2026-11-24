@@ -2871,7 +2871,18 @@
           "yellow": "黄色"
         },
         "convert": "转换为黑白",
-        "title": "黑白"
+        "title": "黑白",
+        "toning": {
+          "balance": "平衡",
+          "density": "密度",
+          "densityAria": "{{tone}}密度",
+          "highlights": "高光色调",
+          "hueAria": "{{tone}}色相",
+          "paper": "相纸",
+          "saturationAria": "{{tone}}饱和度",
+          "shadows": "阴影色调",
+          "title": "黑白调色"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3358,6 +3369,7 @@
       "params": {
         "blackAndWhite": "黑白",
         "bwMix": "黑白混合",
+        "bwToning": "黑白调色",
         "calibration": "校准",
         "colorDetail": "颜色细节",
         "colorGrading": "颜色分级",

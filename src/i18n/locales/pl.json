@@ -3277,7 +3277,18 @@
           "yellow": "Żółty"
         },
         "convert": "Konwertuj na czerń i biel",
-        "title": "Czerń i biel"
+        "title": "Czerń i biel",
+        "toning": {
+          "balance": "Balans",
+          "density": "Gęstość",
+          "densityAria": "{{tone}}: gęstość",
+          "highlights": "Ton świateł",
+          "hueAria": "{{tone}}: odcień",
+          "paper": "Papier",
+          "saturationAria": "{{tone}}: nasycenie",
+          "shadows": "Ton cieni",
+          "title": "Tonowanie cz.-b."
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3779,6 +3790,7 @@
       "params": {
         "blackAndWhite": "Czerń i biel",
         "bwMix": "Mieszanie cz.-b.",
+        "bwToning": "Tonowanie cz.-b.",
         "calibration": "Kalibracja",
         "colorDetail": "Szczegóły koloru",
         "colorGrading": "Gradacja kolorów",

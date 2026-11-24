@@ -206,6 +206,24 @@ export interface GrayMixer {
   magenta: number;
 }
 
+/** One tone of B&W Toning: hue 0–359 (the slider's colour), saturation
+ * 0–100, density 0–100 (how much the tint darkens, 0 keeps lightness). */
+export interface ToneBand {
+  hue: number;
+  saturation: number;
+  density: number;
+}
+
+/** B&W Toning (crates/engine/src/bw_toning.rs): the tint the black & white
+ * grey takes by its lightness. Balance −100…100 moves where the highlights
+ * tone starts; Paper 0…100 lets it reach into white. */
+export interface BwToning {
+  shadows: ToneBand;
+  highlights: ToneBand;
+  balance: number;
+  paper: number;
+}
+
 export const GRAY_MIXER_CHANNELS = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta'] as const;
 
 /** One channel of Capture One's Levels: levels 0–255, gamma 0.1–10. */
@@ -1271,6 +1289,13 @@ export const INITIAL_GRAY_MIXER: GrayMixer = {
   blue: 0,
   purple: 0,
   magenta: 0
+};
+
+export const INITIAL_BW_TONING: BwToning = {
+  shadows: { hue: 40, saturation: 0, density: 0 },
+  highlights: { hue: 40, saturation: 0, density: 0 },
+  balance: 0,
+  paper: 0
 };
 
 export const INITIAL_ADJUSTMENTS: Adjustments = {
@@ -2839,7 +2864,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     { label: 'modals.copyPaste.groups.colorGrading', keys: [ColorAdjustment.ColorGrading, 'colorGradingVersion'] },
     { label: 'modals.copyPaste.groups.colorMixer', keys: [ColorAdjustment.Hsl, 'colorRanges', 'hslVersion'] },
     { label: 'modals.copyPaste.groups.colorCalibration', keys: ['colorCalibration'] },
-    { label: 'modals.copyPaste.groups.blackAndWhite', keys: ['blackAndWhite', 'grayMixer', 'bwVersion'] }
+    { label: 'modals.copyPaste.groups.blackAndWhite', keys: ['blackAndWhite', 'grayMixer', 'bwVersion', 'blackAndWhiteToning'] }
   ],
   details: [
     {
@@ -3059,6 +3084,7 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     ColorAdjustment.Hue,
     'blackAndWhite',
     'grayMixer',
+    'blackAndWhiteToning',
     'colorRanges'
   ],
   details: [

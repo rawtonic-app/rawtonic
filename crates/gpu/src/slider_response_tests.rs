@@ -770,6 +770,9 @@ mod pasted_versions;
 #[path = "color_grading_tests.rs"]
 mod color_grading;
 
+#[path = "bw_toning_tests.rs"]
+mod bw_toning;
+
 #[test]
 #[ignore = "requires a native GPU; every global slider's response on generated charts against tests/data/slider_response.json"]
 fn slider_response_matches_the_pinned_measurement() {

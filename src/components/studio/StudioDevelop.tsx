@@ -1915,7 +1915,8 @@ export default function StudioDevelop() {
               onInteraction={onInteraction}
               copy={photoOnly([
                 ['blackAndWhite', t('studio.develop.params.blackAndWhite')],
-                ['grayMixer', t('studio.develop.params.bwMix')]
+                ['grayMixer', t('studio.develop.params.bwMix')],
+                ['blackAndWhiteToning', t('studio.develop.params.bwToning')]
               ])}
             />
           )}

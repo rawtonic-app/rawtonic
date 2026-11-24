@@ -39,6 +39,7 @@ const TOOLS: [match: RegExp, label: ParseKeys][] = [
   [/^hsl$/, 'studio.develop.groups.colorMixer'],
   [/^colorRanges$/, 'studio.color.editor.title'],
   [/^colorGrading$/, 'studio.color.grading.title'],
+  [/^blackAndWhiteToning$/, 'studio.color.bw.toning.title'],
   [/^(blackAndWhite|grayMixer)$/, 'studio.color.bw.title'],
   [/^colorCalibration$/, 'studio.color.calibration.title'],
   [/^(whiteBalance|wbTemperature|wbTint)$/, 'studio.develop.groups.whiteBalance'],

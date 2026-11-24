@@ -2968,7 +2968,18 @@
           "yellow": "Gelb"
         },
         "convert": "In Schwarzweiß umwandeln",
-        "title": "Schwarzweiß"
+        "title": "Schwarzweiß",
+        "toning": {
+          "balance": "Balance",
+          "density": "Dichte",
+          "densityAria": "{{tone}}: Dichte",
+          "highlights": "Lichterton",
+          "hueAria": "{{tone}}: Farbton",
+          "paper": "Papier",
+          "saturationAria": "{{tone}}: Sättigung",
+          "shadows": "Schattenton",
+          "title": "S/W-Tonung"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3460,6 +3471,7 @@
       "params": {
         "blackAndWhite": "Schwarzweiß",
         "bwMix": "S/W-Mischung",
+        "bwToning": "S/W-Tonung",
         "calibration": "Kalibrierung",
         "colorDetail": "Farbdetails",
         "colorGrading": "Color Grading",

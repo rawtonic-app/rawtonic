@@ -134,39 +134,46 @@ impl KeyValue for GrayMixer {
 /// conversion's grey takes by its lightness (the engine's `bw_toning`).
 pub const BW_TONING: Key<BwToning> = Key::new("blackAndWhiteToning", BwToning::DEFAULT, 1);
 pub const BW_TONING_BANDS: [Key<ToneBand>; 2] = [
-    Key::new("shadows", ToneBand::ZERO, 1),
-    Key::new("highlights", ToneBand::ZERO, 1),
+    Key::new("shadows", ToneBand::DEFAULT, 1),
+    Key::new("highlights", ToneBand::DEFAULT, 1),
 ];
 pub const TONE_DENSITY: Key<f64> = Key::new("density", 0.0, 1);
 pub const TONE_PAPER: Key<f64> = Key::new("paper", 0.0, 1);
 
 /// One tone of B&W Toning: hue 0–359 (the hue of a fully saturated sRGB
-/// colour), saturation 0–100, density 0–100 (how much the tint darkens).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+/// colour; 40, a warm tone, when missing), saturation 0–100, density 0–100
+/// (how much the tint darkens).
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ToneBand {
     pub hue: f64,
     pub saturation: f64,
     pub density: f64,
 }
 impl ToneBand {
-    const ZERO: Self = Self {
-        hue: 0.0,
+    pub const DEFAULT_HUE: f64 = 40.0;
+    const DEFAULT: Self = Self {
+        hue: Self::DEFAULT_HUE,
         saturation: 0.0,
         density: 0.0,
     };
 }
+impl Default for ToneBand {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
 impl KeyValue for ToneBand {
     fn from_json(value: &Value) -> Option<Self> {
-        let read = |key: &Key<f64>| {
+        let read = |key: &Key<f64>, default: f64| {
             value
                 .get(key.name())
                 .and_then(Value::as_f64)
-                .unwrap_or(key.default())
+                .unwrap_or(default)
         };
         Some(Self {
-            hue: read(&HUE),
-            saturation: read(&SATURATION),
-            density: read(&TONE_DENSITY),
+            hue: read(&HUE, Self::DEFAULT_HUE),
+            saturation: read(&SATURATION, 0.0),
+            density: read(&TONE_DENSITY, 0.0),
         })
     }
     fn to_json(&self) -> Value {
@@ -190,8 +197,8 @@ impl BwToning {
     pub const BALANCE_MIN: f64 = -100.0;
     pub const BALANCE_MAX: f64 = 100.0;
     const DEFAULT: Self = Self {
-        shadows: ToneBand::ZERO,
-        highlights: ToneBand::ZERO,
+        shadows: ToneBand::DEFAULT,
+        highlights: ToneBand::DEFAULT,
         balance: 0.0,
         paper: 0.0,
     };
