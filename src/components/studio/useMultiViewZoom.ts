@@ -278,7 +278,10 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
       if (!samePayload(sent, payload)) {
         sent = payload;
         if (useSettingsStore.getState().osPlatform !== 'linux') {
-          void invoke(Invokes.SetMultiViewZoom, { zoom: payload.zoom, cells: payload.cells })?.catch(() => {});
+          // With the primary they were computed for: sent before its layout
+          // is shown, they wait for it natively (an incoming zoomed primary
+          // otherwise lost its zoom, WMV5).
+          void invoke(Invokes.SetMultiViewZoom, { zoom: payload.zoom, cells: payload.cells, primary })?.catch(() => {});
         }
       }
     };
