@@ -3680,6 +3680,7 @@ impl WgpuDisplay {
     /// Shows a cached image of `path`'s whole photograph (display-encoded
     /// RGBA8) in its cell until the cell's own render arrives; never over a
     /// texture the cell has (`MultiView::stand_in`). Whether it was kept.
+    #[allow(clippy::too_many_arguments)]
     pub fn stand_in_cell(
         &mut self,
         device: &wgpu::Device,
