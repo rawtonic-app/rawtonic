@@ -3499,7 +3499,10 @@
         "chooseAndExport": "選擇位置並匯出",
         "choosing": "選擇目標位置…",
         "export": "匯出",
-        "exportWithRecipes_other": "以 {{count}} 個配方匯出"
+        "exportWithRecipes_other": "以 {{count}} 個配方匯出",
+        "saveAs": "另存新檔…",
+        "saveAsHint": "將此照片匯出為你命名、放在你所選資料夾中的檔案",
+        "saveAsOneRecipe": "另存新檔只產生一個檔案：請只勾選一個配方或不勾選"
       },
       "border": {
         "add": "加入邊框",
@@ -3819,6 +3822,8 @@
         "notQueued": "未輸出任何內容：{{error}}",
         "queuedMany_other": "已將 {{count}} 個匯出加入佇列。",
         "queuedOne": "已加入匯出佇列。",
+        "saveAsFormat": "{{name}}：Rawtonic 不匯出 .{{extension}} 檔案。請選擇以 .jpg、.tif、.png、.webp、.jxl 或 .avif 結尾的名稱。",
+        "saveAsOriginal": "{{name}} 是這張照片的原始檔或其附屬檔。另存新檔絕不會覆寫它們：請選擇其他名稱。",
         "unsavedEdits": "無法儲存 {{names}} 的編輯，因此未匯出任何內容。儲存後請重新匯出。"
       },
       "watermark": {

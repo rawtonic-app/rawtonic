@@ -1970,18 +1970,26 @@ pub(crate) fn plan_output_path<'a>(
         &target.output_format,
         capture,
     );
-    let new_stem = rawtonic_export::sidecars::export_stem(
-        &export_settings.naming_template(),
-        &naming,
-        item.appearance_count,
-        item.explicit_vc,
-    )?;
+    let beside_original = export_settings.destination_type.as_deref() == Some("originalFolder");
+    let explicit = target.is_explicit_file_path && total_paths == 1;
+    // A file named in Save As is used as named: the template is not
+    // expanded for it (one that cannot name this photo, e.g. a title
+    // ending in a period, must not stop a valid chosen name).
+    let named_file = !beside_original && explicit;
+    let new_stem = if named_file {
+        String::new()
+    } else {
+        rawtonic_export::sidecars::export_stem(
+            &export_settings.naming_template(),
+            &naming,
+            item.appearance_count,
+            item.explicit_vc,
+        )?
+    };
 
     let new_filename = format!("{}.{}", new_stem, target.output_format);
 
-    let beside_original = export_settings.destination_type.as_deref() == Some("originalFolder");
-    let explicit = target.is_explicit_file_path && total_paths == 1;
-    let slot = if !beside_original && explicit {
+    let slot = if named_file {
         output_folder_path.to_path_buf()
     } else {
         let dir = export_directory(
@@ -2006,7 +2014,8 @@ pub(crate) fn plan_output_path<'a>(
 
     let extension = target.output_format.to_lowercase();
     let policy = export_settings.existing_files;
-    let mask_layers = if export_settings.export_masks {
+    // A CUBE LUT is written alone, without mask files.
+    let mask_layers = if export_settings.export_masks && extension != "cube" {
         mask_layers
     } else {
         0
@@ -2017,15 +2026,16 @@ pub(crate) fn plan_output_path<'a>(
             .collect::<Vec<_>>()
     };
 
+    // Any directory entry, a dangling link included, which no-clobber
+    // publication would refuse after the render.
+    let occupied = |path: &Path| path.symlink_metadata().is_ok();
     let mut used = used_paths.lock().unwrap();
     let taken = |path: &Path| family(path).iter().any(|path| used.contains(path));
-    // Save As checks the file the user named. Numbered names still reserve
-    // their entire family, as they do for folder exports.
-    let exists = if explicit {
-        slot.exists()
-    } else {
-        family(&slot).iter().any(|path| path.exists())
-    };
+    // Save As checks the file the user named and, with separate mask files,
+    // their names beside it, as a folder export does: a mask image of
+    // another export there numbers the whole family before anything is
+    // written, instead of failing after the main file was published.
+    let exists = family(&slot).iter().any(|path| occupied(path));
     let (mut output_path, decision) = history.decide(
         policy,
         &slot,
@@ -2061,7 +2071,7 @@ pub(crate) fn plan_output_path<'a>(
             let mut counter = 1;
             while family(&output_path)
                 .iter()
-                .any(|path| path.exists() || used.contains(path))
+                .any(|path| occupied(path) || used.contains(path))
             {
                 output_path = slot.with_file_name(format!("{stem}_{counter}.{extension}"));
                 counter += 1;
@@ -4577,6 +4587,167 @@ mod tests {
         assert!(!planned.unpublished(0), "its file is there: not again");
         let other = plan_output_path(&target, &item, &source, &date, None, 0, &used).unwrap();
         assert_ne!(other, first, "the reservation still holds for others");
+    }
+
+    /// Save As from the Export dialog (one photo, `customFolder`, no
+    /// subfolder) goes to the named file through the same no-clobber
+    /// publication as a folder export: a file that appears there after
+    /// planning is never written over, and the bytes equal the folder
+    /// export's with the same settings.
+    #[test]
+    fn save_as_publishes_the_named_file_without_clobbering_like_a_folder_export() {
+        use rawtonic_export::export_processing::encode_export;
+
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.CR3");
+        rawtonic_fs::atomic_write(&raw, b"original RAW").unwrap();
+        let delivery = dir.path().join("delivery");
+        std::fs::create_dir(&delivery).unwrap();
+        let settings = serde_json::json!({
+            "jpegQuality": 83, "keepMetadata": false, "stripGps": false,
+            "nameTemplate": "{orig_base}", "destinationType": "customFolder",
+            "preserveFolders": false, "subfolder": "",
+        });
+        let folder_target = ExportTarget {
+            output_folder_or_file: delivery.to_string_lossy().into_owned(),
+            is_explicit_file_path: false,
+            base_origin_folders: Vec::new(),
+            export_settings: serde_json::from_value(settings).unwrap(),
+            output_format: "jpg".to_string(),
+            tracking: None,
+        };
+        let named = delivery.join("client a.jpg");
+        let save_as = ExportTarget {
+            output_folder_or_file: named.to_string_lossy().into_owned(),
+            is_explicit_file_path: true,
+            ..folder_target.clone()
+        };
+        let date = jiff::Timestamp::now();
+        let plan = |target: &ExportTarget| {
+            let used = std::sync::Mutex::new(std::collections::HashSet::new());
+            let item = PhotoItem {
+                global_index: 0,
+                image_path_str: raw.to_str().unwrap(),
+                appearance_count: 1,
+                explicit_vc: None,
+                total_paths: 1,
+            };
+            plan_output_path(target, &item, &raw, &date, None, 0, &used).unwrap()
+        };
+        let encode = |target: &ExportTarget| {
+            let mut image = image::RgbImage::new(16, 8);
+            for (x, y, pixel) in image.enumerate_pixels_mut() {
+                *pixel = image::Rgb([(x * 15) as u8, (y * 30) as u8, 128]);
+            }
+            encode_export(
+                image::DynamicImage::ImageRgb8(image),
+                &target.output_format,
+                &target.export_settings,
+                None,
+            )
+            .unwrap()
+        };
+        let key = "a.CR3\nkey";
+
+        // The named file is the planned output, as the dialog named it.
+        let output = plan(&save_as);
+        assert_eq!(output, named);
+        // Another program creates that file between planning and writing:
+        // the worker's publication refuses it and leaves it as it is.
+        std::fs::write(&named, b"other program").unwrap();
+        assert!(
+            super::publish_with(None, key)
+                .write_export(&output, encode(&save_as))
+                .is_err()
+        );
+        assert_eq!(std::fs::read(&named).unwrap(), b"other program");
+        std::fs::remove_file(&named).unwrap();
+
+        // Free again: written, byte for byte the folder export's file.
+        super::publish_with(None, key)
+            .write_export(&plan(&save_as), encode(&save_as))
+            .unwrap();
+        let folder_output = plan(&folder_target);
+        assert_eq!(folder_output, delivery.join("a.jpg"));
+        super::publish_with(None, key)
+            .write_export(&folder_output, encode(&folder_target))
+            .unwrap();
+        assert_eq!(
+            std::fs::read(&named).unwrap(),
+            std::fs::read(&folder_output).unwrap()
+        );
+        // No temporary or staging file is left beside them.
+        let mut names: Vec<_> = std::fs::read_dir(&delivery)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.jpg", "client a.jpg"]);
+
+        // With separate mask files, a mask image of another export at the
+        // named file's mask names numbers the whole family before anything
+        // is written (it used to publish the main file, then fail).
+        let mut masked = save_as.clone();
+        masked.export_settings.export_masks = true;
+        masked.output_folder_or_file = delivery.join("client b.jpg").to_string_lossy().into_owned();
+        let foreign_alpha = delivery.join("client b_mask_0_alpha.png");
+        std::fs::write(&foreign_alpha, b"other export's mask").unwrap();
+        let used = std::sync::Mutex::new(std::collections::HashSet::new());
+        let item = PhotoItem {
+            global_index: 0,
+            image_path_str: raw.to_str().unwrap(),
+            appearance_count: 1,
+            explicit_vc: None,
+            total_paths: 1,
+        };
+        let output = plan_output_path(&masked, &item, &raw, &date, None, 1, &used).unwrap();
+        assert_eq!(output, delivery.join("client b_1.jpg"));
+        assert_eq!(
+            std::fs::read(&foreign_alpha).unwrap(),
+            b"other export's mask"
+        );
+        // A dangling link at a mask name is taken too (publication would
+        // refuse it after the render).
+        #[cfg(unix)]
+        {
+            let link = delivery.join("client c_mask_0_alpha.png");
+            std::os::unix::fs::symlink(delivery.join("gone.png"), &link).unwrap();
+            masked.output_folder_or_file =
+                delivery.join("client c.jpg").to_string_lossy().into_owned();
+            let used = std::sync::Mutex::new(std::collections::HashSet::new());
+            let output = plan_output_path(&masked, &item, &raw, &date, None, 1, &used).unwrap();
+            assert_eq!(output, delivery.join("client c_1.jpg"));
+        }
+        // A CUBE LUT writes no mask files: their names do not collide.
+        let mut lut = masked.clone();
+        lut.output_format = "cube".into();
+        lut.output_folder_or_file = delivery
+            .join("client b.cube")
+            .to_string_lossy()
+            .into_owned();
+        let used = std::sync::Mutex::new(std::collections::HashSet::new());
+        let output = plan_output_path(&lut, &item, &raw, &date, None, 1, &used).unwrap();
+        assert_eq!(output, delivery.join("client b.cube"));
+        // The template only proposes the name: one that cannot name this
+        // photo does not stop the file named in the dialog.
+        let mut untitled = save_as.clone();
+        untitled.export_settings.name_template = Some("still life.".into());
+        untitled.output_folder_or_file =
+            delivery.join("client d.jpg").to_string_lossy().into_owned();
+        assert!(
+            rawtonic_export::sidecars::export_stem(
+                &untitled.export_settings.naming_template(),
+                &untitled
+                    .export_settings
+                    .naming_context(&raw, 1, 1, &date, "jpg", None),
+                1,
+                None
+            )
+            .is_err(),
+            "the template cannot name the photo"
+        );
+        assert_eq!(plan(&untitled), delivery.join("client d.jpg"));
+        assert_eq!(std::fs::read(&raw).unwrap(), b"original RAW");
     }
 
     #[test]
