@@ -806,8 +806,8 @@ fn update_consensus(
     dropped: &[bool],
 ) {
     let inv_ratio = 1.0 / ratio;
-    for i in 0..cons_den.data.len() {
-        if dropped[i] {
+    for (i, &skip) in dropped.iter().enumerate() {
+        if skip {
             continue;
         }
         let mut wgt = low.u.data[i];
