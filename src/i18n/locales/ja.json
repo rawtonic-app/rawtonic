@@ -3113,7 +3113,7 @@
       "rotateRight": "右に回転",
       "size": "サイズ",
       "sourceGeometry": "Capture One の水平補正とクロップを適用",
-      "sourceGeometryTitle": "この写真の水平補正、90°回転、クロップを Capture One のものに置き換えます: 水平補正の角度と、空白の角が出ない最大のクロップ（Capture One で描いたクロップは読み取られず、ご自身のクロップは置き換えられます）。ほかの調整はそのままです（元に戻すで戻せます）",
+      "sourceGeometryTitle": "この写真の水平補正、90°回転、クロップを Capture One のものに置き換えます: 水平補正の角度と、フレーム自身の縦横比で空白の角が出ない自動クロップ（Capture One で描いたクロップは読み取られず、ご自身のクロップは置き換えられます）。ほかの調整はそのままです（元に戻すで戻せます）",
       "straighten": "角度補正",
       "straightenToolTitle": "水平または垂直にしたい縁に沿って線を引きます",
       "swapOrientation": "縦位置と横位置を切り替え",

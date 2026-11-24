@@ -3113,7 +3113,7 @@
       "rotateRight": "向右旋轉",
       "size": "尺寸",
       "sourceGeometry": "套用 Capture One 的拉直與裁切",
-      "sourceGeometryTitle": "以 Capture One 的拉直角度、90° 旋轉與不含空角的最大裁切取代這張相片的對應設定（在 Capture One 中手繪的裁切不會被讀取，您自己的裁切會被取代）；其他調整均保留（還原可復原）",
+      "sourceGeometryTitle": "以 Capture One 的拉直角度、90° 旋轉與保持畫幅自身比例且不含空角的自動裁切取代這張相片的對應設定（在 Capture One 中手繪的裁切不會被讀取，您自己的裁切會被取代）；其他調整均保留（還原可復原）",
       "straighten": "拉直",
       "straightenToolTitle": "沿應水平或垂直的邊緣畫一條線",
       "swapOrientation": "切換直式與橫式",

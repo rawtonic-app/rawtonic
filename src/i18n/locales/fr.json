@@ -3367,7 +3367,7 @@
       "rotateRight": "Pivoter à droite",
       "size": "Taille",
       "sourceGeometry": "Appliquer le redressement et le recadrage de Capture One",
-      "sourceGeometryTitle": "Remplacer le redressement, les quarts de tour et le recadrage de cette photo par ceux de Capture One : son angle de redressement et le plus grand recadrage du cadre de la photo sans coins vides (un recadrage tracé dans Capture One n'est pas lu, et votre propre recadrage est remplacé). Tous les autres réglages restent (Annuler les rétablit)",
+      "sourceGeometryTitle": "Remplacer le redressement, les quarts de tour et le recadrage de cette photo par ceux de Capture One : son angle de redressement et un recadrage automatique au rapport d'aspect propre du cadre, sans coins vides (un recadrage tracé dans Capture One n'est pas lu, et votre propre recadrage est remplacé). Tous les autres réglages restent (Annuler les rétablit)",
       "straighten": "Redresser",
       "straightenToolTitle": "Tracez une ligne le long d’un bord qui doit être horizontal ou vertical",
       "swapOrientation": "Inverser portrait et paysage",

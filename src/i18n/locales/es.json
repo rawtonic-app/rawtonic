@@ -3367,7 +3367,7 @@
       "rotateRight": "Girar a la derecha",
       "size": "Tamaño",
       "sourceGeometry": "Aplicar el enderezado y el recorte de Capture One",
-      "sourceGeometryTitle": "Sustituir el enderezado, los giros de un cuarto y el recorte de esta foto por los de Capture One: su ángulo de enderezado y el recorte más grande del encuadre de la foto sin esquinas vacías (un recorte dibujado en Capture One no se lee y su propio recorte se sustituye). El resto de ajustes se mantiene (Deshacer los devuelve)",
+      "sourceGeometryTitle": "Sustituir el enderezado, los giros de un cuarto y el recorte de esta foto por los de Capture One: su ángulo de enderezado y un recorte automático con la proporción propia del encuadre y sin esquinas vacías (un recorte dibujado en Capture One no se lee y su propio recorte se sustituye). El resto de ajustes se mantiene (Deshacer los devuelve)",
       "straighten": "Enderezar",
       "straightenToolTitle": "Dibuja una línea a lo largo de un borde que deba quedar horizontal o vertical",
       "swapOrientation": "Cambiar entre vertical y horizontal",

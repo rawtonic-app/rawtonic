@@ -3522,7 +3522,7 @@
       "rotateRight": "Obróć w prawo",
       "size": "Rozmiar",
       "sourceGeometry": "Zastosuj prostowanie i kadrowanie z Capture One",
-      "sourceGeometryTitle": "Zastępuje prostowanie, obroty o ćwierć obrotu i kadrowanie tego zdjęcia ustawieniami z Capture One: jego kąt prostowania i największy kadr ramki zdjęcia bez pustych rogów (kadr narysowany w Capture One nie jest odczytywany, a Twój własny kadr zostaje zastąpiony). Wszystkie pozostałe korekty zostają (Cofnij je przywraca)",
+      "sourceGeometryTitle": "Zastępuje prostowanie, obroty o ćwierć obrotu i kadrowanie tego zdjęcia ustawieniami z Capture One: jego kąt prostowania i automatyczny kadr o własnych proporcjach ramki, bez pustych rogów (kadr narysowany w Capture One nie jest odczytywany, a Twój własny kadr zostaje zastąpiony). Wszystkie pozostałe korekty zostają (Cofnij je przywraca)",
       "straighten": "Prostowanie",
       "straightenToolTitle": "Narysuj linię wzdłuż krawędzi, która ma być pozioma lub pionowa",
       "swapOrientation": "Zamień orientację pionową i poziomą",

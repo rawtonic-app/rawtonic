@@ -3367,7 +3367,7 @@
       "rotateRight": "Girar para a direita",
       "size": "Tamanho",
       "sourceGeometry": "Aplicar o endireitamento e o recorte do Capture One",
-      "sourceGeometryTitle": "Substitui o endireitamento, as rotações de um quarto e o recorte desta foto pelos do Capture One: o seu ângulo de endireitamento e o maior recorte do enquadramento da foto sem cantos vazios (um recorte desenhado no Capture One não é lido e o seu próprio recorte é substituído). Todos os outros ajustes ficam (Desfazer repõe-nos)",
+      "sourceGeometryTitle": "Substitui o endireitamento, as rotações de um quarto e o recorte desta foto pelos do Capture One: o seu ângulo de endireitamento e um recorte automático com a proporção do próprio enquadramento e sem cantos vazios (um recorte desenhado no Capture One não é lido e o seu próprio recorte é substituído). Todos os outros ajustes ficam (Desfazer repõe-nos)",
       "straighten": "Endireitar",
       "straightenToolTitle": "Desenhe uma linha ao longo de uma borda que deve ficar nivelada ou no prumo",
       "swapOrientation": "Alternar retrato e paisagem",

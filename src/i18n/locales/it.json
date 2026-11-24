@@ -3367,7 +3367,7 @@
       "rotateRight": "Ruota a destra",
       "size": "Dimensioni",
       "sourceGeometry": "Applica raddrizzamento e ritaglio di Capture One",
-      "sourceGeometryTitle": "Sostituisce raddrizzamento, rotazioni di un quarto e ritaglio di questa foto con quelli di Capture One: il suo angolo di raddrizzamento e il ritaglio più grande dell'inquadratura senza angoli vuoti (un ritaglio tracciato in Capture One non viene letto e il tuo ritaglio viene sostituito). Tutte le altre regolazioni restano (Annulla le ripristina)",
+      "sourceGeometryTitle": "Sostituisce raddrizzamento, rotazioni di un quarto e ritaglio di questa foto con quelli di Capture One: il suo angolo di raddrizzamento e un ritaglio automatico con le proporzioni dell'inquadratura e senza angoli vuoti (un ritaglio tracciato in Capture One non viene letto e il tuo ritaglio viene sostituito). Tutte le altre regolazioni restano (Annulla le ripristina)",
       "straighten": "Raddrizza",
       "straightenToolTitle": "Traccia una linea lungo un bordo che deve essere orizzontale o verticale",
       "swapOrientation": "Scambia verticale e orizzontale",

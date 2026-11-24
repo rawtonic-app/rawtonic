@@ -1266,7 +1266,7 @@ fn unread_straightening_line(path: &str, incoming: Option<&Value>) -> String {
         String::new()
     };
     format!(
-        "{path}: kept as imported earlier; Capture One shows it straightened by {}°{turns}, which imports before this version did not read: straighten it here to match",
+        "{path}: kept as imported earlier; Capture One shows it straightened by {}°{turns}, which imports before this version did not read: straighten it here to match, or apply Capture One's straightening and crop (a crop of the frame's own aspect ratio without empty corners; a crop drawn in Capture One is not read)",
         value(geometry::ROTATION.name())
     )
 }
@@ -2842,7 +2842,29 @@ fn apply_geometry_to(
     else {
         return Ok(None);
     };
+    // Offered for a photo Capture One straightens: where it does not any
+    // more (reset there since), the saved geometry is not replaced.
+    if !straightens(Some(&incoming)) {
+        anyhow::bail!("Capture One no longer straightens or turns this photo; nothing was changed");
+    }
     let before = state.get("adjustments").cloned().unwrap_or(Value::Null);
+    // The crop is made on the file's newest frame: an edit that develops an
+    // older one (`sourceFrameVersion`, a Sony ARW before the whole sensor)
+    // would show it beside another frame.
+    if crate::formats::is_raw_file(&photo.path)
+        && let Ok(source) = rawler::rawsource::RawSource::new(&photo.path)
+    {
+        let saved = before
+            .get("sourceFrameVersion")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32;
+        let frame = rawtonic_rawdecode::source_frame::effective;
+        if frame(&source, saved) != frame(&source, rawtonic_rawdecode::source_frame::VERSION) {
+            anyhow::bail!(
+                "this edit develops an older frame of the file than the one Capture One's geometry is made for; nothing was changed"
+            );
+        }
+    }
     let mut after = if before.is_object() {
         before.clone()
     } else {
@@ -3374,6 +3396,16 @@ mod tests {
             again.recipe_changes.is_empty() && again.copies == 0,
             "{again:?}"
         );
+        assert_eq!(
+            catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
+            now
+        );
+        // Reset in Capture One since the offer: the saved straightening is not
+        // cleared by the action.
+        let reset = source(&[("Exposure", "0.3"), ("Rotation", "0"), ("Crop", "0;0;0;0")]);
+        let cleared = apply_source_geometry(&catalog, &reset, std::slice::from_ref(&path));
+        assert!(cleared.recipe_changes.is_empty(), "{cleared:?}");
+        assert_eq!(cleared.errors.len(), 1, "{cleared:?}");
         assert_eq!(
             catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
             now

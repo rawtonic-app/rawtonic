@@ -3113,7 +3113,7 @@
       "rotateRight": "오른쪽으로 회전",
       "size": "크기",
       "sourceGeometry": "Capture One의 수평 보정과 자르기 적용",
-      "sourceGeometryTitle": "이 사진의 수평 보정, 90° 회전, 자르기를 Capture One의 것으로 바꿉니다: 수평 보정 각도와 빈 모서리가 없는 가장 큰 자르기(Capture One에서 그린 자르기는 읽지 않으며, 직접 만든 자르기는 대체됩니다). 다른 보정은 그대로입니다(실행 취소로 되돌릴 수 있음)",
+      "sourceGeometryTitle": "이 사진의 수평 보정, 90° 회전, 자르기를 Capture One의 것으로 바꿉니다: 수평 보정 각도와 프레임 고유의 가로세로 비율을 유지하며 빈 모서리가 없는 자동 자르기(Capture One에서 그린 자르기는 읽지 않으며, 직접 만든 자르기는 대체됩니다). 다른 보정은 그대로입니다(실행 취소로 되돌릴 수 있음)",
       "straighten": "수평 맞추기",
       "straightenToolTitle": "수평 또는 수직이어야 하는 가장자리를 따라 선을 그리세요",
       "swapOrientation": "세로와 가로 전환",

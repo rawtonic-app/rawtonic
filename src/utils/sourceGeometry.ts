@@ -14,6 +14,7 @@ import { create } from 'zustand';
 import { notify } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
 import { closeOpenPhotoForLibraryWrite, recipesChangedOutside, recipeWrite } from '../hooks/useEditorActions';
+import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { importedRecipesAction, type RecipeSnapshot } from './appUndo';
 
@@ -92,7 +93,14 @@ export async function applySourceGeometry(directory: string, paths: string[]): P
   const offers = useGeometryOffers.getState().offers.find((o) => o.directory === directory);
   const wanted = paths.filter((p) => offers?.paths.includes(p));
   if (!offers || !wanted.length) return false;
-  const unsaved = await closeOpenPhotoForLibraryWrite();
+  // A photo opened while the flush waited is closed and saved again before
+  // the write registers (nothing waits between that and `recipeWrite`).
+  let unsaved = await closeOpenPhotoForLibraryWrite();
+  for (let again = 0; !unsaved && again < 3; again++) {
+    const open = useEditorStore.getState().selectedImage?.path;
+    if (!open || !wanted.includes(open)) break;
+    unsaved = await closeOpenPhotoForLibraryWrite();
+  }
   if (unsaved) {
     notify.error(i18n.t('session.toasts.importUnsavedEdits', { n: unsaved }));
     return false;

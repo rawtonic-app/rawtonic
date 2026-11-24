@@ -3367,7 +3367,7 @@
       "rotateRight": "Gira a la dreta",
       "size": "Mida",
       "sourceGeometry": "Aplica l'adreçament i la retallada de Capture One",
-      "sourceGeometryTitle": "Substitueix l'adreçament, els girs d'un quart i la retallada d'aquesta foto pels de Capture One: el seu angle d'adreçament i la retallada més gran del enquadrament de la foto sense cantonades buides (una retallada dibuixada a Capture One no es llegeix i la teva retallada es substitueix). La resta d'ajustos es mantenen (Desfés els restitueix)",
+      "sourceGeometryTitle": "Substitueix l'adreçament, els girs d'un quart i la retallada d'aquesta foto pels de Capture One: el seu angle d'adreçament i una retallada automàtica amb la proporció pròpia de l'enquadrament i sense cantonades buides (una retallada dibuixada a Capture One no es llegeix i la teva retallada es substitueix). La resta d'ajustos es mantenen (Desfés els restitueix)",
       "straighten": "Redreça",
       "straightenToolTitle": "Dibuixa una línia al llarg d’una vora que hagi de quedar horitzontal o vertical",
       "swapOrientation": "Canvia entre vertical i horitzontal",
