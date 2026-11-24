@@ -137,13 +137,36 @@ pub(crate) fn is_library_photo(path: &Path, known: &[PathBuf]) -> bool {
     if crate::exif_processing::get_primary_sidecar_path(path).exists() {
         return true;
     }
+    in_libraries(path, known, |lib, path| {
+        !matches!(lib.asset_at(path), Ok(None))
+    })
+}
+
+/// Whether the file at `path` is one a library keeps with one of its
+/// photos (the camera JPEG of a RAW+JPEG pair), by its recorded path, also
+/// after another program changed it (a caption added elsewhere), asked of
+/// the same libraries as [`is_library_photo`]. Save As never replaces it.
+pub(crate) fn is_library_companion(path: &Path, known: &[PathBuf]) -> bool {
+    use rawtonic_fs::Canonical;
+    let path = path.canonical().unwrap_or_else(|_| path.to_path_buf());
+    in_libraries(&path, known, |lib, path| match lib.companion_records() {
+        Ok(records) => records.iter().any(|record| record.path == path),
+        // Unreadable: taken as keeping it.
+        Err(_) => true,
+    })
+}
+
+/// Whether `holds` answers yes for `path` in the library managing its
+/// folder (one that cannot be read counts as holding it) or in any other
+/// library the app knows (`known`; one gone or unreadable holds nothing).
+fn in_libraries(path: &Path, known: &[PathBuf], holds: impl Fn(&Library, &Path) -> bool) -> bool {
     // The library managing the file's folder, found from the file itself
     // (not from the library an export runs under), else the open one.
     let owner = culling_library_for(path, active_library_directory().as_deref());
     if let Some(owner) = &owner {
         match Library::open(owner) {
             Ok(lib) => {
-                if !matches!(lib.asset_at(path), Ok(None)) {
+                if holds(&lib, path) {
                     return true;
                 }
             }
@@ -160,7 +183,7 @@ pub(crate) fn is_library_photo(path: &Path, known: &[PathBuf]) -> bool {
         }
         seen.push(directory);
         if let Ok(lib) = Library::open(directory)
-            && !matches!(lib.asset_at(path), Ok(None))
+            && holds(&lib, path)
         {
             return true;
         }
@@ -2120,13 +2143,14 @@ pub async fn session_album_remove(
 }
 
 /// Absolute paths of the album's photographs, in path order (a smart
-/// album's: those its rules match now).
+/// album's: those its rules match now, with the virtual copies they match
+/// as `<photograph>?vc=<copy>`).
 #[tauri::command]
 pub async fn session_album_paths(directory: String, id: String) -> Result<Vec<PathBuf>, String> {
     with_library(directory, false, move |lib| {
         crate::library_search::start_facts_pass_if_needed(lib);
         crate::duplicates::start_pass_if_needed(lib, &rawtonic_catalog::Rule::album(&id));
-        lib.collection_paths(&id).map_err(|e| e.to_string())
+        lib.collection_item_paths(&id).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2718,6 +2742,46 @@ mod tests {
         assert!(super::with_culling_owner(other.to_str(), || {
             super::is_library_photo(&jpg, &known)
         }));
+    }
+
+    /// The camera JPEG a catalog keeps with its RAW (a RAW+JPEG pair) is
+    /// not an asset of its own, yet Save As must never replace it.
+    #[test]
+    fn a_camera_jpeg_kept_with_a_raw_is_a_library_companion() {
+        use rawtonic_fs::Canonical;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonical().unwrap();
+        let catalog_dir = root.join("Catalog");
+        let catalog = rawtonic_catalog::Library::create(
+            &catalog_dir,
+            "Main",
+            rawtonic_catalog::Mode::Catalog,
+        )
+        .unwrap();
+        let shoot = root.join("Shoot");
+        std::fs::create_dir_all(&shoot).unwrap();
+        std::fs::write(shoot.join("A.NEF"), b"raw").unwrap();
+        let jpg = shoot.join("A.JPG");
+        std::fs::write(&jpg, b"camera jpeg").unwrap();
+        let known = vec![catalog_dir];
+        let asset = catalog.add_asset(&shoot.join("A.NEF")).unwrap();
+        assert!(!super::is_library_companion(&jpg, &known), "not paired yet");
+        catalog.set_companion(&asset.id, Some("A.JPG")).unwrap();
+        assert!(super::is_library_companion(&jpg, &known));
+        assert!(
+            !super::is_library_photo(&jpg, &known),
+            "no asset of its own"
+        );
+        // A caption added to it in another program changes its size and
+        // fingerprint: still the pair's camera JPEG.
+        std::fs::write(&jpg, b"camera jpeg with a caption added elsewhere").unwrap();
+        assert!(super::is_library_companion(&jpg, &known));
+        // Save As of another photo, named onto it, is refused.
+        assert!(crate::export_processing::save_as_protected_in(
+            &jpg,
+            &root.join("elsewhere").join("B.NEF"),
+            &known
+        ));
     }
 
     use super::*;

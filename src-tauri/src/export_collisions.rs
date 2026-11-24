@@ -110,6 +110,7 @@ fn collide_photo(
             },
             output_folder_or_file: target.output_folder_or_file.clone(),
             is_explicit_file_path: target.is_explicit_file_path,
+            confirmed: None,
             base_origin_folders: target.base_origin_folders.clone(),
             output_format: target.output_format.clone(),
             tracking: None,
@@ -203,6 +204,7 @@ pub(crate) fn plan_collisions(
             .map(|request| ExportTarget {
                 output_folder_or_file: request.output_folder_or_file.clone(),
                 is_explicit_file_path: request.is_explicit_file_path,
+                confirmed: None,
                 base_origin_folders: request.base_origin_folders.clone(),
                 export_settings: request.export_settings.clone(),
                 output_format: request.output_format.clone(),
@@ -341,6 +343,7 @@ mod tests {
         let target = ExportTarget {
             output_folder_or_file: request.output_folder_or_file.clone(),
             is_explicit_file_path: false,
+            confirmed: None,
             base_origin_folders: Vec::new(),
             export_settings: request.export_settings.clone(),
             output_format: request.output_format.clone(),

@@ -66,3 +66,10 @@ it('cancelling the question queues nothing', async () => {
   useExportCollisionStore.getState().answer(null);
   expect(await result).toBeNull();
 });
+
+it('does not ask about a file the save panel confirmed replacing (Save As)', async () => {
+  const confirmed = { ...recipe('ask', '/out/a.jpg'), replaceConfirmed: true };
+  const sent = await askAboutExistingFiles([confirmed]);
+  expect(invoke).not.toHaveBeenCalled();
+  expect(sent?.[0].exportSettings.existingFiles).toBe('keepBoth');
+});

@@ -1186,6 +1186,12 @@ fn report(lib: &Library, db: &Path) -> String {
             .map(|row| row.iter().map(render).collect::<Vec<_>>().join(" | "))
             .collect();
         lines.sort();
+        // The camera naming is the decoder catalogue's of the build, not
+        // the fixture's: recorded as that, so a decoder update keeps it.
+        let naming = rawtonic_raw_format::camera_names::naming_fingerprint();
+        for line in &mut lines {
+            *line = line.replace(naming, "<decoder naming>");
+        }
         writeln!(
             out,
             "# table {name} ({} rows): {}",
