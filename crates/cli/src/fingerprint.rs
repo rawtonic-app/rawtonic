@@ -190,7 +190,7 @@ pub fn run(args: FingerprintArgs) -> Result<()> {
             let report: Value = serde_json::from_slice(&serde_json::to_vec_pretty(&report)?)?;
             let diff = compare(&baseline, &report);
             for line in &diff.lines {
-                rawtonic_runtime::cli_output::write_result_line(std::io::stdout(), &line)?;
+                rawtonic_runtime::cli_output::write_result_line(std::io::stdout(), line)?;
             }
             cli_eprintln!(
                 "{} changed, {} new, {} missing, {} unchanged",
