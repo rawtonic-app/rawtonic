@@ -2648,6 +2648,7 @@
       "notAssigned": "Nie przypisano",
       "optimization": "Optymalizacja urządzenia wejściowego",
       "optimizationDesc": "Wybierz główne urządzenie wejściowe do przesuwania i przybliżania obszaru roboczego.",
+      "reassignedFrom": "Reassigned from {{commands}}",
       "pressKey": "Naciśnij klawisz... (Esc by anulować)",
       "resetDefaults": "Przywróć wszystkie domyślne",
       "speed": "Prędkość",

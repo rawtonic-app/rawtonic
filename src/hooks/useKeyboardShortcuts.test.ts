@@ -1,4 +1,4 @@
-import { runAppCommand } from '../utils/appCommands';
+import { registerAppCommands, runAppCommand } from '../utils/appCommands';
 import '../i18n';
 import { notify as toast } from '../activity/notify';
 import { cleanup, renderHook } from '@testing-library/react';
@@ -1068,4 +1068,15 @@ it('opens Preferences when Windows supplies only the comma key', () => {
   useSettingsStore.setState({ osPlatform: 'windows' });
   press('', ',', { ctrlKey: true });
   expect(useUIStore.getState().isSettingsOpen).toBe(true);
+});
+
+it('dispatches the newly assigned shortcut instead of the old default', async () => {
+  await useSettingsStore.getState().assignKeybind('virtual_copy', ['ctrl', 'KeyG']);
+  const copy = vi.fn();
+  const group = vi.fn();
+  const unregister = registerAppCommands({ virtual_copy: { run: copy }, stack_group: { run: group } });
+  press('KeyG', 'g', { metaKey: true });
+  expect(copy).toHaveBeenCalledOnce();
+  expect(group).not.toHaveBeenCalled();
+  unregister();
 });

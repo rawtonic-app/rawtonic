@@ -16,6 +16,15 @@ beforeEach(() => {
   setPresetsUnread(false);
 });
 
+import { useSettingsStore } from './useSettingsStore';
+it('gives a newly assigned key to its new command and clears the default owner', async () => {
+  vi.mocked(invoke).mockResolvedValue(undefined);
+  useSettingsStore.setState({ appSettings: { keybinds: {} } as AppSettings });
+  await useSettingsStore.getState().assignKeybind('virtual_copy', ['ctrl', 'KeyG']);
+  expect(useSettingsStore.getState().appSettings?.keybinds?.stack_group).toEqual([]);
+  expect(useSettingsStore.getState().keybindReassigned.virtual_copy).toEqual(['stack_group']);
+});
+
 it('sends a save at once, and the next only after the earlier one finished', async () => {
   const finish: Array<(value?: unknown) => void> = [];
   const fail: Array<(reason: unknown) => void> = [];

@@ -2512,6 +2512,7 @@
       "notAssigned": "Non assigné",
       "optimization": "Optimisation du périphérique d'entrée",
       "optimizationDesc": "Choisissez le périphérique d'entrée principal que vous utilisez pour le panoramique et le zoom de la toile.",
+      "reassignedFrom": "Reassigned from {{commands}}",
       "pressKey": "Appuyez sur une touche... (Échap pour effacer)",
       "resetDefaults": "Réinitialiser aux valeurs par défaut",
       "speed": "Vitesse",

@@ -2512,6 +2512,7 @@
       "notAssigned": "Non assegnato",
       "optimization": "Ottimizzazione Dispositivo di Input",
       "optimizationDesc": "Scegli il dispositivo di input principale che utilizzi per la panoramica e lo zoom dell'area di lavoro.",
+      "reassignedFrom": "Reassigned from {{commands}}",
       "pressKey": "Premi un tasto... (Esc per cancellare)",
       "resetDefaults": "Ripristina Tutto ai Valori Predefiniti",
       "speed": "Velocità",

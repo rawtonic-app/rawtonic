@@ -2279,6 +2279,7 @@
       "notAssigned": "未割り当て",
       "optimization": "入力デバイスの最適化",
       "optimizationDesc": "キャンバスのパンとズームに使用するメインの入力デバイスを選択します。",
+      "reassignedFrom": "Reassigned from {{commands}}",
       "pressKey": "キーを押してください... (Escでクリア)",
       "resetDefaults": "すべてデフォルトに戻す",
       "speed": "速度",

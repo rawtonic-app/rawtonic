@@ -1,3 +1,4 @@
+import { KEYBIND_DEFINITIONS, effectiveCombos, splitByView } from '../utils/keyboardUtils';
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { platform } from '@tauri-apps/plugin-os';
@@ -10,6 +11,9 @@ interface SettingsState {
   appSettings: AppSettings | null;
   supportedTypes: SupportedTypes | null;
   osPlatform: string;
+
+  keybindReassigned: Record<string, string[]>;
+  assignKeybind: (action: string, combo: string[]) => Promise<void>;
 
   // Actions
   initPlatform: () => void;
@@ -96,7 +100,24 @@ export async function relaunchAfterSettingsSaves(relaunch: () => Promise<void>):
   }, relaunch);
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
+export const useSettingsStore = create<SettingsState>((set, get) => ({
+  keybindReassigned: {},
+  assignKeybind: async (action, combo) => {
+    const settings = get().appSettings;
+    if (!settings) return;
+    const keybinds = { ...settings.keybinds, [action]: combo };
+    const displaced: string[] = [];
+    for (const def of KEYBIND_DEFINITIONS) {
+      if (def.action === action || splitByView([action, def.action]) || !combo.length) continue;
+      const previous = effectiveCombos(def, settings.keybinds);
+      if (previous.some((key) => key.join('+') === combo.join('+'))) {
+        keybinds[def.action] = previous.find((key) => key.join('+') !== combo.join('+')) ?? [];
+        displaced.push(def.action);
+      }
+    }
+    set({ keybindReassigned: { ...get().keybindReassigned, [action]: displaced } });
+    await get().handleSettingsChange({ ...settings, keybinds });
+  },
   appSettings: null,
   supportedTypes: null,
   osPlatform: '',

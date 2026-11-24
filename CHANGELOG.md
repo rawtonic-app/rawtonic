@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Assigning a keyboard shortcut gives it to the new command, clears its previous owner, and names that owner in Preferences.
+
 ### Highlights
 
 - **B&W Toning: one place to tone a black & white photo.** The Black & white tool has a Toning part: a Highlights tone and a Shadows tone (hue, saturation, density), Balance (where the highlights tone starts) and Paper (how far it reaches into white). By default toning keeps the grey's lightness wherever sRGB can hold the tint (a strong warm tint of very light greys gives up a little lightness to stay in sRGB) and leaves black and white neutral; Density darkens the toned parts like a toner (the deepest shadows keep their order), Paper tints white like a toned paper base. Measured against Capture One 16.9.1's B&W split toning (saturation up to 60) on a grey ramp and two RAW photos, with the settings fitted to it: ΔE00 median 0.9–1.3 on the ramp, 0.8–1.2 and 1.5–2.0 on the photos (Capture One's own plain B&W against ours: 0.5, 0.7 and 1.4), where Color Grading reached 5.6–15; strong blue highlight toning (Capture One 240° at 60) reaches 1.3 only as a toning-only fit on Capture One's own plain ramp (about 1.8 with the same settings on ours, before output mapping). Capture One styles with B&W split toning now import into it (on the same ramp and photos ΔE00 median 1.3–3.3 instead of 1.6–15 through Color Grading; not yet as close as the tool can get). Lightroom presets keep toning with Color Grading; Camera Raw's B&W toning was not rendered for a side-by-side (the Lightroom-type behaviour here is Rawtonic's own Color Grading on greys).

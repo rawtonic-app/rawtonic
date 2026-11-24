@@ -2512,6 +2512,7 @@
       "notAssigned": "Não atribuído",
       "optimization": "Otimização de Dispositivo de Entrada",
       "optimizationDesc": "Escolha o dispositivo de entrada principal que você usa para mover e dar zoom na tela.",
+      "reassignedFrom": "Reassigned from {{commands}}",
       "pressKey": "Pressione uma tecla... (Esc para limpar)",
       "resetDefaults": "Redefinir Tudo para Padrões",
       "speed": "Velocidade",
