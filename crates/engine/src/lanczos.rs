@@ -4,9 +4,10 @@
 //!
 //! The image crate resizes on one thread and reads every tap through
 //! `get_pixel`: resizing a 33–61 MP render to 2048 px took 0.2–0.5 s of each
-//! photo's export (notes: parity-gaps/G43, task BX3). Here each output row
-//! is its own job and the vertical pass adds whole source rows, but every
-//! output value is still the sum of the same products in the same order.
+//! photo's export (notes: parity-gaps/G43, task BX3). Here each band of
+//! output rows is its own job and the vertical pass adds whole source rows,
+//! but every output value is still the sum of the same products in the same
+//! order.
 
 use image::{DynamicImage, ImageBuffer, Pixel};
 use rayon::prelude::*;
@@ -132,49 +133,84 @@ fn resize_mapped<I: Copy + Sync, O: Sample, const C: usize>(
     ceiling: f32,
 ) -> Vec<O> {
     let row = width as usize * C;
-    let rows = taps(height, new_height);
-    let mut vertical = vec![0.0f32; row * new_height as usize];
-    vertical
-        .par_chunks_mut(row)
-        .zip(rows.par_iter())
-        .for_each(|(out, taps)| {
-            for (i, &weight) in taps.weights.iter().enumerate() {
-                let start = (taps.first + i) * row;
-                for (sum, &value) in out.iter_mut().zip(&pixels[start..start + row]) {
-                    *sum += read(value) * weight;
-                }
-            }
-        });
-
-    let columns = taps(width, new_width);
     let new_row = new_width as usize * C;
+    let rows = taps(height, new_height);
+    let columns = taps(width, new_width);
     let mut resized = vec![O::from_clamped(0.0); new_row * new_height as usize];
+    // Each job makes a band of output rows: the vertical sums of its rows
+    // (each source row read once per band, then added to every row of the
+    // band that takes it, in source order: each sum's taps in their order),
+    // then their horizontal pass. A band's sums replace a float copy of
+    // `new_height` full-width rows, and the inner loop adds whole rows.
     resized
-        .par_chunks_mut(new_row)
-        .zip(vertical.par_chunks(row))
-        .for_each(|(out, line)| {
-            for (pixel, taps) in out.as_chunks_mut::<C>().0.iter_mut().zip(&columns) {
-                let mut sum = [0.0f32; C];
-                for (i, &weight) in taps.weights.iter().enumerate() {
-                    let start = (taps.first + i) * C;
-                    for (sum, &value) in sum.iter_mut().zip(&line[start..start + C]) {
+        .par_chunks_mut(new_row * BAND_ROWS)
+        .zip(rows.par_chunks(BAND_ROWS))
+        .for_each(|(out, band)| {
+            let first = band.iter().map(|taps| taps.first).min().unwrap_or(0);
+            let end = band
+                .iter()
+                .map(|taps| taps.first + taps.weights.len())
+                .max()
+                .unwrap_or(0);
+            let mut sums = vec![0.0f32; row * band.len()];
+            let mut line = vec![0.0f32; row];
+            for source in first..end {
+                let start = source * row;
+                for (value, &pixel) in line.iter_mut().zip(&pixels[start..start + row]) {
+                    *value = read(pixel);
+                }
+                for (taps, sums) in band.iter().zip(sums.chunks_mut(row)) {
+                    let Some(&weight) = source
+                        .checked_sub(taps.first)
+                        .and_then(|tap| taps.weights.get(tap))
+                    else {
+                        continue;
+                    };
+                    for (sum, &value) in sums.iter_mut().zip(&line) {
                         *sum += value * weight;
                     }
                 }
-                for (value, sum) in pixel.iter_mut().zip(sum) {
-                    // The image crate's `clamp`: NaN passes.
-                    let clamped = if sum < floor {
-                        floor
-                    } else if sum > ceiling {
-                        ceiling
-                    } else {
-                        sum
-                    };
-                    *value = O::from_clamped(clamped);
-                }
+            }
+            for (out, line) in out.chunks_mut(new_row).zip(sums.chunks(row)) {
+                horizontal::<O, C>(out, line, &columns, floor, ceiling);
             }
         });
     resized
+}
+
+/// Output rows a job of [`resize_mapped`] makes: each source row it reads
+/// is read once for all of them (about 1.3 reads per source row at a
+/// reduction of 4.7 times instead of one per tap, 6).
+const BAND_ROWS: usize = 16;
+
+/// The horizontal pass of one row of vertical sums into `out`.
+fn horizontal<O: Sample, const C: usize>(
+    out: &mut [O],
+    line: &[f32],
+    columns: &[Taps],
+    floor: f32,
+    ceiling: f32,
+) {
+    for (pixel, taps) in out.as_chunks_mut::<C>().0.iter_mut().zip(columns) {
+        let mut sum = [0.0f32; C];
+        for (i, &weight) in taps.weights.iter().enumerate() {
+            let start = (taps.first + i) * C;
+            for (sum, &value) in sum.iter_mut().zip(&line[start..start + C]) {
+                *sum += value * weight;
+            }
+        }
+        for (value, sum) in pixel.iter_mut().zip(sum) {
+            // The image crate's `clamp`: NaN passes.
+            let clamped = if sum < floor {
+                floor
+            } else if sum > ceiling {
+                ceiling
+            } else {
+                sum
+            };
+            *value = O::from_clamped(clamped);
+        }
+    }
 }
 
 fn resize_buffer<P, const C: usize>(
@@ -617,6 +653,9 @@ mod tests {
             ((300, 200), (1, 1)),
             ((7, 5), (3, 11)),
             ((1, 9), (4, 2)),
+            // Two full bands of output rows and one of a single row, from a
+            // reduction as large as a 24 MP camera JPEG's to a grid tile.
+            ((1203, 1586), (97, 33)),
         ];
         for (seed, ((width, height), (new_width, new_height))) in sizes.into_iter().enumerate() {
             for image in images(width, height, seed as u64) {

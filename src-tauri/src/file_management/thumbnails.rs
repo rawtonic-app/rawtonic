@@ -186,7 +186,7 @@ fn thumbnail_hash_for_engine(
     adjustments_bytes: &[u8],
     engine: u32,
 ) -> Option<String> {
-    thumbnail_hash_with(path_str, adjustments_bytes, engine, true, None, true)
+    thumbnail_hash_with(path_str, adjustments_bytes, engine, true, None, true, true)
 }
 
 /// The key a tile was cached under before a photo's camera matched its
@@ -202,6 +202,7 @@ fn thumbnail_hash_before_camera_identity(
         crate::preview_proxy::ENGINE_VERSION,
         true,
         None,
+        false,
         false,
     )
 }
@@ -219,6 +220,7 @@ fn thumbnail_hash_with_display_copy_held(
         crate::preview_proxy::ENGINE_VERSION,
         true,
         Some(true),
+        false,
         false,
     )
 }
@@ -238,6 +240,7 @@ fn thumbnail_hash_with_display_copy_renewed(
         true,
         Some(false),
         false,
+        false,
     )
 }
 
@@ -253,6 +256,22 @@ fn thumbnail_hash_before_refreshes(path_str: &str, adjustments_bytes: &[u8]) -> 
         false,
         None,
         false,
+        false,
+    )
+}
+
+/// The key a never-edited ORF's tile was developed under before its maker
+/// note's preview was read (2026-11-24): while the original is unavailable,
+/// that tile is better than none.
+fn thumbnail_hash_before_orf_preview(path_str: &str, adjustments_bytes: &[u8]) -> Option<String> {
+    thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
+        true,
+        None,
+        true,
+        false,
     )
 }
 
@@ -263,6 +282,7 @@ fn thumbnail_hash_with(
     refreshed: bool,
     display_copy: Option<bool>,
     camera_identity: bool,
+    orf_preview: bool,
 ) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
@@ -314,6 +334,18 @@ fn thumbnail_hash_with(
         hasher.update(b"\0lut-renders-when-missing-v1\0");
     }
     if is_raw_file(&source_path) {
+        // A never-edited Olympus / OM System RAW's tile was developed from
+        // the sensor data until 2026-11-24; it now shows the camera's preview
+        // from the maker note (`image_loader::orf_embedded_jpeg`) like other
+        // cameras' RAWs: such tiles are made again once.
+        if orf_preview
+            && adjustments.as_ref().is_none_or(serde_json::Value::is_null)
+            && source_path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("orf"))
+        {
+            hasher.update(b"\0orf-maker-note-preview-v1");
+        }
         // Old embedded RAW previews could omit camera orientation for non-TIFF
         // containers (notably RAF). Their pixels must not survive this fix.
         hasher.update(b"\0embedded-raw-orientation-v1");
@@ -1661,9 +1693,10 @@ fn preferred_thumbnail_hash<'a>(
 }
 
 /// The keys a tile of `path_str` may have been cached under, newest
-/// first: before camera identities, with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
+/// first: before ORF maker-note previews, before camera identities, with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
 fn older_tile_keys(path_str: &str, adjustments_bytes: &[u8]) -> Vec<String> {
     [
+        thumbnail_hash_before_orf_preview(path_str, adjustments_bytes),
         thumbnail_hash_before_camera_identity(path_str, adjustments_bytes),
         thumbnail_hash_with_display_copy_renewed(path_str, adjustments_bytes),
         thumbnail_hash_with_display_copy_held(path_str, adjustments_bytes),
@@ -1698,6 +1731,32 @@ fn keep_tile_of_unavailable_original(
     old()
         .into_iter()
         .find(|old| *old != new && thumbnail_files_exist(directory, old))
+        .unwrap_or(new)
+}
+
+/// A never-edited ORF whose original is unavailable keeps the tile an
+/// earlier version developed (`before`) until it can be made again from the
+/// camera's preview: a Standard preview may stand for the recipe
+/// (`keep_tile_of_unavailable_original`) yet be refused by the renderer when
+/// it was built with other decode preferences, and a blank tile is worse.
+fn orf_tile_while_offline(
+    directory: &Path,
+    source: &Path,
+    new: String,
+    before: impl FnOnce() -> Option<String>,
+) -> String {
+    // Looked at only for an ORF whose tile is missing (each lookup's cost).
+    let orf = source
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("orf"));
+    if !orf
+        || thumbnail_files_exist(directory, &new)
+        || crate::preview_proxy::source_available(source)
+    {
+        return new;
+    }
+    before()
+        .filter(|before| *before != new && thumbnail_files_exist(directory, before))
         .unwrap_or(new)
 }
 
@@ -1848,6 +1907,9 @@ impl ThumbnailCacheEntry {
             cache_hash,
             || older_tile_keys(path_str, &adjustments_bytes),
         );
+        let cache_hash = orf_tile_while_offline(thumb_cache_dir, &source_path, cache_hash, || {
+            thumbnail_hash_before_orf_preview(path_str, &adjustments_bytes)
+        });
         let embedded_hash = embedded_thumbnail_hash(path_str);
         let selected = preferred_thumbnail_hash(
             thumb_cache_dir,
@@ -3860,6 +3922,48 @@ mod face_retouch_thumbnail_tests {
             compute_thumbnail_cache_hash(path, &stale).unwrap(),
             skipped(&stale),
             "a thumbnail cached while the retouch was skipped is made again"
+        );
+    }
+
+    #[test]
+    fn never_edited_orf_tiles_are_made_again_once_with_the_old_tile_kept_offline() {
+        let temp = tempfile::tempdir().unwrap();
+        let orf = temp.path().join("P1010001.ORF");
+        std::fs::write(&orf, b"source unchanged").unwrap();
+        let path = orf.to_str().unwrap();
+        let before = thumbnail_hash_before_orf_preview(path, b"null").unwrap();
+        assert_ne!(compute_thumbnail_cache_hash(path, b"null").unwrap(), before);
+        assert_ne!(compute_thumbnail_cache_hash(path, b"").unwrap(), before);
+        assert!(older_tile_keys(path, b"null").contains(&before));
+        // Offline with only the earlier tile cached, that tile is shown;
+        // online, the new key (made again from the camera's preview).
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        for size in ["small", "medium"] {
+            std::fs::write(cache.join(format!("{before}_{size}.jpg")), b"tile").unwrap();
+        }
+        let new = compute_thumbnail_cache_hash(path, b"null").unwrap();
+        let gone = temp.path().join("offline/P1010001.ORF");
+        assert_eq!(
+            orf_tile_while_offline(&cache, &gone, new.clone(), || Some(before.clone())),
+            before
+        );
+        assert_eq!(
+            orf_tile_while_offline(&cache, &orf, new.clone(), || Some(before.clone())),
+            new
+        );
+        // An edited ORF and other RAWs keep their keys.
+        let edited = br#"{"exposure":0.5}"#;
+        assert_eq!(
+            compute_thumbnail_cache_hash(path, edited),
+            thumbnail_hash_before_orf_preview(path, edited)
+        );
+        let cr2 = temp.path().join("IMG_0001.CR2");
+        std::fs::write(&cr2, b"source unchanged").unwrap();
+        let cr2 = cr2.to_str().unwrap();
+        assert_eq!(
+            compute_thumbnail_cache_hash(cr2, b"null"),
+            thumbnail_hash_before_orf_preview(cr2, b"null")
         );
     }
 
