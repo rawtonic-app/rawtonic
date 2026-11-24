@@ -2014,7 +2014,8 @@ pub(crate) fn plan_output_path<'a>(
 
     let extension = target.output_format.to_lowercase();
     let policy = export_settings.existing_files;
-    let mask_layers = if export_settings.export_masks {
+    // A CUBE LUT is written alone, without mask files.
+    let mask_layers = if export_settings.export_masks && extension != "cube" {
         mask_layers
     } else {
         0
@@ -4717,6 +4718,16 @@ mod tests {
             let output = plan_output_path(&masked, &item, &raw, &date, None, 1, &used).unwrap();
             assert_eq!(output, delivery.join("client c_1.jpg"));
         }
+        // A CUBE LUT writes no mask files: their names do not collide.
+        let mut lut = masked.clone();
+        lut.output_format = "cube".into();
+        lut.output_folder_or_file = delivery
+            .join("client b.cube")
+            .to_string_lossy()
+            .into_owned();
+        let used = std::sync::Mutex::new(std::collections::HashSet::new());
+        let output = plan_output_path(&lut, &item, &raw, &date, None, 1, &used).unwrap();
+        assert_eq!(output, delivery.join("client b.cube"));
         // The template only proposes the name: one that cannot name this
         // photo does not stop the file named in the dialog.
         let mut untitled = save_as.clone();

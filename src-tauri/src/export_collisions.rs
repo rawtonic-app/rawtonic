@@ -150,15 +150,18 @@ fn collide_photo(
                 kept: Some(kept),
                 ..
             } => {
-                let masks = if target.export_settings.export_masks {
+                let masks = if target.export_settings.export_masks
+                    && !target.output_format.eq_ignore_ascii_case("cube")
+                {
                     mask_layers
                 } else {
                     0
                 };
-                // Name the actual collision, which can be a mask file.
+                // Name the actual collision, which can be a mask file (any
+                // directory entry, a dangling link too, as the planner counts it).
                 let occupied = std::iter::once(slot.clone())
                     .chain((0..masks).flat_map(|layer| mask_file_paths(&slot, layer)))
-                    .find(|path| path.exists())
+                    .find(|path| path.symlink_metadata().is_ok())
                     .unwrap_or(slot);
                 summary.other.add(&occupied);
                 if kept == Outcome::KeptOriginal {

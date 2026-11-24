@@ -419,9 +419,12 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
   // Save As names one file: one photo and one recipe (or the form).
   // The form's subfolder does not apply to it, so only its other checks hold it.
   const canSaveAs = paths.length === 1 && planned.length === 1;
-  const saveAsInvalid =
-    !checked.length &&
-    (watermarkMissing || !validNamingTemplate(draft.template, 'export') || !validSequenceStart(draft.sequenceStart));
+  // A ticked recipe shown in the form exports the form only while all of it
+  // is valid (`recipeDraft`), so then the subfolder counts too.
+  const saveAsInvalid = checked.some((r) => r.id === editing)
+    ? formInvalid
+    : !checked.length &&
+      (watermarkMissing || !validNamingTemplate(draft.template, 'export') || !validSequenceStart(draft.sequenceStart));
   const run = async (saveAs = false) => {
     if (!paths.length || choosing || unsignable.length) return;
     if (saveAs ? !canSaveAs || saveAsInvalid : !checked.length && formInvalid) return;

@@ -124,7 +124,8 @@ export async function runExportJobs(
   const fileFor = async (
     job: RecipeDraft,
     extension: string,
-    name: string
+    name: string,
+    recipeName: string
   ): Promise<{ path: string; isFile: boolean } | null> => {
     const { settings } = exportSettingsFromDraft(job);
     const stem = paths[0]
@@ -133,7 +134,8 @@ export async function runExportJobs(
       .replace(/\.[^.]+$/, '');
     const named = await invoke<{ name: string } | undefined>(Invokes.ExportNamingPreview, {
       path: paths[0],
-      exportSettings: { ...settings, jobName },
+      // The name the export will give: with the recipe's name for {recipe}.
+      exportSettings: { ...settings, jobName, recipeName },
       outputFormat: extension,
       total: 1,
       library: submittedFrom(session)
@@ -164,9 +166,10 @@ export async function runExportJobs(
     job: RecipeDraft,
     extension: string,
     name: string,
-    single: boolean
+    single: boolean,
+    recipeName: string
   ): Promise<{ path: string; isFile: boolean } | null> => {
-    if (saveAs) return fileFor(job, extension, name);
+    if (saveAs) return fileFor(job, extension, name, recipeName);
     if (job.where === 'output' && session) {
       // The session's Output folder, wherever it is set (G38); one outside
       // the session whose drive is away stops the export, naming it.
@@ -181,7 +184,8 @@ export async function runExportJobs(
     if (job.folder) return { path: job.folder, isFile: false };
     // One photograph asks for a file name, unless folders are made for it;
     // the name offered is the one its template gives it.
-    if (single && !job.preserveFolders && !subfolderName(job.subfolder)) return fileFor(job, extension, name);
+    if (single && !job.preserveFolders && !subfolderName(job.subfolder))
+      return fileFor(job, extension, name, recipeName);
     const chosen = await openDialog({
       purpose: 'export',
       title: t('studio.export.dialogs.exportFolder', {
@@ -212,7 +216,8 @@ export async function runExportJobs(
         job.draft,
         job.outputFormat,
         job.recipe?.name ?? t('studio.export.dialogs.customName'),
-        paths.length === 1 && !job.recipe
+        paths.length === 1 && !job.recipe,
+        job.recipe?.name ?? ''
       );
       // The photographer stopped: no export at all, and none of the later
       // recipes' folders are asked for either, nor remembered.

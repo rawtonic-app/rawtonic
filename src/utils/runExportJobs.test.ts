@@ -299,6 +299,9 @@ describe('Save As (one photo, a file the photographer names)', () => {
       })
     ).toBe(1);
     expect(requests()[0]).toMatchObject({ outputFolderOrFile: '/Delivery/client.jpg', isExplicitFilePath: true });
+    // The name offered is the one the export gives, {recipe} included.
+    const preview = vi.mocked(invoke).mock.calls.find(([command]) => command === 'export_naming_preview');
+    expect((preview?.[1] as { exportSettings: { recipeName: string } }).exportSettings.recipeName).toBe('Web');
     expect(handleSettingsChange).not.toHaveBeenCalled();
   });
 
