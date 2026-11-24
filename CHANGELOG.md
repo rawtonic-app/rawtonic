@@ -22,6 +22,7 @@
 
 ### Fixes
 
+- After a lost graphics device (driver reset), a collage cell whose render met the loss is rendered once more on the new device, as the export queue does, instead of failing the collage. In a multi view, a zoomed cell shows its cached thumbnail enlarged at once on the new device, no longer the whole photo at fit until its region develops again.
 - For a capture without an embedded date, a metadata preset gets its copyright year from the source file's verified modification time.
 - Linux Edit With follows applications-directory precedence when reading MIME associations, so a system removal leaves a higher-priority user desktop entry available.
 - When a hot folder retries registering a verified RAW copy, it adopts the copy's XMP and applies the metadata preset over it.

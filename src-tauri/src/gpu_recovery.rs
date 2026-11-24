@@ -340,4 +340,91 @@ mod tests {
         );
         drop(processor);
     }
+
+    /// DVL3: a single photo's render (a collage's cell) that meets a loss
+    /// goes once more on the new device and gives the same pixels, never
+    /// the lost error.
+    #[test]
+    #[ignore = "requires a native GPU"]
+    fn a_single_render_hit_by_a_simulated_loss_goes_again_on_the_new_device() {
+        use crate::gpu_processing::{
+            ReadbackShader, RenderOutputPrecision, RenderRequest, RenderSource,
+            process_and_get_dynamic_image_inner,
+        };
+        use crate::image_processing::get_all_adjustments_from_json;
+        use std::sync::atomic::AtomicBool;
+        let gpu = std::sync::Arc::new(GpuState::default());
+        let develop = DevelopSession::default();
+        let start = |gpu: &GpuState| {
+            let context = GpuContext::headless().expect("native QA requires a GPU");
+            *gpu.context_slot() = Some(context.clone());
+            context
+        };
+        let photo = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(640, 480, |x, y| {
+            image::Rgb([(x % 256) as u8, (y % 256) as u8, 90])
+        }));
+        let render = |context: &GpuContext| {
+            process_and_get_dynamic_image_inner(
+                context,
+                &gpu.processor,
+                &develop.gpu_image_cache,
+                RenderSource::Image {
+                    image: &photo,
+                    transform_hash: 1,
+                },
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(
+                        &serde_json::json!({"exposure":0.3}),
+                        false,
+                        None,
+                    ),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                "dvl3_single",
+                RenderOutputPrecision::EightBit,
+                false,
+                None,
+                None,
+                ReadbackShader::Export,
+            )
+        };
+        let first = std::sync::Arc::new(start(&gpu));
+        let before = render(&first).expect("renders");
+
+        // The app's recovery, as `recover` does it: once the loss is
+        // known, drop the old device's state and start a new device.
+        let recovery = {
+            let gpu = std::sync::Arc::clone(&gpu);
+            std::thread::spawn(move || {
+                while !rawtonic_gpu::device_start::device_lost() {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                std::thread::sleep(Duration::from_millis(200));
+                drop(drop_device_state(&gpu, None));
+                let context = GpuContext::headless().expect("native QA requires a GPU");
+                *gpu.context_slot() = Some(context);
+            })
+        };
+        let mut attempts = 0;
+        let after = crate::export_processing::render_after_device_loss(
+            &gpu,
+            &first,
+            &AtomicBool::new(false),
+            Duration::from_secs(10),
+            |context| {
+                attempts += 1;
+                if attempts == 1 {
+                    // The loss comes while the render runs.
+                    rawtonic_gpu::device_start::simulate_lost("DVL3 test");
+                }
+                render(context)
+            },
+        )
+        .expect("the render goes again on the new device");
+        recovery.join().unwrap();
+        assert_eq!(attempts, 2);
+        assert_eq!(before.as_bytes(), after.as_bytes());
+    }
 }

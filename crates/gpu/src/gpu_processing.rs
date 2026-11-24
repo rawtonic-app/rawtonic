@@ -3688,9 +3688,19 @@ impl WgpuDisplay {
         width: u32,
         height: u32,
         rgba: &[u8],
+        shown: impl FnOnce() -> Option<[f32; 2]>,
     ) -> bool {
         let mut multi = std::mem::take(&mut self.multi);
-        let kept = multi.stand_in(device, queue, &self.bindings(), path, width, height, rgba);
+        let kept = multi.stand_in(
+            device,
+            queue,
+            &self.bindings(),
+            path,
+            width,
+            height,
+            rgba,
+            shown,
+        );
         self.multi = multi;
         kept
     }
