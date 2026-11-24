@@ -3036,33 +3036,6 @@ pub async fn run_headless_export(
 
     println!("Found {} images to export. Processing...", paths.len());
 
-    let export_settings = ExportSettings {
-        jpeg_quality: session.quality,
-        tiff_bit_depth: session.tiff_bit_depth,
-        resize: None,
-        border: None,
-        pad: None,
-        keep_metadata: session.keep_metadata,
-        color_space: session.color_space,
-        preserve_timestamps: true,
-        strip_gps: false,
-        keep_creator_contact: session.keep_creator_contact,
-        filename_template: None,
-        name_template: None,
-        job_name: None,
-        recipe_name: None,
-        sequence_start: None,
-        watermark: None,
-        export_masks: false,
-        preserve_folders: true,
-        destination_type: None,
-        subfolder: None,
-        output_sharpening: None,
-        super_resolution: false,
-        provenance: None,
-        existing_files: session.existing_files,
-    };
-
     let mut custom_adjustments = None;
     if let Some(adj_path) = &session.adjustments_override {
         let content = std::fs::read_to_string(adj_path)
@@ -3105,24 +3078,7 @@ pub async fn run_headless_export(
         read,
     };
 
-    let recipes = match &session.recipes {
-        Some(file) => headless_recipes(file)?,
-        None => vec![HeadlessRecipe {
-            format: session.format,
-            settings: export_settings,
-        }],
-    };
-    let targets = recipes
-        .into_iter()
-        .map(|recipe| ExportTarget {
-            output_folder_or_file: session.output.clone(),
-            is_explicit_file_path,
-            base_origin_folders: vec![session.source.clone()],
-            export_settings: recipe.settings,
-            output_format: recipe.format,
-            tracking: None,
-        })
-        .collect();
+    let targets = headless_targets(&session, is_explicit_file_path)?;
 
     export_images_impl(
         paths,
@@ -3139,6 +3095,57 @@ pub async fn run_headless_export(
         Ok(Err(errors)) => Err(format!("Export completed with {} errors.", errors)),
         Err(_) => Err("Export task panicked or was cancelled.".to_string()),
     }
+}
+
+fn headless_targets(
+    session: &crate::launch_request::HeadlessExportSession,
+    is_explicit_file_path: bool,
+) -> Result<Vec<ExportTarget>, String> {
+    let export_settings = ExportSettings {
+        jpeg_quality: session.quality,
+        tiff_bit_depth: session.tiff_bit_depth,
+        resize: None,
+        border: None,
+        pad: None,
+        keep_metadata: session.keep_metadata,
+        color_space: session.color_space,
+        preserve_timestamps: true,
+        strip_gps: false,
+        keep_creator_contact: session.keep_creator_contact,
+        filename_template: None,
+        name_template: None,
+        job_name: None,
+        recipe_name: None,
+        sequence_start: None,
+        watermark: None,
+        export_masks: false,
+        preserve_folders: true,
+        destination_type: None,
+        subfolder: None,
+        output_sharpening: None,
+        super_resolution: false,
+        provenance: None,
+        existing_files: session.existing_files,
+    };
+
+    let recipes = match &session.recipes {
+        Some(file) => headless_recipes(file)?,
+        None => vec![HeadlessRecipe {
+            format: session.format.clone(),
+            settings: export_settings,
+        }],
+    };
+    Ok(recipes
+        .into_iter()
+        .map(|recipe| ExportTarget {
+            output_folder_or_file: session.output.clone(),
+            is_explicit_file_path,
+            base_origin_folders: vec![session.source.clone()],
+            export_settings: recipe.settings,
+            output_format: recipe.format,
+            tracking: None,
+        })
+        .collect())
 }
 
 /// A recipe of a headless export with `--recipes`: the format and the
@@ -4113,6 +4120,50 @@ mod tests {
         );
         std::fs::write(&file, "[]").unwrap();
         assert!(super::headless_recipes(file.to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn headless_targets_use_each_saved_policy_instead_of_the_command_line() {
+        use crate::launch_request::{LaunchRequest, parse_launch_args};
+        use rawtonic_export::existing_files::ExistingFiles;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("recipes.json");
+        std::fs::write(
+            &file,
+            r#"[
+              {"format": "jpg", "settings": {"jpegQuality": 80, "keepMetadata": false, "stripGps": true}},
+              {"format": "tiff", "settings": {"jpegQuality": 90, "keepMetadata": true, "stripGps": false, "existingFiles": "replaceIfChanged"}}
+            ]"#,
+        )
+        .unwrap();
+        let args = [
+            "export",
+            "photo.png",
+            "--output",
+            "out",
+            "--on-conflict",
+            "skip",
+            "--recipes",
+            file.to_str().unwrap(),
+        ]
+        .map(str::to_owned);
+        let LaunchRequest::HeadlessExport(mut session) = parse_launch_args(&args, None) else {
+            panic!("expected a headless export");
+        };
+        let policies = |session: &crate::launch_request::HeadlessExportSession| {
+            super::headless_targets(session, false)
+                .unwrap()
+                .into_iter()
+                .map(|target| target.export_settings.existing_files)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            policies(&session),
+            [ExistingFiles::KeepBoth, ExistingFiles::ReplaceIfChanged]
+        );
+        session.recipes = None;
+        assert_eq!(policies(&session), [ExistingFiles::Skip]);
     }
 
     #[test]
