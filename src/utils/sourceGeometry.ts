@@ -13,7 +13,8 @@ import i18n from 'i18next';
 import { create } from 'zustand';
 import { notify } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
-import { closeOpenPhotoForLibraryWrite, recipesChangedOutside } from '../hooks/useEditorActions';
+import { closeOpenPhotoForLibraryWrite, recipesChangedOutside, recipeWrite } from '../hooks/useEditorActions';
+import { useLibraryStore } from '../store/useLibraryStore';
 import { importedRecipesAction, type RecipeSnapshot } from './appUndo';
 
 export interface GeometryOffers {
@@ -82,6 +83,12 @@ export function useGeometryOffer(directory: string | null | undefined, path: str
  * (the edits made in Develop are written first, as an import does). One
  * Undo step for all of them. Resolves false when nothing could be written. */
 export async function applySourceGeometry(directory: string, paths: string[]): Promise<boolean> {
+  // The Undo step belongs to the library that is open: the offers of another
+  // one wait until it is.
+  if (useLibraryStore.getState().sessionDirectory !== directory) {
+    notify.warning(i18n.t('session.toasts.sourceGeometryOtherLibrary'));
+    return false;
+  }
   const offers = useGeometryOffers.getState().offers.find((o) => o.directory === directory);
   const wanted = paths.filter((p) => offers?.paths.includes(p));
   if (!offers || !wanted.length) return false;
@@ -92,12 +99,25 @@ export async function applySourceGeometry(directory: string, paths: string[]): P
   }
   let applied: GeometryApplied;
   try {
-    applied = await invoke<GeometryApplied>(Invokes.LibraryApplySourceGeometry, {
-      source: offers.source,
-      directory,
-      relinks: offers.relinks,
-      paths: wanted
-    });
+    // Through the photos' write queue: a photo opened meanwhile loads (and
+    // saves) after the geometry is written.
+    applied = await recipeWrite(
+      wanted,
+      () =>
+        invoke<GeometryApplied>(Invokes.LibraryApplySourceGeometry, {
+          source: offers.source,
+          directory,
+          relinks: offers.relinks,
+          paths: wanted
+        }),
+      {
+        kind: 'sourceGeometry',
+        failedOf: (result) =>
+          wanted.filter(
+            (path) => !result.recipeChanges.some((c) => c.path === path) && !result.unchanged.includes(path)
+          )
+      }
+    );
   } catch (e) {
     notify.error(i18n.t('session.toasts.sourceGeometryFailed'), { detail: String(e) });
     return false;

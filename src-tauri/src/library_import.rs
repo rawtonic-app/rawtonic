@@ -2739,43 +2739,81 @@ pub fn apply_source_geometry(
             continue;
         }
         match apply_geometry_to(catalog, &asset.id, copy.as_deref(), &path, photo) {
-            Ok(Some(change)) => match follow_sidecar(catalog, &asset.id, &change) {
-                Ok(true) => applied.recipe_changes.push(change),
-                Ok(false) => {
-                    // Changed beside the photo since: the library's edit goes
-                    // back as it was, so nothing is half applied.
-                    let back = |state: Option<Value>| -> anyhow::Result<()> {
-                        let Some(mut state) = state else {
-                            return Ok(());
-                        };
-                        state["adjustments"] = change.before.clone();
-                        match &copy {
-                            Some(id) => catalog.save_copy_state(&asset.id, id, &state)?,
-                            None => catalog.save_editor_state(&asset.id, &state)?,
-                        }
-                        Ok(())
-                    };
-                    let state = match &copy {
-                        Some(id) => catalog.copy_state(&asset.id, id),
-                        None => catalog.editor_state(&asset.id),
-                    };
-                    if let Err(e) = state.map_err(Into::into).and_then(back) {
-                        applied.errors.push(format!("{path}: {e}"));
+            Ok(Some(change)) => {
+                let followed = follow_sidecar(catalog, &asset.id, &change);
+                // Not written beside the photo (changed there since, or the
+                // file cannot be written): a virtual copy is read from its
+                // sidecar, so the library's edit goes back as it was and
+                // nothing counts as applied, as in a repeated import. A
+                // photograph's own edit stays in the library, as after an
+                // edit whose sidecar could not be written.
+                let back = match &followed {
+                    Ok(false) => true,
+                    Err(_) => copy.is_some(),
+                    Ok(true) => false,
+                };
+                if back {
+                    if let Err(e) = put_back(catalog, &asset.id, copy.as_deref(), &change) {
+                        applied.errors.push(format!("{path}: {e:#}"));
                     }
-                    applied.errors.push(changed_elsewhere(&change));
                 }
-                // The library holds the edit, as after one whose sidecar could
-                // not be written: it counts, its Undo writes the library back.
-                Err(e) => {
-                    applied.errors.push(format!("{path}: {e}"));
-                    applied.recipe_changes.push(change);
+                match followed {
+                    Ok(true) => {
+                        record_current(catalog, &asset.id, copy.as_deref(), photo);
+                        applied.recipe_changes.push(change);
+                    }
+                    Ok(false) => applied.errors.push(changed_elsewhere(&change)),
+                    Err(e) => {
+                        applied.errors.push(format!("{path}: {e}"));
+                        if copy.is_none() {
+                            record_current(catalog, &asset.id, None, photo);
+                            applied.recipe_changes.push(change);
+                        }
+                    }
                 }
-            },
+            }
             Ok(None) => applied.unchanged.push(path),
             Err(e) => applied.errors.push(format!("{path}: {e:#}")),
         }
     }
     applied
+}
+
+/// The edit of `change.before` back in the library.
+fn put_back(
+    catalog: &Library,
+    asset: &str,
+    copy: Option<&str>,
+    change: &RecipeChange,
+) -> anyhow::Result<()> {
+    let state = match copy {
+        Some(id) => catalog.copy_state(asset, id)?,
+        None => catalog.editor_state(asset)?,
+    };
+    let Some(mut state) = state else {
+        return Ok(());
+    };
+    state["adjustments"] = change.before.clone();
+    match copy {
+        Some(id) => catalog.save_copy_state(asset, id, &state)?,
+        None => catalog.save_editor_state(asset, &state)?,
+    }
+    Ok(())
+}
+
+/// The version's import record as of today's reader (the repeated import
+/// then no longer names the straightening). A failure leaves the record
+/// as it was: the import names the photo again.
+fn record_current(catalog: &Library, asset: &str, copy: Option<&str>, photo: &Photo) {
+    let _ = (|| -> anyhow::Result<()> {
+        if let Some(version) = catalog.version_for(asset, copy)? {
+            let (current, _) = current_record(catalog.imported_recipe(&version)?, photo);
+            if let Some(current) = current {
+                catalog.record_imported_recipe(&version, &current)?;
+            }
+        }
+        Ok(())
+    })();
 }
 
 /// The geometry step of `apply_source_geometry` for one version: the change
@@ -2793,6 +2831,14 @@ fn apply_geometry_to(
     };
     let Some(mut state) = state else {
         anyhow::bail!("no edit here to apply it to");
+    };
+    // The geometry is read from the photo's frame: without it (the file is
+    // offline or unreadable) the translation holds none, which must not
+    // clear what is saved.
+    let Some((width, height, _)) = photo_frame(&photo.path) else {
+        anyhow::bail!(
+            "the photo's frame cannot be read (is the file online?); nothing was changed"
+        );
     };
     let Some((incoming, _)) = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path)
     else {
@@ -2814,6 +2860,8 @@ fn apply_geometry_to(
     if edit_digest(Some(&before)) == edit_digest(Some(&after)) {
         return Ok(None);
     }
+    // Drawn masks without a frame stay on the photo's content.
+    crate::mask_generation::keep_drawn_masks_on_photo(&before, &mut after, Some((width, height)));
     state["adjustments"] = after.clone();
     match copy {
         Some(id) => catalog.save_copy_state(asset, id, &state)?,
@@ -2826,12 +2874,6 @@ fn apply_geometry_to(
     }
     .and_then(|state| state.get("adjustments").cloned())
     .unwrap_or(after);
-    if let Some(version) = catalog.version_for(asset, copy)? {
-        let (current, _) = current_record(catalog.imported_recipe(&version)?, photo);
-        if let Some(current) = current {
-            catalog.record_imported_recipe(&version, &current)?;
-        }
-    }
     Ok(Some(RecipeChange {
         path: path.to_string(),
         before,
@@ -3274,6 +3316,11 @@ mod tests {
         let mut state = catalog.editor_state(&asset.id).unwrap().unwrap();
         state["adjustments"]["exposure"] = json!(0.9);
         state["adjustments"]["contrast"] = json!(12);
+        // A drawn mask without a frame (made before frames were kept).
+        state["adjustments"]["masks"] = json!([{"id": "m", "visible": true, "subMasks": [
+            {"id": "s", "type": "radial", "visible": true, "mode": "additive",
+             "parameters": {"centerX": 100.0, "centerY": 60.0, "radiusX": 40.0,
+                            "radiusY": 40.0, "rotation": 0.0, "feather": 0.5}}]}]);
         catalog.save_editor_state(&asset.id, &state).unwrap();
         let own = catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"].clone();
 
@@ -3306,8 +3353,14 @@ mod tests {
             for key in SOURCE_GEOMETRY_KEYS {
                 map.remove(key);
             }
+            map.remove("masks");
             recipe
         };
+        // The drawn mask stays on the photo's content: it got the frame it
+        // was drawn in.
+        let parameters = &now["masks"][0]["subMasks"][0]["parameters"];
+        assert!(!parameters["frame"].is_null(), "{parameters}");
+        assert_eq!(parameters["centerX"], json!(100.0));
         assert_eq!(strip(now.clone()), strip(own.clone()));
         assert_eq!(
             (now["exposure"].as_f64(), now["contrast"].as_i64()),
@@ -3337,6 +3390,51 @@ mod tests {
         // A path that was not offered is left alone.
         let other = apply_source_geometry(&catalog, &level, &["elsewhere.NEF".into()]);
         assert!(other.recipe_changes.is_empty() && other.unchanged.is_empty());
+    }
+
+    /// The geometry is read from the photo's frame: with the file offline the
+    /// translation holds none, which must not clear the saved straightening.
+    #[test]
+    fn apply_source_geometry_writes_nothing_for_an_unreadable_photo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let file = tmp.path().join("a.png");
+        image::RgbImage::new(300, 200).save(&file).unwrap();
+        let entries = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let source = |pairs: &[(&str, &str)]| Source {
+            name: "C1".into(),
+            photos: vec![photo(
+                "1",
+                file.clone(),
+                Develop::CaptureOne(entries(pairs)),
+                None,
+            )],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        import_into(&catalog, &source(&[("Exposure", "0.3")])).unwrap();
+        let asset = catalog.asset_at(&file).unwrap().unwrap();
+        let mut state = catalog.editor_state(&asset.id).unwrap().unwrap();
+        state["adjustments"]["rotation"] = json!(2.0);
+        state["adjustments"]["exposure"] = json!(0.9);
+        catalog.save_editor_state(&asset.id, &state).unwrap();
+        let own = catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"].clone();
+        let level = source(&[("Exposure", "0.3"), ("Rotation", "5"), ("Crop", "0;0;0;0")]);
+        let path = asset.path.to_string_lossy().into_owned();
+        fs::remove_file(&file).unwrap();
+        let applied = apply_source_geometry(&catalog, &level, std::slice::from_ref(&path));
+        assert!(applied.recipe_changes.is_empty() && applied.unchanged.is_empty());
+        assert_eq!(applied.errors.len(), 1, "{applied:?}");
+        assert_eq!(
+            catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
+            own
+        );
     }
 
     /// The report's field names the webview reads (`geometryOffers`) and the

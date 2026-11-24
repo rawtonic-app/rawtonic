@@ -1066,6 +1066,12 @@ it('offers "Apply Capture One straightening and crop" for photos an earlier impo
     'Apply Capture One straightening and crop to all listed photos (2)'
   ]);
   expect(useGeometryOffers.getState().offers[0].paths).toEqual(offers);
+  // Another library is open: the offers wait, nothing is written there.
+  useLibraryStore.setState({ sessionDirectory: '/jobs/Other' });
+  await options.actions[0].run();
+  expect(invoke).not.toHaveBeenCalledWith('library_apply_source_geometry', expect.anything());
+  expect(useGeometryOffers.getState().offers[0].paths).toEqual(offers);
+  useLibraryStore.setState({ sessionDirectory: '/jobs/Acme' });
   // One photo, then the rest ("for all listed photos").
   await options.actions[0].run();
   expect(invoke).toHaveBeenCalledWith('library_apply_source_geometry', {
