@@ -283,3 +283,17 @@ describe('content search order', () => {
     ]);
   });
 });
+
+it.each([false, true])('filters a RAW+JPEG pair before choosing its primary (cached: %s)', (cached) => {
+  const input = {
+    ...state(),
+    imageList: [
+      { ...file('/shoot/a.ARW'), group_id: 'a' },
+      { ...file('/shoot/a.jpg'), is_raw: false, group_id: 'a' }
+    ]
+  };
+  const settings = { appSettings: { grouping: 'jpeg' as const } };
+  if (cached) computeSortedLibrary(input, {}); // warm the full-list ordering cache
+  input.filterCriteria.rawStatus = RawStatus.RawOnly;
+  expect(computeSortedLibrary(input, settings).map((f) => f.path)).toEqual(['/shoot/a.ARW']);
+});

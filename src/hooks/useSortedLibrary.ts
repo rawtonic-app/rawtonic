@@ -353,19 +353,21 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     return tagsMatch && textMatch;
   };
 
-  let processedList = imageList;
+  // RapidRAW f0f1be48 (CyberTimon, AGPL-3.0): filter before choosing a pair primary.
+  const filteredImages = isGroupingActive ? imageList.filter(matchesFilter) : imageList;
+  let processedList = filteredImages;
   let badges: Map<GroupId, GroupBadgeInfo> | null = null;
   let searchMatchingGroupIds: Set<string> | null = null;
 
   if (isGroupingActive) {
     const groupEditedFiles = appSettings?.groupEditedFiles ?? true;
-    const groupingResult = buildImageGroups(imageList, groupingMode, groupEditedFiles);
+    const groupingResult = buildImageGroups(filteredImages, groupingMode, groupEditedFiles);
     processedList = groupingResult.displayList;
     badges = groupingResult.badges;
 
     if (isSearchActive) {
       searchMatchingGroupIds = new Set<string>();
-      for (const image of imageList) {
+      for (const image of filteredImages) {
         if (!image.group_id) continue;
         if (matchesSearch(image)) {
           searchMatchingGroupIds.add(image.group_id);

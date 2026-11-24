@@ -277,7 +277,7 @@ pub fn emit_launch_request(app_handle: &tauri::AppHandle, request: LaunchRequest
             handle_file_open(app_handle, PathBuf::from(path));
         }
         LaunchRequest::HeadlessExport(_) => {
-            println!(
+            rawtonic_runtime::cli_println!(
                 "Error: Headless export cannot be attached to an already running GUI instance."
             );
         }
