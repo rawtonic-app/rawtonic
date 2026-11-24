@@ -469,9 +469,10 @@ fn hue_difference(a: f64, b: f64) -> f64 {
 /// extent below/above that colour (HSV degrees), 11 the lowest saturation it
 /// takes (−100 all), 13 smoothness, 15 inverted. Rawtonic's ranges are
 /// symmetric windows in Oklab hue (at most eight); all-colour and inverted
-/// entries are not translated. List 2 is a skin entry: fields 14/16/17 are
-/// H/S/L uniformity. Its picked colour is the target; both selection and
-/// uniformity are approximate and reported as a partial Colour Editor import.
+/// entries are not translated. List 2 is a skin entry. In lists 0 (Advanced)
+/// and 2, fields 14/16/17 are H/S/L uniformity, a pull towards the picked
+/// colour, which then becomes the range's centre. Skin selection is
+/// approximate and reported as a partial Colour Editor import.
 fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
     let mut ranges = Vec::new();
     let mut untranslated = false;
@@ -489,17 +490,20 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
         let skin = f[2] == 2.0;
         // Field 2 is 0 for the ranges Capture One's Advanced tab writes (all
         // C1R4 styles, 16.9.1) and 1 for the older test styles the fit below
-        // was made on; the Advanced ranges also take uniformity, which has no
-        // counterpart here (reported as partial).
+        // was made on. Advanced and Skin Tone entries take uniformity (a pull
+        // towards the picked colour); field-2 = 1 entries ignore it.
         let advanced = f[2] == 0.0;
         if !skin && !advanced && f[2] != 1.0 {
             untranslated = true;
             continue;
         }
-        let uniformity = skin && [f[14], f[16], f[17]].iter().any(|u| *u != 0.0);
-        if advanced && [f[14], f[16], f[17]].iter().any(|u| *u != 0.0) {
-            untranslated = true;
-        }
+        let uniformity = (skin || advanced) && [f[14], f[16], f[17]].iter().any(|u| *u != 0.0);
+        // The centre is also the uniformity target: a component is the
+        // picked colour's where it is a target (always for skin), otherwise
+        // the selection's own. The lightness band is open, so its centre
+        // selects nothing.
+        let picked_hue = skin || (uniformity && f[14] != 0.0);
+        let picked_chroma = skin || (uniformity && f[16] != 0.0);
         if f[3] == 0.0 && f[4] == 0.0 && f[5] == 0.0 && !uniformity {
             continue;
         }
@@ -521,10 +525,12 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
         untranslated |= skin
             || f[12] != 100.0
             || (advanced && f[11] != -100.0)
-            || (skin && (f[9] + f[10]).abs() > 1e-6)
+            // A range centred on its picked hue cannot keep asymmetric hue
+            // edges.
+            || (picked_hue && (f[9] + f[10]).abs() > 1e-6)
             || !(0.0..=50.0).contains(&f[13])
             || !(-100.0..=100.0).contains(&f[11])
-            || (skin
+            || (uniformity
                 && [f[14], f[16], f[17]]
                     .iter()
                     .any(|u| !(0.0..=100.0).contains(u)));
@@ -538,12 +544,18 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
         let below = hue_difference(srgb_to_oklch(turn_hsv_hue(rgb, f[9])).2, hue);
         let above = hue_difference(srgb_to_oklch(turn_hsv_hue(rgb, f[10])).2, hue);
         let turn = hue_difference(srgb_to_oklch(turn_hsv_hue(rgb, f[3])).2, hue);
-        let saturation = if f[4] > 0.0 {
-            CE_SAT_UP * (f[4] / 100.0).powf(CE_SAT_POWER) * 100.0
-        } else {
-            CE_SAT_DOWN * f[4]
-        };
-        let lightness = f[5]
+        // The Skin Tone tab's hue and lightness amounts act at 0.57 of the
+        // Advanced tab's (CER1); saturation ±5 changed too little in Capture
+        // One to fit, so its factor is assumed the same.
+        let amount = if skin { SKIN_AMOUNT } else { 1.0 };
+        let saturation = amount
+            * if f[4] > 0.0 {
+                CE_SAT_UP * (f[4] / 100.0).powf(CE_SAT_POWER) * 100.0
+            } else {
+                CE_SAT_DOWN * f[4]
+            };
+        let lightness = amount
+            * f[5]
             * if f[5] > 0.0 {
                 CE_LIGHT_UP
             } else {
@@ -551,23 +563,23 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
             };
         let round = |x: f64| (x * 1000.0).round() / 1000.0;
         let (picked_l, picked_c, picked_h) = srgb_to_oklch(pure);
-        untranslated |= (2.0 * CE_HUE_SCALE * turn).abs() > 100.0
-            || saturation.abs() > 100.0
-            || lightness.abs() > 100.0;
+        let hue_shift = amount * 2.0 * CE_HUE_SCALE * turn;
+        untranslated |=
+            hue_shift.abs() > 100.0 || saturation.abs() > 100.0 || lightness.abs() > 100.0;
         let mut range = json!({
             "id": Uuid::new_v4().to_string(),
             recipe_color::RANGE_HUE.name(): round((hue + 0.5 * (below + above)).rem_euclid(360.0)),
             recipe_color::RANGE_CHROMA.name(): CE_CHROMA,
             recipe_color::RANGE_LIGHTNESS.name(): 0.5,
             recipe_color::RANGE_HUE_RANGE.name(): round((CE_WIDTH_SCALE * 0.5 * (above - below) + CE_WIDTH_OFFSET).clamp(5.0, 90.0)),
-            recipe_color::RANGE_CHROMA_RANGE.name(): if advanced {
+            recipe_color::RANGE_CHROMA_RANGE.name(): if advanced || skin {
                 100.0
             } else {
                 round((100.0 - CE_CHROMA_FLOOR * (f[11] + 100.0)).clamp(0.0, 100.0))
             },
             recipe_color::RANGE_LIGHTNESS_RANGE.name(): 100,
-            recipe_color::RANGE_SMOOTHNESS.name(): round((CE_SMOOTH_BASE + CE_SMOOTH_SCALE * f[13] + if advanced { CE_SMOOTH_ADVANCED } else { 0.0 }).clamp(0.0, 100.0)),
-            recipe_color::RANGE_HUE_SHIFT.name(): round((2.0 * CE_HUE_SCALE * turn).clamp(-100.0, 100.0)),
+            recipe_color::RANGE_SMOOTHNESS.name(): round((CE_SMOOTH_BASE + CE_SMOOTH_SCALE * f[13] + if advanced || skin { CE_SMOOTH_ADVANCED } else { 0.0 }).clamp(0.0, 100.0)),
+            recipe_color::RANGE_HUE_SHIFT.name(): round(hue_shift.clamp(-100.0, 100.0)),
             recipe_color::RANGE_SATURATION.name(): round(saturation.clamp(-100.0, 100.0)),
             recipe_color::RANGE_LIGHTNESS_SHIFT.name(): round(lightness.clamp(-100.0, 100.0)),
             recipe_color::RANGE_HUE_UNIFORMITY.name(): 0,
@@ -576,31 +588,35 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
         });
         if skin {
             range["kind"] = json!("skin");
-            // Unlike an Advanced range, the centre is also the uniformity
-            // target: retain the picked colour, not a typical-pixel proxy.
+        }
+        if picked_hue {
             range[recipe_color::RANGE_HUE.name()] = json!(round(picked_h));
+        }
+        if picked_chroma {
             range[recipe_color::RANGE_CHROMA.name()] = json!((picked_c * 1e6).round() / 1e6);
+        }
+        if skin || uniformity {
             range[recipe_color::RANGE_LIGHTNESS.name()] = json!((picked_l * 1e6).round() / 1e6);
             for (key, field, scale) in [
                 (
                     recipe_color::RANGE_HUE_UNIFORMITY.name(),
                     14,
-                    SKIN_UNIFORMITY_H,
+                    CE_UNIFORMITY_H,
                 ),
                 (
                     recipe_color::RANGE_SATURATION_UNIFORMITY.name(),
                     16,
-                    SKIN_UNIFORMITY_S,
+                    CE_UNIFORMITY_S,
                 ),
                 (
                     recipe_color::RANGE_LIGHTNESS_UNIFORMITY.name(),
                     17,
-                    SKIN_UNIFORMITY_L,
+                    CE_UNIFORMITY_L,
                 ),
             ] {
                 range[key] = json!(round(f[field].clamp(0.0, 100.0) * scale));
             }
-            skin_seen = true;
+            skin_seen |= skin;
         }
         ranges.push(range);
     }
@@ -627,15 +643,16 @@ const CE_CHROMA_FLOOR: f64 = 0.883;
 const CE_LIGHT_UP: f64 = 16.65;
 const CE_LIGHT_DOWN: f64 = 15.37;
 
-// Our unit conversion, measured on own headless renders against C1's
-// change from its neutral render: three portraits, separate H/S/L at 50,
-// equal-photo normalized squared Oklab residual on hand-marked skin.
-// Fourth portrait and strengths 75/100 excluded from the conversion fit.
-// Approximate, not parity: notes reference/capture-one-color-editor.md and
-// benchmark-results/cx11-skin-import-2026-10-25/ (includes held-out error).
-const SKIN_UNIFORMITY_H: f64 = 0.59;
-const SKIN_UNIFORMITY_S: f64 = 0.09;
-const SKIN_UNIFORMITY_L: f64 = 0.13;
+// Uniformity (fields 14/16/17, Advanced and Skin Tone entries) as our pull
+// towards the picked colour: fitted on Capture One 16.9.1's Advanced renders
+// at 100 (office208), held out on its Skin Tone renders of two portraits.
+// Skin Tone amounts: 0.57 of the Advanced conversion (fitted on one
+// portrait, held out on the other). Strengths other than 100 (uniformity)
+// and ±5 (amounts) are not measured. notes: benchmark-results/cer1-2026-11-24.
+const CE_UNIFORMITY_H: f64 = 0.90;
+const CE_UNIFORMITY_S: f64 = 0.30;
+const CE_UNIFORMITY_L: f64 = 0.25;
+const SKIN_AMOUNT: f64 = 0.57;
 
 /// Reads the `<E K="…" V="…"/>` entries; later entries win (a `.cos` file
 /// lists defaults before the variant's values).
@@ -1233,9 +1250,9 @@ mod tests {
             assert!((r[key].as_f64().unwrap() - expected).abs() < 0.001, "{key}");
         }
         for (key, expected) in [
-            ("hueUniformity", 23.6),
-            ("saturationUniformity", 5.4),
-            ("lightnessUniformity", 10.4),
+            ("hueUniformity", 36.0),
+            ("saturationUniformity", 18.0),
+            ("lightnessUniformity", 20.0),
         ] {
             assert!((r[key].as_f64().unwrap() - expected).abs() < 0.001, "{key}");
         }
@@ -1256,11 +1273,13 @@ mod tests {
         assert_eq!(a["colorRanges"][0]["kind"], json!("skin"));
         let r = &a["colorRanges"][0];
         assert!(r["hueShift"].as_f64().unwrap() > 0.0);
-        assert_eq!(r["saturation"], json!(-11.51));
-        assert_eq!(r["lightnessShift"], json!(16.65));
+        // Skin Tone amounts act at 0.57 of the Advanced conversion; the
+        // selection takes the Advanced tab's shape.
+        assert!((r["saturation"].as_f64().unwrap() + 0.57 * 11.51).abs() < 0.001);
+        assert!((r["lightnessShift"].as_f64().unwrap() - 0.57 * 16.65).abs() < 0.001);
         assert_eq!(r["chromaRange"], json!(100.0));
         assert_eq!(r["lightnessRange"], json!(100));
-        assert_eq!(r["smoothness"], json!(45.835));
+        assert_eq!(r["smoothness"], json!(66.835));
         assert_eq!(super::untranslated_settings(style), ["colorEditor"]);
         assert_eq!(
             super::untranslated_settings(&style.replace(",-100,60,", ",-100,100,")),
@@ -1578,7 +1597,7 @@ mod tests {
     }
 
     #[test]
-    fn advanced_tab_ranges_are_translated_and_their_uniformity_reported() {
+    fn advanced_tab_ranges_and_their_uniformity_are_translated() {
         // Capture One 16.9.1's Advanced tab writes field 2 = 0 (fresh pick:
         // hue ±20, saturation ±29.6, smoothness 20).
         let (ranges, untranslated) =
@@ -1589,11 +1608,39 @@ mod tests {
         let smoothness = ranges[0]["smoothness"].as_f64().unwrap();
         assert!((smoothness - (35.05 + 0.719 * 20.0 + 21.0)).abs() < 0.01);
         assert!(ranges[0]["hueShift"].as_f64().unwrap() > 50.0);
-        // Uniformity alone changes nothing here, and is said not to come over.
+        assert_eq!(ranges[0]["chroma"].as_f64(), Some(super::CE_CHROMA));
+        assert_eq!(ranges[0]["hueUniformity"], json!(0));
+        // Uniformity pulls towards the picked colour, which becomes the
+        // centre (the shift-only range keeps its typical-pixel proxy).
         let (ranges, untranslated) =
-            super::color_editor_ranges("1,1,0,0,0,0,145,108,88,-20,20,-100,100,20,100,0,0,0");
-        assert!(ranges.is_empty());
+            super::color_editor_ranges("1,1,0,0,0,0,145,108,88,-20,20,-100,100,20,100,0,40,60");
+        assert!(!untranslated);
+        assert_eq!(ranges.len(), 1);
+        let r = &ranges[0];
+        assert!(r.get("kind").is_none());
+        let (l, c, h) = super::srgb_to_oklch([145.0 / 255.0, 108.0 / 255.0, 88.0 / 255.0]);
+        for (key, expected) in [("hue", h), ("chroma", c), ("lightness", l)] {
+            assert!((r[key].as_f64().unwrap() - expected).abs() < 0.001, "{key}");
+        }
+        assert_eq!(r["hueUniformity"], json!(90.0));
+        assert_eq!(r["saturationUniformity"], json!(12.0));
+        assert_eq!(r["lightnessUniformity"], json!(15.0));
+        assert_eq!(r["chromaRange"].as_f64(), Some(100.0));
+        // Lightness uniformity keeps the selection's hue midpoint and chroma
+        // centre, so asymmetric hue edges come over; hue uniformity centres
+        // the range on the picked hue and reports them.
+        let asymmetric = "1,1,0,10,0,0,145,108,88,-5,60,-100,100,20,0,0,0,40";
+        let (ranges, untranslated) = super::color_editor_ranges(asymmetric);
+        let (shift_only, _) =
+            super::color_editor_ranges(&asymmetric.replace(",0,0,0,40", ",0,0,0,0"));
+        assert!(!untranslated);
+        assert_eq!(ranges[0]["hue"], shift_only[0]["hue"]);
+        assert_eq!(ranges[0]["chroma"], shift_only[0]["chroma"]);
+        assert!((ranges[0]["lightness"].as_f64().unwrap() - l).abs() < 0.001);
+        let (ranges, untranslated) =
+            super::color_editor_ranges(&asymmetric.replace(",0,0,0,40", ",40,0,0,0"));
         assert!(untranslated);
+        assert!((ranges[0]["hue"].as_f64().unwrap() - h).abs() < 0.001);
         // A restricted lower saturation bound is dropped too: reported.
         let (ranges, untranslated) =
             super::color_editor_ranges("1,1,0,30,0,0,145,108,88,-20,20,-50,100,20,0,0,0,0");
