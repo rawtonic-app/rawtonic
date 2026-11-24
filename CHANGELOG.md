@@ -24,6 +24,8 @@
 
 ### Fixes
 
+- Hold Shift while dragging a curve point for finer control; clicks within 12 pixels grab the nearest point, including endpoints.
+
 - Headless exports and CLI progress finish normally when a downstream command closes its output pipe.
 
 - RAW-only library filters keep matching photos visible when RAW+JPEG grouping prefers JPEG.
