@@ -98,16 +98,24 @@ describe('catalog search', () => {
     ).toEqual(['/shoot/c.ARW']);
   });
 
-  it('finds a virtual copy as its photograph (its own keywords are not indexed: G37)', () => {
-    const copy = { ...file('/shoot/a.ARW?vc=c1', 0, ['user:client']), is_virtual_copy: true };
+  it('shows a virtual copy the catalog records by its own match, like Lightroom', () => {
+    const own = { ...file('/shoot/a.ARW?vc=c1', 5, ['user:client']), is_virtual_copy: true };
+    const other = { ...file('/shoot/a.ARW?vc=c2'), is_virtual_copy: true };
+    const unrecorded = { ...file('/shoot/b.ARW?vc=c3'), is_virtual_copy: true };
     const input = {
       ...state(),
-      imageList: [file('/shoot/a.ARW', 0, ['user:client']), copy, file('/shoot/b.ARW')],
+      imageList: [file('/shoot/a.ARW'), own, other, file('/shoot/b.ARW'), unrecorded],
       searchCriteria: { text: 'client', tags: [], mode: 'OR' as const },
-      catalogMatches: new Set(['/shoot/a.ARW']),
-      catalogKnown: new Set(['/shoot/a.ARW', '/shoot/b.ARW'])
+      // Only the copy c1 holds the keyword; b.ARW matched by its name.
+      catalogMatches: new Set(['/shoot/a.ARW?vc=c1', '/shoot/b.ARW']),
+      catalogKnown: new Set(['/shoot/a.ARW', '/shoot/a.ARW?vc=c1', '/shoot/a.ARW?vc=c2', '/shoot/b.ARW'])
     };
-    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW', '/shoot/a.ARW?vc=c1']);
+    // A copy the catalog does not record yet follows its photograph.
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual([
+      '/shoot/a.ARW?vc=c1',
+      '/shoot/b.ARW',
+      '/shoot/b.ARW?vc=c3'
+    ]);
   });
 
   it('matches files the catalog does not hold by name and tags', () => {

@@ -1075,9 +1075,12 @@ it('dispatches the newly assigned shortcut instead of the old default', async ()
   const copy = vi.fn();
   const group = vi.fn();
   const unregister = registerAppCommands({ virtual_copy: { run: copy }, stack_group: { run: group } });
-  press('KeyG', 'g', { metaKey: true });
-  expect(copy).toHaveBeenCalledOnce();
-  expect(group).not.toHaveBeenCalled();
-  unregister();
-  useSettingsStore.setState({ appSettings: { keybinds: {} } as AppSettings, keybindReassigned: {} });
+  try {
+    press('KeyG', 'g', { metaKey: true });
+    expect(copy).toHaveBeenCalledOnce();
+    expect(group).not.toHaveBeenCalled();
+  } finally {
+    unregister();
+    useSettingsStore.setState({ appSettings: { keybinds: {} } as AppSettings, keybindReassigned: {} });
+  }
 });

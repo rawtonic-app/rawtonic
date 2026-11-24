@@ -32,7 +32,7 @@ pub async fn session_search(
         start_facts_pass_if_needed(lib);
         crate::duplicates::start_pass_if_needed(lib, &rule);
         let paths = lib
-            .search_for_listing(&rule, listed.as_deref().map(Path::new))
+            .search_items_for_listing(&rule, listed.as_deref().map(Path::new))
             .map_err(|e| e.to_string())?;
         Ok(match listed {
             Some(listed) => as_listed(paths, Path::new(&listed)),
