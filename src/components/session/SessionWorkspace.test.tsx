@@ -29,7 +29,6 @@ import { PHOTO_WRITES_SETTLED } from '../../utils/photoWrites';
 import { debouncedSave } from '../../hooks/useEditorActions';
 import type { Adjustments } from '../../utils/adjustments';
 import { IMPORTS_CHANGED } from '../../utils/folderSync';
-import { OFFLINE_CHANGED } from '../../utils/offline';
 
 vi.mock('@tauri-apps/api/core', () => ({
   isTauri: () => false,
@@ -977,7 +976,7 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
   // The committed import is announced, so the folder tree and Previous
   // Import list what it added without a restart.
   const announced: string[] = [];
-  const listeners = [IMPORTS_CHANGED, OFFLINE_CHANGED].map((name) => {
+  const listeners = [IMPORTS_CHANGED].map((name) => {
     const listener = () => announced.push(name);
     window.addEventListener(name, listener);
     return [name, listener] as const;
@@ -1010,7 +1009,7 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
     expect.stringContaining('12 photos imported (5 with edits, 2 albums)'),
     expect.anything()
   );
-  await waitFor(() => expect(announced).toEqual(expect.arrayContaining([IMPORTS_CHANGED, OFFLINE_CHANGED])));
+  await waitFor(() => expect(announced).toEqual(expect.arrayContaining([IMPORTS_CHANGED])));
   for (const [name, listener] of listeners) window.removeEventListener(name, listener);
 });
 

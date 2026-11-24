@@ -486,6 +486,9 @@ export function StudioFolders({ onNavigate, actions }: { onNavigate(path: string
   // catalog's folders come by drive.
   const [offline, setOffline] = useState<OfflineFolder[]>([]);
   const rootsKey = rootPaths.join('\n');
+  // Counts the imports, which may have put photographs into folders created
+  // since the disk trees were read.
+  const [imports, setImports] = useState(0);
   useEffect(() => {
     const { setLibrary } = useLibraryStore.getState();
     if (!sessionRoot) {
@@ -524,7 +527,10 @@ export function StudioFolders({ onNavigate, actions }: { onNavigate(path: string
     load();
     // An import (Capture One, Lightroom, a hot folder, a synchronization)
     // may have put photographs into folders the list has not seen.
-    const imported = () => void loadFolders();
+    const imported = () => {
+      void loadFolders();
+      setImports((n) => n + 1);
+    };
     window.addEventListener(OFFLINE_CHANGED, load);
     window.addEventListener(OFFLINE_COUNTED, counted);
     window.addEventListener(IMPORTS_CHANGED, imported);
@@ -560,7 +566,7 @@ export function StudioFolders({ onNavigate, actions }: { onNavigate(path: string
     return () => {
       live = false;
     };
-  }, [catalogKey]);
+  }, [catalogKey, imports]);
 
   const catalog = !!catalogView?.catalog;
   const missing = useMemo(() => missingFolders(catalogView, offline), [catalogView, offline]);
