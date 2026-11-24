@@ -128,6 +128,12 @@ pub struct ImportReport {
     /// other editor's settings imported as a new virtual copy beside them,
     /// one line each.
     pub edits_kept: Vec<String>,
+    /// Photographs (and virtual copies) kept as imported earlier whose
+    /// straightening Capture One shows and an earlier import did not read
+    /// (`Settled::unread_straightening`): their paths as in the warning's
+    /// line, for "Apply Capture One straightening and crop"
+    /// (`library_apply_source_geometry`).
+    pub geometry_offers: Vec<GeometryOffer>,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -815,6 +821,7 @@ fn settle_reimport(
 ) {
     report.errors.extend(imported.error);
     report.warnings.extend(imported.warning);
+    report.geometry_offers.extend(imported.geometry_offer);
     // A copy's sidecar followed in `reimport_copy` already.
     if let Some(change) = imported.change {
         match copy.map_or_else(|| follow_sidecar(catalog, asset, &change), |_| Ok(true)) {
@@ -975,6 +982,37 @@ struct Imported {
     error: Option<String>,
     /// A line for the summary's warnings (`Settled::unread_straightening`).
     warning: Option<String>,
+    /// The path of that line (`ImportReport::geometry_offers`).
+    geometry_offer: Option<GeometryOffer>,
+}
+
+/// What the import report shows for a photo it offers "Apply Capture One
+/// straightening and crop" for: the action applies exactly this, and writes
+/// nothing if Capture One shows another geometry by then.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeometryOffer {
+    pub path: String,
+    /// Straightening angle in degrees.
+    pub rotation: f64,
+    pub orientation_steps: f64,
+}
+
+impl GeometryOffer {
+    fn of(path: String, incoming: Option<&Value>) -> Self {
+        Self {
+            path,
+            rotation: geometry_value(incoming, geometry::ROTATION.name()),
+            orientation_steps: geometry_value(incoming, geometry::ORIENTATION_STEPS.name()),
+        }
+    }
+
+    fn as_recipe(&self) -> Value {
+        json!({
+            geometry::ROTATION.name(): self.rotation,
+            geometry::ORIENTATION_STEPS.name(): self.orientation_steps,
+        })
+    }
 }
 
 /// What a repeated import does with an edit already here (decision C1RI1
@@ -1257,7 +1295,7 @@ fn unread_straightening_line(path: &str, incoming: Option<&Value>) -> String {
         String::new()
     };
     format!(
-        "{path}: kept as imported earlier; Capture One shows it straightened by {}°{turns}, which imports before this version did not read: straighten it here to match",
+        "{path}: kept as imported earlier; Capture One shows it straightened by {}°{turns}, which imports before this version did not read: straighten it here to match, or apply Capture One's straightening and crop (a crop of the frame's own aspect ratio without empty corners; a crop drawn in Capture One is not read)",
         value(geometry::ROTATION.name())
     )
 }
@@ -2306,10 +2344,9 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
                 catalog.record_imported_recipe(version, upgrade)?;
             }
             if settled.unread_straightening {
-                imported.warning = Some(unread_straightening_line(
-                    &asset.path.to_string_lossy(),
-                    adjustments.as_ref(),
-                ));
+                let path = asset.path.to_string_lossy().into_owned();
+                imported.warning = Some(unread_straightening_line(&path, adjustments.as_ref()));
+                imported.geometry_offer = Some(GeometryOffer::of(path, adjustments.as_ref()));
             }
             let rule = settled.rule;
             if rule != Reimport::Apply {
@@ -2520,10 +2557,9 @@ fn reimport_copy(
         catalog.record_imported_recipe(&version, upgrade)?;
     }
     if settled.unread_straightening {
-        imported.warning = Some(unread_straightening_line(
-            &photo_ref::PhotoRef::of_path(&catalog.asset(asset)?.path, Some(copy)).format(),
-            incoming.as_ref(),
-        ));
+        let path = photo_ref::PhotoRef::of_path(&catalog.asset(asset)?.path, Some(copy)).format();
+        imported.warning = Some(unread_straightening_line(&path, incoming.as_ref()));
+        imported.geometry_offer = Some(GeometryOffer::of(path, incoming.as_ref()));
     }
     let rule = settled.rule;
     match rule {
@@ -2668,6 +2704,273 @@ fn publish_new(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
         rawtonic_fs::sync_dir(parent)?;
     }
     Ok(())
+}
+
+/// What "Apply Capture One straightening and crop" did.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeometryApplied {
+    /// Each changed edit's whole recipe before and after: one Undo step.
+    pub recipe_changes: Vec<RecipeChange>,
+    /// Offered paths the source has no photograph for, or that already
+    /// follow Capture One's geometry (nothing written).
+    pub unchanged: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+/// The recipe keys Capture One's straightening and crop set
+/// (`capture_one_rotation`): the only ones the action replaces.
+const SOURCE_GEOMETRY_KEYS: [&str; 3] = [
+    geometry::ROTATION.name(),
+    geometry::ORIENTATION_STEPS.name(),
+    geometry::CROP.name(),
+];
+
+/// The photograph's or virtual copy's `paths` (as `ImportReport::geometry_offers`
+/// names them) take over the straightening, quarter turns and crop of the
+/// source's translation; every other adjustment stays. One `RecipeChange`
+/// each, for one Undo step; the record of the last import is brought to
+/// today's reader, so the repeated import no longer names the photo. Only
+/// the library's edit and its derived sidecar are written, never the photo.
+pub fn apply_source_geometry(
+    catalog: &Library,
+    source: &Source,
+    offers: &[GeometryOffer],
+) -> GeometryApplied {
+    let mut applied = GeometryApplied::default();
+    for photo in &source.photos {
+        let parent = photo
+            .copy_of
+            .as_deref()
+            .and_then(|key| source.photos.iter().find(|p| p.key == key))
+            .unwrap_or(photo);
+        let Ok(Some(asset)) = catalog.asset_at(&parent.path) else {
+            continue;
+        };
+        let copy = if photo.copy_of.is_some() {
+            let origin = copy_origin(&source.name, photo);
+            let known = catalog.copies(&asset.id).unwrap_or_default();
+            match (0..16)
+                .map(|attempt| copy_id(&asset.id, &origin, attempt))
+                .find(|id| known.contains(id))
+            {
+                Some(id) => Some(id),
+                None => continue,
+            }
+        } else {
+            None
+        };
+        let path = match &copy {
+            Some(id) => photo_ref::PhotoRef::of_path(&asset.path, Some(id)).format(),
+            None => asset.path.to_string_lossy().into_owned(),
+        };
+        let Some(offer) = offers.iter().find(|o| o.path == path) else {
+            continue;
+        };
+        match apply_geometry_to(catalog, &asset.id, copy.as_deref(), &path, photo, offer) {
+            Ok(Some(change)) => {
+                let followed = follow_sidecar(catalog, &asset.id, &change);
+                // Not written beside the photo (changed there since, or the
+                // file cannot be written): a virtual copy is read from its
+                // sidecar, so the library's edit goes back as it was and
+                // nothing counts as applied, as in a repeated import. A
+                // photograph's own edit stays in the library, as after an
+                // edit whose sidecar could not be written.
+                let back = match &followed {
+                    Ok(false) => true,
+                    Err(_) => copy.is_some(),
+                    Ok(true) => false,
+                };
+                if back && let Err(e) = put_back(catalog, &asset.id, copy.as_deref(), &change) {
+                    applied.errors.push(format!("{path}: {e:#}"));
+                }
+                match followed {
+                    Ok(true) => {
+                        record_current(catalog, &asset.id, copy.as_deref(), photo);
+                        applied.recipe_changes.push(change);
+                    }
+                    Ok(false) => applied.errors.push(changed_elsewhere(&change)),
+                    Err(e) => {
+                        applied.errors.push(format!("{path}: {e}"));
+                        if copy.is_none() {
+                            record_current(catalog, &asset.id, None, photo);
+                            applied.recipe_changes.push(change);
+                        }
+                    }
+                }
+            }
+            Ok(None) => applied.unchanged.push(path),
+            Err(e) => applied.errors.push(format!("{path}: {e:#}")),
+        }
+    }
+    applied
+}
+
+/// The edit of `change.before` back in the library.
+fn put_back(
+    catalog: &Library,
+    asset: &str,
+    copy: Option<&str>,
+    change: &RecipeChange,
+) -> anyhow::Result<()> {
+    let state = match copy {
+        Some(id) => catalog.copy_state(asset, id)?,
+        None => catalog.editor_state(asset)?,
+    };
+    let Some(mut state) = state else {
+        return Ok(());
+    };
+    state["adjustments"] = change.before.clone();
+    match copy {
+        Some(id) => catalog.save_copy_state(asset, id, &state)?,
+        None => catalog.save_editor_state(asset, &state)?,
+    }
+    Ok(())
+}
+
+/// The version's import record as of today's reader (the repeated import
+/// then no longer names the straightening). A failure leaves the record
+/// as it was: the import names the photo again.
+fn record_current(catalog: &Library, asset: &str, copy: Option<&str>, photo: &Photo) {
+    let _ = (|| -> anyhow::Result<()> {
+        if let Some(version) = catalog.version_for(asset, copy)? {
+            let (current, _) = current_record(catalog.imported_recipe(&version)?, photo);
+            if let Some(current) = current {
+                catalog.record_imported_recipe(&version, &current)?;
+            }
+        }
+        Ok(())
+    })();
+}
+
+/// The geometry step of `apply_source_geometry` for one version: the change
+/// made, none when it follows the source's geometry already.
+fn apply_geometry_to(
+    catalog: &Library,
+    asset: &str,
+    copy: Option<&str>,
+    path: &str,
+    photo: &Photo,
+    offer: &GeometryOffer,
+) -> anyhow::Result<Option<RecipeChange>> {
+    let state = match copy {
+        Some(id) => catalog.copy_state(asset, id)?,
+        None => catalog.editor_state(asset)?,
+    };
+    let Some(mut state) = state else {
+        anyhow::bail!("no edit here to apply it to");
+    };
+    // The geometry is read from the photo's frame: without it (the file is
+    // offline or unreadable) the translation holds none, which must not
+    // clear what is saved.
+    let Some((width, height, _)) = photo_frame(&photo.path) else {
+        anyhow::bail!(
+            "the photo's frame cannot be read (is the file online?); nothing was changed"
+        );
+    };
+    let Some((incoming, _)) = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path)
+    else {
+        return Ok(None);
+    };
+    // Offered for a photo Capture One straightens: where it does not any
+    // more (reset there since), the saved geometry is not replaced.
+    if !straightens(Some(&incoming)) {
+        anyhow::bail!("Capture One no longer straightens or turns this photo; nothing was changed");
+    }
+    // What the person read is what is applied: Capture One's session changed
+    // since (the report's angle is no longer its angle) writes nothing and
+    // names the new value.
+    if straightening_differs(Some(&offer.as_recipe()), Some(&incoming)) {
+        let now = GeometryOffer::of(path.to_string(), Some(&incoming));
+        anyhow::bail!(
+            "Capture One now shows {}° (turned {} quarter turn(s)), not {}° (turned {}) as shown; nothing was changed. Import again to see the current value",
+            now.rotation,
+            now.orientation_steps,
+            offer.rotation,
+            offer.orientation_steps
+        );
+    }
+    let before = state.get("adjustments").cloned().unwrap_or(Value::Null);
+    // The crop is made on the file's newest frame: an edit that develops an
+    // older one (`sourceFrameVersion`, a Sony ARW before the whole sensor)
+    // would show it beside another frame.
+    if crate::formats::is_raw_file(&photo.path)
+        && let Ok(source) = rawler::rawsource::RawSource::new(&photo.path)
+    {
+        let saved = before
+            .get("sourceFrameVersion")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32;
+        let frame = rawtonic_rawdecode::source_frame::effective;
+        if frame(&source, saved) != frame(&source, rawtonic_rawdecode::source_frame::VERSION) {
+            anyhow::bail!(
+                "this edit develops an older frame of the file than the one Capture One's geometry is made for; nothing was changed"
+            );
+        }
+    }
+    let mut after = if before.is_object() {
+        before.clone()
+    } else {
+        json!({})
+    };
+    let map = after.as_object_mut().expect("an object");
+    for key in SOURCE_GEOMETRY_KEYS {
+        match incoming.get(key) {
+            Some(value) => map.insert(key.into(), value.clone()),
+            None => map.remove(key),
+        };
+    }
+    if edit_digest(Some(&before)) == edit_digest(Some(&after)) {
+        return Ok(None);
+    }
+    // Drawn masks without a frame stay on the photo's content.
+    crate::mask_generation::keep_drawn_masks_on_photo(&before, &mut after, Some((width, height)));
+    state["adjustments"] = after.clone();
+    match copy {
+        Some(id) => catalog.save_copy_state(asset, id, &state)?,
+        None => catalog.save_editor_state(asset, &state)?,
+    }
+    // The stored edit as the library holds it, which Undo compares with.
+    let stored = match copy {
+        Some(id) => catalog.copy_state(asset, id)?,
+        None => catalog.editor_state(asset)?,
+    }
+    .and_then(|state| state.get("adjustments").cloned())
+    .unwrap_or(after);
+    Ok(Some(RecipeChange {
+        path: path.to_string(),
+        before,
+        after: stored,
+    }))
+}
+
+#[tauri::command]
+pub async fn library_apply_source_geometry(
+    source: String,
+    directory: String,
+    relinks: Vec<Relink>,
+    offers: Vec<GeometryOffer>,
+    app_handle: tauri::AppHandle,
+) -> Result<GeometryApplied, String> {
+    let applied = tauri::async_runtime::spawn_blocking(move || {
+        let (mut lib, _) = read_source(Path::new(&source))?;
+        for relink in &relinks {
+            lib.relink(&relink.from, &relink.to);
+        }
+        let catalog = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        Ok::<_, String>(apply_source_geometry(&catalog, &lib, &offers))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    crate::file_management::refresh_thumbnails(
+        app_handle,
+        applied
+            .recipe_changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect(),
+    );
+    Ok(applied)
 }
 
 #[tauri::command]
@@ -3035,6 +3338,227 @@ mod tests {
             capture_one_rotation_report(&entries(&[("Rotation", "5")]), &unreadable),
             ["Capture One's rotation 5° not carried"]
         );
+    }
+
+    /// C1G1: "Apply Capture One straightening and crop" for a photo an
+    /// earlier build imported (its record cannot tell whether the
+    /// straightening is new): the import offers it, the action replaces only
+    /// the straightening, quarter turns and crop (one change for one Undo
+    /// step), the photo, the other adjustments and the digest of its edit
+    /// stay, and a repeated import names it no more.
+    #[test]
+    fn apply_source_geometry_replaces_only_the_geometry_and_clears_the_warning() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("photos");
+        fs::create_dir_all(&photos).unwrap();
+        let file = photos.join("a.png");
+        image::RgbImage::new(300, 200).save(&file).unwrap();
+        let original = fs::read(&file).unwrap();
+        let entries = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let source = |pairs: &[(&str, &str)]| Source {
+            name: "C1".into(),
+            photos: vec![photo(
+                "1",
+                file.clone(),
+                Develop::CaptureOne(entries(pairs)),
+                None,
+            )],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        // Imported by an earlier build: it read neither Rotation nor Crop.
+        import_into(&catalog, &source(&[("Exposure", "0.3")])).unwrap();
+        let asset = catalog.asset_at(&file).unwrap().unwrap();
+        let mut state = catalog.editor_state(&asset.id).unwrap().unwrap();
+        state["adjustments"]["exposure"] = json!(0.9);
+        state["adjustments"]["contrast"] = json!(12);
+        // A drawn mask without a frame (made before frames were kept).
+        state["adjustments"]["masks"] = json!([{"id": "m", "visible": true, "subMasks": [
+            {"id": "s", "type": "radial", "visible": true, "mode": "additive",
+             "parameters": {"centerX": 100.0, "centerY": 60.0, "radiusX": 40.0,
+                            "radiusY": 40.0, "rotation": 0.0, "feather": 0.5}}]}]);
+        catalog.save_editor_state(&asset.id, &state).unwrap();
+        let own = catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"].clone();
+
+        // Capture One straightens it by 5°: kept, named, offered.
+        let level = source(&[("Exposure", "0.3"), ("Rotation", "5"), ("Crop", "0;0;0;0")]);
+        let report = import_into(&catalog, &level).unwrap();
+        let path = asset.path.to_string_lossy().into_owned();
+        assert_eq!(
+            report
+                .geometry_offers
+                .iter()
+                .map(|o| &o.path)
+                .collect::<Vec<_>>(),
+            [&path],
+            "{report:?}"
+        );
+        assert_eq!(report.warnings.len(), 1, "{report:?}");
+        assert!(report.recipe_changes.is_empty());
+
+        // The report shows what is applied.
+        let offer = report.geometry_offers.clone();
+        assert_eq!(report.geometry_offers[0].rotation, 5.0);
+        // Capture One's session changed since the report (10° now): nothing
+        // is written, the new value is named.
+        let tenfold = source(&[("Exposure", "0.3"), ("Rotation", "10"), ("Crop", "0;0;0;0")]);
+        let stale = apply_source_geometry(&catalog, &tenfold, &report.geometry_offers);
+        assert!(stale.recipe_changes.is_empty(), "{stale:?}");
+        assert!(
+            stale.errors[0].contains("now shows 10°") && stale.errors[0].contains("not 5°"),
+            "{stale:?}"
+        );
+        assert_eq!(
+            catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
+            own
+        );
+        let applied = apply_source_geometry(&catalog, &level, &report.geometry_offers);
+        assert!(applied.errors.is_empty(), "{applied:?}");
+        assert_eq!(applied.recipe_changes.len(), 1, "{applied:?}");
+        let change = &applied.recipe_changes[0];
+        assert_eq!(change.path, path);
+        // One Undo step: the whole recipe from before comes back.
+        assert_eq!(edit_digest(Some(&change.before)), edit_digest(Some(&own)));
+        let now = catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"].clone();
+        assert_eq!(edit_digest(Some(&change.after)), edit_digest(Some(&now)));
+        assert_eq!(now["rotation"], json!(5.0));
+        assert_eq!(now["crop"], straightened_crop(300.0, 200.0, 5.0));
+        // Nothing else changed.
+        let strip = |mut recipe: Value| {
+            let map = recipe.as_object_mut().unwrap();
+            for key in SOURCE_GEOMETRY_KEYS {
+                map.remove(key);
+            }
+            map.remove("masks");
+            recipe
+        };
+        // The drawn mask stays on the photo's content: it got the frame it
+        // was drawn in.
+        let parameters = &now["masks"][0]["subMasks"][0]["parameters"];
+        assert!(!parameters["frame"].is_null(), "{parameters}");
+        assert_eq!(parameters["centerX"], json!(100.0));
+        assert_eq!(strip(now.clone()), strip(own.clone()));
+        assert_eq!(
+            (now["exposure"].as_f64(), now["contrast"].as_i64()),
+            (Some(0.9), Some(12))
+        );
+        assert_eq!(fs::read(&file).unwrap(), original);
+
+        // A repeated import no longer names it and keeps the edit.
+        let again = import_into(&catalog, &level).unwrap();
+        assert!(again.warnings.is_empty(), "{again:?}");
+        assert!(again.geometry_offers.is_empty(), "{again:?}");
+        assert!(
+            again.recipe_changes.is_empty() && again.copies == 0,
+            "{again:?}"
+        );
+        assert_eq!(
+            catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
+            now
+        );
+        // Reset in Capture One since the offer: the saved straightening is not
+        // cleared by the action.
+        let reset = source(&[("Exposure", "0.3"), ("Rotation", "0"), ("Crop", "0;0;0;0")]);
+        let cleared = apply_source_geometry(&catalog, &reset, &offer);
+        assert!(cleared.recipe_changes.is_empty(), "{cleared:?}");
+        assert_eq!(cleared.errors.len(), 1, "{cleared:?}");
+        assert_eq!(
+            catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
+            now
+        );
+        // Applying again changes nothing.
+        let twice = apply_source_geometry(&catalog, &level, &offer);
+        assert!(
+            twice.recipe_changes.is_empty() && twice.errors.is_empty(),
+            "{twice:?}"
+        );
+        assert_eq!(twice.unchanged, [path]);
+        // A path that was not offered is left alone.
+        let other = apply_source_geometry(
+            &catalog,
+            &level,
+            &[GeometryOffer::of("elsewhere.NEF".into(), None)],
+        );
+        assert!(other.recipe_changes.is_empty() && other.unchanged.is_empty());
+    }
+
+    /// The geometry is read from the photo's frame: with the file offline the
+    /// translation holds none, which must not clear the saved straightening.
+    #[test]
+    fn apply_source_geometry_writes_nothing_for_an_unreadable_photo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let file = tmp.path().join("a.png");
+        image::RgbImage::new(300, 200).save(&file).unwrap();
+        let entries = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let source = |pairs: &[(&str, &str)]| Source {
+            name: "C1".into(),
+            photos: vec![photo(
+                "1",
+                file.clone(),
+                Develop::CaptureOne(entries(pairs)),
+                None,
+            )],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        import_into(&catalog, &source(&[("Exposure", "0.3")])).unwrap();
+        let asset = catalog.asset_at(&file).unwrap().unwrap();
+        let mut state = catalog.editor_state(&asset.id).unwrap().unwrap();
+        state["adjustments"]["rotation"] = json!(2.0);
+        state["adjustments"]["exposure"] = json!(0.9);
+        catalog.save_editor_state(&asset.id, &state).unwrap();
+        let own = catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"].clone();
+        let level = source(&[("Exposure", "0.3"), ("Rotation", "5"), ("Crop", "0;0;0;0")]);
+        let path = asset.path.to_string_lossy().into_owned();
+        fs::remove_file(&file).unwrap();
+        let offer = [GeometryOffer::of(
+            path.clone(),
+            Some(&json!({"rotation": 5.0})),
+        )];
+        let applied = apply_source_geometry(&catalog, &level, &offer);
+        assert!(applied.recipe_changes.is_empty() && applied.unchanged.is_empty());
+        assert_eq!(applied.errors.len(), 1, "{applied:?}");
+        assert_eq!(
+            catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
+            own
+        );
+    }
+
+    /// The report's field names the webview reads (`geometryOffers`) and the
+    /// applied result's (`recipeChanges`, `unchanged`, `errors`).
+    #[test]
+    fn geometry_action_ipc_shapes() {
+        let report = serde_json::to_value(ImportReport {
+            geometry_offers: vec![GeometryOffer {
+                path: "a.NEF".into(),
+                rotation: 5.0,
+                orientation_steps: 0.0,
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(
+            report["geometryOffers"],
+            json!([{"path": "a.NEF", "rotation": 5.0, "orientationSteps": 0.0}])
+        );
+        let applied = serde_json::to_value(GeometryApplied::default()).unwrap();
+        for key in ["recipeChanges", "unchanged", "errors"] {
+            assert!(applied[key].is_array(), "{key}");
+        }
     }
 
     /// G50L review: the reader takes Capture One's rotation and crop since
