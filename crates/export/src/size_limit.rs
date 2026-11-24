@@ -79,7 +79,10 @@ pub fn fit_to_limit(
             low = quality + 1;
         } else {
             // A tie goes to the lower quality (the search only descends).
-            if smallest.as_ref().is_none_or(|(_, s)| bytes.len() <= s.len()) {
+            if smallest
+                .as_ref()
+                .is_none_or(|(_, s)| bytes.len() <= s.len())
+            {
                 smallest = Some((quality, bytes));
             }
             let Some(next) = quality.checked_sub(1) else {
@@ -134,7 +137,9 @@ mod tests {
             })
             .unwrap();
             assert!(calls <= MAX_ENCODES, "limit {limit}: {calls} encodes");
-            let expected = (1..=100u8).rev().find(|&q| 2000 + 100 * u64::from(q) <= limit);
+            let expected = (1..=100u8)
+                .rev()
+                .find(|&q| 2000 + 100 * u64::from(q) <= limit);
             match expected {
                 Some(q) => assert!(fit.met && fit.quality == q, "limit {limit}"),
                 None => assert!(!fit.met && fit.quality == 1, "limit {limit}"),

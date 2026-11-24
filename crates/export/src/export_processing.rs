@@ -1796,7 +1796,13 @@ pub fn save_rendered_export(
             changes,
         );
         let sign = |bytes: Vec<u8>| crate::c2pa::sign_jpeg(&bytes, &plan, identity);
-        encode_export_signing(final_image, &extension, export_settings, metadata, Some(&sign))?
+        encode_export_signing(
+            final_image,
+            &extension,
+            export_settings,
+            metadata,
+            Some(&sign),
+        )?
     } else {
         let encoded = encode_export(final_image, &extension, export_settings, metadata)?;
         with_provenance(
@@ -1912,29 +1918,32 @@ fn with_provenance<'a>(
         changes,
     );
     let miss = encoded.1;
-    Ok(EncodedExport(match encoded.0 {
-        Encoded::Bytes(bytes) if is_tiff(extension) => {
-            let mut file = Cursor::new(bytes);
-            crate::c2pa::sign_tiff(&mut file, &plan, identity)?;
-            Encoded::Bytes(file.into_inner())
-        }
-        Encoded::Bytes(bytes) => {
-            #[cfg(feature = "performance-profiling")]
-            let _stage = crate::performance::PerformanceStage::new("export_provenance");
-            Encoded::Bytes(match extension {
-                "png" => crate::c2pa::sign_png(&bytes, &plan, identity)?,
-                "webp" => crate::c2pa::sign_webp(&bytes, &plan, identity)?,
-                "avif" => crate::c2pa::sign_avif(&bytes, &plan, identity)?,
-                "jxl" => crate::c2pa::sign_jxl(&bytes, &plan, identity)?,
-                _ => crate::c2pa::sign_jpeg(&bytes, &plan, identity)?,
-            })
-        }
-        tiff => Encoded::Signed {
-            tiff: Box::new(tiff),
-            plan,
-            identity,
+    Ok(EncodedExport(
+        match encoded.0 {
+            Encoded::Bytes(bytes) if is_tiff(extension) => {
+                let mut file = Cursor::new(bytes);
+                crate::c2pa::sign_tiff(&mut file, &plan, identity)?;
+                Encoded::Bytes(file.into_inner())
+            }
+            Encoded::Bytes(bytes) => {
+                #[cfg(feature = "performance-profiling")]
+                let _stage = crate::performance::PerformanceStage::new("export_provenance");
+                Encoded::Bytes(match extension {
+                    "png" => crate::c2pa::sign_png(&bytes, &plan, identity)?,
+                    "webp" => crate::c2pa::sign_webp(&bytes, &plan, identity)?,
+                    "avif" => crate::c2pa::sign_avif(&bytes, &plan, identity)?,
+                    "jxl" => crate::c2pa::sign_jxl(&bytes, &plan, identity)?,
+                    _ => crate::c2pa::sign_jpeg(&bytes, &plan, identity)?,
+                })
+            }
+            tiff => Encoded::Signed {
+                tiff: Box::new(tiff),
+                plan,
+                identity,
+            },
         },
-    }, miss))
+        miss,
+    ))
 }
 
 /// Full-resolution pixels an export renders from. Rendering takes ownership,
@@ -2840,8 +2849,7 @@ fn embed_with_marking_fallback(
     metadata: &crate::exif_processing::ExportMetadata,
 ) -> Result<(), String> {
     let encoded = metadata.generated.then(|| image_bytes.clone());
-    if let Err(e) =
-        crate::exif_processing::embed_export_metadata(image_bytes, extension, metadata)
+    if let Err(e) = crate::exif_processing::embed_export_metadata(image_bytes, extension, metadata)
     {
         log::warn!("Failed to write metadata: {}", e);
         if let Some(mut bytes) = encoded {
@@ -5598,9 +5606,14 @@ mod size_limit_tests {
         let quality_of = |q: u8| {
             let mut s = export_settings(None);
             s.jpeg_quality = q;
-            encode_with_metadata(image(), "jpg", &s, None).unwrap().len()
+            encode_with_metadata(image(), "jpg", &s, None)
+                .unwrap()
+                .len()
         };
-        let fitting = (1..=100u8).rev().find(|&q| quality_of(q) <= 300_000).unwrap();
+        let fitting = (1..=100u8)
+            .rev()
+            .find(|&q| quality_of(q) <= 300_000)
+            .unwrap();
         assert!(fitting < 100);
         assert_eq!(bytes.len(), quality_of(fitting));
         assert!(quality_of(fitting + 1) > 300_000);
@@ -5645,7 +5658,10 @@ mod size_limit_tests {
         let settings = with_limit(None);
         let (bytes, miss) = encode(&settings, None);
         assert!(miss.is_none());
-        assert_eq!(bytes, encode_with_metadata(image(), "jpg", &settings, None).unwrap());
+        assert_eq!(
+            bytes,
+            encode_with_metadata(image(), "jpg", &settings, None).unwrap()
+        );
         // 0 is off; a PNG ignores the limit.
         let zero = with_limit(Some(0));
         assert_eq!(encode(&zero, None).0, bytes);
@@ -5656,7 +5672,12 @@ mod size_limit_tests {
     #[test]
     fn the_limit_is_stored_only_when_set() {
         let mut settings = export_settings(None);
-        assert!(serde_json::to_value(&settings).unwrap().get("maxFileKb").is_none());
+        assert!(
+            serde_json::to_value(&settings)
+                .unwrap()
+                .get("maxFileKb")
+                .is_none()
+        );
         settings.max_file_kb = Some(500);
         assert_eq!(serde_json::to_value(&settings).unwrap()["maxFileKb"], 500);
         let old: ExportSettings = serde_json::from_value(serde_json::json!({

@@ -884,8 +884,15 @@ impl ExportQueue {
             ))
         })?;
         rows.map(|row| {
-            let ((index, path, state), output, error, attempts, (started_ms, finished_ms), outcome, miss) =
-                row?;
+            let (
+                (index, path, state),
+                output,
+                error,
+                attempts,
+                (started_ms, finished_ms),
+                outcome,
+                miss,
+            ) = row?;
             Ok(Item {
                 index: index as usize,
                 path,
@@ -893,7 +900,9 @@ impl ExportQueue {
                 output: output.map(PathBuf::from),
                 error,
                 attempts: attempts as u32,
-                outcome: outcome.as_deref().and_then(crate::existing_files::Outcome::parse),
+                outcome: outcome
+                    .as_deref()
+                    .and_then(crate::existing_files::Outcome::parse),
                 size_limit_miss: miss.and_then(|json| serde_json::from_str(&json).ok()),
                 started_ms,
                 finished_ms,

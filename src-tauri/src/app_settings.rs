@@ -2210,7 +2210,12 @@ mod decoder_preferences_tests {
         let mut value = payloads["preset"].clone();
         assert!(value.get("maxFileKb").is_none());
         let plain: ExportPreset = serde_json::from_value(value.clone()).unwrap();
-        assert!(serde_json::to_value(&plain).unwrap().get("maxFileKb").is_none());
+        assert!(
+            serde_json::to_value(&plain)
+                .unwrap()
+                .get("maxFileKb")
+                .is_none()
+        );
         value["maxFileKb"] = 500.into();
         let preset: ExportPreset = serde_json::from_value(value).unwrap();
         assert_eq!(preset.max_file_kb, Some(500));

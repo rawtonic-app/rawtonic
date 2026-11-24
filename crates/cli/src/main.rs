@@ -1749,7 +1749,9 @@ fn export(args: ExportArgs) -> Result<()> {
             .with_context(|| format!("Write {}", path.display()))?;
         written.push(path.clone());
     }
-    let size_limit_missed = size_limit_missed.into_inner().unwrap_or_else(|e| e.into_inner());
+    let size_limit_missed = size_limit_missed
+        .into_inner()
+        .unwrap_or_else(|e| e.into_inner());
     let mut result = serde_json::json!({
         "written": written,
         "skipped": skipped,
