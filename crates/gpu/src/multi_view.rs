@@ -94,9 +94,23 @@ pub struct MultiView {
     /// Without the lock: each secondary's own zoom (absent: fit).
     cell_zooms: HashMap<String, CellZoom>,
     /// The zoom the primary's cell had when it became the primary: its own
-    /// frames are drawn at it until its live frame shows it (the zooms sent
-    /// with a layout leave the primary out).
-    primary_zoom: Option<CellZoom>,
+    /// frames are drawn at it until its live frame shows it at that zoom
+    /// (the zooms sent with a layout leave the primary out).
+    primary_hold: Option<PrimaryHold>,
+}
+
+/// How long a primary's own zoomed frames may stand in for a live frame
+/// placed elsewhere that does not move (the editor never applied the zoom).
+pub const PRIMARY_HOLD_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// A zoomed cell that became the primary, until its live frame takes over.
+#[derive(Clone, Copy, Debug)]
+struct PrimaryHold {
+    zoom: CellZoom,
+    since: std::time::Instant,
+    /// Where its live frame was first placed (before the editor applied
+    /// the cell's zoom, e.g. at the previous primary's fit).
+    first: Option<[f32; 4]>,
 }
 
 /// Where a photograph of `width` × `height` sits in `area`: contained and
@@ -291,14 +305,65 @@ impl MultiView {
     /// primary the zoom its cell had until its live frame shows it.
     fn drawn_zoom(&self, path: &str) -> Option<CellZoom> {
         self.zoom_of(path).or(self
-            .primary_zoom
-            .filter(|_| self.primary.as_deref() == Some(path)))
+            .primary_hold
+            .filter(|_| self.primary.as_deref() == Some(path))
+            .map(|hold| hold.zoom))
     }
 
-    /// The live frame shows the primary now: its own frames, kept at the
-    /// zoom its cell had, are no longer drawn (at its zoom in the editor).
-    pub(crate) fn primary_frame_shown(&mut self) {
-        self.primary_zoom = None;
+    /// Whether the primary's own frames, kept at the zoom its cell had,
+    /// stay drawn instead of its live frame placed at `placed` (None: not a normal placement) at `now`. They stay while
+    /// the live frame sits where it was first placed and not at that zoom
+    /// (the editor has not applied it yet: WMV4, a zoomed cell clicked
+    /// beside a primary at fit). The live frame takes over once it is
+    /// placed at the zoom, moves (the editor applied it, clamped it, or the
+    /// photograph is panned), or after [`PRIMARY_HOLD_LIMIT`].
+    pub(crate) fn holds_primary(
+        &mut self,
+        placed: Option<[f32; 4]>,
+        now: std::time::Instant,
+    ) -> bool {
+        let Some(hold) = self.primary_hold.as_mut() else {
+            return false;
+        };
+        // Where the live frame would sit at the zoom: the photograph's shown
+        // size is the held frame's (the live frame's own placement cannot
+        // tell a fit from a zoom of a smaller photograph).
+        let at_zoom = self.primary.as_deref().and_then(|path| {
+            let shown = self.textures.get(path)?.extent?.shown;
+            let area = self.cells.iter().find(|cell| cell.path == path)?.area;
+            Some(zoomed_rect(
+                area,
+                CellExtent {
+                    shown,
+                    region: None,
+                },
+                hold.zoom,
+            ))
+        });
+        let near = |a: [f32; 4], b: [f32; 4], tolerance: f32| {
+            a.iter()
+                .zip(b.iter())
+                .all(|(a, b)| (a - b).abs() <= tolerance)
+        };
+        let keep = match (at_zoom, placed) {
+            (Some(at_zoom), Some(rect))
+                if now.duration_since(hold.since) < PRIMARY_HOLD_LIMIT
+                    && !near(rect, at_zoom, 2.0 + 0.01 * at_zoom[2].max(at_zoom[3])) =>
+            {
+                match hold.first {
+                    None => {
+                        hold.first = Some(rect);
+                        true
+                    }
+                    Some(first) => near(first, rect, 0.5),
+                }
+            }
+            _ => false,
+        };
+        if !keep {
+            self.primary_hold = None;
+        }
+        keep
     }
 
     /// Whether any cell is zoomed in.
@@ -317,7 +382,15 @@ impl MultiView {
         // zoom until its live frame shows it, not to fit (WMV4: 0.6–1.0 s
         // at fit after a click on a zoomed cell).
         if primary != self.primary {
-            self.primary_zoom = primary.as_deref().and_then(|path| self.zoom_of(path));
+            self.primary_hold =
+                primary
+                    .as_deref()
+                    .and_then(|path| self.zoom_of(path))
+                    .map(|zoom| PrimaryHold {
+                        zoom,
+                        since: std::time::Instant::now(),
+                        first: None,
+                    });
         }
         self.primary = primary;
         self.cells = cells;
@@ -359,7 +432,7 @@ impl MultiView {
         self.regions.clear();
         self.zoom = None;
         self.cell_zooms.clear();
-        self.primary_zoom = None;
+        self.primary_hold = None;
     }
 
     /// The render key of the whole-photograph texture kept for `path` (0: a
@@ -1932,7 +2005,7 @@ mod tests {
             ),
         ] {
             let mut multi = layout(&gpu);
-            multi.set_zooms(before.shared, before.cells);
+            multi.set_zooms(before.shared, before.cells.clone());
             // "a" (cell [5, 10, 60, 80], centre (35, 50)) shows its 32 × 32
             // photograph at 4 device px per pixel: the cyan centre spans
             // 19–51 (at fit 27.5–42.5, letterboxed at 20–80).
@@ -1974,7 +2047,7 @@ mod tests {
                 None,
             );
             // A zoom sent after the layout (without "a") changes nothing.
-            multi.set_zooms(after.shared, after.cells);
+            multi.set_zooms(after.shared, after.cells.clone());
             assert_eq!(multi.primary(), Some("a"), "{label}");
             assert_eq!(
                 multi.region_of("a").map(|(key, _)| key),
@@ -1998,6 +2071,51 @@ mod tests {
                 "{label}: no letterbox {:?}",
                 pixel(&pixels, 35, 15)
             );
+            // Its live frame first comes placed where the editor still was
+            // (here at fit): the cell's own frames stay. Placed at the zoom,
+            // the live frame takes over, and for good.
+            let area = [5.0, 10.0, 60.0, 80.0];
+            let at_fit = fit_rect(area, 32.0, 32.0);
+            let at_zoom = zoomed_rect(area, whole(32, 32), zoom);
+            let now = std::time::Instant::now();
+            assert!(multi.holds_primary(Some(at_fit), now), "{label}");
+            assert!(multi.holds_primary(Some(at_fit), now), "{label}");
+            assert!(!multi.holds_primary(Some(at_zoom), now), "{label}");
+            assert!(!multi.holds_primary(Some(at_fit), now), "{label}");
+            let cells = multi.cells().to_vec();
+            let hold_again = |multi: &mut MultiView| {
+                multi.show(
+                    &gpu.device,
+                    &gpu.queue,
+                    &bindings,
+                    Some("primary".into()),
+                    cells.clone(),
+                    Some(before.clone()),
+                    None,
+                );
+                multi.show(
+                    &gpu.device,
+                    &gpu.queue,
+                    &bindings,
+                    Some("a".into()),
+                    cells.clone(),
+                    Some(after.clone()),
+                    None,
+                );
+            };
+            // A live frame that moves (the editor applied, clamped or panned
+            // it) takes over too.
+            hold_again(&mut multi);
+            assert!(multi.holds_primary(Some(at_fit), now), "{label}");
+            let moved = [at_fit[0] + 4.0, at_fit[1], at_fit[2], at_fit[3]];
+            assert!(!multi.holds_primary(Some(moved), now), "{label}");
+            // And after the limit, wherever it is; or when it is not placed
+            // normally (crop editing, a split).
+            hold_again(&mut multi);
+            let late = now + PRIMARY_HOLD_LIMIT + std::time::Duration::from_millis(1);
+            assert!(!multi.holds_primary(Some(at_fit), late), "{label}");
+            hold_again(&mut multi);
+            assert!(!multi.holds_primary(None, now), "{label}");
             // "a" stops being the primary at fit: it is shown to fit again.
             let cells = multi.cells().to_vec();
             multi.show(

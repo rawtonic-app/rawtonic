@@ -38,8 +38,9 @@ const transform = { scale: 1, positionX: 0, positionY: 0 };
 const editorHandle = {
   current: {
     resetTransform: vi.fn(() => Object.assign(transform, { scale: 1, positionX: 0, positionY: 0 })),
+    // The editor keeps its transform within its bounds: never below fit.
     setTransform: vi.fn((positionX: number, positionY: number, scale: number) =>
-      Object.assign(transform, { scale, positionX, positionY })
+      Object.assign(transform, scale < 1 ? { scale: 1, positionX: 0, positionY: 0 } : { scale, positionX, positionY })
     ),
     instance: { transformState: transform }
   }
@@ -356,6 +357,96 @@ describe('the zoom lock across a primary switch', () => {
     // The editor shows the new primary at 1:1 too.
     const fit = useEditorStore.getState().baseRenderSize;
     expect((fit.width * transform.scale * 2) / A.width).toBeCloseTo(1);
+  });
+});
+
+describe("the zoom lock and the editor's bounds", () => {
+  const again = (rerender: (ui: React.ReactElement) => void) =>
+    rerender(
+      <MultiViewStage
+        files={files}
+        onOpen={(path) => open(path)}
+        onRate={vi.fn()}
+        transformWrapperRef={editorHandle as never}
+      >
+        <div data-testid="editor" />
+      </MultiViewStage>
+    );
+
+  it('keeps the zoom when the next primary clamps it to its fit (a tight crop)', () => {
+    useMultiViewStore.setState({ zoomLock: true });
+    const { container, rerender } = stage();
+    // b slightly above fit: 1.5 x its fit.
+    const fit = useEditorStore.getState().baseRenderSize;
+    Object.assign(transform, {
+      scale: 1.5,
+      positionX: (fit.containerWidth / 2) * -0.5,
+      positionY: (fit.containerHeight / 2) * -0.5
+    });
+    runFrame();
+    const shared = zoomCalls().at(-1)!.zoom!;
+    expect(shared.scale).toBeCloseTo((fit.width * 1.5 * 2) / 6000);
+    const before = zoomCalls().length;
+    // a is shown cropped to 1500 x 1000: that zoom is below its fit, so the
+    // editor stays at fit.
+    act(() => {
+      useEditorStore.setState({
+        adjustments: {
+          ...useEditorStore.getState().adjustments,
+          crop: { unit: 'px', x: 0, y: 0, width: 1500, height: 1000 }
+        }
+      });
+      open('/s/a.CR3');
+    });
+    again(rerender);
+    measureEditor(container);
+    runFrame();
+    runFrame();
+    expect(transform.scale).toBe(1);
+    // The other cells keep the shared zoom (not fit).
+    for (const call of zoomCalls().slice(before)) expect(call.zoom!.scale).toBeCloseTo(shared.scale);
+    expect(badge(container, '/s/c.CR3')).not.toBeNull();
+    // The editor's own zoom from there is read again.
+    Object.assign(transform, oneToOne());
+    runFrame();
+    expect(zoomCalls().at(-1)!.zoom!.scale).toBeCloseTo(
+      (useEditorStore.getState().baseRenderSize.width * transform.scale * 2) / 1500
+    );
+  });
+
+  it('reads the zoom afresh when the multi view starts again', () => {
+    useMultiViewStore.setState({ zoomLock: true });
+    const { container, rerender } = stage();
+    Object.assign(transform, oneToOne());
+    runFrame();
+    expect(zoomCalls().at(-1)!.zoom!.scale).toBeCloseTo(1);
+    // Leave the multi view, go to fit in the single view, resize the window.
+    act(() => useMultiViewStore.setState({ enabled: false }));
+    again(rerender);
+    runFrame();
+    Object.assign(transform, { scale: 1, positionX: 0, positionY: 0 });
+    vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({
+      left: 100,
+      top: 50,
+      width: 1000,
+      height: 700,
+      right: 1100,
+      bottom: 750,
+      x: 100,
+      y: 50,
+      toJSON: () => ({})
+    });
+    editorHandle.current.setTransform.mockClear();
+    const sent = zoomCalls().length;
+    act(() => useMultiViewStore.setState({ enabled: true }));
+    again(rerender);
+    measureEditor(container);
+    runFrame();
+    runFrame();
+    // The fit chosen meanwhile stays: no old zoom put back.
+    expect(editorHandle.current.setTransform).not.toHaveBeenCalled();
+    expect(transform.scale).toBe(1);
+    for (const call of zoomCalls().slice(sent)) expect(call.zoom).toBeNull();
   });
 });
 

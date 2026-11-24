@@ -102,6 +102,17 @@ function fitKey(
   ].join('|');
 }
 
+function sameTransform(
+  a: { scale: number; positionX: number; positionY: number },
+  b: { scale: number; positionX: number; positionY: number }
+): boolean {
+  return (
+    Math.abs(a.scale - b.scale) <= 1e-6 * a.scale &&
+    Math.abs(a.positionX - b.positionX) <= 1e-3 &&
+    Math.abs(a.positionY - b.positionY) <= 1e-3
+  );
+}
+
 /** Whether the editor's fit box belongs to a photograph of `shown` size (it
  * is measured a frame after the photograph changes). */
 function fitMatches(fit: { width: number; height: number }, shown: { width: number; height: number }) {
@@ -137,6 +148,11 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
   /** The fit (primary, fit box, shown size, device px ratio) the primary's
    * zoom was last read or placed against. */
   const readFit = useRef('');
+  /** The transform the editor took when it was placed at the primary's zoom
+   * (after its own bounds): while it stays there the zoom is kept, so a
+   * placement the editor clamps (a crop whose fit is above the zoom) does
+   * not become every cell's zoom. */
+  const placed = useRef<{ scale: number; positionX: number; positionY: number } | null>(null);
   /** The secondary under the pointer and where (CSS px, window). */
   const hover = useRef<{ path: string; x: number; y: number } | null>(null);
 
@@ -204,6 +220,12 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
   // changes.
   useEffect(() => {
     if (!active) return;
+    // Starting (again): the zoom is read from the editor as it is now, not
+    // one kept from before the multi view was left.
+    primaryZoomRef.current = null;
+    setPrimaryZoom(null);
+    readFit.current = '';
+    placed.current = null;
     let sent: ZoomPayload | undefined;
     let frame = 0;
     // A new GPU device after a lost one starts its display at fit
@@ -248,14 +270,19 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
           const target = transformOfZoom(zoomed, editor.baseRenderSize, shownSize, dprNow());
           if (target) {
             transformWrapperRef?.current?.setTransform(target.positionX, target.positionY, target.scale, 0);
+            const now = transformWrapperRef?.current?.instance.transformState;
+            placed.current = now ? { scale: now.scale, positionX: now.positionX, positionY: now.positionY } : null;
             return;
           }
         }
         readFit.current = fitNow;
-        const zoom = sharedZoomOf(transform!, editor.baseRenderSize, shownSize, dprNow());
-        if (!sameZoom(primaryZoomRef.current, zoom)) {
-          primaryZoomRef.current = zoom;
-          setPrimaryZoom(zoom);
+        if (!placed.current || !sameTransform(placed.current, transform!)) {
+          placed.current = null;
+          const zoom = sharedZoomOf(transform!, editor.baseRenderSize, shownSize, dprNow());
+          if (!sameZoom(primaryZoomRef.current, zoom)) {
+            primaryZoomRef.current = zoom;
+            setPrimaryZoom(zoom);
+          }
         }
       }
       const payload = layoutZooms(zoomLock, primaryZoomRef.current, null, store.cellZooms, primary, shown);
