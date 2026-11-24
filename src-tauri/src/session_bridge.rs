@@ -410,6 +410,7 @@ pub fn saved_in_library(error: &io::Error) -> Option<&io::Error> {
 pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::Result<()> {
     let _lock = WRITE_LOCK.lock().map_err(io_error)?;
     let path = path.as_ref();
+    rawtonic_export::sidecars::forget_kept_sidecar(path);
     let bytes = bytes.as_ref();
     if let Some(source) = copy_for_sidecar(path)
         .map(|(source, _)| source)

@@ -250,6 +250,32 @@ fn catalog_names() -> &'static CatalogNames {
     })
 }
 
+/// A digest of the decoder's camera naming data (every catalogue entry's
+/// file names, mode and clean names): the camera names a file gives through
+/// the decoder change with it, so names kept from another catalogue
+/// (`camera_store`) are not used.
+pub(crate) fn naming_fingerprint() -> &'static str {
+    static DIGEST: OnceLock<String> = OnceLock::new();
+    DIGEST.get_or_init(|| {
+        let mut cameras: Vec<_> = rawler::global_loader()
+            .get_cameras()
+            .iter()
+            .map(|((make, model, mode), camera)| {
+                [
+                    make.as_str(),
+                    model.as_str(),
+                    mode.as_str(),
+                    camera.clean_make.as_str(),
+                    camera.clean_model.as_str(),
+                ]
+                .join("\u{1f}")
+            })
+            .collect();
+        cameras.sort_unstable();
+        rawtonic_fs::sha256_hex(cameras.join("\u{1e}"))
+    })
+}
+
 /// A camera's make and model as a file or a settings entry names it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CameraName {
@@ -437,50 +463,69 @@ pub fn follows_defaults(recipe: &Value) -> bool {
 /// The camera of the photograph at `path` (`CameraIdentity`): from a
 /// RAW's make and model as the decoder names them (rawler's clean names
 /// for a catalogued camera, an uncatalogued DNG's tags) and its serial
-/// number, other files' from their EXIF. Read once per file size and modification time.
+/// number, other files' from their EXIF. The file's names are read once
+/// per file state (size, modification time, file id) and kept in the app's
+/// cache folder (`camera_store`); the identity is made from them each time.
 pub fn camera_of(path: &Path) -> Option<CameraIdentity> {
-    type Cache = Mutex<HashMap<PathBuf, (u64, std::time::SystemTime, Option<CameraIdentity>)>>;
+    use crate::camera_store::{self, Stamp};
+    type Cache = Mutex<HashMap<PathBuf, (Stamp, Option<CameraIdentity>)>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
-    let (len, modified) = std::fs::metadata(path)
-        .ok()
-        .and_then(|m| Some((m.len(), m.modified().ok()?)))?;
-    if let Some((l, m, camera)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(path)
-        && *l == len
-        && *m == modified
+    let stamp = Stamp::of(path)?;
+    if let Some((s, camera)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(path)
+        && *s == stamp
     {
         return camera.clone();
     }
-    let camera = if crate::formats::is_raw_file(path) {
-        // Mapped without read-ahead: only the tags are read.
-        rawler::rawsource::RawSource::new_lazy(path)
-            .ok()
-            .and_then(|source| camera_of_raw(&source))
-    } else {
-        camera_of_exif(path)
-    };
+    let names = camera_store::get(path, &stamp).or_else(|| {
+        let names = file_names_of(path)?;
+        // Only names read: a file that could not be read now is read again.
+        camera_store::put(path, stamp, names.clone());
+        Some(names)
+    });
+    let camera = names.and_then(|n| identity(&n.make, &n.model, n.serial.as_deref()));
     let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
     if cache.len() > 4096 {
         cache.clear();
     }
-    cache.insert(path.to_path_buf(), (len, modified, camera.clone()));
+    cache.insert(path.to_path_buf(), (stamp, camera.clone()));
     camera
+}
+
+fn file_names_of(path: &Path) -> Option<crate::camera_store::FileNames> {
+    if crate::formats::is_raw_file(path) {
+        // Mapped without read-ahead: only the tags are read.
+        rawler::rawsource::RawSource::new_lazy(path)
+            .ok()
+            .and_then(|source| raw_names(&source))
+    } else {
+        exif_names(path)
+    }
 }
 
 /// A RAW's camera from bytes already read.
 pub fn camera_of_raw(source: &rawler::rawsource::RawSource) -> Option<CameraIdentity> {
+    raw_names(source).and_then(|n| identity(&n.make, &n.model, n.serial.as_deref()))
+}
+
+fn raw_names(source: &rawler::rawsource::RawSource) -> Option<crate::camera_store::FileNames> {
     let decoder = rawler::get_decoder(source).ok()?;
     let metadata = decoder
         .raw_metadata(source, &rawler::decoders::RawDecodeParams::default())
         .ok()?;
-    identity(
-        &metadata.make,
-        &metadata.model,
-        metadata.exif.serial_number.as_deref(),
-    )
+    Some(crate::camera_store::FileNames {
+        make: metadata.make,
+        model: metadata.model,
+        serial: metadata.exif.serial_number,
+    })
 }
 
+#[cfg(test)]
 fn camera_of_exif(path: &Path) -> Option<CameraIdentity> {
+    exif_names(path).and_then(|n| identity(&n.make, &n.model, n.serial.as_deref()))
+}
+
+fn exif_names(path: &Path) -> Option<crate::camera_store::FileNames> {
     let file = std::fs::File::open(path).ok()?;
     let exif = exif::Reader::new()
         .read_from_container(&mut std::io::BufReader::new(file))
@@ -497,11 +542,11 @@ fn camera_of_exif(path: &Path) -> Option<CameraIdentity> {
                 _ => None,
             })
     };
-    identity(
-        &text(exif::Tag::Make)?,
-        &text(exif::Tag::Model)?,
-        text(exif::Tag::BodySerialNumber).as_deref(),
-    )
+    Some(crate::camera_store::FileNames {
+        make: text(exif::Tag::Make)?,
+        model: text(exif::Tag::Model)?,
+        serial: text(exif::Tag::BodySerialNumber),
+    })
 }
 
 fn identity(make: &str, model: &str, serial: Option<&str>) -> Option<CameraIdentity> {

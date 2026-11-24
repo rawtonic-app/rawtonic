@@ -75,15 +75,16 @@ pub(crate) fn emit_thumbnail_cache_setup_error(app_handle: &AppHandle, path: &st
 /// orientation was recorded get it, so the render and its persistent cache
 /// key both change.
 fn thumbnail_metadata(source: &Path, sidecar: &Path) -> Option<ImageMetadata> {
-    let mut metadata: ImageMetadata = if let Ok(content) = fs::read_to_string(sidecar) {
-        serde_json::from_str(&content).ok()?
-    } else {
-        if source.exists() {
-            return None;
-        }
-        crate::session_bridge::read_editor_sidecar(sidecar)
-            .and_then(|state| serde_json::from_value(state).ok())?
-    };
+    let mut metadata: ImageMetadata =
+        if let Some(content) = rawtonic_export::sidecars::read_sidecar_text(sidecar) {
+            serde_json::from_str(&content).ok()?
+        } else {
+            if source.exists() {
+                return None;
+            }
+            crate::session_bridge::read_editor_sidecar(sidecar)
+                .and_then(|state| serde_json::from_value(state).ok())?
+        };
     let _ = rawtonic_export::exif_processing::resolve_unresolved_lens(
         &mut metadata.adjustments,
         source,
@@ -1717,15 +1718,29 @@ fn thumbnail_files_exist(directory: &Path, hash: &str) -> bool {
 
 fn embedded_thumbnail_allowed(path_str: &str, adjustments: &[u8], settings: &AppSettings) -> bool {
     let (source, _) = parse_virtual_path(path_str);
-    (adjustments.is_empty() || adjustments == b"null")
-        && is_raw_file(&source)
-        && !settings.always_decode_raw_thumbnails.unwrap_or(false)
-        && rawtonic_engine::develop_defaults::for_path(&source).is_none()
-        && !crate::preview_proxy::standard_header_is_current(
+    // The header check reads the master's recipe (a virtual copy's too).
+    let (_, master_sidecar) = parse_virtual_path(&source.to_string_lossy());
+    let header_current = || {
+        crate::preview_proxy::standard_header_is_current(
             &source,
             settings,
             &serde_json::Value::Null,
         )
+    };
+    let defaults_apply = || rawtonic_engine::develop_defaults::for_path(&source).is_some();
+    (adjustments.is_empty() || adjustments == b"null")
+        && is_raw_file(&source)
+        && !settings.always_decode_raw_thumbnails.unwrap_or(false)
+        && if is_cloud_placeholder(&master_sidecar) {
+            // The header check reads the master sidecar, which would download
+            // an evicted one on the lookup worker: the camera first.
+            !defaults_apply() && !header_current()
+        } else {
+            // The local proxy header first: a photo with a current proxy
+            // never shows its embedded preview, so its camera is not read
+            // (CRD6).
+            !header_current() && !defaults_apply()
+        }
 }
 
 /// Track one current developed recipe per photo/copy. Only strict cache file
@@ -1929,10 +1944,37 @@ pub(crate) fn cached_thumbnails(
     app_handle: &AppHandle,
     settings: &AppSettings,
 ) -> Option<CachedThumbnails> {
-    ThumbnailCacheEntry::of(path_str, thumb_cache_dir, app_handle, settings)?.cached()
+    // One read of each sidecar for the whole lookup (CRD6).
+    rawtonic_export::sidecars::with_sidecars_kept(|| {
+        ThumbnailCacheEntry::of(path_str, thumb_cache_dir, app_handle, settings)?.cached()
+    })
 }
 
 pub(crate) fn generate_single_thumbnail_and_cache(
+    path_str: &str,
+    thumb_cache_dir: &Path,
+    gpu_context: Option<&GpuContext>,
+    preloaded_image: Option<&DynamicImage>,
+    force_regenerate: bool,
+    app_handle: &AppHandle,
+    settings: &AppSettings,
+) -> Option<CachedThumbnails> {
+    // One read of each sidecar for the lookup and the render (CRD6).
+    rawtonic_export::sidecars::with_sidecars_kept(|| {
+        cache_or_make_thumbnail(
+            path_str,
+            thumb_cache_dir,
+            gpu_context,
+            preloaded_image,
+            force_regenerate,
+            app_handle,
+            settings,
+        )
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cache_or_make_thumbnail(
     path_str: &str,
     thumb_cache_dir: &Path,
     gpu_context: Option<&GpuContext>,
@@ -2466,6 +2508,41 @@ fn as_cached(path_str: &str, generated: DynamicImage, medium: u32) -> DynamicIma
             log::warn!("Thumbnail of {path_str} not read as cached: {error:#}");
             generated
         }
+    }
+}
+
+#[cfg(test)]
+mod kept_sidecar_tests {
+    /// One tile job (lookup + render) reads its sidecar once: the tile's
+    /// metadata and the proxy checks' master recipe (`load_sidecar`) share
+    /// the first read (CRD6: ~22 ms per read on a LAN share).
+    #[test]
+    fn a_tile_job_reads_its_sidecar_once() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.ARW");
+        std::fs::write(&source, b"raw").unwrap();
+        let sidecar = temp.path().join("photo.ARW.rrdata");
+        let written = crate::image_processing::ImageMetadata {
+            rating: 4,
+            adjustments: serde_json::json!({ "exposure": 0.5 }),
+            ..Default::default()
+        };
+        std::fs::write(&sidecar, serde_json::to_string(&written).unwrap()).unwrap();
+        rawtonic_export::sidecars::with_sidecars_kept(|| {
+            let tile = super::thumbnail_metadata(&source, &sidecar).unwrap();
+            assert_eq!(tile.rating, 4);
+            // Gone after the first read: the job's later reads are that one.
+            std::fs::remove_file(&sidecar).unwrap();
+            assert_eq!(
+                super::thumbnail_metadata(&source, &sidecar).unwrap().rating,
+                4
+            );
+            let master = crate::exif_processing::load_sidecar(&sidecar);
+            assert_eq!(master.rating, 4);
+            assert_eq!(master.adjustments["exposure"], 0.5);
+        });
+        // Outside a job, the file as it is.
+        assert!(super::thumbnail_metadata(&source, &sidecar).is_none());
     }
 }
 
