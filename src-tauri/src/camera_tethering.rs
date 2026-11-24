@@ -2466,6 +2466,7 @@ mod tests {
             metadata: NextCaptureMetadata {
                 rating,
                 keywords: vec![keyword.into()],
+                import: None,
             },
         }
     }

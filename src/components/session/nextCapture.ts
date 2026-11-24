@@ -7,6 +7,7 @@ import {
   withLumaNoiseVersion,
   withSharpenVersion
 } from '../../utils/adjustments';
+import type { ImportMetadata } from './IngestMetadata';
 
 /** Mirrors `hot_folder::NextCapture`. */
 export type NextCapture =
@@ -18,6 +19,9 @@ export type NextCapture =
 export interface NextCaptureMetadata {
   rating: number;
   keywords: string[];
+  /** The regular import's metadata preset (creator, copyright, usage terms,
+   * contact, keywords), applied to every capture. */
+  import?: ImportMetadata | null;
 }
 
 /** What new captures (hot folder, tether) start with, as the form holds
@@ -26,9 +30,10 @@ export interface NextCaptureForm {
   choice: string;
   rating: number;
   keywords: string;
+  import: ImportMetadata | null;
 }
 
-export const DEFAULT_NEXT_CAPTURE: NextCaptureForm = { choice: 'defaults', rating: 0, keywords: '' };
+export const DEFAULT_NEXT_CAPTURE: NextCaptureForm = { choice: 'defaults', rating: 0, keywords: '', import: null };
 
 export interface PresetChoice {
   id: string;
@@ -77,5 +82,8 @@ export function nextCaptureOf(
     : form.choice === 'copyFromLast'
       ? { mode: 'copyFromLast' }
       : { mode: 'defaults' };
-  return { nextCapture, metadata: { rating: form.rating, keywords: parseKeywords(form.keywords) } };
+  return {
+    nextCapture,
+    metadata: { rating: form.rating, keywords: parseKeywords(form.keywords), import: form.import }
+  };
 }
