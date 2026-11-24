@@ -4,6 +4,7 @@ import {
   CLARITY_VERSION,
   GRAIN_VERSION,
   INITIAL_ADJUSTMENTS,
+  INITIAL_BW_TONING,
   normalizeLoadedAdjustments,
   pastedAdjustments,
   PasteMode,
@@ -79,6 +80,20 @@ describe('Tool copy of the black & white mix', () => {
     expect({ ...destination, ...copied }.bwVersion).toBe(1);
     const current = normalizeLoadedAdjustments({ blackAndWhite: true, bwVersion: 2 } as unknown as Adjustments, true);
     expect(pick(current, ['grayMixer'], true).bwVersion).toBe(2);
+  });
+});
+
+describe('Tool copy of B&W Toning', () => {
+  it('applies an edit without toning as no toning', () => {
+    // Through JSON, as the batch request goes: an absent value would be dropped.
+    const copied = JSON.parse(
+      JSON.stringify(pick({ ...INITIAL_ADJUSTMENTS, blackAndWhite: true }, ['blackAndWhiteToning'], true))
+    );
+    expect(copied.blackAndWhiteToning).toEqual(INITIAL_BW_TONING);
+    const toned = { ...INITIAL_BW_TONING, paper: 40 };
+    expect(
+      pick({ ...INITIAL_ADJUSTMENTS, blackAndWhiteToning: toned }, ['blackAndWhiteToning'], true).blackAndWhiteToning
+    ).toEqual(toned);
   });
 });
 

@@ -16,6 +16,7 @@ import {
   withLumaNoiseVersion,
   withSharpenVersion,
   withPortableWhites,
+  INITIAL_BW_TONING,
   type Adjustments
 } from '../../utils/adjustments';
 
@@ -80,6 +81,11 @@ export function pick(values: Adjustments, keys: string[], isRaw: boolean): Parti
   const picked = Object.fromEntries(
     [...all].map((key) => [key, structuredClone(values[key as keyof Adjustments])])
   ) as Partial<Adjustments>;
+  // An edit without B&W Toning tones nothing: say so, or the absent value
+  // would vanish on the way and the destination keep its own tint.
+  if (all.has('blackAndWhiteToning') && picked.blackAndWhiteToning == null) {
+    picked.blackAndWhiteToning = structuredClone(INITIAL_BW_TONING);
+  }
   // A missing response key would vanish on the way: say it explicitly. The
   // grain version is not picked along (an absent one would read as an undo
   // to version 1): withGrainVersion takes it from the source.

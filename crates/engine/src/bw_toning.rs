@@ -3,29 +3,34 @@
 //! hue, saturation and density, a Balance and a Paper control. Rawtonic's
 //! own model (notes: benchmark-results/spt1-2026-11-24).
 //!
-//! Both reference editors tone a B&W photo as a function of the grey value
-//! alone (Capture One's toning is a gradient map: a table read off a grey
-//! ramp reproduces its toned photos to ΔE00 0.05), so the tint is evaluated
+//! Capture One tones a B&W photo as a function of the grey value alone (a
+//! gradient map: a table read off a grey ramp reproduces its toned photos to
+//! ΔE00 0.05), as Rawtonic's Lightroom-type Color Grading does on greys (the
+//! Lightroom proxy here: no Camera Raw B&W toning renders exist), so the tint is evaluated
 //! here once per recipe into a small table of Oklab (dL, da, db) by the
 //! grey's Oklab lightness, which the shader adds after the curves
 //! (`apply_bw_toning`).
 //!
 //! - Hue: the Oklab hue of the fully saturated sRGB colour of that hue (the
-//!   colour the slider shows), turning with lightness as both references'
-//!   tints do (highlights 12°, shadows 22° per unit of lightness).
+//!   colour the slider shows), turning with lightness as Capture One's and
+//!   the Lightroom-type proxy's tints do (highlights 12°, shadows 22° per
+//!   unit of lightness).
 //! - Highlights: a soft hinge from the Balance point, rising linearly to
 //!   white; with Paper 0 it fades out above L 0.86, so white stays white,
 //!   with Paper 100 it tints white like a toned paper base.
 //! - Shadows: rising linearly from black (black stays black) to 0.69 of the
 //!   Balance point, then falling towards white.
-//! - Density 0 keeps the grey's lightness; 100 darkens the tone by twice
-//!   its chroma (Capture One's warm toning: about 50, its blue toning 75).
+//! - Density 0 keeps the grey's lightness (where sRGB holds the tint); 100
+//!   darkens the tone by about twice its chroma, multiplicatively so the
+//!   deepest shadows keep their order (Capture One's warm toning: about 50,
+//!   its blue toning 75).
 //! - Every entry is fitted into the sRGB cube: above it by lowering the
 //!   lightness (a tinted white is darker than white), below it by lowering
 //!   the chroma; lightness never falls with a lighter grey.
 //!
 //! The shape constants were fitted on Capture One 16.9.1 and Rawtonic's
-//! Lightroom-type colour grading on a grey ramp (three toned settings each).
+//! Lightroom-type colour grading (the proxy) on a grey ramp (three toned
+//! settings each).
 use rawtonic_recipe::color::BwToning;
 
 pub const BW_TONING_LUT_SIZE: usize = 32;
@@ -141,6 +146,8 @@ fn toned(toning: &BwToning, l: f64) -> [f64; 3] {
         amount(toning.paper),
     );
     let mut out = [l, 0.0, 0.0];
+    // Lightness lost to density, relative to the grey's (summed over tones).
+    let mut darkening = 0.0;
     for (band, weight, (turn, around)) in [
         (&toning.highlights, wh, TURN[0]),
         (&toning.shadows, ws, TURN[1]),
@@ -150,10 +157,16 @@ fn toned(toning: &BwToning, l: f64) -> [f64; 3] {
             continue;
         }
         let angle = hue_angle(band.hue) + (turn * (l - around)).to_radians();
-        out[0] -= DENSITY_GAIN * amount(band.density) * chroma;
+        if l > 0.0 {
+            darkening += DENSITY_GAIN * amount(band.density) * chroma / l;
+        }
         out[1] += chroma * angle.cos();
         out[2] += chroma * angle.sin();
     }
+    // Multiplicative, so a dense tone darkens a grey by at most its own
+    // lightness and deep shadows keep their order and separation: about
+    // l − gain × density × chroma where that is small, never below 0.
+    out[0] = l * (-darkening).exp();
     out
 }
 
@@ -321,9 +334,13 @@ mod tests {
         let (a, b) = (lut(&base)[22], lut(&dense)[22]);
         let chroma = (b[1] as f64).hypot(b[2] as f64);
         assert!(a[0].abs() < 1e-6);
+        // Density 40 = 0.8 × chroma, applied multiplicatively.
+        let l = grey_l(22);
+        let expected = l * ((-0.8 * chroma / l).exp() - 1.0);
+        assert!((b[0] as f64 - expected).abs() < 1e-4, "{b:?}");
         assert!(
-            (b[0] as f64 + 0.8 * chroma).abs() < 1e-3,
-            "dL = −0.8 C: {b:?}"
+            (b[0] as f64 + 0.8 * chroma).abs() < 0.005,
+            "dL ≈ −0.8 C: {b:?}"
         );
     }
 
@@ -350,6 +367,28 @@ mod tests {
                     let lab = [here, table[i][1] as f64, table[i][2] as f64];
                     assert!(inside(lab), "inside sRGB at {i}");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn dense_shadows_keep_the_shadows_apart() {
+        // Balance 0, Shadows saturation and density 80 (and the extremes):
+        // every lighter grey stays lighter, by at least a fifth (a tenth at
+        // the extremes) of its step.
+        for (saturation, density, share) in [(80.0, 80.0, 0.2), (100.0, 100.0, 0.1)] {
+            let toning = BwToning {
+                shadows: tone(220.0, saturation, density),
+                ..BwToning::default()
+            };
+            let table = lut(&toning);
+            for i in 1..BW_TONING_LUT_SIZE {
+                let step =
+                    (grey_l(i) + table[i][0] as f64) - (grey_l(i - 1) + table[i - 1][0] as f64);
+                assert!(
+                    step > share * grey_l(1),
+                    "{saturation}/{density}: step {step} at {i}"
+                );
             }
         }
     }
