@@ -8210,9 +8210,25 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// held-out half; bright detail still between Camera Raw's and Capture
 /// One's; notes:
 /// benchmark-results/whl2-2026-11-22).
+/// 23 (2026-11-24) adds a per-pixel anchor term to raised Shadows' and
+/// lowered Highlights' gain: besides the lift or pull its smooth level
+/// gives, a pixel's own luminance takes back part of the lift below about
+/// L* 25 (Shadows) or of the pull above about L* 50 (Highlights), and the
+/// level's share is a tenth stronger, so the reach stays as it was while
+/// deep shadows and bright texture (clouds) keep more of their local
+/// contrast (measured on the slider atlas's detail bands at 2000 px; full
+/// resolution not measured with this shader; slider atlas, 24 held-out
+/// frames at equal
+/// effect: shadow detail at Shadows +100 0.13 below the better editor →
+/// 0.07, within the floor of Camera Raw's; bright detail at Highlights −100
+/// 0.10 below Capture One's → 0.04; no halo, noise or tone band outside the
+/// floors; raising Shadows renders no pixel darker than Shadows 0 does,
+/// and the Highlights anchor brightens no flat tone (version 14's restored
+/// texture peaks are lifted as before);
+/// notes: benchmark-results/hsb1-2026-11-24).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
-pub const TONE_VERSION: u64 = 22;
+pub const TONE_VERSION: u64 = 23;
 
 /// Whites up to tone version 16: the slider value is the amount.
 pub fn whites_amount_v1(value: f64) -> f64 {

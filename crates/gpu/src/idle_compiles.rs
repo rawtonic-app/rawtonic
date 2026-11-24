@@ -237,6 +237,10 @@ pub(super) fn basic_features(features: usize, adjustments: &AllAdjustments) -> u
         | bit(tone.shadows_light_gaps(), SHADOWS_V20_FEATURE)
         | bit(tone.whites_edge_cap(), WHITES_V22_FEATURE)
         | bit(
+            g.tonemapper_mode == 3 && tone.pixel_anchor(),
+            ANCHOR_V23_FEATURE,
+        )
+        | bit(
             ClarityVersion::from_uniform(g.clarity_version).get() >= 3
                 || StructureVersion::from_uniform(g.structure_version).edge_aware(),
             PRESENCE_V3_FEATURE,
@@ -263,6 +267,7 @@ pub(super) const BASIC_FEATURES: usize = TONE_PREVIEW_FEATURE
     | SHADOWS_V19_FEATURE
     | SHADOWS_V20_FEATURE
     | WHITES_V22_FEATURE
+    | ANCHOR_V23_FEATURE
     | PRESENCE_V3_FEATURE
     | DEHAZE_V3_FEATURE
     | DEHAZE_V2_FEATURE
@@ -1333,7 +1338,8 @@ mod tests {
     /// 680M (G76/WHCF, WSMOKE18: 7335999, 5238847; since tone version 19
     /// with raised Shadows' level, `SHADOWS_V19_FEATURE`, since version 20
     /// with its bounds, `SHADOWS_V20_FEATURE`, since version 22 with
-    /// lowered Whites' offset cap, `WHITES_V22_FEATURE`).
+    /// lowered Whites' offset cap, `WHITES_V22_FEATURE`, since version 23
+    /// with the pixel anchor, `ANCHOR_V23_FEATURE`).
     #[test]
     fn the_start_plans_what_a_new_raw_edit_plans() {
         // The plan with one main pass (display variants without the effect
@@ -1346,7 +1352,11 @@ mod tests {
         assert_eq!(features, RAW_DEFAULT_PREVIEW_FEATURES);
         let (plan, exact) = planned_jobs(features, &at_start);
         assert_eq!(exact, features);
-        let basic = 5238847 | SHADOWS_V19_FEATURE | SHADOWS_V20_FEATURE | WHITES_V22_FEATURE;
+        let basic = 5238847
+            | SHADOWS_V19_FEATURE
+            | SHADOWS_V20_FEATURE
+            | WHITES_V22_FEATURE
+            | ANCHOR_V23_FEATURE;
         assert_eq!(plan, vec![basic | GLOW_FEATURE, basic, features]);
         // Response 8's detail-cache pass.
         assert_eq!(sharpen_level(&at_start), 2);
@@ -1367,6 +1377,7 @@ mod tests {
             | SHADOWS_V19_FEATURE
             | SHADOWS_V20_FEATURE
             | WHITES_V22_FEATURE
+            | ANCHOR_V23_FEATURE
             | GLOW_FEATURE
             | HALATION_FEATURE;
         assert_eq!(
@@ -1415,6 +1426,7 @@ mod tests {
             | SHADOWS_V19_FEATURE
             | SHADOWS_V20_FEATURE
             | WHITES_V22_FEATURE
+            | ANCHOR_V23_FEATURE
             | PRESENCE_V3_FEATURE
             | DEHAZE_V3_FEATURE
             | VIBRANCE_V2_FEATURE
