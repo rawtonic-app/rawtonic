@@ -33,6 +33,26 @@ pub fn read_file_mapped(path: &Path) -> Result<Mmap, ReadFileError> {
 /// [`read_file_mapped`] and the metadata of the opened file the mapping
 /// is of (not of whatever the path names later).
 pub fn read_file_mapped_with_metadata(path: &Path) -> Result<(Mmap, fs::Metadata), ReadFileError> {
+    map_file(path, |_, _| {})
+}
+
+/// [`read_file_mapped_with_metadata`] of a RAW whose embedded preview is
+/// about to be read through the mapping: its byte ranges are read ahead
+/// first, one read each, through the same open file
+/// (`preview_ranges::read_ahead`; on a network share a mapping waits one
+/// round trip per fault).
+pub fn read_preview_mapped_with_metadata(
+    path: &Path,
+) -> Result<(Mmap, fs::Metadata), ReadFileError> {
+    map_file(path, |file, metadata| {
+        crate::preview_ranges::read_ahead(file, metadata.len());
+    })
+}
+
+fn map_file(
+    path: &Path,
+    before_reading: impl FnOnce(&fs::File, &fs::Metadata),
+) -> Result<(Mmap, fs::Metadata), ReadFileError> {
     if !path.is_file() {
         return Err(ReadFileError::Invalid);
     }
@@ -53,6 +73,7 @@ pub fn read_file_mapped_with_metadata(path: &Path) -> Result<(Mmap, fs::Metadata
             .map(&file)
             .map_err(ReadFileError::Io)?
     };
+    before_reading(&file, &metadata);
     Ok((mmap, metadata))
 }
 
