@@ -24,6 +24,7 @@
 
 ### Fixes
 
+- Windows with integrated AMD graphics: on the first start after an install, an update or a new graphics driver, the first photo no longer waits for graphics work it does not need. Until its first frame has what it needs, only that frame's shaders compile; the shaders prepared ahead for later edits start after it (or, with no photo open, once the first shader is ready). On a Radeon 680M two of those compiles had pushed the first frame from 11 s to 17 s in two of three cold starts; the improvement on that laptop is not measured yet. Macs and other Windows and Linux graphics are unchanged (they have no such limit).
 - After importing a Capture One session or a Lightroom catalog into an open catalog, the imported photographs' folder in the Folders panel and the Previous Import album ("Last import") now appear at once. Before, they stayed missing until the app was restarted. The folder list now also follows a hot-folder capture, a tethered shot or a folder synchronization that adds photographs outside the listed folders.
 - Capture One catalog and session import reports name the photos whose Color Editor settings were approximated or partly left out.
 - After a lost graphics device (driver reset), a collage cell whose render met the loss is rendered once more on the new device, as the export queue does, instead of failing the collage. In a multi view, a zoomed cell shows its cached thumbnail enlarged at once on the new device, no longer the whole photo at fit until its region develops again.

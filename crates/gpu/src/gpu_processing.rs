@@ -7342,6 +7342,11 @@ impl StartGate {
         self.opened.notify_all();
     }
 
+    /// Whether the gate is open now.
+    fn is_open(&self) -> bool {
+        self.open.lock().unwrap_or_else(|e| e.into_inner()).0
+    }
+
     /// Whether the gate opened (false: cancelled first).
     fn wait(&self) -> bool {
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
@@ -9022,7 +9027,7 @@ impl GpuProcessor {
             relight_pattern_cache: Mutex::new(None),
             main_bgl,
             main_pipeline,
-            start_gate,
+            start_gate: Arc::clone(&start_gate),
             compiles_ahead: ahead,
             edge_pipelines: Default::default(),
             profile_pipelines: Default::default(),
@@ -9043,8 +9048,11 @@ impl GpuProcessor {
             preview_failed,
             layer_sum_pipelines: Arc::new(variant_table()),
             layer_sum_compilation: Arc::new(variant_table()),
-            idle_compiles: (display_variants && !ahead)
-                .then(|| idle_compiles::IdleCompilesOwner(idle_compiles::IdleCompiles::new())),
+            idle_compiles: (display_variants && !ahead).then(|| {
+                idle_compiles::IdleCompilesOwner(idle_compiles::IdleCompiles::after_first_frame(
+                    Arc::clone(&start_gate),
+                ))
+            }),
             sharpen_view_pipelines: Arc::new(variant_table()),
             sharpen_view_compilation: variant_table(),
             preview_shader: shader_module,
@@ -10230,8 +10238,12 @@ impl GpuProcessor {
         // (a preview: no response 8) and after. A first session compiled
         // both when the first edit needed them (5.8–6.5 s on a Radeon 680M,
         // G76/WSMOKE18, WCOLD1).
-        self.detail_pipeline_for(0);
-        self.detail_pipeline_for(sharpen_level(adjustments));
+        // After the first frame has its pipelines (`IdleCompiles::started`):
+        // beside the RAW default variant they took the small compile slot
+        // between its pipelines (G76/WCC4).
+        for slot in [0, sharpen_level(adjustments)] {
+            self.detail_pipeline_after(slot, Some(Arc::clone(&idle.0)));
+        }
     }
 
     /// What an idle compile needs (`idle_compiles`).
@@ -10286,6 +10298,14 @@ impl GpuProcessor {
         if on_screen && let Some(idle) = idle {
             idle.frame();
         }
+        // Idle compiles wait while it does at the start (`StartWindow`).
+        let _waits = idle.filter(|_| on_screen).map(|idle| idle.frame_waits());
+        let serve = |result| {
+            if on_screen && let Some(idle) = idle {
+                idle.frame_served();
+            }
+            result
+        };
         #[cfg(test)]
         if self
             .force_legacy_curves
@@ -10415,6 +10435,7 @@ impl GpuProcessor {
                 .filter(|_| !general_display)
             {
                 if on_screen && let Some(idle) = idle {
+                    idle.frame_served();
                     idle.plan(features, adjustments, || self.idle_target());
                 }
                 return Ok((pipeline, true));
@@ -10430,12 +10451,13 @@ impl GpuProcessor {
                 continue;
             }
             if let Some(general) = self.compiled_general_pipeline(adjustments) {
-                return general.map(|pipeline| (pipeline, false));
+                return serve(general.map(|pipeline| (pipeline, false)));
             }
             if self.preview_failed[own].load(std::sync::atomic::Ordering::Acquire) {
-                return self
-                    .general_pipeline(adjustments, MainOutput::EightBit)
-                    .map(|pipeline| (pipeline, false));
+                return serve(
+                    self.general_pipeline(adjustments, MainOutput::EightBit)
+                        .map(|pipeline| (pipeline, false)),
+                );
             }
             // A newer request replaces this frame while it waits: the next
             // one renders as soon as its own variant is there, often at once
@@ -10665,6 +10687,17 @@ impl GpuProcessor {
     /// Slot 0 plain, 1 with response 7's Masking, 2 with response 8, 3 the
     /// mask view (response 7's code), 4 the mask view with response 8's.
     fn detail_pipeline_slot(&self, slot: usize) -> Option<&wgpu::ComputePipeline> {
+        self.detail_pipeline_after(slot, None)
+    }
+
+    /// `detail_pipeline_slot`, its compile once `start` (if any) has
+    /// started (`IdleCompiles::wait_started`); a frame that asks for it
+    /// before computes the detail stage inline.
+    fn detail_pipeline_after(
+        &self,
+        slot: usize,
+        start: Option<Arc<idle_compiles::IdleCompiles>>,
+    ) -> Option<&wgpu::ComputePipeline> {
         if self.detail_pipeline[slot].get().is_none() {
             self.detail_compilation[slot].get_or_init(|| {
                 let pipeline = Arc::clone(&self.detail_pipeline[slot]);
@@ -10672,6 +10705,11 @@ impl GpuProcessor {
                 let shader = self.preview_shader.clone();
                 let layout = self.detail_layout.clone();
                 spawn_device_thread("pipeline-compile", move || {
+                    if let Some(start) = start
+                        && !start.wait_started()
+                    {
+                        return;
+                    }
                     let _ = pipeline.set(compile_detail_pipeline(&device, &shader, &layout, slot));
                 });
             });
