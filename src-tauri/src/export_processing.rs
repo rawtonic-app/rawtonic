@@ -763,6 +763,7 @@ fn publish_with<'a>(
     replacing: Option<&'a Replacing>,
     source: &'a str,
     protected: &'a dyn Fn(&Path) -> bool,
+    cancelled: &'a dyn Fn() -> bool,
 ) -> rawtonic_export::output::Publish<'a> {
     use rawtonic_export::output::Publish;
     match replacing {
@@ -770,6 +771,7 @@ fn publish_with<'a>(
         Some(Replacing::Confirmed(confirmed)) => Publish::Confirmed {
             confirmed,
             protected,
+            cancelled,
         },
         None => Publish::New,
     }
@@ -831,9 +833,20 @@ fn camera_raw_or_unknown(path: &Path) -> bool {
     if !tiff {
         return crate::formats::is_raw_file(path);
     }
+    // Only an existing file can be a RAW (a name gone meanwhile is free).
+    if path.symlink_metadata().is_err() {
+        return false;
+    }
+    // Positively an image: not a cloud placeholder, read as a raster image
+    // by the classifier (which also answers so for a file it cannot parse)
+    // and its dimensions decoded as an image's.
     rawtonic_fs::is_cloud_placeholder(path)
-        || std::fs::File::open(path).is_err()
         || rawtonic_rawdecode::raw_tiff::classify(path).is_raw()
+        || image::ImageReader::open(path)
+            .and_then(|reader| reader.with_guessed_format())
+            .ok()
+            .and_then(|reader| reader.into_dimensions().ok())
+            .is_none()
 }
 
 /// What Save As never replaces: [`save_as_protected`] with the libraries
@@ -2134,7 +2147,10 @@ pub(crate) fn plan_output_path<'a>(
     // "If a file exists" says (the panel asked). Never the photo, its
     // sidecar or a library's photo; with separate mask files only when
     // none of theirs is in the way (those were not asked about).
-    if named_file && let Some(confirmed) = &target.confirmed {
+    if named_file
+        && let Some(confirmed) = &target.confirmed
+        && occupied(&slot)
+    {
         if save_as_protected(&slot, source_path, history.is_original) {
             return Err(format!(
                 "{} is a photo or one of its files; Save As does not replace it",
@@ -2466,6 +2482,9 @@ fn export_photo(
     // What Save As never replaces, even confirmed (checked again right
     // before the file is swapped in).
     let protected = |path: &Path| save_as_protected_in(path, original_path, &known_libraries);
+    // A confirmed replace asks right before the swap: a cancelled export
+    // replaces nothing.
+    let cancelled = || cancellation_token.load(Ordering::SeqCst);
     // Named as before for every choice: the name may need the capture date
     // or facts (read from the original when the snapshot has none).
     let file_date = pinned.naming_date(original_path);
@@ -2636,7 +2655,7 @@ fn export_photo(
             )?;
             ensure_export_not_cancelled(cancellation_token)?;
             let previous = replacing(target);
-            let written = publish_with(previous.as_ref(), photo, &protected)
+            let written = publish_with(previous.as_ref(), photo, &protected, &cancelled)
                 .write_with(output_path, |file| {
                     std::io::Write::write_all(file, &cube_bytes)
                 })
@@ -2876,7 +2895,7 @@ fn export_photo(
              _extension: &str,
              encoded: rawtonic_export::export_processing::EncodedExport| {
                 let miss = encoded.size_limit_miss();
-                let file = publish_with(previous.as_ref(), photo, &protected)
+                let file = publish_with(previous.as_ref(), photo, &protected, &cancelled)
                     .write_export(path, encoded)?;
                 *lock_recover(&written) = Some(file);
                 if let Some(miss) = miss {
@@ -4929,7 +4948,7 @@ mod tests {
         // the file stays as it is and no temporary file is left.
         std::fs::write(&print, b"retouched meanwhile, longer").unwrap();
         assert!(
-            super::publish_with(replace.as_ref(), "a.CR3\nkey", &protected)
+            super::publish_with(replace.as_ref(), "a.CR3\nkey", &protected, &|| false)
                 .write_export(&print, encode(&save_as))
                 .is_err()
         );
@@ -4950,7 +4969,7 @@ mod tests {
         let Planned::Write { replace, .. } = &planned else {
             unreachable!()
         };
-        super::publish_with(replace.as_ref(), "a.CR3\nkey", &protected)
+        super::publish_with(replace.as_ref(), "a.CR3\nkey", &protected, &|| false)
             .write_export(&print, encode(&save_as))
             .unwrap();
         let folder = ExportTarget {
@@ -4960,7 +4979,7 @@ mod tests {
         };
         let folder_output = plan(&folder, 0).unwrap();
         assert_eq!(folder_output.path(), delivery.join("a.jpg"));
-        super::publish_with(None, "a.CR3\nkey", &|_| false)
+        super::publish_with(None, "a.CR3\nkey", &|_| false, &|| false)
             .write_export(folder_output.path(), encode(&folder))
             .unwrap();
         assert_eq!(
@@ -5048,9 +5067,14 @@ mod tests {
             let stamp = rawtonic_fs::ConfirmedFile::read(own).unwrap();
             assert!(plan(&target(own, "keepBoth", Some(stamp.clone())), 0).is_err());
             assert!(
-                super::publish_with(Some(&Replacing::Confirmed(stamp)), "a.CR3\nkey", &protected)
-                    .write_with(own, |file| std::io::Write::write_all(file, b"jpeg"))
-                    .is_err()
+                super::publish_with(
+                    Some(&Replacing::Confirmed(stamp)),
+                    "a.CR3\nkey",
+                    &protected,
+                    &|| false
+                )
+                .write_with(own, |file| std::io::Write::write_all(file, b"jpeg"))
+                .is_err()
             );
         }
         assert_eq!(std::fs::read(&raw).unwrap(), b"original RAW");
@@ -5060,6 +5084,23 @@ mod tests {
         let rgb_tif = delivery.join("print.tif");
         image::RgbImage::new(4, 4).save(&rgb_tif).unwrap();
         assert!(!super::save_as_protected(&rgb_tif, &raw, &|_| false));
+        // A TIFF whose directory cannot be read (damaged, sensor data
+        // perhaps still there): not positively an image, not replaced.
+        let damaged = delivery.join("damaged.tif");
+        let mut bytes = b"II*\0\xff\xff\xff\x7f".to_vec();
+        bytes.resize(256, 0xAB);
+        std::fs::write(&damaged, &bytes).unwrap();
+        assert!(super::save_as_protected(&damaged, &raw, &|_| false));
+        // A confirmed TIFF moved away before the export ran: its name is
+        // free and written as any free name (no false refusal).
+        let moved = delivery.join("moved.tif");
+        image::RgbImage::new(4, 4).save(&moved).unwrap();
+        let mut tif_target = target(&moved, "keepBoth", stamp_of(&moved).unwrap());
+        tif_target.output_format = "tiff".into();
+        std::fs::remove_file(&moved).unwrap();
+        let planned = plan(&tif_target, 0).unwrap();
+        assert_eq!(planned.path(), moved);
+        assert_eq!(planned.outcome(), Outcome::Written);
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -5137,7 +5178,7 @@ mod tests {
         // the worker's publication refuses it and leaves it as it is.
         std::fs::write(&named, b"other program").unwrap();
         assert!(
-            super::publish_with(None, key, &|_| false)
+            super::publish_with(None, key, &|_| false, &|| false)
                 .write_export(&output, encode(&save_as))
                 .is_err()
         );
@@ -5145,12 +5186,12 @@ mod tests {
         std::fs::remove_file(&named).unwrap();
 
         // Free again: written, byte for byte the folder export's file.
-        super::publish_with(None, key, &|_| false)
+        super::publish_with(None, key, &|_| false, &|| false)
             .write_export(&plan(&save_as), encode(&save_as))
             .unwrap();
         let folder_output = plan(&folder_target);
         assert_eq!(folder_output, delivery.join("a.jpg"));
-        super::publish_with(None, key, &|_| false)
+        super::publish_with(None, key, &|_| false, &|| false)
             .write_export(&folder_output, encode(&folder_target))
             .unwrap();
         assert_eq!(
@@ -5449,7 +5490,7 @@ mod tests {
         else {
             unreachable!()
         };
-        let written = super::publish_with(Some(previous), raw_key, &|_| false)
+        let written = super::publish_with(Some(previous), raw_key, &|_| false, &|| false)
             .write_with(&own, |file| std::io::Write::write_all(file, b"export v2"))
             .unwrap();
         assert_eq!(std::fs::read(&own).unwrap(), b"export v2");
@@ -5467,7 +5508,8 @@ mod tests {
                     records.get(&own).unwrap().unwrap()
                 )),
                 "other\nkey",
-                &|_| false
+                &|_| false,
+                &|| false
             )
             .write_with(&own, |file| std::io::Write::write_all(file, b"x"))
             .is_err()

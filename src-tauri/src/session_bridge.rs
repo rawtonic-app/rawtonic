@@ -143,11 +143,16 @@ pub(crate) fn is_library_photo(path: &Path, known: &[PathBuf]) -> bool {
 }
 
 /// Whether the file at `path` is one a library keeps with one of its
-/// photos (the camera JPEG of a RAW+JPEG pair), asked of the same
-/// libraries as [`is_library_photo`]. Save As never replaces it.
+/// photos (the camera JPEG of a RAW+JPEG pair), by its recorded path, also
+/// after another program changed it (a caption added elsewhere), asked of
+/// the same libraries as [`is_library_photo`]. Save As never replaces it.
 pub(crate) fn is_library_companion(path: &Path, known: &[PathBuf]) -> bool {
-    in_libraries(path, known, |lib, path| {
-        !matches!(lib.companion_owner(path), Ok(None))
+    use rawtonic_fs::Canonical;
+    let path = path.canonical().unwrap_or_else(|_| path.to_path_buf());
+    in_libraries(&path, known, |lib, path| match lib.companion_records() {
+        Ok(records) => records.iter().any(|record| record.path == path),
+        // Unreadable: taken as keeping it.
+        Err(_) => true,
     })
 }
 
@@ -2766,6 +2771,10 @@ mod tests {
             !super::is_library_photo(&jpg, &known),
             "no asset of its own"
         );
+        // A caption added to it in another program changes its size and
+        // fingerprint: still the pair's camera JPEG.
+        std::fs::write(&jpg, b"camera jpeg with a caption added elsewhere").unwrap();
+        assert!(super::is_library_companion(&jpg, &known));
         // Save As of another photo, named onto it, is refused.
         assert!(crate::export_processing::save_as_protected_in(
             &jpg,

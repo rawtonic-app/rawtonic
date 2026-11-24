@@ -74,12 +74,14 @@ pub fn replace_previous_output_with(
 /// save panel's Replace; `confirmed` the file as it was then) with the content
 /// `fill` writes into a synced temporary file beside it, in one atomic
 /// rename (`rawtonic_fs::replace_confirmed`). A `protected` path (a photo,
-/// its sidecar), a file changed since it was confirmed, or a failing
-/// `fill` leave `path` as it was, without a temporary file.
+/// its sidecar), a file changed since it was confirmed, a failing `fill`
+/// or an export `cancelled` before the swap leave `path` as it was,
+/// without a temporary file.
 pub fn replace_confirmed_output_with(
     path: &Path,
     confirmed: &rawtonic_fs::ConfirmedFile,
     protected: &dyn Fn(&Path) -> bool,
+    cancelled: &dyn Fn() -> bool,
     fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
 ) -> io::Result<()> {
     let parent = output_folder(path).ok_or_else(|| io::Error::other("Missing output folder"))?;
@@ -96,7 +98,8 @@ pub fn replace_confirmed_output_with(
         .tempfile_in(parent)?;
     fill(temp.as_file_mut())?;
     temp.as_file().sync_all()?;
-    rawtonic_fs::replace_confirmed(temp, path, confirmed, protected).map_err(io::Error::other)
+    rawtonic_fs::replace_confirmed(temp, path, confirmed, protected, cancelled)
+        .map_err(io::Error::other)
 }
 
 /// How an export file is published: as a new file, over the previous
@@ -109,9 +112,12 @@ pub enum Publish<'a> {
         previous: &'a crate::existing_files::Recorded,
         source: &'a str,
     },
+    /// `cancelled`: asked right before the swap (a cancelled export
+    /// replaces nothing).
     Confirmed {
         confirmed: &'a rawtonic_fs::ConfirmedFile,
         protected: &'a dyn Fn(&Path) -> bool,
+        cancelled: &'a dyn Fn() -> bool,
     },
 }
 
@@ -158,7 +164,8 @@ impl Publish<'_> {
             Publish::Confirmed {
                 confirmed,
                 protected,
-            } => replace_confirmed_output_with(path, confirmed, protected, fill)?,
+                cancelled,
+            } => replace_confirmed_output_with(path, confirmed, protected, cancelled, fill)?,
         }
         written.ok_or_else(|| io::Error::other("Nothing was written"))
     }
@@ -275,6 +282,7 @@ mod tests {
         let confirmed = |p: &Path| Publish::Confirmed {
             confirmed: if p == path { &print } else { &raw },
             protected: &protected,
+            cancelled: &|| false,
         };
         // The encoder fails: the confirmed file stays, no temporary file.
         let failed = confirmed(&path).write_with(&path, |file| {

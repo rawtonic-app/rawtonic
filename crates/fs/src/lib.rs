@@ -391,6 +391,17 @@ fn replace_matching(
     path: &Path,
     still_expected: impl FnOnce(&Path) -> Result<bool>,
 ) -> Result<bool> {
+    replace_matching_unless(temp, path, still_expected, &|| Ok(()))
+}
+
+/// [`replace_matching`] with `go_on` passing right before each rename
+/// attempt too (a cancelled export stops there).
+fn replace_matching_unless(
+    temp: tempfile::NamedTempFile,
+    path: &Path,
+    still_expected: impl FnOnce(&Path) -> Result<bool>,
+    go_on: &dyn Fn() -> Result<()>,
+) -> Result<bool> {
     let parent = match path.parent() {
         Some(parent) if parent.as_os_str().is_empty() => Path::new("."),
         Some(parent) => parent,
@@ -426,6 +437,7 @@ fn replace_matching(
         return Ok(false);
     }
     let unchanged = || -> Result<()> {
+        go_on()?;
         let (_, now) = stamp(path)?;
         ensure!(
             now == before && stamp(path)?.1 == before,
@@ -454,12 +466,17 @@ fn replace_matching(
 /// before each rename attempt, as [`replace_existing`] does), and a
 /// confirmed file gone meanwhile (nothing is created in its place: the
 /// temporary file's owner-only permissions are for a replace, which gives
-/// the new file the old one's).
+/// the new file the old one's). `cancelled` is asked right before each
+/// rename attempt: once it says yes, nothing is replaced.
+///
+/// Only a failure before the rename leaves the old file: should the folder
+/// fail to sync after it (a network share dropping), the error says so.
 pub fn replace_confirmed(
     temp: tempfile::NamedTempFile,
     path: &Path,
     confirmed: &ConfirmedFile,
     protected: impl Fn(&Path) -> bool,
+    cancelled: &dyn Fn() -> bool,
 ) -> Result<()> {
     ensure!(
         fs::symlink_metadata(path).is_ok(),
@@ -472,7 +489,14 @@ pub fn replace_confirmed(
         path.display()
     );
     ensure!(
-        replace_matching(temp, path, |path| Ok(confirmed.matches(path)))?,
+        replace_matching_unless(temp, path, |path| Ok(confirmed.matches(path)), &|| {
+            ensure!(
+                !cancelled(),
+                "Cancelled; {} is not replaced",
+                path.display()
+            );
+            Ok(())
+        })?,
         "{} changed since you chose to replace it; it is not replaced",
         path.display()
     );
@@ -721,7 +745,14 @@ mod tests {
         // The old file is open while it is replaced: it keeps its bytes (a
         // rename, never a truncate or a delete-then-write).
         let mut open = fs::File::open(&path).unwrap();
-        replace_confirmed(temp_with(b"new export"), &path, &confirmed, |_| false).unwrap();
+        replace_confirmed(
+            temp_with(b"new export"),
+            &path,
+            &confirmed,
+            |_| false,
+            &|| false,
+        )
+        .unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"new export");
         let mut old = Vec::new();
         open.read_to_end(&mut old).unwrap();
@@ -760,13 +791,25 @@ mod tests {
         fs::write(&path, b"old").unwrap();
         let confirmed = ConfirmedFile::read(&path).unwrap();
         // A protected file (the photo, its sidecar) is never replaced.
-        let error = replace_confirmed(temp_with(b"new"), &path, &confirmed, |p| p == path);
+        let error = replace_confirmed(temp_with(b"new"), &path, &confirmed, |p| p == path, &|| {
+            false
+        });
         assert!(error.unwrap_err().to_string().contains("not replaced"));
         assert_eq!(fs::read(&path).unwrap(), b"old");
         only_print();
         // Changed since the user confirmed it: untouched.
         fs::write(&path, b"retouched since").unwrap();
-        assert!(replace_confirmed(temp_with(b"new"), &path, &confirmed, |_| false).is_err());
+        assert!(
+            replace_confirmed(temp_with(b"new"), &path, &confirmed, |_| false, &|| false).is_err()
+        );
+        assert_eq!(fs::read(&path).unwrap(), b"retouched since");
+        only_print();
+        // The export is cancelled while the old file is checked: nothing
+        // is replaced, though everything else would allow it.
+        let confirmed = ConfirmedFile::read(&path).unwrap();
+        assert!(
+            replace_confirmed(temp_with(b"new"), &path, &confirmed, |_| false, &|| true).is_err()
+        );
         assert_eq!(fs::read(&path).unwrap(), b"retouched since");
         only_print();
         // Edited in place keeping size and modification time (a metadata
@@ -780,17 +823,25 @@ mod tests {
             .unwrap()
             .set_modified(modified)
             .unwrap();
-        assert!(replace_confirmed(temp_with(b"new"), &path, &confirmed, |_| false).is_err());
+        assert!(
+            replace_confirmed(temp_with(b"new"), &path, &confirmed, |_| false, &|| false).is_err()
+        );
         assert_eq!(fs::read(&path).unwrap(), b"RETOUCHED SINCE");
         only_print();
         // Another file put in its place right before the rename: untouched.
         let confirmed = ConfirmedFile::read(&path).unwrap();
-        let swapped = replace_confirmed(temp_with(b"new"), &path, &confirmed, |p| {
-            let copy = p.with_extension("synced");
-            fs::write(&copy, b"a synced copy, longer").unwrap();
-            fs::rename(&copy, p).unwrap();
-            false
-        });
+        let swapped = replace_confirmed(
+            temp_with(b"new"),
+            &path,
+            &confirmed,
+            |p| {
+                let copy = p.with_extension("synced");
+                fs::write(&copy, b"a synced copy, longer").unwrap();
+                fs::rename(&copy, p).unwrap();
+                false
+            },
+            &|| false,
+        );
         assert!(swapped.is_err());
         assert_eq!(fs::read(&path).unwrap(), b"a synced copy, longer");
         only_print();
@@ -802,13 +853,15 @@ mod tests {
             let confirmed = ConfirmedFile::read(&path).unwrap();
             let mut temp = temp::file_for(&link).unwrap();
             temp.write_all(b"via link").unwrap();
-            assert!(replace_confirmed(temp, &link, &confirmed, |_| false).is_err());
+            assert!(replace_confirmed(temp, &link, &confirmed, |_| false, &|| false).is_err());
             assert_eq!(fs::read(&path).unwrap(), b"a synced copy, longer");
             fs::remove_file(&link).unwrap();
         }
         // Gone since it was confirmed: nothing is created in its place.
         fs::remove_file(&path).unwrap();
-        assert!(replace_confirmed(temp_with(b"new"), &path, &confirmed, |_| false).is_err());
+        assert!(
+            replace_confirmed(temp_with(b"new"), &path, &confirmed, |_| false, &|| false).is_err()
+        );
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
     }
 
