@@ -391,6 +391,18 @@ fn smart_condition(
                     use rawtonic_raw_format::camera_names;
                     let name = text(value)?;
                     let rules = match camera_names::canonical_of_model(&name) {
+                        // The library's one camera for several models its
+                        // files state (Olympus `STYLUS1` and `STYLUS1,1s`):
+                        // Lightroom tells them apart, so the rule would
+                        // take more photographs than in Lightroom; left
+                        // out (named in the import report).
+                        Some((make, model))
+                            if camera_names::file_names(&make, &model).iter().any(
+                                |(_, file_model)| *file_model != name.trim().to_lowercase(),
+                            ) =>
+                        {
+                            return None;
+                        }
                         Some((make, model)) => vec![
                             Rule::Condition {
                                 field: Field::Make,
@@ -5100,15 +5112,20 @@ mod tests {
         assert!(one("isoSpeedRating", ">=", text("800")).is_none());
         assert!(one("camera", "words", SmartValue::Number(1.0)).is_none());
         assert!(one("camera", "sideways", text("x")).is_none());
-        // Lightroom's whole name ("Canon EOS 600D") is the camera's one make
+        // Lightroom's whole name ("Canon EOS 6D") is the camera's one make
         // and model in the catalog.
         assert_eq!(
-            one("camera", "==", text("Canon EOS 600D")).unwrap(),
+            one("camera", "==", text("Canon EOS 6D")).unwrap(),
             json!({"combine": "all", "rules": [
                 {"field": "make", "op": "is", "value": "Canon"},
-                {"field": "camera", "op": "is", "value": "EOS 600D"}]})
+                {"field": "camera", "op": "is", "value": "EOS 6D"}]})
         );
+        // Regional names stay cameras of their own, as in Lightroom.
+        assert!(one("camera", "==", text("Canon EOS 600D")).is_some());
         assert!(one("camera", "beginsWith", text("Canon EOS")).is_none());
+        // One camera in the library for two models Lightroom tells apart.
+        assert!(one("camera", "==", text("STYLUS1")).is_none());
+        assert!(one("camera", "!=", text("STYLUS1,1s")).is_none());
     }
 
     /// The translated rules select photographs by the camera, lens, name
