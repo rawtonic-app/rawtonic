@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The second window at 100 % shows the sharp region about 110 ms after a settled edit on macOS (p50 106–118 ms in runs on a shared host, measured to the log line written just after its present; was about 395 ms), also after the last of several quick edits: it keeps its region's upload and colour noise pyramid from edit to edit, develops at once after a single edit, first only what it shows with a turn of its own at the GPU; once the window rests, the margin around it for short pans follows in the background (not on Linux). Each region is developed as from a fresh upload; its 8-bit display dither may differ by one code from before where the region now starts elsewhere. Exports are unchanged.
+- The second window at 100 % shows the sharp region about 118 ms after a settled edit on macOS (p50 117.6 ms to the log line written just after its present, 96 edits on a shared host; was about 395 ms): it keeps its region's upload and colour noise pyramid from edit to edit, develops at once after a single edit, first only what it shows with a turn of its own at the GPU; once the window rests, the margin around it for short pans follows in the background (not on Linux). Each region is developed as from a fresh upload; its 8-bit display dither may differ by one code from before where the region now starts elsewhere. Exports are unchanged.
 
 - Canon CR3 catalog facts retain capture date and camera information when image data follows the metadata, so import preset `{year}` uses the capture year.
 

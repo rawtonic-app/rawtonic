@@ -80,8 +80,9 @@ const REGION_MARGIN: f32 = 0.0;
 #[cfg(not(target_os = "linux"))]
 const WIDE_MARGIN: f32 = multi_view::REGION_MARGIN;
 /// How long nothing new must be asked of the window ([`schedule`]) before
-/// the wide region is developed: it never holds up the region of a newer
-/// edit or pan.
+/// the wide region is developed, so that it rarely holds up the region of
+/// a newer edit or pan (one asked while a wide render already holds the
+/// GPU processor waits for it).
 #[cfg(not(target_os = "linux"))]
 const WIDE_REST: Duration = Duration::from_millis(300);
 
