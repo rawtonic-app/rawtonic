@@ -1729,6 +1729,30 @@ fn keep_tile_of_unavailable_original(
         .unwrap_or(new)
 }
 
+/// A never-edited ORF whose original is unavailable keeps the tile an
+/// earlier version developed (`before`) until it can be made again from the
+/// camera's preview: a Standard preview may stand for the recipe
+/// (`keep_tile_of_unavailable_original`) yet be refused by the renderer when
+/// it was built with other decode preferences, and a blank tile is worse.
+fn orf_tile_while_offline(
+    directory: &Path,
+    source: &Path,
+    new: String,
+    before: Option<String>,
+) -> String {
+    match before {
+        Some(before)
+            if before != new
+                && !thumbnail_files_exist(directory, &new)
+                && thumbnail_files_exist(directory, &before)
+                && !crate::preview_proxy::source_available(source) =>
+        {
+            before
+        }
+        _ => new,
+    }
+}
+
 /// A tile developed from a proxy while the original is unavailable cannot
 /// carry a never-edited photo's camera defaults (its camera is read from the
 /// original), so it does not replace one cached while it was readable.
@@ -1861,6 +1885,12 @@ impl ThumbnailCacheEntry {
             &serde_json::from_slice(&adjustments_bytes).unwrap_or_default(),
             cache_hash,
             || older_tile_keys(path_str, &adjustments_bytes),
+        );
+        let cache_hash = orf_tile_while_offline(
+            thumb_cache_dir,
+            &source_path,
+            cache_hash,
+            thumbnail_hash_before_orf_preview(path_str, &adjustments_bytes),
         );
         let embedded_hash = embedded_thumbnail_hash(path_str);
         let selected = preferred_thumbnail_hash(
@@ -3825,6 +3855,23 @@ mod face_retouch_thumbnail_tests {
         assert_ne!(compute_thumbnail_cache_hash(path, b"null").unwrap(), before);
         assert_ne!(compute_thumbnail_cache_hash(path, b"").unwrap(), before);
         assert!(older_tile_keys(path, b"null").contains(&before));
+        // Offline with only the earlier tile cached, that tile is shown;
+        // online, the new key (made again from the camera's preview).
+        let cache = temp.path().join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        for size in ["small", "medium"] {
+            std::fs::write(cache.join(format!("{before}_{size}.jpg")), b"tile").unwrap();
+        }
+        let new = compute_thumbnail_cache_hash(path, b"null").unwrap();
+        let gone = temp.path().join("offline/P1010001.ORF");
+        assert_eq!(
+            orf_tile_while_offline(&cache, &gone, new.clone(), Some(before.clone())),
+            before
+        );
+        assert_eq!(
+            orf_tile_while_offline(&cache, &orf, new.clone(), Some(before.clone())),
+            new
+        );
         // An edited ORF and other RAWs keep their keys.
         let edited = br#"{"exposure":0.5}"#;
         assert_eq!(
