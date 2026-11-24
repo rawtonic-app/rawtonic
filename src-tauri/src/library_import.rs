@@ -3281,7 +3281,11 @@ mod tests {
         let level = source(&[("Exposure", "0.3"), ("Rotation", "5"), ("Crop", "0;0;0;0")]);
         let report = import_into(&catalog, &level).unwrap();
         let path = asset.path.to_string_lossy().into_owned();
-        assert_eq!(report.geometry_offers, [path.clone()], "{report:?}");
+        assert_eq!(
+            report.geometry_offers,
+            std::slice::from_ref(&path),
+            "{report:?}"
+        );
         assert_eq!(report.warnings.len(), 1, "{report:?}");
         assert!(report.recipe_changes.is_empty());
 
@@ -3324,7 +3328,7 @@ mod tests {
             now
         );
         // Applying again changes nothing.
-        let twice = apply_source_geometry(&catalog, &level, &[path.clone()]);
+        let twice = apply_source_geometry(&catalog, &level, std::slice::from_ref(&path));
         assert!(
             twice.recipe_changes.is_empty() && twice.errors.is_empty(),
             "{twice:?}"
