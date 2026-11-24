@@ -484,47 +484,6 @@ it('lists the folder of photographs an import added without a restart', async ()
   expect(screen.getByText('Capture 43')).toBeTruthy();
 });
 
-it('reads the disk tree of a listed catalog folder again after an import, for subfolders made since', async () => {
-  const listed = { path: '/Volumes/Old/Shoots', photos: 5, offline: 0, exists: true };
-  mockInvoke.mockImplementation(async (command) => {
-    if (command === 'session_offline') return [];
-    if (command === 'catalog_folders')
-      return {
-        catalog: true,
-        volumes: [
-          {
-            key: 'id:SYS',
-            id: 'SYS',
-            name: 'Macintosh HD',
-            mount_point: '/',
-            online: true,
-            free_bytes: null,
-            total_bytes: null,
-            folders: [listed],
-            roots: ['/job']
-          }
-        ]
-      };
-    if (command === 'get_pinned_folder_trees') return [folder(listed.path, 5)];
-    return undefined;
-  });
-  render(
-    <ContextMenuProvider>
-      <StudioNavigation onNavigate={vi.fn()} folderActions={actions} />
-    </ContextMenuProvider>
-  );
-  await act(async () => {});
-  await act(async () => {});
-  const trees = () => mockInvoke.mock.calls.filter(([command]) => command === 'get_pinned_folder_trees').length;
-  const before = trees();
-  expect(before).toBeGreaterThan(0);
-  await act(async () => {
-    window.dispatchEvent(new Event(IMPORTS_CHANGED));
-  });
-  await act(async () => {});
-  expect(trees()).toBeGreaterThan(before);
-});
-
 it('shows startup first and identifies an offline network share with one root', async () => {
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'session_offline') return [];

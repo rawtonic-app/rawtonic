@@ -101,6 +101,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import i18n from 'i18next';
 import { invokeInOrder } from '../../utils/catalogWrites';
 import { closeOpenPhotoForLibraryWrite, recipesChangedOutside } from '../../hooks/useEditorActions';
+import { useLibraryActions } from '../../hooks/useLibraryActions';
 import { applySourceGeometry, rememberGeometryOffers, type GeometryOffer } from '../../utils/sourceGeometry';
 import {
   catalogAction,
@@ -557,6 +558,7 @@ function localDateStamp(): string {
 }
 
 export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitlebar = false, windowControls }: Props) {
+  const { refreshAllFolderTrees } = useLibraryActions();
   const { t } = useTranslation();
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [form, setForm] = useState<'create' | 'ingest' | 'hotfolder' | 'import' | null>(null);
@@ -1314,6 +1316,8 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       // the folder tree lists their folders. Photographs whose files were
       // not found are not imported, so nothing offline is added.
       window.dispatchEvent(new Event(IMPORTS_CHANGED));
+      // Photographs may be in folders created since the disk trees were read.
+      void refreshAllFolderTrees();
       setForm(null);
       await refresh();
       void refreshStacks(session.directory);

@@ -1010,6 +1010,8 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
     expect.anything()
   );
   await waitFor(() => expect(announced).toEqual(expect.arrayContaining([IMPORTS_CHANGED])));
+  // The disk trees are read again too (a folder made since the last read).
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith('get_pinned_folder_trees', expect.anything()));
   for (const [name, listener] of listeners) window.removeEventListener(name, listener);
 });
 
