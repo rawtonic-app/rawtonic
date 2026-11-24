@@ -15,6 +15,12 @@
 //!   a photo opens, a warm-up): the run waits until the compile is done;
 //! - a compile a frame or an export waits for and a run asked for are both
 //!   what the photographer waits for: whichever came later waits;
+//! - a compile a frame or an export waits for does not wait for a run made
+//!   ahead that is in progress: it starts beside it, and the runs made
+//!   ahead are told to stop (`on_awaited_compile`). WMV8/DVL5: after a lost
+//!   GPU device the shown photograph's display variant had to compile again
+//!   while the Subject mask computed ahead held its turn with a model load
+//!   that did not end, and the multi view stayed soft for 35 s and more;
 //! - an export and a run do not overlap either (the app alone reached
 //!   7.6 GB with a mask computed ahead beside a JPEG export, WSMOKE20): the
 //!   export waits for the run in progress (the app stops one made ahead),
@@ -47,6 +53,8 @@ const COMPILE_WAITS: Duration = Duration::from_secs(1);
 struct State {
     /// AI runs in progress.
     runs: usize,
+    /// Of `runs`, those made ahead (`AiRun::Ahead`).
+    ahead_runs: usize,
     /// Asked runs waiting for a compile to end.
     asked_waiting: usize,
     /// An idle compile is in progress.
@@ -69,6 +77,7 @@ struct Turns {
 static TURNS: Turns = Turns {
     state: Mutex::new(State {
         runs: 0,
+        ahead_runs: 0,
         asked_waiting: 0,
         compiling: false,
         compile_waited: None,
@@ -99,12 +108,12 @@ pub fn takes_turns() -> bool {
 
 /// An AI network run's turn, held while it lives.
 #[must_use = "the run's turn ends when this drops"]
-pub struct AiRunTurn(Option<&'static Turns>);
+pub struct AiRunTurn(Option<(&'static Turns, AiRun)>);
 
 impl Drop for AiRunTurn {
     fn drop(&mut self) {
-        if let Some(turns) = self.0 {
-            turns.run_ended();
+        if let Some((turns, kind)) = self.0 {
+            turns.run_ended(kind);
         }
     }
 }
@@ -165,17 +174,40 @@ pub fn ai_run(kind: AiRun) -> AiRunTurn {
             waited.as_secs_f64()
         );
     }
-    AiRunTurn(Some(&TURNS))
+    AiRunTurn(Some((&TURNS, kind)))
+}
+
+/// Who is told that a compile a frame or an export waits for starts beside
+/// runs made ahead (`on_awaited_compile`).
+static AWAITED_COMPILE: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
+    std::sync::OnceLock::new();
+
+/// Calls `stop_ahead_runs` when a compile a frame or an export waits for
+/// starts beside AI runs made ahead (see the module): the app stops them,
+/// as it does for an export. Set once.
+pub fn on_awaited_compile(stop_ahead_runs: impl Fn() + Send + Sync + 'static) {
+    let _ = AWAITED_COMPILE.set(Box::new(stop_ahead_runs));
 }
 
 /// An idle compile's turn if no AI run is in progress, else `None` (the
-/// compile asks again; runs made ahead wait for it meanwhile). Always a
-/// turn where turns are not enabled.
-pub(crate) fn compile() -> Option<CompileTurn> {
+/// compile asks again; runs made ahead wait for it meanwhile). `awaited`:
+/// a frame or an export waits for the compile, which then is refused only
+/// by runs asked for (in progress or waiting), not by runs made ahead.
+/// Always a turn where turns are not enabled.
+pub(crate) fn compile(awaited: bool) -> Option<CompileTurn> {
     if !enabled() {
         return Some(CompileTurn(None));
     }
-    TURNS.compile().then_some(CompileTurn(Some(&TURNS)))
+    let (granted, beside_ahead) = TURNS.compile(awaited);
+    if beside_ahead > 0 {
+        log::warn!(
+            "GPU idle compile a frame or an export waits for starts beside {beside_ahead} AI run(s) made ahead; they are told to stop"
+        );
+        if let Some(stop) = AWAITED_COMPILE.get() {
+            stop();
+        }
+    }
+    granted.then_some(CompileTurn(Some(&TURNS)))
 }
 
 /// Whether a run the photographer asked for waits for the compile in
@@ -221,11 +253,17 @@ impl Turns {
             state.asked_waiting -= 1;
         }
         state.runs += 1;
+        if kind == AiRun::Ahead {
+            state.ahead_runs += 1;
+        }
     }
 
-    fn run_ended(&self) {
+    fn run_ended(&self, kind: AiRun) {
         let mut state = self.lock();
         state.runs -= 1;
+        if kind == AiRun::Ahead {
+            state.ahead_runs -= 1;
+        }
         drop(state);
         self.changed.notify_all();
     }
@@ -247,17 +285,26 @@ impl Turns {
         self.changed.notify_all();
     }
 
-    fn compile(&self) -> bool {
+    /// Whether the compile has its turn, and beside how many runs made
+    /// ahead it starts (only an `awaited` one does).
+    fn compile(&self, awaited: bool) -> (bool, usize) {
         let mut state = self.lock();
         // An asked run that waits goes first: the compile that stopped for
-        // it must not start again before it took its turn.
-        if state.runs > 0 || state.asked_waiting > 0 {
+        // it must not start again before it took its turn. Runs made ahead
+        // in progress refuse only a compile nobody waits for.
+        let asked_runs = state.runs - state.ahead_runs;
+        let refused = if awaited {
+            asked_runs > 0
+        } else {
+            state.runs > 0
+        };
+        if refused || state.asked_waiting > 0 {
             state.compile_waited = Some(Instant::now());
-            return false;
+            return (false, 0);
         }
         state.compiling = true;
         state.compile_waited = None;
-        true
+        (true, state.ahead_runs)
     }
 
     fn compile_ended(&self) {
@@ -298,9 +345,9 @@ mod tests {
     fn a_compile_and_a_run_take_turns() {
         let turns = turns();
         turns.run(AiRun::Ahead);
-        assert!(!turns.compile(), "a run is in progress");
-        turns.run_ended();
-        assert!(turns.compile());
+        assert!(!turns.compile(false).0, "a run is in progress");
+        turns.run_ended(AiRun::Ahead);
+        assert!(turns.compile(false).0);
         let run = start_run(&turns, AiRun::Ahead);
         assert!(run.recv_timeout(NOT_YET).is_err(), "the compile runs");
         turns.compile_ended();
@@ -313,7 +360,7 @@ mod tests {
     #[test]
     fn an_asked_run_goes_before_an_idle_compile() {
         let turns = turns();
-        assert!(turns.compile());
+        assert!(turns.compile(false).0);
         assert_eq!(turns.lock().asked_waiting, 0);
         let run = start_run(&turns, AiRun::Asked);
         let seen = Instant::now();
@@ -329,12 +376,12 @@ mod tests {
         // refused.
         turns.compile_ended();
         assert_eq!(run.recv_timeout(SOON), Ok(true));
-        assert!(!turns.compile(), "the asked run is in progress");
-        turns.run_ended();
+        assert!(!turns.compile(false).0, "the asked run is in progress");
+        turns.run_ended(AiRun::Asked);
         // The run made ahead got in with it (no compile was in progress).
         assert_eq!(ahead.recv_timeout(SOON), Ok(true));
-        turns.run_ended();
-        assert!(turns.compile());
+        turns.run_ended(AiRun::Ahead);
+        assert!(turns.compile(false).0);
     }
 
     /// An export waits for the run in progress, and runs of either kind
@@ -353,7 +400,7 @@ mod tests {
             export.recv_timeout(NOT_YET).is_err(),
             "a run is in progress"
         );
-        turns.run_ended();
+        turns.run_ended(AiRun::Asked);
         assert_eq!(export.recv_timeout(SOON), Ok(true));
         let asked = start_run(&turns, AiRun::Asked);
         let ahead = start_run(&turns, AiRun::Ahead);
@@ -371,28 +418,59 @@ mod tests {
     fn a_waiting_compile_goes_before_runs_made_ahead() {
         let turns = turns();
         turns.run(AiRun::Ahead);
-        assert!(!turns.compile());
+        assert!(!turns.compile(false).0);
         // A turn taken inside the run's own is not held.
         let inner = start_run(&turns, AiRun::Ahead);
         assert_eq!(inner.recv_timeout(SOON), Ok(true));
-        turns.run_ended();
-        turns.run_ended();
+        turns.run_ended(AiRun::Ahead);
+        turns.run_ended(AiRun::Ahead);
         let ahead = start_run(&turns, AiRun::Ahead);
         assert!(ahead.recv_timeout(NOT_YET).is_err(), "the compile waits");
-        assert!(turns.compile());
+        assert!(turns.compile(false).0);
         assert!(ahead.recv_timeout(NOT_YET).is_err(), "the compile runs");
         turns.compile_ended();
         assert_eq!(ahead.recv_timeout(SOON), Ok(true));
         // The compile asks again while that run is in progress; a run
         // asked for starts all the same.
-        assert!(!turns.compile());
+        assert!(!turns.compile(false).0);
         let asked = start_run(&turns, AiRun::Asked);
         assert_eq!(asked.recv_timeout(SOON), Ok(true));
         // A compile that stopped asking no longer holds runs made ahead.
-        turns.run_ended();
-        turns.run_ended();
+        turns.run_ended(AiRun::Asked);
+        turns.run_ended(AiRun::Ahead);
         std::thread::sleep(COMPILE_WAITS + Duration::from_millis(100));
         let later = start_run(&turns, AiRun::Ahead);
         assert_eq!(later.recv_timeout(SOON), Ok(true));
+    }
+
+    /// A compile a frame or an export waits for starts beside a run made
+    /// ahead in progress (and the app is told to stop that run), never
+    /// beside a run asked for, in progress or waiting; one nobody waits for
+    /// is refused by both (WMV8/DVL5: the shown photograph's variant waited
+    /// for a Subject mask computed ahead whose model load did not end).
+    #[test]
+    fn an_awaited_compile_does_not_wait_for_a_run_made_ahead() {
+        let turns = turns();
+        turns.run(AiRun::Ahead);
+        assert_eq!(turns.compile(false), (false, 0), "nobody waits for it");
+        assert_eq!(turns.compile(true), (true, 1), "a frame waits for it");
+        // Runs that come now wait for the compile, as beside any other.
+        let ahead = start_run(&turns, AiRun::Ahead);
+        assert!(ahead.recv_timeout(NOT_YET).is_err(), "the compile runs");
+        turns.compile_ended();
+        assert_eq!(ahead.recv_timeout(SOON), Ok(true));
+        turns.run_ended(AiRun::Ahead);
+        turns.run_ended(AiRun::Ahead);
+        // A run asked for is what the photographer waits for too.
+        turns.run(AiRun::Asked);
+        assert_eq!(turns.compile(true), (false, 0), "an asked run is in progress");
+        turns.run(AiRun::Ahead);
+        assert_eq!(turns.compile(true), (false, 0), "an asked run is in progress");
+        turns.run_ended(AiRun::Asked);
+        assert_eq!(turns.compile(true), (true, 1));
+        turns.compile_ended();
+        turns.run_ended(AiRun::Ahead);
+        turns.lock().asked_waiting = 1;
+        assert_eq!(turns.compile(true), (false, 0), "an asked run waits");
     }
 }

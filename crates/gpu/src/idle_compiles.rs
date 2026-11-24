@@ -690,8 +690,12 @@ impl IdleCompiles {
                 }
                 // Not beside an AI network run on the CPU where the two
                 // take turns (`memory_turns`): asked again after the poll,
-                // without the slot, which a frame's compile may need.
-                let Some(turn) = crate::memory_turns::compile() else {
+                // without the slot, which a frame's compile may need. One a
+                // frame or an export waits for goes beside a run made ahead
+                // (WMV8/DVL5: after a lost device the shown photograph's
+                // variant waited 35 s and more for a Subject mask computed
+                // ahead).
+                let Some(turn) = crate::memory_turns::compile(urgent) else {
                     drop(slot);
                     let queue = self.lock();
                     let _ = self
@@ -1798,6 +1802,60 @@ mod tests {
             "the frame did not render with the planned variant"
         );
         assert!(processor.preview_pipelines[features].get().is_none());
+        drop(processor);
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
+    }
+
+    /// Where idle compiles and AI runs take turns, a frame that waits for
+    /// the planned variant gets it although a run made ahead holds its turn
+    /// the whole time, and the app is told to stop that run. WMV8/DVL5:
+    /// after a lost device the shown photograph's variant had to compile
+    /// again while a Subject mask computed ahead held its turn with a model
+    /// load that did not end; the multi view stayed soft for 35 s and more.
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit and turns, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
+    fn a_frame_does_not_wait_for_a_run_made_ahead() {
+        if !alone("a_frame_does_not_wait_for_a_run_made_ahead") {
+            return;
+        }
+        use super::super::preview_tests::context;
+        use crate::memory_turns::{AiRun, ai_run, on_awaited_compile};
+        use std::sync::atomic::AtomicUsize;
+        use std::time::Instant;
+        static TOLD_TO_STOP: AtomicUsize = AtomicUsize::new(0);
+        on_awaited_compile(|| {
+            TOLD_TO_STOP.fetch_add(1, Ordering::SeqCst);
+        });
+        set_compile_limit(Some(1));
+        crate::memory_turns::enable();
+        let processor = Arc::new(GpuProcessor::new(context(), 256, 256).unwrap());
+        let photo = super::super::new_raw_edit(None);
+        processor.preview_pipeline(&photo, true).unwrap();
+        let (plan, _) = planned_jobs(preview_features(&photo), &photo);
+        let mut contrast = photo;
+        contrast.global.contrast = 0.2;
+        assert!(processor.preview_pipelines[plan[0]].get().is_none());
+        // A mask computed ahead takes its turn and keeps it.
+        let ahead = ai_run(AiRun::Ahead);
+        let (sender, rendered) = std::sync::mpsc::channel();
+        let rendering = Arc::clone(&processor);
+        let started = Instant::now();
+        std::thread::spawn(move || {
+            let ok = rendering.preview_pipeline(&contrast, true).is_ok();
+            let _ = sender.send(ok);
+        });
+        let result = rendered.recv_timeout(Duration::from_secs(120));
+        let waited = started.elapsed();
+        // Let a frame that still waits end before the asserts.
+        drop(ahead);
+        assert_eq!(
+            result,
+            Ok(true),
+            "the frame waited {waited:?} for the run made ahead"
+        );
+        assert!(processor.preview_pipelines[plan[0]].get().is_some());
+        assert!(TOLD_TO_STOP.load(Ordering::SeqCst) > 0, "the run was not told to stop");
         drop(processor);
         std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
         set_compile_limit(None);
