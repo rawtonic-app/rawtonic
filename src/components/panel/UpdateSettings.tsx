@@ -42,33 +42,33 @@ export default function UpdateSettings({
       <div className="pref-control">{control}</div>
     </div>
   );
-  if (flatpak) {
-    return row(t('updates.manual'), null, <p className="pref-description">{t('updates.flatpak')}</p>);
-  }
   return (
     <>
-      {row(
-        t('updates.startup'),
-        <Switch
-          checked={appSettings.checkForUpdates ?? true}
-          label={t('updates.startup')}
-          onChange={(checked) => {
-            void onSettingsChange({ ...appSettings, checkForUpdates: checked });
-          }}
-        />,
-        <p className="pref-description">{t('updates.privacy')}</p>
-      )}
-      {row(
-        t('updates.prereleases'),
-        <Switch
-          disabled={prereleasesDefault === null && appSettings.updatePrereleases === undefined}
-          checked={appSettings.updatePrereleases ?? prereleasesDefault ?? false}
-          label={t('updates.prereleases')}
-          onChange={(checked) => {
-            void onSettingsChange({ ...appSettings, updatePrereleases: checked });
-          }}
-        />
-      )}
+      {flatpak && row(t('updates.manual'), null, <p className="pref-description">{t('updates.flatpak')}</p>)}
+      {!flatpak &&
+        row(
+          t('updates.startup'),
+          <Switch
+            checked={appSettings.checkForUpdates ?? true}
+            label={t('updates.startup')}
+            onChange={(checked) => {
+              void onSettingsChange({ ...appSettings, checkForUpdates: checked });
+            }}
+          />,
+          <p className="pref-description">{t('updates.privacy')}</p>
+        )}
+      {!flatpak &&
+        row(
+          t('updates.prereleases'),
+          <Switch
+            disabled={prereleasesDefault === null && appSettings.updatePrereleases === undefined}
+            checked={appSettings.updatePrereleases ?? prereleasesDefault ?? false}
+            label={t('updates.prereleases')}
+            onChange={(checked) => {
+              void onSettingsChange({ ...appSettings, updatePrereleases: checked });
+            }}
+          />
+        )}
       {row(
         t('updates.showWhatsNew'),
         <Switch
@@ -79,31 +79,32 @@ export default function UpdateSettings({
           }}
         />
       )}
-      {row(
-        t('updates.manual'),
-        <button
-          type="button"
-          disabled={checking}
-          className="studio-button"
-          onClick={() => {
-            void useUpdateStore.getState().check(true);
-          }}
-        >
-          {checking ? t('updates.checking') : t('updates.checkNow')}
-        </button>,
-        <>
-          {failed && (
-            <p role="status" className="pref-description">
-              {t('updates.failed')}
-            </p>
-          )}
-          {checked && !update && (
-            <p role="status" className="pref-description">
-              {t('updates.noUpdate')}
-            </p>
-          )}
-        </>
-      )}
+      {!flatpak &&
+        row(
+          t('updates.manual'),
+          <button
+            type="button"
+            disabled={checking}
+            className="studio-button"
+            onClick={() => {
+              void useUpdateStore.getState().check(true);
+            }}
+          >
+            {checking ? t('updates.checking') : t('updates.checkNow')}
+          </button>,
+          <>
+            {failed && (
+              <p role="status" className="pref-description">
+                {t('updates.failed')}
+              </p>
+            )}
+            {checked && !update && (
+              <p role="status" className="pref-description">
+                {t('updates.noUpdate')}
+              </p>
+            )}
+          </>
+        )}
     </>
   );
 }

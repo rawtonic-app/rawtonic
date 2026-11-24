@@ -15,8 +15,10 @@ describe('update and crash report preferences', () => {
     vi.mocked(invoke).mockResolvedValueOnce(true);
     render(<UpdateSettings appSettings={{} as AppSettings} onSettingsChange={vi.fn()} />);
     expect(await screen.findByText(/flatpak update cc\.rawtonic\.editor/)).toBeTruthy();
-    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Check for updates at startup' })).toBeNull();
     expect(screen.queryByRole('button')).toBeNull();
+    // The what's-new dialog still runs after a Flatpak upgrade: its switch stays.
+    expect(screen.getByRole('checkbox', { name: "Show what's new after an update" })).toBeTruthy();
   });
   it('puts each preference on its own row, its name left and its control right', () => {
     render(

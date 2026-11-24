@@ -43,7 +43,8 @@ echo "flatpak instances: $(flatpak ps --columns=application | grep -c cc.rawtoni
 ps -eo args | grep -c '[W]ebKitWebProcess' | sed 's/^/webkit web processes: /'
 flatpak kill cc.rawtonic.editor
 sleep 3
-echo "instances after kill: $(flatpak ps --columns=application | grep -c cc.rawtonic.editor)"
+left=$(flatpak ps --columns=application) || echo "FAIL flatpak ps"
+echo "instances after kill: $(printf "%s\n" "$left" | grep -c cc.rawtonic.editor)"
 GUI
 as xvfb-run -a bash /home/tester/gui.sh > /out/gui-observations.txt 2>&1
 cat /out/gui-observations.txt | tee -a /out/summary.txt
@@ -54,6 +55,6 @@ cp /home/tester/gui.log /out/ 2>/dev/null
 log "uninstall"
 as flatpak uninstall --user -y cc.rawtonic.editor >/out/uninstall.log 2>&1 || log "FAIL uninstall"
 as flatpak list --user --app | tee -a /out/summary.txt
-grep -q "^== FAIL" /out/summary.txt && failed=1
+grep -q "^== FAIL\|^FAIL" /out/summary.txt && failed=1
 log "result: $([ $failed -eq 0 ] && echo PASS || echo FAILED)"
 exit $failed
