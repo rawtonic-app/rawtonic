@@ -519,7 +519,9 @@ fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
         untranslated |= skin
             || f[12] != 100.0
             || (advanced && f[11] != -100.0)
-            || (skin && (f[9] + f[10]).abs() > 1e-6)
+            // A range centred on its pick (skin, uniformity) cannot keep
+            // asymmetric hue edges.
+            || ((skin || uniformity) && (f[9] + f[10]).abs() > 1e-6)
             || !(0.0..=50.0).contains(&f[13])
             || !(-100.0..=100.0).contains(&f[11])
             || (uniformity
@@ -1614,6 +1616,12 @@ mod tests {
         assert_eq!(r["saturationUniformity"], json!(12.0));
         assert_eq!(r["lightnessUniformity"], json!(15.0));
         assert_eq!(r["chromaRange"].as_f64(), Some(100.0));
+        // With uniformity the centre is the pick, so asymmetric hue edges
+        // cannot be kept: reported.
+        let (ranges, untranslated) =
+            super::color_editor_ranges("1,1,0,10,0,0,145,108,88,-5,60,-100,100,20,0,0,40,0");
+        assert_eq!(ranges.len(), 1);
+        assert!(untranslated);
         // A restricted lower saturation bound is dropped too: reported.
         let (ranges, untranslated) =
             super::color_editor_ranges("1,1,0,30,0,0,145,108,88,-20,20,-50,100,20,0,0,0,0");
