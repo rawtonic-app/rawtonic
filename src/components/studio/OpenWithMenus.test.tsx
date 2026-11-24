@@ -336,29 +336,9 @@ it('on Windows says why Browse for a program… failed instead of doing nothing'
   }
 });
 
-it('says Edit With is not available for photographs with generated areas', async () => {
+it("shows an Edit With failure's message", async () => {
   const { notify } = await import('../../activity/notify');
-  vi.mocked(runEditWith).mockRejectedValueOnce({
-    code: 'generated_areas',
-    message: 'generated-areas: B.jpg, C.jpg',
-    names: ['B.jpg', 'C.jpg']
-  });
-  mockInvoke.mockImplementation(async (command) => {
-    if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
-    if (command === 'edit_with_apps') return apps;
-  });
-  render(<EditWithSubMenu paths={paths} hideContextMenu={vi.fn()} />);
-  fireEvent.click(await screen.findByRole('menuitem', { name: /^Preview/ }));
-  await vi.waitFor(() =>
-    expect(notify.error).toHaveBeenCalledWith(
-      'Edit With is not available for photos with generated areas yet: B.jpg, C.jpg'
-    )
-  );
-});
-
-it("shows another Edit With failure's message, also one that starts like the generated areas'", async () => {
-  const { notify } = await import('../../activity/notify');
-  vi.mocked(runEditWith).mockRejectedValueOnce({ code: 'internal', message: 'generated-areas: not the code' });
+  vi.mocked(runEditWith).mockRejectedValueOnce({ code: 'internal', message: 'Disk full' });
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'open_with_prefs') return { recentApps: [], editRecipe: null };
     if (command === 'edit_with_apps') return apps;
@@ -367,8 +347,7 @@ it("shows another Edit With failure's message, also one that starts like the gen
   fireEvent.click(await screen.findByRole('menuitem', { name: /^Preview/ }));
   await vi.waitFor(() => expect(notify.error).toHaveBeenCalled());
   const [text] = vi.mocked(notify.error).mock.lastCall!;
-  expect(text).toContain('generated-areas: not the code');
-  expect(text).not.toContain('not available for photos with generated areas');
+  expect(text).toContain('Disk full');
 });
 
 it.each([

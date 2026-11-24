@@ -1609,9 +1609,10 @@ pub fn export_rights(
 }
 
 /// What a stripped export keeps of the library metadata `metadata`:
-/// creator, copyright and usage terms, and the creator contact details only
-/// with `keep_creator_contact`; nothing else (no rating, keywords, captions
-/// or location fields).
+/// creator, copyright and usage terms, the creator contact details only
+/// with `keep_creator_contact`, and a Digital Source Type that marks
+/// generated content (an Edit With render of a photo with generated areas);
+/// nothing else (no rating, keywords, captions or location fields).
 pub fn stripped_metadata(
     metadata: rawtonic_metadata::Metadata,
     keep_creator_contact: bool,
@@ -1622,8 +1623,11 @@ pub fn stripped_metadata(
         iptc: metadata
             .iptc
             .into_iter()
-            .filter(|(key, _)| {
+            .filter(|(key, value)| {
                 key == "usageTerms"
+                    // A marking of generated content is never stripped.
+                    || (key == "digitalSourceType"
+                        && rawtonic_metadata::provenance::is_generated_source_type(value))
                     || (keep_creator_contact
                         && matches!(
                             rawtonic_metadata::iptc_field(key),
@@ -1636,7 +1640,8 @@ pub fn stripped_metadata(
 }
 
 /// The library metadata (`metadata`) an export with these settings writes
-/// into its file without generated areas (an Edit With render), so a
+/// into its file (an Edit With render; one with generated areas also
+/// carries their marking, which `open_with::plan_edits` adds), so a
 /// library that registers the file holds no more than the file does: with
 /// `keep_metadata` all of it but the culling flag, which the export's XMP
 /// leaves out (`export_xmp_with_source`; GPS is EXIF, never part of it),
@@ -2719,6 +2724,72 @@ mod tests {
         assert_eq!(kept.creator, "Camera creator");
         assert_eq!(kept.copyright, "Camera copyright");
     }
+    #[test]
+    fn a_source_marked_as_generated_stays_marked_when_metadata_is_stripped() {
+        // An Edit With render of a photo with generated areas, registered
+        // with the marking (`open_with::plan_edits`), exported again: the
+        // library's IPTC Digital Source Type is its only marking once
+        // another program saved over the file without it.
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("render.jpg");
+        std::fs::write(&source, b"no exif").unwrap();
+        let trained = "http://cv.iptc.org/newscodes/digitalsourcetype/trainedAlgorithmicMedia";
+        let capture = "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture";
+        for (source_type, kept_in_stripped) in [
+            (rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI, true),
+            (trained, true),
+            (capture, false),
+        ] {
+            let catalog = || {
+                Some(rawtonic_metadata::Metadata {
+                    title: "Private title".into(),
+                    iptc: [
+                        ("digitalSourceType".into(), source_type.into()),
+                        ("city".into(), "Private city".into()),
+                    ]
+                    .into(),
+                    ..Default::default()
+                })
+            };
+            for keep in [false, true] {
+                let metadata = super::export_metadata_with(
+                    source.to_str().unwrap(),
+                    "jpeg",
+                    rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
+                    keep,
+                    false,
+                    false,
+                    4,
+                    4,
+                    false,
+                    &|| None,
+                    &catalog,
+                );
+                let kept = metadata
+                    .and_then(|m| m.xmp)
+                    .map(|xmp| rawtonic_metadata::read_xmp(&xmp).unwrap().0)
+                    .unwrap_or_default();
+                let expected = (keep || kept_in_stripped).then_some(source_type);
+                assert_eq!(
+                    kept.iptc.get("digitalSourceType").map(String::as_str),
+                    expected,
+                    "{source_type}, keep {keep}"
+                );
+                if !keep {
+                    assert!(kept.title.is_empty() && !kept.iptc.contains_key("city"));
+                }
+                // What a library registers for such a file holds the same.
+                let registered =
+                    super::embedded_library_metadata("tiff", keep, false, catalog().unwrap())
+                        .unwrap();
+                assert_eq!(
+                    registered.iptc.get("digitalSourceType").map(String::as_str),
+                    expected
+                );
+            }
+        }
+    }
+
     #[test]
     fn stripped_packet_builder_itself_requires_contact_opt_in() {
         let catalog = || {

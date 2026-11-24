@@ -563,7 +563,6 @@
       "closeLibraryFirst": "Tanca la sessió o el catàleg obert per tornar-ho a provar: aquestes fotos es van editar fora d’una biblioteca.",
       "defaultRecipe": "Recepta predeterminada",
       "failed": "Edita amb ha fallat: {{error}}",
-      "generatedAreas": "Edita amb encara no està disponible per a fotos amb zones generades: {{names}}",
       "interrupted": "«Edita amb» a {{app}} es va interrompre en sortir de Rawtonic. Torna-ho a provar per tornar a renderitzar les fotos.",
       "label": "Edita amb",
       "notLinked": "Renderitzat, però no afegit a la biblioteca: {{error}}",

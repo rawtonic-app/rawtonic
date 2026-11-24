@@ -563,7 +563,6 @@
       "closeLibraryFirst": "Fermez la session ou le catalogue ouvert pour réessayer : ces photos ont été retouchées hors bibliothèque.",
       "defaultRecipe": "Recette par défaut",
       "failed": "Échec de Modifier avec : {{error}}",
-      "generatedAreas": "Modifier avec n’est pas encore disponible pour les photos comportant des zones générées : {{names}}",
       "interrupted": "« Modifier avec » dans {{app}} a été interrompu à la fermeture de Rawtonic. Réessayez pour rendre à nouveau les photos.",
       "label": "Modifier avec",
       "notLinked": "Rendu, mais non ajouté à la bibliothèque : {{error}}",

@@ -44,9 +44,6 @@ pub enum ErrorCode {
     LiveStrokeResync,
     /// The preview could not be rendered at all (e.g. an invalid shader).
     RenderFailed,
-    /// Edit With refused photographs with generated areas; the message
-    /// names them after `open_with::GENERATED_AREAS`.
-    GeneratedAreas,
     /// A session cannot move while an export of it waits, runs or is
     /// paused (`session_move::EXPORTS_PENDING`); the Library offers the
     /// export queue.
@@ -355,7 +352,6 @@ mod tests {
             (ErrorCode::MaskParametersMissing, "mask_parameters_missing"),
             (ErrorCode::LiveStrokeResync, "live_stroke_resync"),
             (ErrorCode::RenderFailed, "render_failed"),
-            (ErrorCode::GeneratedAreas, "generated_areas"),
             (ErrorCode::ExportsPending, "exports_pending"),
             (ErrorCode::DownloadFailed, "download_failed"),
         ];
@@ -549,11 +545,11 @@ mod tests {
 
     #[test]
     fn details_go_beside_code_and_message() {
-        let error = CommandError::new(ErrorCode::GeneratedAreas, "generated-areas: B.jpg")
-            .with_detail("names", json!(["B.jpg"]));
+        let error = CommandError::new(ErrorCode::ExportsPending, "exports pending: S")
+            .with_detail("names", json!(["S"]));
         assert_eq!(
             serde_json::to_value(&error).unwrap(),
-            json!({ "code": "generated_areas", "message": "generated-areas: B.jpg", "names": ["B.jpg"] })
+            json!({ "code": "exports_pending", "message": "exports pending: S", "names": ["S"] })
         );
     }
 

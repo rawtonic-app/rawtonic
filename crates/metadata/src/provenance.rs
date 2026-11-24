@@ -374,6 +374,17 @@ pub fn source_type_code(value: &str) -> String {
         .to_string()
 }
 
+/// Whether an IPTC Digital Source Type (a URI of the IPTC vocabulary or its
+/// code) says a generative model made the image or areas of it
+/// (`trainedAlgorithmicMedia`, `compositeWithTrainedAlgorithmicMedia`): the
+/// marking an export keeps even when it strips the source's metadata.
+pub fn is_generated_source_type(value: &str) -> bool {
+    matches!(
+        source_type_code(value).as_str(),
+        "trainedAlgorithmicMedia" | "compositeWithTrainedAlgorithmicMedia"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -498,5 +509,11 @@ mod tests {
             "https://example.com/other"
         );
         assert_eq!(source_type_code("  "), "");
+        assert!(is_generated_source_type(crate::DIGITAL_SOURCE_COMPOSITE_AI));
+        assert!(is_generated_source_type("trainedAlgorithmicMedia"));
+        assert!(!is_generated_source_type(
+            "http://cv.iptc.org/newscodes/digitalsourcetype/digitalCapture"
+        ));
+        assert!(!is_generated_source_type(""));
     }
 }

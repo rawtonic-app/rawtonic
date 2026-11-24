@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Edit With also renders photos with generated areas (object removal, generative fill). The render is marked as containing AI-generated content (IPTC Digital Source Type in its XMP, as any export of it), and its library entry keeps that marking when the other program saves the file without it: the render's IPTC field and the "Source type" search say so, and the render's own exports carry it, also when they strip the other metadata.
+
 - The second window at 100 % shows the sharp region about 118 ms after a settled edit on macOS (p50 117.6 ms to the log line written just after its present, 96 edits on a shared host; was about 395 ms): it keeps its region's upload and colour noise pyramid from edit to edit, develops at once after a single edit, first only what it shows with a turn of its own at the GPU; once the window rests, the margin around it for short pans follows in the background (not on Linux). Each region is developed as from a fresh upload; its 8-bit display dither may differ by one code from before where the region now starts elsewhere. Exports are unchanged.
 
 - Smart albums and the Library search list a virtual copy by its own rating, colour label and keywords, as Lightroom does: a five-star copy of a one-star photo is in "rating ≥ 4" without its photo, and a copy shows up in a smart album's grid and count. Copies still share their photo's flag, and ordinary albums still hold photos only.
