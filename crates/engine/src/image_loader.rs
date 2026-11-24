@@ -977,11 +977,19 @@ pub fn orf_embedded_jpeg(bytes: &[u8]) -> Option<(&[u8], Option<u16>)> {
     impl Tiff<'_> {
         fn u16(&self, at: usize) -> Option<u16> {
             let b: [u8; 2] = self.bytes.get(at..at.checked_add(2)?)?.try_into().ok()?;
-            Some(if self.little { u16::from_le_bytes(b) } else { u16::from_be_bytes(b) })
+            Some(if self.little {
+                u16::from_le_bytes(b)
+            } else {
+                u16::from_be_bytes(b)
+            })
         }
         fn u32(&self, at: usize) -> Option<usize> {
             let b: [u8; 4] = self.bytes.get(at..at.checked_add(4)?)?.try_into().ok()?;
-            Some(if self.little { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) } as usize)
+            Some(if self.little {
+                u32::from_le_bytes(b)
+            } else {
+                u32::from_be_bytes(b)
+            } as usize)
         }
         fn entry(&self, ifd: usize, wanted: u16) -> Option<(u16, usize, usize)> {
             let count = usize::from(self.u16(ifd)?).min(512);
@@ -1024,7 +1032,10 @@ pub fn orf_embedded_jpeg(bytes: &[u8]) -> Option<(&[u8], Option<u16>)> {
         b"MM" => false,
         _ => return None,
     };
-    let note_bytes = Tiff { bytes: header, little };
+    let note_bytes = Tiff {
+        bytes: header,
+        little,
+    };
     let settings = note_bytes.value(start + 4, 0x2020).or_else(|| {
         // Written as UNDEFINED with the sub-IFD's offset as its value.
         let (kind, _, at) = note_bytes.entry(start + 4, 0x2020)?;
@@ -1036,7 +1047,8 @@ pub fn orf_embedded_jpeg(bytes: &[u8]) -> Option<(&[u8], Option<u16>)> {
     let offset = note_bytes.value(settings, 0x0101)?;
     let length = note_bytes.value(settings, 0x0102)?;
     let jpeg = header.get(offset..offset.checked_add(length)?)?;
-    jpeg.starts_with(&[0xFF, 0xD8]).then_some((jpeg, orientation))
+    jpeg.starts_with(&[0xFF, 0xD8])
+        .then_some((jpeg, orientation))
 }
 
 pub fn priority_embedded_jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
