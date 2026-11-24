@@ -60,8 +60,9 @@ export default function StudioLensCorrection() {
   const [candidates, setCandidates] = useState<[string, string][]>([]);
   const [camera, setCamera] = useState<CameraLensProfile | null>(null);
   const cameraMode = adjustments.lensCorrectionMode === 'camera';
-  // A polynomial distortion an import wrote (Capture One's Generic profile
-  // with Distortion above 0): no lens in the database, no camera data.
+  // A polynomial correction an import wrote (Capture One's Generic profiles
+  // with Distortion or Light Falloff above 0): no lens in the database, no
+  // camera data.
   const importedMode =
     adjustments.lensCorrectionMode === 'manual' &&
     !adjustments.lensMaker &&
@@ -203,7 +204,8 @@ export default function StudioLensCorrection() {
       lensDistortionParams: null,
       lensCorrectionMode: 'manual',
       // A replacement lens starts on, whatever the imported correction was.
-      lensDistortionEnabled: true
+      lensDistortionEnabled: true,
+      lensVignetteEnabled: true
     }));
   const chooseModel = async (model: string) => {
     const maker = adjustments.lensMaker;
@@ -261,10 +263,11 @@ export default function StudioLensCorrection() {
           disabled={!ready || status === 'detecting'}
           onChange={(e) => {
             // The imported correction is switched, not deleted: off keeps
-            // it (and its amount) for On to bring back exactly.
+            // it (and its amounts) for On to bring back exactly. Its
+            // vignetting (Capture One's Light Falloff) switches with it.
             if (importedMode) {
               const on = e.target.checked;
-              return setAdjustments((prev) => ({ ...prev, lensDistortionEnabled: on }));
+              return setAdjustments((prev) => ({ ...prev, lensDistortionEnabled: on, lensVignetteEnabled: on }));
             }
             return e.target.checked ? void enable() : setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }));
           }}
