@@ -1738,19 +1738,21 @@ fn orf_tile_while_offline(
     directory: &Path,
     source: &Path,
     new: String,
-    before: Option<String>,
+    before: impl FnOnce() -> Option<String>,
 ) -> String {
-    match before {
-        Some(before)
-            if before != new
-                && !thumbnail_files_exist(directory, &new)
-                && thumbnail_files_exist(directory, &before)
-                && !crate::preview_proxy::source_available(source) =>
-        {
-            before
-        }
-        _ => new,
+    // Looked at only for an ORF whose tile is missing (each lookup's cost).
+    let orf = source
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("orf"));
+    if !orf
+        || thumbnail_files_exist(directory, &new)
+        || crate::preview_proxy::source_available(source)
+    {
+        return new;
     }
+    before()
+        .filter(|before| *before != new && thumbnail_files_exist(directory, before))
+        .unwrap_or(new)
 }
 
 /// A tile developed from a proxy while the original is unavailable cannot
@@ -1886,12 +1888,9 @@ impl ThumbnailCacheEntry {
             cache_hash,
             || older_tile_keys(path_str, &adjustments_bytes),
         );
-        let cache_hash = orf_tile_while_offline(
-            thumb_cache_dir,
-            &source_path,
-            cache_hash,
-            thumbnail_hash_before_orf_preview(path_str, &adjustments_bytes),
-        );
+        let cache_hash = orf_tile_while_offline(thumb_cache_dir, &source_path, cache_hash, || {
+            thumbnail_hash_before_orf_preview(path_str, &adjustments_bytes)
+        });
         let embedded_hash = embedded_thumbnail_hash(path_str);
         let selected = preferred_thumbnail_hash(
             thumb_cache_dir,
@@ -3865,11 +3864,11 @@ mod face_retouch_thumbnail_tests {
         let new = compute_thumbnail_cache_hash(path, b"null").unwrap();
         let gone = temp.path().join("offline/P1010001.ORF");
         assert_eq!(
-            orf_tile_while_offline(&cache, &gone, new.clone(), Some(before.clone())),
+            orf_tile_while_offline(&cache, &gone, new.clone(), || Some(before.clone())),
             before
         );
         assert_eq!(
-            orf_tile_while_offline(&cache, &orf, new.clone(), Some(before.clone())),
+            orf_tile_while_offline(&cache, &orf, new.clone(), || Some(before.clone())),
             new
         );
         // An edited ORF and other RAWs keep their keys.
