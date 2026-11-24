@@ -22,6 +22,8 @@ import { useStudioTools } from './useStudioTools';
 import { shortcutHint } from '../../utils/keyboardUtils';
 import { runAutoStraighten } from '../../utils/autoStraighten';
 import { selectOnFocus } from '../../utils/selectOnFocus';
+import { applySourceGeometry, useGeometryOffer } from '../../utils/sourceGeometry';
+import { useLibraryStore } from '../../store/useLibraryStore';
 
 const withKey = (title: string, key: string | null) => (key ? `${title} (${key})` : title);
 
@@ -123,6 +125,10 @@ export default function StudioCropControls({
   // In the tools panel it keeps its look while the next photograph loads
   // (the panel is inert meanwhile); the viewer's popover is not inert.
   const ready = useEditorStore((s) => (inPopover ? Boolean(s.selectedImage?.isReady) : panelsShowReady(s)));
+  // Capture One straightens this photo and the import that made its edit did
+  // not read it: an explicit, undoable choice (never applied by itself).
+  const library = useLibraryStore((s) => s.sessionDirectory);
+  const sourceGeometry = useGeometryOffer(library, selectedImage?.path);
   const ratio = adjustments.aspectRatio || null;
   const steps = adjustments.orientationSteps || 0;
   const [orientedW, orientedH] =
@@ -290,6 +296,17 @@ export default function StudioCropControls({
           {t('studio.crop.autoStraighten')}
         </button>
       </div>
+      {sourceGeometry && library && selectedImage && (
+        <div className="studio-inline">
+          <button
+            title={t('studio.crop.sourceGeometryTitle')}
+            disabled={!ready}
+            onClick={() => void applySourceGeometry(library, [selectedImage.path])}
+          >
+            {t('studio.crop.sourceGeometry')}
+          </button>
+        </div>
+      )}
       <div className="studio-inline studio-inline-wrap">
         <button disabled={!ready} onClick={() => handleRotate(-90)}>
           {t('studio.crop.rotateLeft')}

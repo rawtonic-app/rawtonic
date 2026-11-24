@@ -1216,6 +1216,7 @@ fn start(args: Vec<String>) {
             hot_folder::hot_folder_start,
             library_import::library_import_preview,
             library_import::library_import,
+            library_import::library_apply_source_geometry,
             hot_folder::hot_folder_stop,
             hot_folder::hot_folder_suspend,
             hot_folder::hot_folder_resume,

@@ -20,6 +20,7 @@ import { flattenPresets, parseKeywords } from './nextCapture';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import { useGeometryOffers } from '../../utils/sourceGeometry';
 import { notify, notify as toast } from '../../activity/notify';
 import { useUIStore } from '../../store/useUIStore';
 import { ContextMenuProvider } from '../../context/ContextMenuContext';
@@ -999,6 +1000,87 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
     expect.stringContaining('12 photos imported (5 with edits, 2 albums)'),
     expect.anything()
   );
+});
+
+it('offers "Apply Capture One straightening and crop" for photos an earlier import did not read, never by itself', async () => {
+  const user = userEvent.setup();
+  localStorage.clear();
+  useGeometryOffers.setState({ offers: [] });
+  const catalog = { ...summary, manifest: { ...summary.manifest, mode: 'catalog' } };
+  const offers = ['/photos/A.NEF', '/photos/B.NEF'];
+  const warnings = offers.map((path) => `${path}: kept as imported earlier; Capture One shows it straightened by 5°`);
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) =>
+    command === 'session_create' || command === 'session_summary'
+      ? catalog
+      : command === 'library_import_preview'
+        ? {
+            name: 'Session',
+            kind: 'captureOne',
+            photos: 2,
+            copies: 0,
+            edited: 2,
+            albums: 0,
+            roots: [],
+            notRead: { smartAlbums: 0, localAdjustments: 0, unlocated: 0 }
+          }
+        : command === 'library_import'
+          ? {
+              imported: 2,
+              withSettings: 2,
+              missing: 0,
+              copiesSkipped: 0,
+              albums: 0,
+              errors: [],
+              warnings,
+              geometryOffers: offers
+            }
+          : command === 'library_apply_source_geometry'
+            ? { recipeChanges: [], unchanged: (args as { paths: string[] }).paths, errors: [] }
+            : base(command, args)
+  );
+  render(
+    <ContextMenuProvider>
+      <SessionWorkspace onNavigate={vi.fn(async () => {})} />
+    </ContextMenuProvider>
+  );
+  await user.click(screen.getByRole('button', { name: 'Create a session' }));
+  await user.type(screen.getByLabelText('Session name'), 'Acme');
+  await user.click(screen.getByRole('button', { name: 'Location' }));
+  await user.click(screen.getByRole('button', { name: 'Create session' }));
+  await waitFor(() => expect(screen.getByTitle('/jobs/Acme')).toBeTruthy());
+  await user.click(screen.getByTitle('/jobs/Acme'));
+  await user.click(await screen.findByRole('menuitem', { name: /Import from Lightroom/ }));
+  await user.type(screen.getByLabelText('Library to import'), '/C1/Trip.cosessiondb');
+  await user.click(screen.getByRole('button', { name: 'Check' }));
+  await user.click(await screen.findByRole('button', { name: /Import into Acme/ }));
+  await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+  // Nothing was applied by the import itself.
+  expect(invoke).not.toHaveBeenCalledWith('library_apply_source_geometry', expect.anything());
+  const options = vi.mocked(toast.warning).mock.calls.at(-1)![1] as {
+    actions: { label: string; run(): unknown }[];
+  };
+  expect(options.actions.map((a) => a.label)).toEqual([
+    'Apply Capture One straightening and crop to A.NEF',
+    'Apply Capture One straightening and crop to B.NEF',
+    'Apply Capture One straightening and crop to all listed photos (2)'
+  ]);
+  expect(useGeometryOffers.getState().offers[0].paths).toEqual(offers);
+  // One photo, then the rest ("for all listed photos").
+  await options.actions[0].run();
+  expect(invoke).toHaveBeenCalledWith('library_apply_source_geometry', {
+    source: '/C1/Trip.cosessiondb',
+    directory: '/jobs/Acme',
+    relinks: [],
+    paths: ['/photos/A.NEF']
+  });
+  expect(useGeometryOffers.getState().offers[0].paths).toEqual(['/photos/B.NEF']);
+  await options.actions[2].run();
+  expect(invoke).toHaveBeenCalledWith(
+    'library_apply_source_geometry',
+    expect.objectContaining({ paths: ['/photos/B.NEF'] })
+  );
+  expect(useGeometryOffers.getState().offers).toEqual([]);
 });
 
 it('starts from Lightroom or Capture One on the welcome screen: a catalog first, then the import', async () => {
