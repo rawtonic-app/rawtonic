@@ -37,6 +37,18 @@ pub async fn check_updates(app_handle: AppHandle, manual: bool) -> Result<Option
 }
 
 async fn check(app: AppHandle, manual: bool) -> Result<Option<UpdateInfo>, String> {
+    // Inside Flatpak the updates come from Flatpak (`flatpak update
+    // cc.rawtonic.editor`): no request goes to GitHub, not even on "Check now".
+    if core::in_flatpak(
+        std::env::var("FLATPAK_ID").ok().as_deref(),
+        cfg!(target_os = "linux") && std::path::Path::new("/.flatpak-info").exists(),
+    ) {
+        return if manual {
+            Err("Updates come from Flatpak".into())
+        } else {
+            Ok(None)
+        };
+    }
     let version = app.package_info().version.to_string();
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

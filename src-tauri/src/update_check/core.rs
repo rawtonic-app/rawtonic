@@ -290,6 +290,13 @@ const GITHUB_DOWNLOAD_HOSTS: &[&str] = &[
     "release-assets.githubusercontent.com",
 ];
 
+/// Whether the process runs inside a Flatpak sandbox (`FLATPAK_ID` is set for
+/// every Flatpak app; `/.flatpak-info` exists in its sandbox). Flatpak delivers
+/// the updates there, so Rawtonic makes no update request of its own.
+pub fn in_flatpak(flatpak_id: Option<&str>, info_file_exists: bool) -> bool {
+    flatpak_id.is_some_and(|id| !id.is_empty()) || info_file_exists
+}
+
 /// A running AppImage gets AppImages; otherwise the distribution's own package
 /// format (from `/etc/os-release`) comes first, then the AppImage.
 pub fn linux_package(app_image: bool, os_release: Option<&str>) -> LinuxPackage {
@@ -485,6 +492,14 @@ pub fn package_url_allowed(url: &str, offer: &Offer, source: &Source) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn flatpak_is_recognised_by_its_id_or_its_info_file() {
+        assert!(in_flatpak(Some("cc.rawtonic.editor"), false));
+        assert!(in_flatpak(None, true));
+        assert!(!in_flatpak(Some(""), false));
+        assert!(!in_flatpak(None, false));
+    }
+
     use super::*;
     const MAC_ARM: Platform = Platform {
         os: Os::Mac,

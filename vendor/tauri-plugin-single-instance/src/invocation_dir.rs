@@ -7,13 +7,15 @@ use std::path::PathBuf;
 /// An AppImage's AppRun changes into the AppImage's own read-only folder
 /// (`$APPDIR/usr`) before it starts the app; the AppImage runtime keeps the
 /// user's folder in `OWD`, and `--appimage-extract-and-run`, which sets no
-/// `OWD`, keeps the shell's `PWD`. A plain binary and a macOS bundle keep the
+/// `OWD`, keeps the shell's `PWD`. An unpacked AppDir started through its
+/// AppRun (a distribution package) sets `APPDIR` and no `APPIMAGE`; its
+/// launcher passes the user's folder as `OWD` the same way. A plain binary and a macOS bundle keep the
 /// working directory. `var` reads the environment.
 pub fn invocation_dir(
     var: impl Fn(&str) -> Option<OsString>,
     cwd: Option<PathBuf>,
 ) -> Option<PathBuf> {
-    if var("APPIMAGE").is_none() {
+    if var("APPIMAGE").is_none() && var("APPDIR").is_none() {
         return cwd;
     }
     ["OWD", "PWD"]

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Linux: an Arch Linux package recipe (`rawtonic-bin`) and a Flatpak manifest in `packaging/linux/`, both built from the release AppImage and checked in fresh containers (not published yet); inside a Flatpak Rawtonic makes no update request — Flatpak delivers updates — and an unpacked AppDir started through its AppRun resolves relative paths against the folder the command ran in.
+
 - Canon CR3 catalog facts retain capture date and camera information when image data follows the metadata, so import preset `{year}` uses the capture year.
 
 - Capture One catalog imports retain shifted capture times and the camera’s timezone offset, leave equal times uncorrected, and defer unknown camera facts until they can be read.

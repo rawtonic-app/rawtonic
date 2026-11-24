@@ -13,7 +13,7 @@ At startup, Rawtonic checks for new releases at most once every 24 hours.
 This is on by default and is its only automatic network access, apart from
 the usage statistics if you switch them on (below). Turn off
 “Check for updates at startup” in Preferences → General to stop it. “Check now”
-requests a check even when the startup check is off.
+requests a check even when the startup check is off. Inside a Flatpak neither the startup check nor “Check now” sends anything: Flatpak delivers the updates.
 
 On Windows the same notice comes before the first check: the installers
 (NSIS and MSI) show it on their first page, and a copy no installer introduced
