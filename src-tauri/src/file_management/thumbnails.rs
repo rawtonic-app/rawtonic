@@ -2627,10 +2627,11 @@ mod share_lookup_tests {
             .set_modified(time)
             .unwrap();
     }
-    /// A cached tile is found without opening its original (GRD1: an open
-    /// is a server round trip on a share, 7–8 ms per tile on Wi-Fi), and
-    /// the listing's sidecar read serves the lookup while the sidecar is
-    /// unchanged; an edit made meanwhile is read and asks for a new tile.
+    /// A cached developed tile is found without opening its original (GRD1:
+    /// an open is a server round trip on a share, 7–25 ms per tile on
+    /// Wi-Fi); the folder listing reads the sidecar from its file and the
+    /// lookup after it takes that read while the sidecar is unchanged; an
+    /// edit made meanwhile is read and asks for a new tile.
     #[test]
     fn a_cached_tile_is_looked_up_without_opening_its_original_or_reading_its_sidecar_again() {
         let temp = tempfile::tempdir().unwrap();
@@ -2655,29 +2656,37 @@ mod share_lookup_tests {
                 .unwrap()
             })
         };
-        // The listing reads the sidecar.
-        let listing = rawtonic_export::sidecars::with_sidecars_kept(|| {
+        let list = || {
             crate::file_management::listing::resolve_image_metadata(
                 &source, &sidecar, false, &settings,
             )
-        });
-        assert_eq!(listing.rating, 3);
+            .rating
+        };
+        let rewrite_unchanged = |rating: u8| {
+            std::fs::write(
+                &sidecar,
+                format!(r#"{{"version":1,"rating":{rating},"adjustments":{{"exposure":0.5}}}}"#),
+            )
+            .unwrap();
+            set_mtime(&sidecar, listed);
+        };
         let entry = lookup();
+        assert_eq!(entry.rating, Some(3));
         for tile in [&entry.small, &entry.medium] {
             std::fs::write(tile, b"cached tile").unwrap();
         }
 
-        // Same size, same file, time put back: the lookup cannot tell it
-        // changed, so this text was not read by it.
-        std::fs::write(
-            &sidecar,
-            br#"{"version":1,"rating":4,"adjustments":{"exposure":0.5}}"#,
-        )
-        .unwrap();
-        set_mtime(&sidecar, listed);
+        // Same size, same file, time put back: nothing tells it changed.
+        // Opening the folder again reads the file all the same.
+        rewrite_unchanged(6);
+        assert_eq!(list(), 6, "the listing took an earlier read");
+
+        // The lookup after it takes the listing's read, and finds the
+        // cached tile without opening the original.
+        rewrite_unchanged(4);
         crate::preview_proxy::SOURCE_OPENS.with(|opens| opens.set(0));
         let cached = lookup();
-        assert_eq!(cached.rating, Some(3), "the sidecar was read again");
+        assert_eq!(cached.rating, Some(6), "the sidecar was read again");
         assert!(cached.cached().is_some());
         assert_eq!(
             crate::preview_proxy::SOURCE_OPENS.with(std::cell::Cell::get),

@@ -117,6 +117,28 @@ pub fn with_sidecars_kept<R>(f: impl FnOnce() -> R) -> R {
     f()
 }
 
+thread_local! {
+    /// Inside `with_sidecars_read_fresh`: sidecars are read from their file
+    /// and kept for the scopes that follow.
+    static FRESH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Like `with_sidecars_kept`, but each sidecar is read from its file (not
+/// taken from an earlier scope), and the text is kept for the scopes that
+/// follow while its stamp is unchanged: the folder listing reads what is
+/// on the share each time a folder is opened, and the grid's tile lookups
+/// and renders after it take that read (GRD1).
+pub fn with_sidecars_read_fresh<R>(f: impl FnOnce() -> R) -> R {
+    struct Fresh(bool);
+    impl Drop for Fresh {
+        fn drop(&mut self) {
+            FRESH.with(|fresh| fresh.set(self.0));
+        }
+    }
+    let _fresh = Fresh(FRESH.with(|fresh| fresh.replace(true)));
+    with_sidecars_kept(f)
+}
+
 /// The text of the sidecar at `path` (None when missing or unreadable),
 /// read once per `with_sidecars_kept` scope.
 pub fn read_sidecar_text(path: &Path) -> Option<Arc<str>> {
@@ -230,7 +252,9 @@ fn read_stamped(path: &Path) -> SidecarText {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return read_from_disk(path),
     };
-    if let Some(text) = stamped().get(path, &stamp) {
+    if !FRESH.with(std::cell::Cell::get)
+        && let Some(text) = stamped().get(path, &stamp)
+    {
         return Ok(Some(text));
     }
     let text = read_from_disk(path);
@@ -635,14 +659,22 @@ mod kept_sidecar_tests {
         std::fs::write(&sidecar, "{\"rating\":2}").unwrap();
         set_mtime(&sidecar, listed);
         assert_eq!(read().as_deref(), Some("{\"rating\":1}"));
-        // Outside a scope: the file as it is.
+        // Outside a scope, and in a fresh scope (the listing): the file as
+        // it is, which the next scope then takes.
         assert_eq!(
             read_sidecar_text(&sidecar).as_deref(),
             Some("{\"rating\":2}")
         );
+        assert_eq!(
+            with_sidecars_read_fresh(|| read_sidecar_text(&sidecar)).as_deref(),
+            Some("{\"rating\":2}")
+        );
+        std::fs::write(&sidecar, "{\"rating\":1}").unwrap();
+        set_mtime(&sidecar, listed);
+        assert_eq!(read().as_deref(), Some("{\"rating\":2}"));
         // Another time: read again.
         set_mtime(&sidecar, listed + std::time::Duration::from_secs(2));
-        assert_eq!(read().as_deref(), Some("{\"rating\":2}"));
+        assert_eq!(read().as_deref(), Some("{\"rating\":1}"));
         // Another size at the same time: read again.
         std::fs::write(&sidecar, "{\"rating\":3 }").unwrap();
         set_mtime(&sidecar, listed + std::time::Duration::from_secs(2));

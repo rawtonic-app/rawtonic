@@ -68,9 +68,9 @@ pub(crate) fn resolve_image_metadata(
     enable_xmp_sync: bool,
     settings: &AppSettings,
 ) -> ImageFileMetadata {
-    // Kept by its stamp for the grid's lookup and tile render that follow
-    // (GRD1: each open is a round trip on a network share).
-    let metadata = rawtonic_export::sidecars::with_sidecars_kept(|| {
+    // Read from the file and kept by its stamp for the grid's lookup and
+    // tile render that follow (GRD1: each open is a round trip on a share).
+    let metadata = rawtonic_export::sidecars::with_sidecars_read_fresh(|| {
         load_sidecar_with_xmp(image_path, sidecar_path, enable_xmp_sync)
     });
     image_file_metadata(image_path, metadata, settings)
@@ -105,7 +105,7 @@ pub(crate) fn listing_metadata_snapshot(
         let metadata = state
             .and_then(|value| serde_json::from_value(value).ok())
             .unwrap_or_else(|| {
-                rawtonic_export::sidecars::with_sidecars_kept(|| {
+                rawtonic_export::sidecars::with_sidecars_read_fresh(|| {
                     crate::exif_processing::load_sidecar_file(sidecar)
                 })
             });
