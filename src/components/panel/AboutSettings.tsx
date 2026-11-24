@@ -38,6 +38,12 @@ export const CREDITS: Credit[] = [
     license: 'Apache-2.0 OR MIT'
   },
   {
+    name: 'kamadak-exif',
+    url: 'https://github.com/kamadak/exif-rs',
+    what: 'EXIF reading, with a Rawtonic correction that accepts HEIF EXIF items over 64 KiB.',
+    license: 'BSD-2-Clause; Rawtonic correction: AGPL-3.0-or-later'
+  },
+  {
     name: 'SQLite / rusqlite',
     url: 'https://github.com/rusqlite/rusqlite',
     what: 'Library database, with a Rawtonic Windows WAL locking correction.',

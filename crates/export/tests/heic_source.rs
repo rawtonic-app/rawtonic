@@ -97,6 +97,11 @@ fn a_heic_with_more_than_64_kib_of_exif_keeps_its_tags() {
             ("{Exif}", "UserComment", &big),
         ],
     );
+    // ImageIO really wrote an Exif item beyond the old 65535-byte cap.
+    assert!(
+        bytes.iter().filter(|&&b| b == b'x').count() >= 100_000,
+        "the comment did not reach the file"
+    );
     let exif = read_exif(&bytes).expect("EXIF of a HEIC with a large EXIF item");
     let make = exif
         .get_field(exif::Tag::Make, exif::In::PRIMARY)

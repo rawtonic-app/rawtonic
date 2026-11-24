@@ -11,6 +11,6 @@ limit. A Xiaomi phone's HEIC (a public test file from the pillow_heif test
 set) holds a 192 KB Exif item, and with the 64 KiB cap kamadak-exif failed on
 the whole file ("Exif data too large"), so Rawtonic read no capture time at
 import and exported no EXIF at all. The cap is kept, raised, so a corrupt item
-length still cannot make a reader allocate without bound.
+length still cannot make a reader read or keep more than the cap (the size is checked before the extent is read).
 
 Remove this copy when upstream raises the limit.

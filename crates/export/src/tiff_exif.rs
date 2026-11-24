@@ -374,6 +374,7 @@ fn describes_source_pixels(tag: u16) -> bool {
         tag,
         0x13d // Predictor
             | 0x142..=0x145 // TileWidth, TileLength, TileOffsets, TileByteCounts
+            | 0x11c // PlanarConfiguration (the export is interleaved)
             | 0x14a // SubIFDs
             | 0x152 // ExtraSamples
             | 0x153 // SampleFormat
@@ -541,7 +542,7 @@ mod tests {
         // strips, and ImageIO refuses a TIFF with strips and tile tags.
         let (mut bytes, pixels) = encoded_tiff();
         let mut metadata = sample_metadata();
-        for (tag, value) in [(0x142u16, 512u16), (0x143, 512), (0x152, 2)] {
+        for (tag, value) in [(0x142u16, 512u16), (0x143, 512), (0x152, 2), (0x11c, 2)] {
             metadata.set_tag(ExifTag::UnknownINT16U(
                 vec![value],
                 tag,
@@ -554,7 +555,7 @@ mod tests {
             .into_rgb16();
         assert_eq!(decoded, pixels);
         let ifd0 = read_ifd0(&mut Cursor::new(&bytes)).unwrap();
-        for tag in [0x142u16, 0x143, 0x144, 0x145, 0x152] {
+        for tag in [0x142u16, 0x143, 0x144, 0x145, 0x152, 0x11c] {
             assert!(!ifd0.entries.contains_key(&tag), "tag {tag:#x} copied");
         }
     }

@@ -205,9 +205,22 @@ impl<R> Parser<R> where R: BufRead + Seek {
                     // implementation-defined, but the subsequent read
                     // should fail.
                     self.reader.seek(SeekFrom::Start(off))?;
+                    // Rawtonic: check the size before reading, so a
+                    // damaged extent length cannot make this read (and
+                    // keep in memory) more than the cap.
+                    let room = (MAX_EXIF_SIZE.saturating_sub(buf.len()) + 1)
+                        as u64;
                     match len {
-                        0 => { self.reader.read_to_end(&mut buf)?; },
+                        0 => {
+                            std::io::Read::read_to_end(
+                                &mut std::io::Read::take(
+                                    &mut self.reader, room),
+                                &mut buf)?;
+                        },
                         _ => {
+                            if len >= room {
+                                return Err("Exif data too large".into());
+                            }
                             let len = len.try_into()
                                 .or(Err("Extent too large"))?;
                             self.reader.read_exact_len(&mut buf, len)?;
