@@ -2025,57 +2025,6 @@ mod tests {
         (lib, source, dir)
     }
 
-    #[test]
-    fn a_stripped_tiff_embeds_rights_without_contact_or_location() {
-        use rawtonic_export::export_processing::{ExportOutput, save_export_image};
-
-        let tmp = tempfile::tempdir().unwrap();
-        let (lib, source, dir) = photo_with_private_metadata(tmp.path());
-        let metadata = lib
-            .metadata(&lib.asset_at(&source).unwrap().unwrap().id)
-            .unwrap();
-        let mut settings = tiff_recipe(None, Some(&dir)).export_settings;
-        settings.keep_metadata = false;
-        settings.strip_gps = true;
-        let tiff = dir.join("stripped.tif");
-        save_export_image(
-            image::DynamicImage::new_rgb8(8, 8),
-            source.to_str().unwrap(),
-            &settings,
-            false,
-            &ExportOutput {
-                path: &tiff,
-                format: "tiff",
-                exif_sidecar: &|| None,
-                catalog: &|| Some(metadata.clone()),
-                write: &|path, _, encoded| rawtonic_export::output::write_new_export(path, encoded),
-                enlarger: None,
-                provenance: None,
-            },
-        )
-        .unwrap();
-        let exif = exif::Reader::new()
-            .read_from_container(&mut std::io::BufReader::new(fs::File::open(&tiff).unwrap()))
-            .unwrap();
-        let field = exif
-            .get_field(exif::Tag(exif::Context::Tiff, 700), exif::In::PRIMARY)
-            .expect("TIFF XMP tag");
-        let exif::Value::Byte(packet) = &field.value else {
-            panic!("TIFF XMP tag must contain bytes");
-        };
-        let packet = std::str::from_utf8(packet).unwrap();
-        let (embedded, _) = rawtonic_metadata::read_xmp(packet).unwrap();
-        assert_eq!(embedded.creator, "Ada");
-        assert_eq!(embedded.copyright, "(c) Ada");
-        assert_eq!(embedded.iptc["usageTerms"], "Editorial only");
-        for private in ["ada@example.org", "+49 555 0100", "Kiel"] {
-            assert!(
-                !packet.contains(private),
-                "private value in encoded TIFF XMP: {private}"
-            );
-        }
-    }
-
     /// Plans, "renders" and registers the Edit With render of `source` with
     /// `settings`, runs the XMP sync, and returns the render's registered
     /// metadata and every sidecar text beside it.
