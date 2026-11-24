@@ -1586,12 +1586,15 @@ pub(crate) const DEVICE_RECOVERY_WAIT: std::time::Duration = std::time::Duration
 /// readback) is the lost error, so the retry classifies it; any other
 /// panic goes on.
 fn render_catching_loss<T>(
+    gpu: &crate::state::gpu::GpuState,
     context: &Arc<GpuContext>,
     render: &mut impl FnMut(&Arc<GpuContext>) -> Result<T, String>,
 ) -> Result<T, String> {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render(context))) {
         Ok(result) => result,
-        Err(_) if rawtonic_gpu::device_start::device_lost() => {
+        // Lost for this attempt's device also when the app already started
+        // a replacement (`lost_under`).
+        Err(_) if lost_under(gpu, context, "") => {
             log::warn!("Export: a render panicked after the graphics device was lost");
             Err(rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST.to_string())
         }
@@ -1618,7 +1621,7 @@ pub(crate) fn render_after_device_loss<T>(
         |context, _| {
             vec![(
                 (),
-                render_catching_loss(context, &mut render).map(|value| result = Some(value)),
+                render_catching_loss(gpu, context, &mut render).map(|value| result = Some(value)),
             )]
         },
         |()| true,

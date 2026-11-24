@@ -419,6 +419,16 @@ mod tests {
                     // The loss comes while the render runs; the driver's
                     // reset can make wgpu panic in the readback's poll.
                     rawtonic_gpu::device_start::simulate_lost("DVL3 test");
+                    // The replacement is installed before the panic
+                    // reaches the retry (the loss flag is clear again).
+                    let started = Instant::now();
+                    while gpu
+                        .context()
+                        .is_none_or(|now| std::sync::Arc::ptr_eq(&now.device, &context.device))
+                    {
+                        assert!(started.elapsed() < Duration::from_secs(10));
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
                     panic!("wgpu: device lost while polling");
                 }
                 render(context)
