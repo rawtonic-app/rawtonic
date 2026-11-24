@@ -179,12 +179,11 @@ const ExportItemRow = memo(function ExportItemRow({ item }: { item: ExportItemLi
           {t('studio.export.queue.show')}
         </button>
       )}
-      {item.state === 'done' &&
-        item.sizeLimitMisses?.map((miss) => (
-          <span key={miss.file} className="studio-export-notice" role="note">
-            {describeSizeLimitMiss(miss)}
-          </span>
-        ))}
+      {item.sizeLimitMisses?.map((miss) => (
+        <span key={miss.file} className="studio-export-notice" role="note">
+          {describeSizeLimitMiss(miss)}
+        </span>
+      ))}
     </li>
   );
 });

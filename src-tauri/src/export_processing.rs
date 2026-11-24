@@ -733,10 +733,13 @@ fn save_image_with_metadata(
     let write = |path: &Path,
                  _extension: &str,
                  encoded: rawtonic_export::export_processing::EncodedExport| {
-        if let Some(miss) = encoded.size_limit_miss() {
+        let miss = encoded.size_limit_miss();
+        write_export_bytes(path, "", encoded)?;
+        // Told once the file is on disk: a failed write left nothing above its limit.
+        if let Some(miss) = miss {
             size_limit_missed(miss.for_file(path));
         }
-        write_export_bytes(path, "", encoded)
+        Ok(())
     };
     save_export_image(
         image,

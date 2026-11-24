@@ -98,6 +98,23 @@ it('lists every file above its size limit, also of a cancelled or failed export,
   stop = startActivityBridges();
   sync({ state: 'done', done: 7, total: 7 });
   expect(entry('export:j1')?.status).toBe('done');
+  // Resumed, the job writes one more file above its limit: that is new.
+  const more = [...misses, { file: '/out/7.jpg', limitBytes: 500_000, bytes: 600_000 }];
+  sync({ state: 'running', done: 7, total: 8 });
+  sync({ state: 'done', done: 8, total: 8, sizeLimitMisses: more });
+  expect(entry('export:j1')?.status).toBe('warning');
+  expect(entry('export:j1')?.detail?.split('\n')).toHaveLength(8);
+
+  // A failed export: its files above the limit are dismissed too.
+  useActivityStore.getState().dismiss('export:j1');
+  await Promise.resolve();
+  stop();
+  resetActivityBridges();
+  resetActivityStore();
+  stop = startActivityBridges();
+  sync({ state: 'failed', done: 8, failed: 1, total: 9, sizeLimitMisses: more });
+  expect(entry('export:j1')?.status).toBe('failure');
+  expect(entry('export:j1')?.detail ?? '').not.toContain('could not reach');
 });
 
 it('shows a running export with its progress and Cancel', async () => {

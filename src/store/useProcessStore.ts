@@ -26,7 +26,7 @@ export interface ExportJob {
   keptBoth?: number;
   /** The photos that did not export and the reasons (export_queue.rs). */
   failures: ExportFailure[];
-  /** The files of its done photos that stayed above their JPEG size limit. */
+  /** The files written above their JPEG size limit. */
   sizeLimitMisses?: SizeLimitMiss[];
   /** Why the job itself could not run, independent of the photo counts. */
   error?: string | null;
