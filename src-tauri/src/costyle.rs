@@ -1077,6 +1077,12 @@ fn default_curves() -> Value {
     })
 }
 
+/// Whether a Capture One Color Editor entry contains a range that was
+/// approximated or left out.
+pub(crate) fn color_editor_is_partial(value: &str) -> bool {
+    color_editor_ranges(value).1
+}
+
 /// Settings in a style that `convert_costyle_to_preset` cannot fully translate
 /// (see the module comment), as codes the import report names: `profile`,
 /// `filmCurve`, `colorEditor`, `whiteBalance`, `noiseReduction`, `lens`,
@@ -1114,7 +1120,7 @@ pub fn untranslated_settings(content: &str) -> Vec<&'static str> {
     // Approximate skin ranges and unsupported, clipped, malformed, unknown
     // or excess colour ranges (see color_editor_ranges).
     if s.get("ColorCorrections")
-        .is_some_and(|v| color_editor_ranges(v).1)
+        .is_some_and(|v| color_editor_is_partial(v))
     {
         out.push("colorEditor");
     }
