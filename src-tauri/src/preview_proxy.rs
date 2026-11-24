@@ -513,15 +513,37 @@ fn preview_paths<'a>(
     let of_kind = |kind| {
         let mut paths: Vec<PathBuf> = proxy_path_of(source, kind).into_iter().collect();
         paths.extend(kept_paths(source, kind, Some(recipe)));
-        paths.into_iter().partition::<Vec<PathBuf>, _>(|path| {
-            read_header(path).is_some_and(|header| made_for_exactly(&header, source, kind, recipe))
-        })
+        let (exact, others): (Vec<_>, Vec<_>) = paths
+            .into_iter()
+            .filter_map(|path| Some((read_header(&path)?, path)))
+            .partition(|(header, _)| made_for_exactly(header, source, kind, recipe));
+        (exact, others)
     };
     let (exact, mut others) = of_kind(kind);
-    if exact.is_empty() && !others.is_empty() && !of_kind(other_kind(kind)).0.is_empty() {
-        others.clear();
+    // A preview of the other size made for the recipe hides the others only
+    // when it can open in their place: as recent an engine, the same file
+    // and the decoder settings they were made with (the current ones, or
+    // they cannot open either).
+    if exact.is_empty() {
+        let (other_exact, _) = of_kind(other_kind(kind));
+        others.retain(|(fallback, _)| {
+            !other_exact.iter().any(|(exact, _)| {
+                exact.key.engine <= ENGINE_VERSION
+                    && decoder_settings(&exact.key.decoder)
+                        == decoder_settings(&fallback.key.decoder)
+                    && file_stamp(source)
+                        .is_none_or(|stamp| stamp == (exact.key.file_size, exact.key.modified_ns))
+            })
+        });
     }
-    Box::new(exact.into_iter().chain(others))
+    Box::new(
+        exact
+            .into_iter()
+            .chain(others)
+            .map(|(_, path)| path)
+            .collect::<Vec<_>>()
+            .into_iter(),
+    )
 }
 
 fn kept_paths(source: &Path, kind: ProxyKind, recipe: Option<&Value>) -> Vec<PathBuf> {
@@ -599,8 +621,10 @@ fn master_recipe(source: &Path) -> Value {
 /// download it).
 fn master_recipe_here(source: &Path) -> Option<Value> {
     let (_, sidecar) = crate::file_management::parse_virtual_path(&source.to_string_lossy());
-    (!crate::file_management::is_cloud_placeholder(&sidecar))
-        .then(|| crate::exif_processing::load_sidecar(&sidecar).adjustments)
+    // A library's own record of the edit is read first and needs no file.
+    (!crate::file_management::is_cloud_placeholder(&sidecar)
+        || crate::session_bridge::read_editor_sidecar(&sidecar).is_some())
+    .then(|| crate::exif_processing::load_sidecar(&sidecar).adjustments)
 }
 
 /// Compatibility from the preview headers (the photograph's own, then those
@@ -1753,11 +1777,9 @@ fn store(
 /// would download it), and what it asks for is not known.
 fn saved_variants(source: &Path) -> Option<Vec<String>> {
     let source_str = source.to_string_lossy();
-    let (_, master) = crate::file_management::parse_virtual_path(&source_str);
-    if crate::file_management::is_cloud_placeholder(&master) {
-        return None;
-    }
-    let mut tags = vec![variant_tag(crate::image_loader::stored_decode_variant(
+    let master = master_recipe_here(source)?;
+    let mut tags = vec![variant_tag(crate::image_loader::decode_variant(
+        &master,
         &source_str,
     ))];
     let (Some(dir), Some(name)) = (source.parent(), source.file_name()) else {
@@ -1817,19 +1839,19 @@ fn keep_superseded(
     let mut tags: Vec<String> = previous
         .map(|previous| previous.kept.clone())
         .unwrap_or_default();
-    // Without a preview of its own (it went first, a 1:1 expiry), the
-    // other kind's header tells whether previews are kept beside it.
-    let hinted = !tags.is_empty()
-        || (previous.is_none()
-            && proxy_path_of(source, other_kind(kind))
-                .and_then(|path| read_header(&path))
-                .is_some_and(|other| !other.kept.is_empty()));
+    // Without a preview of its own (it went first: a 1:1 expiry, the
+    // Standard limit; or a photograph's first preview) no header says what
+    // is kept beside it: the folder is looked at.
+    let hinted = !tags.is_empty() || previous.is_none();
     if !hinted && !superseded {
         return (Vec::new(), Vec::new());
     }
     tags.retain(|tag| is_variant_tag(tag));
     if let Some((dir, stem)) = location(source) {
         tags.extend(KeptIndex::default().tags(&dir, &stem, kind));
+    }
+    if tags.is_empty() && !superseded {
+        return (Vec::new(), Vec::new());
     }
     let asked = saved_variants(source);
     let asks = |tag: &String| asked.as_ref().is_none_or(|asked| asked.contains(tag));
@@ -3732,6 +3754,112 @@ pub(crate) mod tests {
         assert_eq!(stands_for(&photo, &copy, ProxyKind::Standard), Some(true));
         assert_ne!(stands_for(&photo, &copy, ProxyKind::Full), Some(true));
         source_facts::forget(&path);
+    }
+
+    /// PXR1 review round 3: an exact preview of the other size that cannot
+    /// open (made with other decoder settings) does not hide the fallback:
+    /// a 1:1 preview at 17 with another colour noise setting, the Standard
+    /// one rebuilt at 18 with the current settings, the master back on a
+    /// 17 snapshot offline: it opens on the Standard one, as before.
+    #[test]
+    fn an_exact_preview_that_cannot_open_does_not_hide_the_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let v17 = crate::image_loader::decode_variant_for_frame(
+            &serde_json::json!({ "renderVersion": 17 }),
+            &path,
+            0,
+        );
+        let master = crate::image_loader::stored_decode_variant(&path);
+        let settings = AppSettings::default();
+        let before = AppSettings {
+            raw_preprocessing_color_nr: Some(0.75),
+            ..AppSettings::default()
+        };
+        let image = gradient(80, 60);
+        write_full(&photo, &image, &before, v17, None).unwrap();
+        write(&photo, &image, 40, &settings, master, None).unwrap();
+        let snapshot = serde_json::json!({ "version": 1, "rating": 0,
+            "adjustments": {"exposure": 1.0, "renderVersion": 17} });
+        fs::write(photo.with_file_name("A.NEF.rrdata"), snapshot.to_string()).unwrap();
+        fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
+        source_facts::forget(&path);
+        assert!(read_kind(&photo, ProxyKind::Full, &settings, None).is_none());
+        let read = read_kind(&photo, ProxyKind::Standard, &settings, None).unwrap();
+        assert_eq!(variant_of_key(&read.key.decoder), master);
+        source_facts::forget(&path);
+    }
+
+    /// PXR1 review round 3: offline, the master's recipe a library keeps
+    /// decides the fallback while its sidecar file is a cloud file not
+    /// downloaded (the library's record needs no file): a rated, otherwise
+    /// unedited photo opens on its preview from before the upgrade.
+    #[test]
+    fn offline_the_library_gives_the_masters_recipe_while_its_sidecar_is_evicted() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = rawtonic_catalog::Library::create(
+            &dir.path().join("Job"),
+            "Job",
+            rawtonic_catalog::Mode::Session,
+        )
+        .unwrap();
+        let photo = lib.directory.join("Capture").join("A.NEF");
+        fs::create_dir_all(photo.parent().unwrap()).unwrap();
+        fs::write(&photo, b"raw bytes").unwrap();
+        let id = lib.add_asset(&photo).unwrap().id;
+        let state = serde_json::json!({ "version": 1, "rating": 3, "adjustments": {} });
+        lib.save_editor_state(&id, &state).unwrap();
+        let path = photo.to_string_lossy().to_string();
+        let v17 = crate::image_loader::decode_variant_for_frame(
+            &serde_json::json!({ "renderVersion": 17 }),
+            &path,
+            0,
+        );
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 40, &settings, v17, None).unwrap();
+        let sidecar = photo.with_file_name("A.NEF.rrdata");
+        fs::write(&sidecar, state.to_string()).unwrap();
+        crate::file_management::simulate_cloud_placeholder(&sidecar);
+        fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
+        source_facts::forget(&path);
+        let recipe = serde_json::json!({});
+        let read = read_kind(&photo, ProxyKind::Standard, &settings, Some(&recipe)).unwrap();
+        assert_eq!(variant_of_key(&read.key.decoder), v17);
+        source_facts::forget(&path);
+    }
+
+    /// PXR1 review round 3: with neither of its own previews left (the
+    /// Standard limit took both Standard files, the 1:1 one expired), a
+    /// rebuild of the Standard and then the 1:1 preview after the copy was
+    /// deleted still drops the kept 1:1 one.
+    #[test]
+    fn a_rebuild_without_any_own_preview_drops_unused_kept_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let copy = serde_json::json!({ "exposure": 0.5, "renderVersion": 17 });
+        let v17 = crate::image_loader::decode_variant_for_frame(&copy, &path, 0);
+        let master = crate::image_loader::stored_decode_variant(&path);
+        let sidecar = save_copy(&photo, "a1b2c3", &copy);
+        let settings = AppSettings::default();
+        let image = gradient(80, 60);
+        for variant in [v17, master] {
+            write(&photo, &image, 40, &settings, variant, None).unwrap();
+            write_full(&photo, &image, &settings, variant, None).unwrap();
+        }
+        let kept = kept_path_of(&photo, ProxyKind::Full, v17).unwrap();
+        for path in [
+            proxy_path_of(&photo, ProxyKind::Standard).unwrap(),
+            kept_path_of(&photo, ProxyKind::Standard, v17).unwrap(),
+            proxy_path_of(&photo, ProxyKind::Full).unwrap(),
+        ] {
+            fs::remove_file(path).unwrap();
+        }
+        fs::remove_file(&sidecar).unwrap();
+        write(&photo, &image, 40, &settings, master, None).unwrap();
+        write_full(&photo, &image, &settings, master, None).unwrap();
+        assert!(!kept.exists());
     }
 
     /// PXR1 review round 2: when the photograph's own 1:1 preview went first
