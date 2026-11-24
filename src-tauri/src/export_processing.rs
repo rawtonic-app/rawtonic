@@ -3133,6 +3133,7 @@ fn headless_targets(
         super_resolution: false,
         provenance: None,
         existing_files: session.existing_files,
+        max_file_kb: None,
     };
 
     let recipes = match &session.recipes {

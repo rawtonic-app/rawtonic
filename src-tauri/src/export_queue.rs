@@ -2340,6 +2340,7 @@ mod tests {
             error: None,
             attempts: 1,
             outcome: None,
+            size_limit_miss: None,
             started_ms: None,
             finished_ms: None,
         };
