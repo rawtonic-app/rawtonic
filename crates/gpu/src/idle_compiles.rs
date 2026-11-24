@@ -768,17 +768,7 @@ impl IdleCompiles {
             // for unless a frame or an export waits for this job
             // (`memory_turns`). A frame's variant stops any other but an
             // export's and another frame's still waited for (`for_frame`).
-            let stop = || {
-                let mut queue = self.lock();
-                if queue.cancelled
-                    || queue.export_job.is_some_and(|export| export != job)
-                    || (queue.export_job != Some(job) && queue.frame_goes_before(job, now_ms()))
-                {
-                    return true;
-                }
-                drop(queue);
-                crate::memory_turns::asked_run_waits() && !self.awaited(job)
-            };
+            let stop = || self.helper_stops(job);
             #[cfg(test)]
             let slowed_and_stopped = source == Source::Frame && tests::slow_frame_compile(&stop);
             #[cfg(not(test))]
@@ -842,6 +832,30 @@ impl IdleCompiles {
             }
             queue.frame_jobs.retain(|(frame, _)| *frame != job);
         }
+    }
+
+    /// Whether the helper compiling `job` stops now (besides a compile that
+    /// waits for the slot, `idle_compile_child`): idle compiles end, an
+    /// export waits for another variant, a frame for another one before
+    /// it, an AI run the photographer asked for waits; or an export waits
+    /// for the compiles to end (`ENDS_AWAITED`) and neither a frame nor an
+    /// export waits for `job`. One they wait for goes on, as that export
+    /// waits for it: stopped, the worker started it again at once for its
+    /// frame (WDVL3).
+    fn helper_stops(&self, job: IdleJob) -> bool {
+        let mut queue = self.lock();
+        if queue.cancelled
+            || queue.export_job.is_some_and(|export| export != job)
+            || (queue.export_job != Some(job) && queue.frame_goes_before(job, now_ms()))
+        {
+            return true;
+        }
+        let waited_for = queue.export_job == Some(job) || queue.frame_asked(job).is_some();
+        if ends_awaited() && !waited_for {
+            return true;
+        }
+        drop(queue);
+        crate::memory_turns::asked_run_waits() && !self.awaited(job)
     }
 
     /// `job` of `source` needs no compile: the export or the frame that
@@ -1559,9 +1573,9 @@ mod tests {
         set_compile_limit(None);
     }
 
-    /// An export that starts while an idle helper runs stops it (it asks
-    /// for the slot), unless the idle worker has the export's own variant to
-    /// compile: then the export waits for that (G76/WSMOKE19).
+    /// An export that starts while an idle helper runs stops it (it waits
+    /// for the compiles to end), unless the idle worker has the export's own
+    /// variant to compile: then the export waits for that (G76/WSMOKE19).
     #[test]
     #[ignore = "sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn an_export_waits_for_its_own_variant_instead_of_stopping_it() {
@@ -1585,12 +1599,12 @@ mod tests {
             let export = std::thread::spawn(|| wait_for_running_compiles("export"));
             std::thread::sleep(Duration::from_millis(500));
             assert!(!export.is_finished(), "the export waits for the helper");
-            assert_eq!(slot_wanted(), !own, "own: {own}");
+            assert_eq!(ends_awaited(), !own, "own: {own}");
             // The worker is done with it.
             idle.lock().export_job = None;
             drop(helper);
             export.join().unwrap();
-            assert!(!slot_wanted());
+            assert!(!ends_awaited());
         }
         set_compile_limit(None);
     }
@@ -1944,6 +1958,61 @@ mod tests {
         idle.lock().export_job = None;
         drop(slot);
         lane1.join().unwrap();
+        set_compile_limit(None);
+    }
+
+    /// After a lost device (WDVL3) the shown photo's frame waits for its
+    /// variant in a helper (a pending compile) while two export lanes wait
+    /// for the compiles to end: the lanes stop no helper whose job a frame
+    /// waits for (they wait for it to end), and still stop one nobody waits
+    /// for. They stopped the frame's too, the worker started it again for
+    /// the frame 95 times a second, and both exports waited for good.
+    #[test]
+    #[ignore = "sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
+    fn exports_waiting_for_compiles_leave_a_frames_helper_running() {
+        if !alone("exports_waiting_for_compiles_leave_a_frames_helper_running") {
+            return;
+        }
+        set_compile_limit(Some(1));
+        let frame = IdleJob::Display(91222079);
+        let idle = IdleCompiles::new();
+        {
+            let mut queue = idle.lock();
+            queue.worker = true;
+            queue.frame_jobs.push((frame, now_ms().max(1)));
+        }
+        // The worker's slot for the frame's variant, and the frame waiting
+        // for it (`covering`: a pending compile).
+        let slot = background_compile_slot("the frame's variant", true).expect("a free slot");
+        let frame_waits = PendingCompile::new();
+        let lanes: Vec<_> = (1..=2)
+            .map(|lane| {
+                std::thread::spawn(move || {
+                    wait_for_running_compiles(&format!("export lane {lane}"))
+                })
+            })
+            .collect();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            lanes.iter().all(|lane| !lane.is_finished()),
+            "the lanes wait for the frame's variant"
+        );
+        // The frame asks again (every few ms while it waits).
+        *idle.lock().frame_asked(frame).unwrap() = now_ms().max(1);
+        assert!(!slot_wanted(), "no compile waits for the slot");
+        assert!(!idle.helper_stops(frame), "the frame's helper goes on");
+        // A helper of a job nobody waits for stops for the lanes.
+        let other = IdleCompiles::new();
+        other.lock().worker = true;
+        assert!(other.helper_stops(IdleJob::Display(4113)));
+        // The helper is done and the frame has its variant.
+        drop(frame_waits);
+        drop(slot);
+        idle.lock().frame_jobs.clear();
+        for lane in lanes {
+            lane.join().unwrap();
+        }
+        assert!(!ends_awaited());
         set_compile_limit(None);
     }
 

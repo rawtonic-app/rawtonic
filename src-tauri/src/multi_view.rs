@@ -264,6 +264,48 @@ fn take_zoom_turn(seq: u64) -> bool {
     newer
 }
 
+/// The layout and zooms a display's multi view shows, for the display of a
+/// new device after a lost one (`gpu_recovery`, `show_again`).
+pub(crate) struct Shown {
+    primary: Option<String>,
+    cells: Vec<CellPayload>,
+    zoom: Option<CellZoom>,
+    cell_zooms: HashMap<String, CellZoom>,
+}
+
+/// What `display`'s multi view shows, when it is active.
+pub(crate) fn shown_on(display: &gpu_processing::WgpuDisplay) -> Option<Shown> {
+    let multi = display.multi_view();
+    multi.is_active().then(|| Shown {
+        primary: multi.primary().map(str::to_string),
+        cells: multi
+            .cells()
+            .iter()
+            .map(|cell| CellPayload {
+                path: cell.path.clone(),
+                area: cell.area,
+            })
+            .collect(),
+        zoom: multi.zoom(),
+        cell_zooms: multi.cell_zooms().clone(),
+    })
+}
+
+/// Shows `shown` again on the new device's display with its zooms, in the
+/// layout's own step (a new display's multi view starts at fit). WDVL3:
+/// zoomed cells showed the whole photograph at fit under their 100 % badge
+/// for 26 s after a loss, until their regions developed. The cells are
+/// enlarged at once and their regions develop again (`show_cells`); a zoom
+/// the webview sends after this one is newer and wins.
+pub(crate) fn show_again(app_handle: &tauri::AppHandle, shown: Shown) {
+    let zooms = CellZooms {
+        shared: shown.zoom,
+        cells: shown.cell_zooms,
+    };
+    let seq = ZOOM_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    show_cells(app_handle, shown.primary, shown.cells, Some((zooms, seq)));
+}
+
 fn show_cells(
     app_handle: &tauri::AppHandle,
     primary: Option<String>,
@@ -3035,7 +3077,18 @@ fn whole_photo_measures(
                     CELL_RENDER,
                 )
                 .inspect_err(|e| {
-                    log::warn!("[multi_view] {path}: no whole-photograph noise measurement: {e}")
+                    // Not the restart advice of an export the lost error
+                    // carries (WDVL3): the cells develop again on the new
+                    // device (`gpu_recovery`).
+                    if e.contains(rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST)
+                        || rawtonic_gpu::device_start::device_lost()
+                    {
+                        log::info!(
+                            "[multi_view] {path}: no whole-photograph noise measurement: the graphics device was lost meanwhile"
+                        );
+                    } else {
+                        log::warn!("[multi_view] {path}: no whole-photograph noise measurement: {e}")
+                    }
                 })
                 .ok()
                 .flatten()

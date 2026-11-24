@@ -13,8 +13,10 @@
 //! device the way the app's start does (`get_or_init_gpu_context`, then
 //! `attach_display`), prepares the processor and tells the window
 //! (`gpu-device-recovered`), which renders the open photo and the cells
-//! again and says so once. The window keeps showing its last frames
-//! meanwhile: nothing presents until a new frame comes.
+//! again and says so once. The multi view's layout and zooms go to the new
+//! display first (`multi_view::show_again`), so zoomed cells stay zoomed.
+//! The window keeps showing its last frames meanwhile: nothing presents
+//! until a new frame comes.
 //!
 //! Repeated losses back off and stop: a GPU reset is not harmless (two
 //! seconds apart they once hung Windows on that 680M), so a second loss
@@ -138,6 +140,13 @@ fn recover(app_handle: &tauri::AppHandle, lost: rawtonic_gpu::device_start::Lost
         lost.message
     );
     std::thread::sleep(SETTLE);
+    // The multi view's layout and zooms, shown again on the new display
+    // (none on Linux, which has no native multi view).
+    let shown = gpu.context().and_then(|context| {
+        lock_recover(&context.display)
+            .as_ref()
+            .and_then(crate::multi_view::shown_on)
+    });
     let develop = app_handle.state::<DevelopSession>();
     drop_device_state(&gpu, Some(&develop));
     let started = crate::gpu_processing::get_or_init_gpu_context(&gpu, app_handle);
@@ -165,6 +174,9 @@ fn recover(app_handle: &tauri::AppHandle, lost: rawtonic_gpu::device_start::Lost
     }
     // `attach_display` replaces the context when the adapter cannot present.
     let context = gpu.context().unwrap_or(context);
+    if let Some(shown) = shown {
+        crate::multi_view::show_again(app_handle, shown);
+    }
     tauri::async_runtime::block_on(crate::second_window::after_device_recovered(
         app_handle, &context,
     ));

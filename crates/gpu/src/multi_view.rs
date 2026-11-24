@@ -2159,6 +2159,36 @@ mod tests {
         assert!(!multi.is_zoomed());
     }
 
+    /// A new device's display gets the lost one's zooms before its layout
+    /// (`multi_view::show_again` in the app, WDVL3): the new multi view
+    /// keeps them when the layout comes, and when the webview sends the
+    /// same layout again.
+    #[test]
+    fn zooms_set_before_the_layout_stay() {
+        let cell = |path: &str| MultiViewCell {
+            path: path.into(),
+            area: [0.0, 0.0, 10.0, 10.0],
+        };
+        let one = CellZoom {
+            scale: 1.0,
+            center: [0.25, 0.75],
+        };
+        let mut multi = MultiView::default();
+        multi.set_zooms(None, HashMap::from([("a".to_string(), one)]));
+        assert!(!multi.is_active());
+        let layout = vec![cell("p"), cell("a"), cell("b")];
+        multi.set_layout(Some("p".into()), layout.clone());
+        assert_eq!(multi.zoom_of("a"), Some(one));
+        assert_eq!(multi.zoom_of("b"), None);
+        multi.set_layout(Some("p".into()), layout);
+        assert_eq!(multi.zoom_of("a"), Some(one));
+        // The zoom lock's shared zoom too.
+        let mut locked = MultiView::default();
+        locked.set_zoom(Some(one));
+        locked.set_layout(Some("p".into()), vec![cell("p"), cell("b")]);
+        assert_eq!(locked.zoom_of("b"), Some(one));
+    }
+
     #[test]
     #[ignore = "requires a native GPU; each cell zoomed on its own without the zoom lock"]
     fn individual_zooms_zoom_only_their_cell() {

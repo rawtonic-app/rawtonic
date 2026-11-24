@@ -6982,9 +6982,9 @@ pub fn set_compile_limit(limit: Option<usize>) {
     COMPILE_LIMIT.freed.notify_all();
 }
 
-/// Compiles and exports waiting for a compile slot (`compile_slot`,
-/// `wait_for_running_compiles`): an idle compile in a helper process is
-/// stopped for them (`idle_compile_child`).
+/// Compiles waiting for a compile slot (`compile_slot`): an idle compile in
+/// a helper process is stopped for them (`idle_compile_child`). An export
+/// waiting for the compiles to end counts in `ENDS_AWAITED` instead.
 static SLOT_WANTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Counts in `SLOT_WANTED` while it lives.
@@ -7005,7 +7005,14 @@ impl Drop for SlotWanted {
 
 /// Exports waiting for the compiles to end (`wait_for_running_compiles`)
 /// without an idle worker compiling their variant: no idle compile starts
-/// meanwhile (`background_compile_slot`).
+/// meanwhile (`background_compile_slot`), and a helper compiling a job no
+/// frame or export waits for stops (`IdleCompiles::helper_stops`). One
+/// they wait for goes on: the export waits for it to end. WDVL3: after a
+/// lost device the shown photo's frame waited for its variant in a helper
+/// while two export lanes waited for the compiles to end; the lanes
+/// stopped that helper (they counted as compiles wanting the slot), the
+/// worker started it again for the frame, 95 times a second, and the
+/// exports waited for good.
 static ENDS_AWAITED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Counts in `ENDS_AWAITED` while it lives.
@@ -7024,9 +7031,14 @@ impl Drop for EndsAwaited {
     }
 }
 
-/// Whether a compile or an export waits for a compile slot now.
+/// Whether a compile waits for a compile slot now.
 fn slot_wanted() -> bool {
     SLOT_WANTED.load(std::sync::atomic::Ordering::SeqCst) > 0
+}
+
+/// Whether an export waits for the compiles to end now (`ENDS_AWAITED`).
+fn ends_awaited() -> bool {
+    ENDS_AWAITED.load(std::sync::atomic::Ordering::SeqCst) > 0
 }
 
 /// A held compile slot; `id` names it in `SLOT_HOLDERS`.
@@ -7120,13 +7132,13 @@ pub fn wait_for_running_compiles(what: &str) {
         .state
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    // An idle compile in a helper process stops for it, unless the idle
-    // worker compiles the variant this export renders with first
+    // An idle compile in a helper process that no frame or export waits
+    // for stops for it (`ENDS_AWAITED`), unless the idle worker compiles
+    // the variant this export renders with first
     // (`export_of_shown_photo_starts`): then the export waits for that, and
     // the worker stops any other helper itself.
     let awaits_variant = idle_compiles::export_awaits_variant;
-    let wants = ((state.0 > 0 || compiles_pending()) && !awaits_variant())
-        .then(|| (SlotWanted::new(), EndsAwaited::new()));
+    let wants = ((state.0 > 0 || compiles_pending()) && !awaits_variant()).then(EndsAwaited::new);
     // A compile that waits for a slot is not signalled on `freed` while it
     // waits, so this looks again every 250 ms.
     let mut told = started;
@@ -7192,7 +7204,7 @@ fn background_compile_slot(what: &str, awaited: bool) -> Option<CompileSlot> {
     // starts all the same: the export waiting for the compiles to end waits
     // for it too (WDVL2: with two export lanes, one waited for the compiles
     // and the other for its variant, which no worker then compiled).
-    let ends_awaited = !awaited && ENDS_AWAITED.load(std::sync::atomic::Ordering::SeqCst) > 0;
+    let ends_awaited = !awaited && ends_awaited();
     if heavy || ends_awaited || state.0 > 0 || state.1.is_some_and(|max| state.0 >= max) {
         return None;
     }
