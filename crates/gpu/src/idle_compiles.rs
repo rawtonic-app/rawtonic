@@ -664,7 +664,7 @@ impl IdleCompiles {
 
     /// Whether a frame asked `covering` for the job that runs or runs next
     /// within `within`, i.e. still waits for it.
-    fn frame_waits(&self, within: Duration) -> bool {
+    fn frame_asked_within(&self, within: Duration) -> bool {
         let last = self.awaited_ms.load(Ordering::Relaxed);
         last != 0 && now_ms().saturating_sub(last) < within.as_millis() as u64
     }
@@ -672,7 +672,7 @@ impl IdleCompiles {
     /// Whether a frame or an export waits for `job` now: a frame asks
     /// `covering` every few milliseconds while it waits.
     fn awaited(&self, job: IdleJob) -> bool {
-        self.frame_waits(AWAITED) || self.lock().export_job == Some(job)
+        self.frame_asked_within(AWAITED) || self.lock().export_job == Some(job)
     }
 
     /// Ends the worker after the compile it runs (if any); nothing new
@@ -824,7 +824,7 @@ impl IdleCompiles {
                 // 2 ms, so 100 ms without a call means it went on (a frame
                 // that still waits is seen at the next poll).
                 let waited_for =
-                    awaited || (urgent && self.frame_waits(Duration::from_millis(100)));
+                    awaited || (urgent && self.frame_asked_within(Duration::from_millis(100)));
                 let Some(turn) = crate::memory_turns::compile(waited_for) else {
                     drop(slot);
                     let queue = self.lock();
