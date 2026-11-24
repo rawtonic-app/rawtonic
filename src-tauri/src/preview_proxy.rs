@@ -13,6 +13,15 @@
 //! photograph opens on them: on the 1:1 proxy at full resolution, else on the
 //! Standard one.
 //!
+//! Each kind holds the decode variant it was last made for, usually the
+//! master recipe's. When it is made again for another variant (a
+//! decode-variant bump, a new edit) while a saved recipe, the master's or a
+//! virtual copy's, still asks for the old one, the old file is kept beside
+//! it under that variant's name (`kept_path_for_tag`), so that recipe still
+//! opens offline; it goes once no saved recipe asks for it, and cache limits,
+//! expiry and clearing count it like the others. Online nothing changes: a
+//! recipe of another variant than the master's decodes the RAW.
+//!
 //! File: `RTPX`, format version (u32 LE), JSON header length (u32 LE), JSON
 //! header, then the image in bands of rows: per band its row count and
 //! compressed length (u32 LE) and the band's bytes, in the header's
@@ -218,6 +227,11 @@ struct Header {
     /// `DISPLAY_COPY` when written; absent before 2026-11-21.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     display_copy: Option<u32>,
+    /// The decode variants (`variant_tag`) whose previews of this kind are
+    /// kept beside this one for saved recipes that ask for them
+    /// (`keep_superseded`). Absent before 2026-11-24 and when none are.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    kept: Vec<String>,
 }
 
 impl Header {
@@ -359,6 +373,202 @@ pub fn proxy_path_of(source: &Path, kind: ProxyKind) -> Option<PathBuf> {
     }))
 }
 
+/// The name part of the previews kept for `variant` beside the photograph's
+/// own (`kept_path_of`): a hash of the variant's part of the key.
+fn variant_tag(variant: DecodeVariant) -> String {
+    blake3::hash(variant_part(variant).as_bytes()).to_hex()[..16].to_string()
+}
+
+/// Whether `tag` is one `variant_tag` makes (a header's `kept` list names
+/// files only by such tags).
+fn is_variant_tag(tag: &str) -> bool {
+    tag.len() == 16 && tag.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// Where the preview of `kind` of `source` kept for the decode variant
+/// `tag` lives (PXR1): beside its own preview, `<stem>.<tag>.rtpx` or
+/// `<stem>.<tag>.full.rtpx`. The photograph's own preview (`proxy_path_of`)
+/// holds the variant it was last made for, usually its master's; when a
+/// decode-variant bump or a new edit makes it for another variant while a
+/// saved recipe (the master's or a virtual copy's) still asks for the old
+/// one, the old preview is kept here (`keep_superseded`), so that recipe
+/// still opens offline. Cache limits, expiry and clearing count these files
+/// like the others (their names end alike).
+fn kept_path_for_tag(source: &Path, kind: ProxyKind, tag: &str) -> Option<PathBuf> {
+    if !is_variant_tag(tag) {
+        return None;
+    }
+    let (dir, name) = location(source)?;
+    Some(dir.join(preview_name(&name, kind, Some(tag))))
+}
+
+fn kept_path_of(source: &Path, kind: ProxyKind, variant: DecodeVariant) -> Option<PathBuf> {
+    kept_path_for_tag(source, kind, &variant_tag(variant))
+}
+
+/// The file name of the preview of `kind` named `stem` (`location`), or of
+/// the one kept beside it for the variant `tag`.
+fn preview_name(stem: &str, kind: ProxyKind, tag: Option<&str>) -> String {
+    let stem = match tag {
+        Some(tag) => format!("{stem}.{tag}"),
+        None => stem.to_string(),
+    };
+    match kind {
+        ProxyKind::Standard => format!("{stem}.rtpx"),
+        ProxyKind::Full => format!("{stem}{FULL_SUFFIX}"),
+    }
+}
+
+/// The photograph's file stem, kind and variant tag of a kept preview's
+/// file name (`kept_path_for_tag`); None for any other name.
+fn kept_name(name: &str) -> Option<(&str, ProxyKind, &str)> {
+    let (rest, kind) = match name.strip_suffix(FULL_SUFFIX) {
+        Some(rest) => (rest, ProxyKind::Full),
+        None => (name.strip_suffix(".rtpx")?, ProxyKind::Standard),
+    };
+    let (stem, tag) = rest.rsplit_once('.')?;
+    (is_variant_tag(tag) && !stem.contains('.')).then_some((stem, kind, tag))
+}
+
+/// The previews kept for other decode variants in previews folders, by
+/// the photograph's file stem: each folder is listed once, so work on many
+/// photographs reads a folder of thousands of previews once, not once each.
+#[derive(Default)]
+pub struct KeptIndex {
+    folders: HashMap<PathBuf, HashMap<String, Vec<(ProxyKind, String)>>>,
+}
+
+impl KeptIndex {
+    fn folder(&mut self, dir: &Path) -> &mut HashMap<String, Vec<(ProxyKind, String)>> {
+        self.folders.entry(dir.to_path_buf()).or_insert_with(|| {
+            let mut kept: HashMap<String, Vec<(ProxyKind, String)>> = HashMap::new();
+            for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+                let name = entry.file_name();
+                if let Some((stem, kind, tag)) = name.to_str().and_then(kept_name)
+                    && entry.file_type().is_ok_and(|t| t.is_file())
+                {
+                    kept.entry(stem.to_string())
+                        .or_default()
+                        .push((kind, tag.to_string()));
+                }
+            }
+            kept
+        })
+    }
+
+    /// The tags of the previews of `kind` kept in `dir` for the photograph
+    /// whose previews are named `stem`.
+    fn tags(&mut self, dir: &Path, stem: &str, kind: ProxyKind) -> Vec<String> {
+        self.folder(dir)
+            .get(stem)
+            .into_iter()
+            .flatten()
+            .filter(|(k, _)| *k == kind)
+            .map(|(_, tag)| tag.clone())
+            .collect()
+    }
+
+    /// Notes that the kept preview `tag` of `kind` moved from `from` to `to`
+    /// (folder and stem each).
+    fn moved(&mut self, from: (&Path, &str), to: (&Path, &str), kind: ProxyKind, tag: &str) {
+        if let Some(list) = self.folder(from.0).get_mut(from.1) {
+            list.retain(|(k, t)| !(*k == kind && t == tag));
+        }
+        self.folder(to.0)
+            .entry(to.1.to_string())
+            .or_default()
+            .push((kind, tag.to_string()));
+    }
+}
+
+/// The previews of `kind` of `source` that may hold `recipe`'s decode
+/// variant (None: the master's), in the order they are tried (each header
+/// then decides, as for its own preview): online the photograph's own, then
+/// those kept for the variants the recipe may ask for in any frame of the
+/// RAW, looked up only when the caller goes on. Offline first those made
+/// for exactly the recipe's variant; the others (the own one may stand for
+/// the recipe only because the master asks for the same variant now and its
+/// frame fits) only when no preview of either kind was made for it exactly,
+/// so an exact Standard preview wins over a 1:1 one of another variant.
+fn preview_paths<'a>(
+    source: &'a Path,
+    kind: ProxyKind,
+    recipe: Option<&'a Value>,
+) -> Box<dyn Iterator<Item = PathBuf> + 'a> {
+    let own = proxy_path_of(source, kind);
+    if source_available(source) {
+        return Box::new(
+            own.into_iter()
+                .chain(std::iter::once_with(move || kept_paths(source, kind, recipe)).flatten()),
+        );
+    }
+    let master;
+    let recipe = match recipe {
+        Some(recipe) => recipe,
+        None => {
+            master = master_recipe(source);
+            &master
+        }
+    };
+    let of_kind = |kind| {
+        let mut paths: Vec<PathBuf> = proxy_path_of(source, kind).into_iter().collect();
+        paths.extend(kept_paths(source, kind, Some(recipe)));
+        let (exact, others): (Vec<_>, Vec<_>) = paths
+            .into_iter()
+            .filter_map(|path| Some((read_header(&path)?, path)))
+            .partition(|(header, _)| made_for_exactly(header, source, kind, recipe));
+        (exact, others)
+    };
+    let (exact, mut others) = of_kind(kind);
+    // A preview of the other size made for the recipe hides the others only
+    // when it can open in their place: as recent an engine, the same file
+    // and the decoder settings they were made with (the current ones, or
+    // they cannot open either).
+    if exact.is_empty() {
+        let (other_exact, _) = of_kind(other_kind(kind));
+        others.retain(|(fallback, _)| {
+            !other_exact.iter().any(|(exact, _)| {
+                exact.key.engine <= ENGINE_VERSION
+                    && decoder_settings(&exact.key.decoder)
+                        == decoder_settings(&fallback.key.decoder)
+                    && file_stamp(source)
+                        .is_none_or(|stamp| stamp == (exact.key.file_size, exact.key.modified_ns))
+            })
+        });
+    }
+    Box::new(
+        exact
+            .into_iter()
+            .chain(others)
+            .map(|(_, path)| path)
+            .collect::<Vec<_>>()
+            .into_iter(),
+    )
+}
+
+fn kept_paths(source: &Path, kind: ProxyKind, recipe: Option<&Value>) -> Vec<PathBuf> {
+    let master;
+    let recipe = match recipe {
+        Some(recipe) => recipe,
+        None => {
+            master = master_recipe(source);
+            &master
+        }
+    };
+    let source_str = source.to_string_lossy();
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for frame in 0..=source_frame::VERSION {
+        let variant = crate::image_loader::decode_variant_for_frame(recipe, &source_str, frame);
+        if let Some(path) = kept_path_of(source, kind, variant)
+            && !paths.contains(&path)
+            && path.is_file()
+        {
+            paths.push(path);
+        }
+    }
+    paths
+}
+
 /// Whether the RAW itself can be read now: it can be opened and is not a
 /// cloud file waiting to be downloaded (reading that starts the download).
 /// Otherwise the photograph is offline and opens on its proxies.
@@ -414,25 +624,74 @@ fn master_recipe(source: &Path) -> Value {
     crate::exif_processing::load_sidecar(&sidecar).adjustments
 }
 
-/// Compatibility from the preview header. None when its header is absent
-/// or unreadable. This does not register facts for offline rendering.
+/// The master's recipe when its sidecar is here: None when it is a cloud
+/// file not downloaded, which is not read for a comparison (reading it would
+/// download it).
+fn master_recipe_here(source: &Path) -> Option<Value> {
+    let (_, sidecar) = crate::file_management::parse_virtual_path(&source.to_string_lossy());
+    // A library's own record of the edit is read first and needs no file.
+    (!crate::file_management::is_cloud_placeholder(&sidecar)
+        || crate::session_bridge::read_editor_sidecar(&sidecar).is_some())
+    .then(|| crate::exif_processing::load_sidecar(&sidecar).adjustments)
+}
+
+/// Compatibility from the preview headers (the photograph's own, then those
+/// kept for other decode variants). None when no header can be read. This
+/// does not register facts for offline rendering.
 pub fn stands_for(source: &Path, recipe: &Value, kind: ProxyKind) -> Option<bool> {
-    let header = read_header(&proxy_path_of(source, kind)?)?;
-    Some(header_stands_for(
-        &header,
-        source,
-        kind,
-        recipe,
-        &master_recipe(source),
-        !source_available(source),
-    ))
+    let offline = !source_available(source);
+    // Offline the master's recipe is only needed (and read) for a preview
+    // not made for exactly this recipe's variant, and not from a cloud file.
+    let mut master: Option<Option<Value>> = None;
+    first_answer(preview_paths(source, kind, Some(recipe)), |header| {
+        if offline && made_for_exactly(header, source, kind, recipe) {
+            return Some(true);
+        }
+        let master = master
+            .get_or_insert_with(|| match offline {
+                true => master_recipe_here(source),
+                false => Some(master_recipe(source)),
+            })
+            .as_ref()?;
+        Some(header_stands_for(
+            header, source, kind, recipe, master, offline,
+        ))
+    })
+    // Its own preview, not tried (offline a preview of the other kind was
+    // made for exactly this recipe) or not decidable: it does not stand for it.
+    .or_else(|| {
+        proxy_path_of(source, kind)
+            .and_then(|path| read_header(&path))
+            .map(|_| false)
+    })
+}
+
+/// `Some(true)` from the first of `paths` whose header `fits`, else the
+/// answer of the first readable one (None without any).
+fn first_answer(
+    paths: impl Iterator<Item = PathBuf>,
+    mut fits: impl FnMut(&Header) -> Option<bool>,
+) -> Option<bool> {
+    let mut first = None;
+    for path in paths {
+        let Some(header) = read_header(&path) else {
+            continue;
+        };
+        match fits(&header) {
+            Some(true) => return Some(true),
+            answer => first = first.or(answer),
+        }
+    }
+    first
 }
 
 /// Standard proxy compatibility from its header and local recipes. With
 /// an evicted master sidecar, the grid keeps the older tile.
 pub(crate) fn stands_for_by_recipe(source: &Path, recipe: &Value) -> Option<bool> {
-    let header = read_header(&proxy_path(source)?)?;
-    standard_recipe_fits(&header, source, recipe)
+    first_answer(
+        preview_paths(source, ProxyKind::Standard, Some(recipe)),
+        |header| standard_recipe_fits(header, source, recipe),
+    )
 }
 
 fn standard_recipe_fits(header: &Header, source: &Path, recipe: &Value) -> Option<bool> {
@@ -489,11 +748,12 @@ fn file_stamp(source: &Path) -> Option<(u64, u128)> {
 /// highlight rebuild (`HighlightRebuild::Ratios`) and a DNG lens warp of
 /// the camera planes (`WarpPlanes::Camera`).
 fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
-    let key = format!(
-        "{};cnrms={}",
-        crate::image_loader::decode_preferences(settings),
-        u8::from(variant.multiscale),
-    );
+    crate::image_loader::decode_preferences(settings) + &variant_part(variant)
+}
+
+/// The decode variant's part of a proxy key's `decoder` (`decoder_key`).
+fn variant_part(variant: DecodeVariant) -> String {
+    let key = format!(";cnrms={}", u8::from(variant.multiscale));
     let key = match variant.dead_test {
         DeadTest::SameColour => key,
         DeadTest::Adjacent => key + ";dead=adjacent",
@@ -590,39 +850,8 @@ fn header_stands_for(
     master: &Value,
     offline: bool,
 ) -> bool {
-    let source_str = source.to_string_lossy();
-    let extension = source_frame::extension_of(&source_str);
-    let sibling_frames;
-    let frames = if let Some(frames) = header
-        .facts
-        .as_ref()
-        .and_then(|facts| facts.frames.as_deref())
-        .filter(|frames| !frames.is_empty())
-    {
-        frames
-    } else if rawtonic_rawdecode::source_frame::may_change(&extension) {
-        // A legacy 1:1 or Standard header can use the other preview's
-        // frame facts when it describes the same original.
-        let sibling = match kind {
-            ProxyKind::Standard => ProxyKind::Full,
-            ProxyKind::Full => ProxyKind::Standard,
-        };
-        sibling_frames = proxy_path_of(source, sibling)
-            .and_then(|path| read_header(&path))
-            .filter(|other| {
-                other.key.file_size == header.key.file_size
-                    && other.key.modified_ns == header.key.modified_ns
-            })
-            .and_then(|other| other.facts?.frames)
-            .filter(|frames| !frames.is_empty());
-        sibling_frames.as_deref().unwrap_or(&[0])
-    } else {
-        &[0]
-    };
-    let variant = |recipe| {
-        let frame = source_frame::effective_in(frames, source_frame::requested(recipe), &extension);
-        crate::image_loader::decode_variant_for_frame(recipe, &source_str, frame)
-    };
+    let frames = header_frames(header, source, kind);
+    let variant = |recipe| wanted_variant(&frames, source, recipe);
     let made_for = variant_of_key(&header.key.decoder);
     let wanted = variant(recipe);
     let matching_frame = made_for.frame == wanted.frame;
@@ -631,6 +860,58 @@ fn header_stands_for(
     }
     wanted == variant(master)
         && (matching_frame || (offline && unframed(recipe) && unframed(master)))
+}
+
+/// The frames of the RAW a proxy header's facts record (`source_frame`): a
+/// legacy header without them takes the other preview's when it describes
+/// the same original, else frame 0 only.
+fn header_frames(header: &Header, source: &Path, kind: ProxyKind) -> Vec<u32> {
+    if let Some(frames) = header
+        .facts
+        .as_ref()
+        .and_then(|facts| facts.frames.clone())
+        .filter(|frames| !frames.is_empty())
+    {
+        return frames;
+    }
+    let extension = source_frame::extension_of(&source.to_string_lossy());
+    if !rawtonic_rawdecode::source_frame::may_change(&extension) {
+        return vec![0];
+    }
+    // A legacy 1:1 or Standard header can use the other preview's frame
+    // facts when it describes the same original.
+    proxy_path_of(source, other_kind(kind))
+        .and_then(|path| read_header(&path))
+        .filter(|other| {
+            other.key.file_size == header.key.file_size
+                && other.key.modified_ns == header.key.modified_ns
+        })
+        .and_then(|other| other.facts?.frames)
+        .filter(|frames| !frames.is_empty())
+        .unwrap_or_else(|| vec![0])
+}
+
+/// The other kind of preview.
+fn other_kind(kind: ProxyKind) -> ProxyKind {
+    match kind {
+        ProxyKind::Standard => ProxyKind::Full,
+        ProxyKind::Full => ProxyKind::Standard,
+    }
+}
+
+/// The decode variant `recipe` asks for on the RAW with `frames`.
+fn wanted_variant(frames: &[u32], source: &Path, recipe: &Value) -> DecodeVariant {
+    let source_str = source.to_string_lossy();
+    let extension = source_frame::extension_of(&source_str);
+    let frame = source_frame::effective_in(frames, source_frame::requested(recipe), &extension);
+    crate::image_loader::decode_variant_for_frame(recipe, &source_str, frame)
+}
+
+/// Whether the preview with `header` was made for exactly the decode variant
+/// `recipe` asks for (not only accepted for the master's frame).
+fn made_for_exactly(header: &Header, source: &Path, kind: ProxyKind, recipe: &Value) -> bool {
+    variant_of_key(&header.key.decoder)
+        == wanted_variant(&header_frames(header, source, kind), source, recipe)
 }
 
 /// Check the original and decoder preferences of the selected proxy.
@@ -643,9 +924,8 @@ fn header_is_current(
     settings: &AppSettings,
     recipe: Option<&Value>,
 ) -> bool {
-    let master = master_recipe(source);
     if !source_available(source) {
-        return header.key.engine <= ENGINE_VERSION
+        if !(header.key.engine <= ENGINE_VERSION
             && decoder_settings(&header.key.decoder)
                 == crate::image_loader::decode_preferences(settings)
             && current_key(source, settings, variant_of_key(&header.key.decoder)).is_none_or(
@@ -653,16 +933,33 @@ fn header_is_current(
                     header.key.file_size == key.file_size
                         && header.key.modified_ns == key.modified_ns
                 },
-            )
-            && header_stands_for(
-                header,
-                source,
-                kind,
-                recipe.unwrap_or(&master),
-                &master,
-                true,
-            );
+            ))
+        {
+            return false;
+        }
+        if let Some(recipe) = recipe
+            && made_for_exactly(header, source, kind, recipe)
+        {
+            return true;
+        }
+        // Otherwise the master's recipe decides; for another recipe it is
+        // not read from a cloud file not downloaded (that would download it).
+        let Some(master) = (match recipe {
+            Some(_) => master_recipe_here(source),
+            None => Some(master_recipe(source)),
+        }) else {
+            return false;
+        };
+        return header_stands_for(
+            header,
+            source,
+            kind,
+            recipe.unwrap_or(&master),
+            &master,
+            true,
+        );
     }
+    let master = master_recipe(source);
     let source_str = source.to_string_lossy();
     // The frames the header's facts recorded, when they are the file's as
     // it is now (same size and time) and know every frame version: the
@@ -808,6 +1105,8 @@ pub fn encode(image: &DynamicImage, full_width: u32, full_height: u32, key: Prox
 struct SourceData {
     facts: Option<SourceFacts>,
     exif: Option<HashMap<String, String>>,
+    /// The header's `kept` list (not of the RAW: of the previews kept beside).
+    kept: Vec<String>,
 }
 
 impl SourceData {
@@ -829,6 +1128,7 @@ impl SourceData {
         SourceData {
             facts: Some(facts),
             exif,
+            kept: Vec::new(),
         }
     }
 }
@@ -882,6 +1182,7 @@ fn encode_with_sample(
         facts: data.facts,
         exif: data.exif,
         display_copy: Some(DISPLAY_COPY),
+        kept: data.kept,
     })
     .expect("serializable header");
     let mut out =
@@ -993,12 +1294,13 @@ pub fn read_kind(
     settings: &AppSettings,
     recipe: Option<&Value>,
 ) -> Option<Proxy> {
-    let path = proxy_path_of(source, kind)?;
-    let _file_use = crate::storage_fs::pin_file(&path);
-    let (header, bytes) = read_preview_payload(&path, source, kind, settings, recipe)?;
-    let proxy = decode_bands(&bytes, header)?;
-    mark_used(&path);
-    Some(proxy)
+    preview_paths(source, kind, recipe).find_map(|path| {
+        let _file_use = crate::storage_fs::pin_file(&path);
+        let (header, bytes) = read_preview_payload(&path, source, kind, settings, recipe)?;
+        let proxy = decode_bands(&bytes, header)?;
+        mark_used(&path);
+        Some(proxy)
+    })
 }
 
 /// The size of the current 1:1 proxy of `source` (its full decode's), read
@@ -1008,11 +1310,13 @@ pub fn full_size(
     settings: &AppSettings,
     recipe: Option<&Value>,
 ) -> Option<(u32, u32)> {
-    let header = read_header(&proxy_path_of(source, ProxyKind::Full)?)?;
-    (header.width == header.full_width
-        && header.height == header.full_height
-        && header_is_current(&header, source, ProxyKind::Full, settings, recipe))
-    .then_some((header.width, header.height))
+    preview_paths(source, ProxyKind::Full, recipe).find_map(|path| {
+        let header = read_header(&path)?;
+        (header.width == header.full_width
+            && header.height == header.full_height
+            && header_is_current(&header, source, ProxyKind::Full, settings, recipe))
+        .then_some((header.width, header.height))
+    })
 }
 
 /// Part of a 1:1 proxy: columns `col0..col0 + cols` of RGB rows `row0..`
@@ -1043,12 +1347,14 @@ pub fn read_full_rows(
     cols: (u32, u32),
     recipe: Option<&Value>,
 ) -> Option<ProxyRows> {
-    let path = proxy_path_of(source, ProxyKind::Full)?;
-    let _file_use = crate::storage_fs::pin_file(&path);
-    let (header, bytes) = read_preview_payload(&path, source, ProxyKind::Full, settings, recipe)?;
-    let proxy = decode_rows(&bytes, header, rows, cols)?;
-    mark_used(&path);
-    Some(proxy)
+    preview_paths(source, ProxyKind::Full, recipe).find_map(|path| {
+        let _file_use = crate::storage_fs::pin_file(&path);
+        let (header, bytes) =
+            read_preview_payload(&path, source, ProxyKind::Full, settings, recipe)?;
+        let proxy = decode_rows(&bytes, header, rows, cols)?;
+        mark_used(&path);
+        Some(proxy)
+    })
 }
 
 /// Columns `cols` of the bands of the full-resolution proxy in `bytes`
@@ -1303,11 +1609,11 @@ pub(crate) fn standard_header_is_current(
     settings: &AppSettings,
     recipe: &Value,
 ) -> bool {
-    proxy_path(source)
-        .and_then(|path| read_header(&path))
-        .is_some_and(|header| {
+    preview_paths(source, ProxyKind::Standard, Some(recipe)).any(|path| {
+        read_header(&path).is_some_and(|header| {
             header_is_current(&header, source, ProxyKind::Standard, settings, Some(recipe))
         })
+    })
 }
 
 /// The long edge of the Standard proxy stored for `source`, if current
@@ -1328,12 +1634,12 @@ pub fn stored_size(source: &Path, settings: &AppSettings) -> Option<u32> {
 /// shows is the old display, so its key keeps the old salt until the proxy is
 /// made again.
 pub(crate) fn standard_display_copy_is_stale(source: &Path, recipe: &Value) -> bool {
-    proxy_path(source)
-        .and_then(|path| read_header(&path))
-        .is_some_and(|header| {
-            header.display_copy_is_stale()
-                && standard_recipe_fits(&header, source, recipe) != Some(false)
-        })
+    // The first preview that may show the recipe decides (a kept one only
+    // when the photograph's own does not).
+    preview_paths(source, ProxyKind::Standard, Some(recipe))
+        .filter_map(|path| read_header(&path))
+        .find(|header| standard_recipe_fits(header, source, recipe) != Some(false))
+        .is_some_and(|header| header.display_copy_is_stale())
 }
 
 /// Whether a current 1:1 proxy of `source` is stored (in the current
@@ -1341,10 +1647,12 @@ pub(crate) fn standard_display_copy_is_stale(source: &Path, recipe: &Value) -> b
 /// What the current 1:1 proxy of `source` was made from (its header's
 /// key), as reading it validates it; None without a current one.
 pub fn full_key(source: &Path, settings: &AppSettings, recipe: Option<&Value>) -> Option<ProxyKey> {
-    let header = read_header(&proxy_path_of(source, ProxyKind::Full)?)?;
-    (header.is_current_encoding()
-        && header_is_current(&header, source, ProxyKind::Full, settings, recipe))
-    .then_some(header.key)
+    preview_paths(source, ProxyKind::Full, recipe).find_map(|path| {
+        let header = read_header(&path)?;
+        (header.is_current_encoding()
+            && header_is_current(&header, source, ProxyKind::Full, settings, recipe))
+        .then_some(header.key)
+    })
 }
 
 pub fn has_full(source: &Path, settings: &AppSettings) -> bool {
@@ -1440,6 +1748,17 @@ fn store(
     let _file_use = crate::storage_fs::pin_file(&path);
     let key = current_key(source, settings, variant).ok_or("Source file unavailable")?;
     let sample = content_sample(source);
+    fs::create_dir_all(path.parent().ok_or("No parent")?).map_err(|e| e.to_string())?;
+    let mut data = SourceData::read(source, measures);
+    let (kept, unused) = keep_superseded(
+        source,
+        kind,
+        &path,
+        read_header(&path).as_ref(),
+        variant,
+        settings,
+    );
+    data.kept = kept;
     let bytes = encode_with_sample(
         image,
         full_width,
@@ -1447,12 +1766,138 @@ fn store(
         key.clone(),
         sample,
         Some(source_label(source)),
-        SourceData::read(source, measures),
+        data,
         before_band,
     );
-    fs::create_dir_all(path.parent().ok_or("No parent")?).map_err(|e| e.to_string())?;
     rawtonic_fs::atomic_write(&path, bytes).map_err(|e| e.to_string())?;
+    // Only now: until the new preview is there, these may be all there is.
+    for path in unused {
+        crate::storage_fs::remove_if_unpinned(&path);
+    }
     Ok(key)
+}
+
+/// The decode variants (`variant_tag`) the saved recipes of `source` ask
+/// for: its master's (a never-edited photograph's: a new edit's) and those
+/// of its virtual copies, by their sidecars beside it (while the photograph
+/// can be read, they are what decides, `session_bridge::read_editor_sidecar`).
+/// None when a sidecar is a cloud file not downloaded: it is not read (that
+/// would download it), and what it asks for is not known.
+fn saved_variants(source: &Path) -> Option<Vec<String>> {
+    let source_str = source.to_string_lossy();
+    let master = master_recipe_here(source)?;
+    let mut tags = vec![variant_tag(crate::image_loader::decode_variant(
+        &master,
+        &source_str,
+    ))];
+    let (Some(dir), Some(name)) = (source.parent(), source.file_name()) else {
+        return Some(tags);
+    };
+    let name = name.to_string_lossy();
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let file_name = entry.file_name();
+        let file_name = file_name.to_string_lossy();
+        if let Some((photo, Some(_))) = rawtonic_metadata::photo_ref::sidecar_name_parts(&file_name)
+            && photo == name
+        {
+            let sidecar = entry.path();
+            if crate::file_management::is_cloud_placeholder(&sidecar) {
+                return None;
+            }
+            let recipe = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+            let tag = variant_tag(crate::image_loader::decode_variant(&recipe, &source_str));
+            if !tags.contains(&tag) {
+                tags.push(tag);
+            }
+        }
+    }
+    Some(tags)
+}
+
+/// Before the preview of `kind` at `path` (`previous` its header) is
+/// replaced by one made for `variant`: keeps it at `kept_path_of` (a hard
+/// link, else a copy; the file at `path` stays until the new one replaces
+/// it atomically) when a saved recipe of `source` still asks for its decode
+/// variant and it would still open offline (same file, decoder settings and
+/// no newer engine), so that recipe keeps a preview while the RAW is
+/// offline (PXR1). Previews kept before (those `previous` lists and those
+/// found beside it) stay while a saved recipe asks for them; the others,
+/// and a kept one of `variant` itself (the new preview replaces it), are
+/// returned to be removed once the new preview is there. When what a saved
+/// recipe asks for is not known (`saved_variants`), everything is kept.
+/// Returns the kept variants' tags for the new header and the files to
+/// remove.
+fn keep_superseded(
+    source: &Path,
+    kind: ProxyKind,
+    path: &Path,
+    previous: Option<&Header>,
+    variant: DecodeVariant,
+    settings: &AppSettings,
+) -> (Vec<String>, Vec<PathBuf>) {
+    let old = previous.map(|previous| variant_of_key(&previous.key.decoder));
+    let superseded = previous.is_some_and(|previous| {
+        old != Some(variant)
+            && previous.key.engine <= ENGINE_VERSION
+            && decoder_settings(&previous.key.decoder)
+                == crate::image_loader::decode_preferences(settings)
+            && (file_stamp(source) == Some((previous.key.file_size, previous.key.modified_ns))
+                || (previous.sample.is_some() && previous.sample == content_sample(source)))
+    });
+    let mut tags: Vec<String> = previous
+        .map(|previous| previous.kept.clone())
+        .unwrap_or_default();
+    // Without a preview of its own (it went first: a 1:1 expiry, the
+    // Standard limit; or a photograph's first preview) no header says what
+    // is kept beside it: the folder is looked at.
+    let hinted = !tags.is_empty() || previous.is_none();
+    if !hinted && !superseded {
+        return (Vec::new(), Vec::new());
+    }
+    tags.retain(|tag| is_variant_tag(tag));
+    if let Some((dir, stem)) = location(source) {
+        tags.extend(KeptIndex::default().tags(&dir, &stem, kind));
+    }
+    if tags.is_empty() && !superseded {
+        return (Vec::new(), Vec::new());
+    }
+    let asked = saved_variants(source);
+    let asks = |tag: &String| asked.as_ref().is_none_or(|asked| asked.contains(tag));
+    let new_tag = variant_tag(variant);
+    let old_tag = old.map(variant_tag);
+    if superseded
+        && let (Some(old), Some(old_tag)) = (old, old_tag)
+        && asks(&old_tag)
+        && let Some(to) = kept_path_of(source, kind, old)
+    {
+        // An older one of that variant gives way to this newer one; one
+        // being read stays (neither the link nor the copy replaces a file).
+        crate::storage_fs::remove_if_unpinned(&to);
+        if let Err(e) = fs::hard_link(path, &to)
+            .or_else(|_| fs::read(path).and_then(|bytes| write_new(&to, &bytes)))
+            && !to.is_file()
+        {
+            log::warn!(
+                "The preview of {} for its older recipe could not be kept: {e}",
+                source.display()
+            );
+        }
+        tags.push(old_tag);
+    }
+    tags.sort();
+    tags.dedup();
+    let mut unused = Vec::new();
+    tags.retain(|tag| {
+        let Some(kept) = kept_path_for_tag(source, kind, tag) else {
+            return false;
+        };
+        if *tag != new_tag && asks(tag) {
+            return kept.is_file();
+        }
+        unused.push(kept);
+        false
+    });
+    (tags, unused)
 }
 
 /// Records a use of the proxy file at `path` in its modification time (its
@@ -1535,35 +1980,94 @@ pub fn discard(dir: &Path, kinds: &[ProxyKind], unused_for: Option<Duration>) ->
         .count()
 }
 
-/// Removes the previews of the kinds in `kinds` of `source`.
-pub fn discard_source(source: &Path, kinds: &[ProxyKind]) -> usize {
-    kinds
-        .iter()
-        .filter_map(|&kind| proxy_path_of(source, kind))
-        .filter(|path| crate::storage_fs::remove_if_unpinned(path))
-        .count()
+/// The previews of `kind` of `source`: its own and those kept beside it for
+/// other decode variants (`kept_path_for_tag`, found by their names, so
+/// also when its own preview went first), each with its variant tag.
+fn own_and_kept(
+    source: &Path,
+    kind: ProxyKind,
+    index: &mut KeptIndex,
+) -> Vec<(PathBuf, Option<String>)> {
+    let Some((dir, stem)) = location(source) else {
+        return Vec::new();
+    };
+    let kept = index.tags(&dir, &stem, kind);
+    std::iter::once((dir.join(preview_name(&stem, kind, None)), None))
+        .chain(
+            kept.into_iter()
+                .map(|tag| (dir.join(preview_name(&stem, kind, Some(&tag))), Some(tag))),
+        )
+        .collect()
 }
 
-/// Moves the previews of `from` to where those of `to` live (a relinked
-/// photograph keeps its previews). Only preview files move, each without
+/// Removes the previews of the kinds in `kinds` of `source` (those kept
+/// for other decode variants too).
+#[cfg(test)]
+fn discard_source(source: &Path, kinds: &[ProxyKind]) -> usize {
+    discard_sources([source], kinds)
+}
+
+/// Removes the previews of the kinds in `kinds` of each of `sources` (those
+/// kept for other decode variants too), listing each previews folder once.
+/// Returns how many files went.
+pub fn discard_sources<'a>(
+    sources: impl IntoIterator<Item = &'a Path>,
+    kinds: &[ProxyKind],
+) -> usize {
+    let mut index = KeptIndex::default();
+    let mut removed = 0;
+    for source in sources {
+        for &kind in kinds {
+            removed += own_and_kept(source, kind, &mut index)
+                .iter()
+                .filter(|(path, _)| crate::storage_fs::remove_if_unpinned(path))
+                .count();
+        }
+    }
+    removed
+}
+
+/// Moves the previews of `from` (with those kept for other decode
+/// variants) to where those of `to` live (a relinked photograph keeps its
+/// previews). Only preview files move, each without
 /// replacing one already there; a moved file's header then names `to`
 /// (the size limit tells offline photographs by it). Returns how many moved.
 pub fn carry_over(from: &Path, to: &Path) -> usize {
-    [ProxyKind::Standard, ProxyKind::Full]
-        .into_iter()
-        .filter_map(|kind| Some((proxy_path_of(from, kind)?, proxy_path_of(to, kind)?)))
-        .filter(|(old, new)| old != new && old.is_file())
-        .filter(|(old, new)| {
-            new.parent()
-                .is_some_and(|dir| fs::create_dir_all(dir).is_ok())
-                && rawtonic_fs::rename_no_clobber(old, new).is_ok()
-        })
-        .inspect(|(_, new)| {
-            if let Err(e) = relabel(new, &source_label(to)) {
-                log::warn!("Could not relabel the preview {}: {e}", new.display());
+    carry_over_all([(from, to)])
+}
+
+/// `carry_over` for each pair of `moves` in turn, listing each previews
+/// folder once.
+pub fn carry_over_all<'a>(moves: impl IntoIterator<Item = (&'a Path, &'a Path)>) -> usize {
+    let mut index = KeptIndex::default();
+    let mut moved = 0;
+    for (from, to) in moves {
+        let (Some(old_at), Some(new_at)) = (location(from), location(to)) else {
+            continue;
+        };
+        for kind in [ProxyKind::Standard, ProxyKind::Full] {
+            for (old, tag) in own_and_kept(from, kind, &mut index) {
+                let new = new_at.0.join(preview_name(&new_at.1, kind, tag.as_deref()));
+                if old == new
+                    || !old.is_file()
+                    || !new
+                        .parent()
+                        .is_some_and(|dir| fs::create_dir_all(dir).is_ok())
+                    || rawtonic_fs::rename_no_clobber(&old, &new).is_err()
+                {
+                    continue;
+                }
+                if let Some(tag) = &tag {
+                    index.moved((&old_at.0, &old_at.1), (&new_at.0, &new_at.1), kind, tag);
+                }
+                if let Err(e) = relabel(&new, &source_label(to)) {
+                    log::warn!("Could not relabel the preview {}: {e}", new.display());
+                }
+                moved += 1;
             }
-        })
-        .count()
+        }
+    }
+    moved
 }
 
 /// Where a catalog keeps the Standard previews of photographs outside its
@@ -1574,6 +2078,7 @@ pub const CARRIED_PREVIEWS: &str = "carried-previews";
 
 /// Where the Standard proxy of `source` lives when the previews of
 /// photographs outside sessions are in `outside`.
+#[cfg(test)]
 pub(crate) fn standard_path_with(source: &Path, outside: Option<&Path>) -> Option<PathBuf> {
     let (dir, name) = location_with(source, outside)?;
     Some(dir.join(format!("{name}.rtpx")))
@@ -1582,41 +2087,64 @@ pub(crate) fn standard_path_with(source: &Path, outside: Option<&Path>) -> Optio
 /// Copies the Standard preview of the photograph `from` (if it has one) to
 /// be the Standard preview of `to`: where `to`'s previews live, or into
 /// `carried` (a catalog's carried previews) for a photograph outside the
-/// catalog. Never replaces a file; the copy's header names `to`. Returns
-/// whether a preview was copied. The previews of photographs outside
-/// sessions are in `outside` (`outside_sessions_dir`).
+/// catalog, with those kept beside it for other decode variants (PXR1).
+/// Never replaces a file; the copy's header names `to`. Returns whether a
+/// preview was copied. The previews of photographs outside sessions are in
+/// `outside` (`outside_sessions_dir`).
 pub fn copy_standard(
     from: &Path,
     to: &Path,
     carried: Option<&Path>,
     outside: Option<&Path>,
+    index: &mut KeptIndex,
 ) -> Result<bool, String> {
-    let Some(source) = standard_path_with(from, outside).filter(|p| p.is_file()) else {
+    let Some((from_dir, from_name)) = location_with(from, outside) else {
         return Ok(false);
     };
+    let named = |name: &str, tag: Option<&str>| preview_name(name, ProxyKind::Standard, tag);
+    let source = from_dir.join(named(&from_name, None));
+    let kept = index.tags(&from_dir, &from_name, ProxyKind::Standard);
+    if !source.is_file() && kept.is_empty() {
+        return Ok(false);
+    }
     // Carried previews are named and labelled by the photograph's absolute
     // path, as where it is not inside a library its previews are found.
-    let (target, label) = match carried {
+    let (dir, name, label) = match carried {
         Some(dir) => {
             let label = to.to_string_lossy().into_owned();
-            (dir.join(format!("{}.rtpx", file_stem_for(&label))), label)
+            (dir.to_path_buf(), file_stem_for(&label), label)
         }
-        None => (
-            proxy_path(to).ok_or("No preview location")?,
-            source_label(to),
-        ),
+        None => {
+            let (dir, name) = location(to).ok_or("No preview location")?;
+            (dir, name, source_label(to))
+        }
     };
+    // Each is copied when it is there (a kept one also when the
+    // photograph's own went first).
+    let mut copied = false;
+    for tag in std::iter::once(None).chain(kept.iter().map(|tag| Some(tag.as_str()))) {
+        let from = from_dir.join(named(&from_name, tag));
+        if from.is_file() {
+            copied |= copy_preview(&from, &dir.join(named(&name, tag)), &label)?;
+        }
+    }
+    Ok(copied)
+}
+
+/// Copies the preview file `source` to the new file `target` labelled
+/// `label`, keeping its last use; false when `target` exists.
+fn copy_preview(source: &Path, target: &Path, label: &str) -> Result<bool, String> {
     if target.exists() {
         return Ok(false);
     }
     let dir = target.parent().ok_or("No preview folder")?;
     fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let used = fs::metadata(&source).and_then(|m| m.modified()).ok();
-    let bytes = fs::read(&source).map_err(|e| e.to_string())?;
-    write_new(&target, &bytes).map_err(|e| e.to_string())?;
-    relabel(&target, &label)?;
+    let used = fs::metadata(source).and_then(|m| m.modified()).ok();
+    let bytes = fs::read(source).map_err(|e| e.to_string())?;
+    write_new(target, &bytes).map_err(|e| e.to_string())?;
+    relabel(target, label)?;
     if let Some(used) = used {
-        mark_used_at(&target, used);
+        mark_used_at(target, used);
     }
     Ok(true)
 }
@@ -2737,8 +3265,10 @@ pub(crate) mod tests {
         assert!(read(&photo, &other).is_none());
         // Previews made for another decode variant (before the never-edited
         // default moved on, or before a recipe reset) still open offline:
-        // no decode can replace them.
+        // no decode can replace them. (Only those: the master's own would be
+        // kept beside them, PXR1.)
         fs::rename(dir.path().join("elsewhere.NEF"), &photo).unwrap();
+        discard_source(&photo, &[ProxyKind::Standard, ProxyKind::Full]);
         let before_upgrade = DecodeVariant {
             multiscale: true,
             dead_test: DeadTest::SameColour,
@@ -2805,8 +3335,11 @@ pub(crate) mod tests {
             fs::write(&sidecar, metadata.to_string()).unwrap();
         };
         let away = dir.path().join("elsewhere.CR3");
+        // The previews there are of `variant` only (a saved recipe's own
+        // would otherwise be kept beside them, PXR1).
         let previews_of = |variant: DecodeVariant| {
             fs::rename(&away, &photo).ok();
+            discard_source(&photo, &[ProxyKind::Standard, ProxyKind::Full]);
             write(&photo, &gradient(80, 60), 40, &settings, variant, None).unwrap();
             write_full(&photo, &gradient(80, 60), &settings, variant, None).unwrap();
             fs::rename(&photo, &away).unwrap();
@@ -2935,6 +3468,462 @@ pub(crate) mod tests {
         assert_eq!(stands_for(&photo, &at(15), ProxyKind::Full), Some(false));
         assert!(read_kind(&photo, ProxyKind::Full, &settings, Some(&at(15))).is_none());
         source_facts::forget(&path);
+    }
+
+    /// A virtual copy of `photo` (a six-digit editor id) saved with `recipe`.
+    fn save_copy(photo: &Path, id: &str, recipe: &serde_json::Value) -> PathBuf {
+        let sidecar =
+            photo.with_file_name(rawtonic_metadata::photo_ref::sidecar_name(photo, Some(id)));
+        let metadata = serde_json::json!({ "version": 1, "rating": 0, "adjustments": recipe });
+        fs::write(&sidecar, metadata.to_string()).unwrap();
+        sidecar
+    }
+
+    /// PXR1 (G11/G17, HOT4 review): after a decode-variant bump (render
+    /// version 17 → 18), Build 1:1 Previews on the never-edited master
+    /// writes previews of the master's new variant. A virtual copy saved at
+    /// 17 asks for the older variant: its previews are kept beside the new
+    /// ones, so it still opens offline at full resolution (they were
+    /// replaced, and the copy could no longer be opened with the drive
+    /// unplugged). Online nothing changes: the copy decodes the RAW.
+    #[test]
+    fn a_saved_copy_keeps_its_variants_previews_when_the_master_is_rebuilt() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let copy = serde_json::json!({ "exposure": 0.5, "renderVersion": 17 });
+        let v17 = crate::image_loader::decode_variant_for_frame(&copy, &path, 0);
+        let master = crate::image_loader::stored_decode_variant(&path);
+        assert_eq!(
+            (v17.dead_test, master.dead_test),
+            (DeadTest::IsolatedBlack, DeadTest::IsolatedCross)
+        );
+        save_copy(&photo, "a1b2c3", &copy);
+        let settings = AppSettings::default();
+        let image = gradient(80, 60);
+        // Made before the upgrade, when the never-edited master asked for
+        // 17's variant; then Build 1:1 Previews after it.
+        write(&photo, &image, 40, &settings, v17, None).unwrap();
+        write_full(&photo, &image, &settings, v17, None).unwrap();
+        write(&photo, &image, 40, &settings, master, None).unwrap();
+        write_full(&photo, &image, &settings, master, None).unwrap();
+        let kinds = [ProxyKind::Standard, ProxyKind::Full];
+        // Online: the master reads its own, the copy none.
+        for kind in kinds {
+            let read = read_kind(&photo, kind, &settings, None).expect("the master's preview");
+            assert_eq!(variant_of_key(&read.key.decoder), master);
+            assert!(read_kind(&photo, kind, &settings, Some(&copy)).is_none());
+        }
+        fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
+        source_facts::forget(&path);
+        for kind in kinds {
+            let read = read_kind(&photo, kind, &settings, Some(&copy)).expect("the copy's preview");
+            assert_eq!(variant_of_key(&read.key.decoder), v17, "{kind:?}");
+            let read = read_kind(&photo, kind, &settings, None).expect("the master's preview");
+            assert_eq!(variant_of_key(&read.key.decoder), master, "{kind:?}");
+            assert_eq!(stands_for(&photo, &copy, kind), Some(true), "{kind:?}");
+        }
+        let rows = read_full_rows(&photo, &settings, (0, 4), (0, 4), Some(&copy)).unwrap();
+        assert_eq!(variant_of_key(&rows.key.decoder), v17);
+        assert_eq!(full_size(&photo, &settings, Some(&copy)), Some((80, 60)));
+        let key = full_key(&photo, &settings, Some(&copy)).expect("the copy's 1:1 preview");
+        assert_eq!(variant_of_key(&key.decoder), v17);
+        assert_eq!(stands_for_by_recipe(&photo, &copy), Some(true));
+        assert!(standard_header_is_current(&photo, &settings, &copy));
+        source_facts::forget(&path);
+    }
+
+    /// PXR1: a kept preview stays only while a saved recipe asks for its
+    /// decode variant; the cache counts, limits and clears it like the
+    /// others, and removing or relinking the photograph takes it along.
+    #[test]
+    fn kept_previews_last_while_a_saved_recipe_asks_for_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let copy = serde_json::json!({ "exposure": 0.5, "renderVersion": 17 });
+        let v17 = crate::image_loader::decode_variant_for_frame(&copy, &path, 0);
+        let master = crate::image_loader::stored_decode_variant(&path);
+        assert_ne!(v17, master);
+        let settings = AppSettings::default();
+        let image = gradient(80, 60);
+        let previews = photo
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join(".cache/previews");
+        let build = |variant: DecodeVariant| {
+            write(&photo, &image, 40, &settings, variant, None).unwrap();
+            write_full(&photo, &image, &settings, variant, None).unwrap();
+        };
+        let counts = || {
+            let usage = usage(&previews);
+            (usage.standard_count, usage.full_count)
+        };
+        let both = [ProxyKind::Standard, ProxyKind::Full];
+        // Nothing asks for 17's variant: replaced, as before.
+        build(v17);
+        build(master);
+        assert_eq!(counts(), (1, 1));
+        // A copy saved at 17: its previews are kept beside the master's and
+        // count as previews (files and bytes).
+        discard_source(&photo, &both);
+        let sidecar = save_copy(&photo, "a1b2c3", &copy);
+        build(v17);
+        build(master);
+        assert_eq!(counts(), (2, 2));
+        let kept_full = kept_path_of(&photo, ProxyKind::Full, v17).unwrap();
+        let own_full = proxy_path_of(&photo, ProxyKind::Full).unwrap();
+        assert_eq!(
+            usage(&previews).full_bytes,
+            fs::metadata(&kept_full).unwrap().len() + fs::metadata(&own_full).unwrap().len()
+        );
+        // Rebuilding the master's keeps them.
+        build(master);
+        assert_eq!(counts(), (2, 2));
+        // Discarding the 1:1 previews takes the kept one too; it is not
+        // made again (no decode of 17's variant is stored).
+        assert_eq!(discard(&previews, &[ProxyKind::Full], None), 2);
+        build(master);
+        assert_eq!(counts(), (2, 1));
+        // The Standard previews' limit counts it, online like any other.
+        assert_eq!(enforce_standard_limit(&previews, 1), 2);
+        assert_eq!(counts(), (0, 1));
+        // The copy deleted: the next build of the master's previews drops
+        // the kept ones.
+        discard_source(&photo, &both);
+        build(v17);
+        build(master);
+        assert_eq!(counts(), (2, 2));
+        fs::remove_file(&sidecar).unwrap();
+        build(master);
+        assert_eq!(counts(), (1, 1));
+        assert!(!kept_full.exists());
+        // Edited to 18 it no longer asks for them either.
+        discard_source(&photo, &both);
+        save_copy(&photo, "a1b2c3", &copy);
+        build(v17);
+        build(master);
+        assert_eq!(counts(), (2, 2));
+        save_copy(
+            &photo,
+            "a1b2c3",
+            &serde_json::json!({ "exposure": 0.5, "renderVersion": 18 }),
+        );
+        build(master);
+        assert_eq!(counts(), (1, 1));
+        // Removing the photograph's previews takes the kept ones.
+        save_copy(&photo, "a1b2c3", &copy);
+        discard_source(&photo, &both);
+        build(v17);
+        build(master);
+        assert_eq!(discard_source(&photo, &both), 4);
+        assert_eq!(counts(), (0, 0));
+        // A relinked photograph keeps them: the copy opens offline there.
+        build(v17);
+        build(master);
+        let moved = photo.with_file_name("B.NEF");
+        assert_eq!(carry_over(&photo, &moved), 4);
+        assert_eq!(counts(), (2, 2));
+        assert!(!moved.exists());
+        let read = read_kind(&moved, ProxyKind::Full, &settings, Some(&copy)).unwrap();
+        assert_eq!(variant_of_key(&read.key.decoder), v17);
+        // Export as Catalog with previews carries the kept Standard one.
+        let exported = photo.with_file_name("C.NEF");
+        assert!(copy_standard(&moved, &exported, None, None, &mut KeptIndex::default()).unwrap());
+        assert!(
+            kept_path_of(&exported, ProxyKind::Standard, v17)
+                .unwrap()
+                .is_file()
+        );
+        assert_eq!(counts(), (4, 2));
+        source_facts::forget(&moved.to_string_lossy());
+    }
+
+    /// PXR1 review: kept previews are found by their names, not only through
+    /// the photograph's own header: when its own preview went first (a 1:1
+    /// expiry, the Standard limit), discarding its previews and Export as
+    /// Catalog with previews still find them.
+    #[test]
+    fn kept_previews_are_found_without_the_photographs_own() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let copy = serde_json::json!({ "exposure": 0.5, "renderVersion": 17 });
+        let v17 = crate::image_loader::decode_variant_for_frame(&copy, &path, 0);
+        let master = crate::image_loader::stored_decode_variant(&path);
+        save_copy(&photo, "a1b2c3", &copy);
+        let settings = AppSettings::default();
+        let image = gradient(80, 60);
+        for variant in [v17, master] {
+            write(&photo, &image, 40, &settings, variant, None).unwrap();
+            write_full(&photo, &image, &settings, variant, None).unwrap();
+        }
+        for kind in [ProxyKind::Standard, ProxyKind::Full] {
+            fs::remove_file(proxy_path_of(&photo, kind).unwrap()).unwrap();
+        }
+        let exported = photo.with_file_name("C.NEF");
+        assert!(copy_standard(&photo, &exported, None, None, &mut KeptIndex::default()).unwrap());
+        assert!(
+            kept_path_of(&exported, ProxyKind::Standard, v17)
+                .unwrap()
+                .is_file()
+        );
+        assert_eq!(
+            discard_sources(
+                [photo.as_path(), exported.as_path()],
+                &[ProxyKind::Full, ProxyKind::Standard]
+            ),
+            3
+        );
+        assert_eq!(
+            usage(proxy_path(&photo).unwrap().parent().unwrap()),
+            PreviewUsage::default()
+        );
+    }
+
+    /// PXR1 review: offline, a kept preview made for exactly the recipe's
+    /// decode variant wins over the photograph's own one of another variant
+    /// that the master's frame would accept: a copy at 17, the master's own
+    /// previews rebuilt at 18, then the master put back to a 17 edit (a
+    /// snapshot): both open on 17's previews.
+    #[test]
+    fn offline_the_preview_made_for_the_recipes_variant_comes_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let copy = serde_json::json!({ "exposure": 0.5, "renderVersion": 17 });
+        let v17 = crate::image_loader::decode_variant_for_frame(&copy, &path, 0);
+        let master = crate::image_loader::stored_decode_variant(&path);
+        save_copy(&photo, "a1b2c3", &copy);
+        let settings = AppSettings::default();
+        let image = gradient(80, 60);
+        for variant in [v17, master] {
+            write(&photo, &image, 40, &settings, variant, None).unwrap();
+            write_full(&photo, &image, &settings, variant, None).unwrap();
+        }
+        let snapshot = serde_json::json!({ "version": 1, "rating": 0, "adjustments": {"exposure": 1.0, "renderVersion": 17} });
+        fs::write(photo.with_file_name("A.NEF.rrdata"), snapshot.to_string()).unwrap();
+        fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
+        source_facts::forget(&path);
+        for kind in [ProxyKind::Standard, ProxyKind::Full] {
+            for recipe in [Some(&copy), None] {
+                let read = read_kind(&photo, kind, &settings, recipe).unwrap();
+                assert_eq!(
+                    variant_of_key(&read.key.decoder),
+                    v17,
+                    "{kind:?} {recipe:?}"
+                );
+            }
+        }
+        let key = full_key(&photo, &settings, Some(&copy)).unwrap();
+        assert_eq!(variant_of_key(&key.decoder), v17);
+        source_facts::forget(&path);
+    }
+
+    /// PXR1 review round 2: offline, a preview of either size made for
+    /// exactly the recipe's variant wins over one of another variant: a
+    /// copy at 17 with only its Standard preview kept and the master's 1:1
+    /// at 18, the master back on a 17 snapshot. The 1:1 preview stands for
+    /// neither; both open on 17's Standard one. The master's recipe is not
+    /// read for the copy when its sidecar is a cloud file not downloaded:
+    /// the exact preview still opens, the other is not taken.
+    #[test]
+    fn offline_an_exact_standard_preview_wins_over_another_variants_full_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let copy = serde_json::json!({ "exposure": 0.5, "renderVersion": 17 });
+        let v17 = crate::image_loader::decode_variant_for_frame(&copy, &path, 0);
+        let master = crate::image_loader::stored_decode_variant(&path);
+        save_copy(&photo, "a1b2c3", &copy);
+        let settings = AppSettings::default();
+        let image = gradient(80, 60);
+        write(&photo, &image, 40, &settings, v17, None).unwrap();
+        write(&photo, &image, 40, &settings, master, None).unwrap();
+        write_full(&photo, &image, &settings, master, None).unwrap();
+        let sidecar = photo.with_file_name("A.NEF.rrdata");
+        let snapshot = serde_json::json!({ "version": 1, "rating": 0,
+            "adjustments": {"exposure": 1.0, "renderVersion": 17} });
+        fs::write(&sidecar, snapshot.to_string()).unwrap();
+        fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
+        source_facts::forget(&path);
+        for recipe in [Some(&copy), None] {
+            assert!(read_kind(&photo, ProxyKind::Full, &settings, recipe).is_none());
+            assert!(full_key(&photo, &settings, recipe).is_none());
+            let read = read_kind(&photo, ProxyKind::Standard, &settings, recipe).unwrap();
+            assert_eq!(variant_of_key(&read.key.decoder), v17, "{recipe:?}");
+        }
+        assert_eq!(stands_for(&photo, &copy, ProxyKind::Full), Some(false));
+        crate::file_management::simulate_cloud_placeholder(&sidecar);
+        let read = read_kind(&photo, ProxyKind::Standard, &settings, Some(&copy)).unwrap();
+        assert_eq!(variant_of_key(&read.key.decoder), v17);
+        assert_eq!(stands_for(&photo, &copy, ProxyKind::Standard), Some(true));
+        assert_ne!(stands_for(&photo, &copy, ProxyKind::Full), Some(true));
+        source_facts::forget(&path);
+    }
+
+    /// PXR1 review round 3: an exact preview of the other size that cannot
+    /// open (made with other decoder settings) does not hide the fallback:
+    /// a 1:1 preview at 17 with another colour noise setting, the Standard
+    /// one rebuilt at 18 with the current settings, the master back on a
+    /// 17 snapshot offline: it opens on the Standard one, as before.
+    #[test]
+    fn an_exact_preview_that_cannot_open_does_not_hide_the_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let v17 = crate::image_loader::decode_variant_for_frame(
+            &serde_json::json!({ "renderVersion": 17 }),
+            &path,
+            0,
+        );
+        let master = crate::image_loader::stored_decode_variant(&path);
+        let settings = AppSettings::default();
+        let before = AppSettings {
+            raw_preprocessing_color_nr: Some(0.75),
+            ..AppSettings::default()
+        };
+        let image = gradient(80, 60);
+        write_full(&photo, &image, &before, v17, None).unwrap();
+        write(&photo, &image, 40, &settings, master, None).unwrap();
+        let snapshot = serde_json::json!({ "version": 1, "rating": 0,
+            "adjustments": {"exposure": 1.0, "renderVersion": 17} });
+        fs::write(photo.with_file_name("A.NEF.rrdata"), snapshot.to_string()).unwrap();
+        fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
+        source_facts::forget(&path);
+        assert!(read_kind(&photo, ProxyKind::Full, &settings, None).is_none());
+        let read = read_kind(&photo, ProxyKind::Standard, &settings, None).unwrap();
+        assert_eq!(variant_of_key(&read.key.decoder), master);
+        source_facts::forget(&path);
+    }
+
+    /// PXR1 review round 3: offline, the master's recipe a library keeps
+    /// decides the fallback while its sidecar file is a cloud file not
+    /// downloaded (the library's record needs no file): a rated, otherwise
+    /// unedited photo opens on its preview from before the upgrade.
+    #[test]
+    fn offline_the_library_gives_the_masters_recipe_while_its_sidecar_is_evicted() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = rawtonic_catalog::Library::create(
+            &dir.path().join("Job"),
+            "Job",
+            rawtonic_catalog::Mode::Session,
+        )
+        .unwrap();
+        let photo = lib.directory.join("Capture").join("A.NEF");
+        fs::create_dir_all(photo.parent().unwrap()).unwrap();
+        fs::write(&photo, b"raw bytes").unwrap();
+        let id = lib.add_asset(&photo).unwrap().id;
+        let state = serde_json::json!({ "version": 1, "rating": 3, "adjustments": {} });
+        lib.save_editor_state(&id, &state).unwrap();
+        let path = photo.to_string_lossy().to_string();
+        let v17 = crate::image_loader::decode_variant_for_frame(
+            &serde_json::json!({ "renderVersion": 17 }),
+            &path,
+            0,
+        );
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 40, &settings, v17, None).unwrap();
+        let sidecar = photo.with_file_name("A.NEF.rrdata");
+        fs::write(&sidecar, state.to_string()).unwrap();
+        crate::file_management::simulate_cloud_placeholder(&sidecar);
+        fs::rename(&photo, dir.path().join("elsewhere.NEF")).unwrap();
+        source_facts::forget(&path);
+        let recipe = serde_json::json!({});
+        let read = read_kind(&photo, ProxyKind::Standard, &settings, Some(&recipe)).unwrap();
+        assert_eq!(variant_of_key(&read.key.decoder), v17);
+        source_facts::forget(&path);
+    }
+
+    /// PXR1 review round 3: with neither of its own previews left (the
+    /// Standard limit took both Standard files, the 1:1 one expired), a
+    /// rebuild of the Standard and then the 1:1 preview after the copy was
+    /// deleted still drops the kept 1:1 one.
+    #[test]
+    fn a_rebuild_without_any_own_preview_drops_unused_kept_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let copy = serde_json::json!({ "exposure": 0.5, "renderVersion": 17 });
+        let v17 = crate::image_loader::decode_variant_for_frame(&copy, &path, 0);
+        let master = crate::image_loader::stored_decode_variant(&path);
+        let sidecar = save_copy(&photo, "a1b2c3", &copy);
+        let settings = AppSettings::default();
+        let image = gradient(80, 60);
+        for variant in [v17, master] {
+            write(&photo, &image, 40, &settings, variant, None).unwrap();
+            write_full(&photo, &image, &settings, variant, None).unwrap();
+        }
+        let kept = kept_path_of(&photo, ProxyKind::Full, v17).unwrap();
+        for path in [
+            proxy_path_of(&photo, ProxyKind::Standard).unwrap(),
+            kept_path_of(&photo, ProxyKind::Standard, v17).unwrap(),
+            proxy_path_of(&photo, ProxyKind::Full).unwrap(),
+        ] {
+            fs::remove_file(path).unwrap();
+        }
+        fs::remove_file(&sidecar).unwrap();
+        write(&photo, &image, 40, &settings, master, None).unwrap();
+        write_full(&photo, &image, &settings, master, None).unwrap();
+        assert!(!kept.exists());
+    }
+
+    /// PXR1 review round 2: when the photograph's own 1:1 preview went first
+    /// (expired) and the copy that asked for the kept one is deleted, the
+    /// next 1:1 build still finds the kept one and drops it.
+    #[test]
+    fn a_rebuild_after_the_own_preview_went_drops_unused_kept_ones() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let copy = serde_json::json!({ "exposure": 0.5, "renderVersion": 17 });
+        let v17 = crate::image_loader::decode_variant_for_frame(&copy, &path, 0);
+        let master = crate::image_loader::stored_decode_variant(&path);
+        let sidecar = save_copy(&photo, "a1b2c3", &copy);
+        let settings = AppSettings::default();
+        let image = gradient(80, 60);
+        for variant in [v17, master] {
+            write(&photo, &image, 40, &settings, variant, None).unwrap();
+            write_full(&photo, &image, &settings, variant, None).unwrap();
+        }
+        let kept = kept_path_of(&photo, ProxyKind::Full, v17).unwrap();
+        fs::remove_file(proxy_path_of(&photo, ProxyKind::Full).unwrap()).unwrap();
+        fs::remove_file(&sidecar).unwrap();
+        assert!(kept.is_file());
+        write_full(&photo, &image, &settings, master, None).unwrap();
+        assert!(!kept.exists());
+    }
+
+    /// PXR1 review: a virtual copy's sidecar that is a cloud file not
+    /// downloaded is not read for what it asks (that would download it):
+    /// the previews are kept as if it asked for them.
+    #[test]
+    fn an_evicted_copy_sidecar_keeps_the_previews_unread() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let path = photo.to_string_lossy().to_string();
+        let old = serde_json::json!({ "exposure": 0.5, "renderVersion": 17 });
+        let v17 = crate::image_loader::decode_variant_for_frame(&old, &path, 0);
+        let master = crate::image_loader::stored_decode_variant(&path);
+        // Its content (were it read) asks for 18's variant, not 17's.
+        let sidecar = save_copy(
+            &photo,
+            "a1b2c3",
+            &serde_json::json!({ "renderVersion": 18 }),
+        );
+        crate::file_management::simulate_cloud_placeholder(&sidecar);
+        let settings = AppSettings::default();
+        let image = gradient(80, 60);
+        for variant in [v17, master, master] {
+            write_full(&photo, &image, &settings, variant, None).unwrap();
+        }
+        assert!(
+            kept_path_of(&photo, ProxyKind::Full, v17)
+                .unwrap()
+                .is_file()
+        );
     }
 
     /// CRD5: online, a Standard preview of the file as it is now (same size

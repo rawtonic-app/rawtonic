@@ -260,6 +260,7 @@ fn copy_previews_from(
 ) -> anyhow::Result<usize> {
     let carried = stage.join(".cache").join(preview_proxy::CARRIED_PREVIEWS);
     let mut copied = 0;
+    let mut kept = preview_proxy::KeptIndex::default();
     for photo in exported {
         anyhow::ensure!(
             !cancel.load(Ordering::Acquire),
@@ -271,6 +272,7 @@ fn copy_previews_from(
             &photo.to,
             (!inside).then_some(carried.as_path()),
             outside,
+            &mut kept,
         )
         .map_err(anyhow::Error::msg)?
         {

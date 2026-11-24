@@ -1189,7 +1189,7 @@ pub fn sync_catalog(op: &Operation, forward: bool) -> Result<(), String> {
 /// moved by the app, as they follow a relink: only preview files move,
 /// never replacing one.
 fn carry_previews(op: &Operation, forward: bool) {
-    let mut carried = 0;
+    let mut moves: Vec<(PathBuf, PathBuf)> = Vec::new();
     for (from, to) in op.renames() {
         let (a, b) = if forward { (from, to) } else { (to, from) };
         if b.is_dir() {
@@ -1200,13 +1200,16 @@ fn carry_previews(op: &Operation, forward: bool) {
                 .filter(|e| e.file_type().is_file() && is_supported_image_file(e.path()))
             {
                 if let Ok(below) = entry.path().strip_prefix(&b) {
-                    carried += crate::preview_proxy::carry_over(&a.join(below), entry.path());
+                    moves.push((a.join(below), entry.path().to_path_buf()));
                 }
             }
         } else if is_supported_image_file(&b) {
-            carried += crate::preview_proxy::carry_over(&a, &b);
+            moves.push((a.to_path_buf(), b.to_path_buf()));
         }
     }
+    // One listing of each previews folder for the whole move.
+    let carried =
+        crate::preview_proxy::carry_over_all(moves.iter().map(|(a, b)| (a.as_path(), b.as_path())));
     if carried > 0 {
         log::info!("{carried} previews followed '{}'", op.label);
     }
@@ -1238,9 +1241,13 @@ pub(crate) fn forget_purged(op: &Operation) -> Result<(), String> {
         crate::preview_proxy::ProxyKind::Standard,
         crate::preview_proxy::ProxyKind::Full,
     ];
-    for file in op.removed.iter().filter(|f| is_supported_image_file(f)) {
-        crate::preview_proxy::discard_source(file, &kinds);
-    }
+    crate::preview_proxy::discard_sources(
+        op.removed
+            .iter()
+            .filter(|f| is_supported_image_file(f))
+            .map(PathBuf::as_path),
+        &kinds,
+    );
     if failures.is_empty() {
         Ok(())
     } else {
