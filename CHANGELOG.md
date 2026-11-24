@@ -4,8 +4,6 @@
 
 - Linux: an Arch Linux package recipe (`rawtonic-bin`) and a Flatpak manifest in `packaging/linux/`, both built from the release AppImage and checked in fresh containers (not published yet); inside a Flatpak Rawtonic makes no update request — Flatpak delivers updates — and an unpacked AppDir started through its AppRun resolves relative paths against the folder the command ran in.
 
-- Smart albums and the Library search list a virtual copy by its own rating, colour label and keywords, as Lightroom does: a five-star copy of a one-star photo is in "rating ≥ 4" without its photo, and a copy shows up in a smart album's grid and count. Copies still share their photo's flag, and ordinary albums still hold photos only.
-
 - Virtual copies are photos of their own in the Library, as in Lightroom: a copy has its own pick or reject flag (a new copy starts with its photo's; existing copies keep the flag they showed), an ordinary album can hold a copy without its photo (adding or removing a copy leaves the photo as it is), smart albums have a "Is a virtual copy" rule (Lightroom's Copy Status rules now import), and the value lists in the filter bar count copies like the grid lists them. Lightroom imports bring each copy's own pick and put copies into their albums as copies (they used to become their photo).
 
 - Camera rules with "contains", "starts with" or "ends with" also find a camera by the names its files state, so rules saved with the JPEG spelling (`contains NIKON`) keep matching that camera's photos after the one-camera-name change; Lightroom "Camera starts with / ends with" smart collections now import.
