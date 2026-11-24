@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-- Smart albums and the Library search list a virtual copy by its own rating, colour label and keywords, as Lightroom does: a five-star copy of a one-star photo is in "rating ≥ 4" without its photo, and a copy shows up in a smart album's grid and count. Copies still share their photo's flag, and ordinary albums still hold photos only.
+- Virtual copies are photos of their own in the Library, as in Lightroom: a copy has its own pick or reject flag (a new copy starts with its photo's; existing copies keep the flag they showed), an ordinary album can hold a copy without its photo (adding or removing a copy leaves the photo as it is), smart albums have a "Is a virtual copy" rule (Lightroom's Copy Status rules now import), and the value lists in the filter bar count copies like the grid lists them. Lightroom imports bring each copy's own pick and put copies into their albums as copies (they used to become their photo).
+
+- Camera rules with "contains", "starts with" or "ends with" also find a camera by the names its files state, so rules saved with the JPEG spelling (`contains NIKON`) keep matching that camera's photos after the one-camera-name change; Lightroom "Camera starts with / ends with" smart collections now import.
+
+- Smart albums and the Library search list a virtual copy by its own rating, colour label and keywords, as Lightroom does: a five-star copy of a one-star photo is in "rating ≥ 4" without its photo, and a copy shows up in a smart album's grid and count.
 
 - A camera's RAW and JPEG files are one camera in the Library: the Camera list, searches and smart albums use one make and model for both (e.g. `Nikon` / `D750`, not also `NIKON CORPORATION` / `NIKON D750` for the JPEG). Existing libraries are renamed when opened, so a smart album saved from the JPEG spelling ("Camera is NIKON D750") now also contains that camera's RAW files. Lightroom smart collections with "Camera is" (and "is not") now import, except for a camera Rawtonic names once for several models Lightroom tells apart (such as Olympus Stylus 1 and 1s), which the import report lists as not imported.
 
