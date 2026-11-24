@@ -404,6 +404,9 @@ export interface RetouchFace {
    * faces it looked at, missing on faces whose Eyes and Teeth keep the
    * Face Mesh outlines (edits made before it). */
   parsedTeeth?: number[][][];
+  /** SAM's outline of teeth the parser saw only in part, on faces that have
+   * one; used in place of `parsedTeeth` on retouches with `teethRefine`. */
+  refinedTeeth?: number[][][];
 
   /** Blemishes (ids) the user keeps. */
   kept: number[];
@@ -444,6 +447,10 @@ export interface FaceRetouch {
    * faces the parser looked at; missing on retouches made before, which
    * keep the full circle. Faces found again keep the retouch's value. */
   irisDisk?: number;
+  /** Set (1) when the retouch is made from faces SAM's teeth outline was
+   * looked for on (`refinedTeeth`); missing on retouches made before, which
+   * keep the parser's teeth. Faces found again keep the retouch's value. */
+  teethRefine?: number;
 }
 
 /** Grain structures (shader `grain_structure_noise`, notes: reference/grain.md). */

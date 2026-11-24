@@ -15,6 +15,7 @@ import {
   withEyesAndMouth,
   eyesTeethParsed,
   eyesTeethSet,
+  parserMarks,
   withParsedEyesTeeth
 } from './StudioFaceRetouch';
 import type { FaceRetouch, RetouchFace } from '../../utils/adjustments';
@@ -174,6 +175,20 @@ describe('eye and teeth parser outlines', () => {
     expect(merged.eyes?.[0]?.parsedEye).toEqual(loop);
     expect(far.parsedTeeth).toBeUndefined();
   });
+
+  it("takes SAM's teeth outline with the parser's", () => {
+    const refined = face('x', 10, { ...parsed, refinedTeeth: loop });
+    expect(withParsedEyesTeeth([face('a', 0)], [refined])[0].refinedTeeth).toEqual(loop);
+    expect(withEyesAndMouth([{ ...face('a', 0), eyes: undefined }], [refined])[0].refinedTeeth).toEqual(loop);
+    // Without one the face has none.
+    expect(withParsedEyesTeeth([face('a', 0)], [parsed])[0].refinedTeeth).toBeUndefined();
+  });
+
+  it("marks a retouch made from an analysis with the parser's disk and SAM's teeth", () => {
+    expect(parserMarks({ frame: '', faces: [], irisDisk: 0.9, teethRefine: 1 })).toEqual({ irisDisk: 0.9, teethRefine: 1 });
+    expect(parserMarks({ frame: '', faces: [], irisDisk: 0.9 })).toEqual({ irisDisk: 0.9 });
+    expect(parserMarks(undefined)).toEqual({});
+  });
 });
 
 describe('eye sides through a flip', () => {
@@ -269,5 +284,10 @@ describe('Iris disk through faces found again', () => {
 
   it('keeps the disk a retouch was made with', () => {
     expect(roundTrip(retouch(0.85)).irisDisk).toBe(0.85);
+  });
+
+  it("keeps the parser's teeth of a retouch made before SAM's, and SAM's of one made with them", () => {
+    expect(roundTrip(retouch()).teethRefine).toBeUndefined();
+    expect(roundTrip({ ...retouch(0.9), teethRefine: 1 }).teethRefine).toBe(1);
   });
 });

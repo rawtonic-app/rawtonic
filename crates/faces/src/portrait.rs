@@ -32,6 +32,9 @@ use crate::eye_teeth::EyeTeeth;
 use crate::geometry::{Affine, sample_crop};
 use crate::landmarks::LIPS_OUTER;
 
+pub mod sam_teeth;
+pub use sam_teeth::Sam;
+
 /// File name in the model pack and its SHA-256.
 pub const FILE: &str = "easyportrait_fpn_1024.onnx";
 pub const SHA256: &str = "4ddf76e62492273fa25d731722e71413f20038546be51e9ab03d3419d954219c";
@@ -114,6 +117,9 @@ pub struct Parsed {
     pub eyes: Vec<Option<ParsedEye>>,
     /// Empty where the Face Mesh outline stays.
     pub teeth: Loops,
+    /// SAM's outline of teeth the parser saw only in part (`sam_teeth`);
+    /// empty where the parser's outline stays.
+    pub refined_teeth: Loops,
 }
 
 enum Backend {
@@ -467,12 +473,14 @@ fn polygon_area(points: &[[f32; 2]]) -> f32 {
 }
 
 /// The parser's outlines of `face` in `image` (the photo the analysis was
-/// made of), for its eyes and mouth as `features` has them.
+/// made of), for its eyes and mouth as `features` has them; with `sam` also
+/// SAM's outline of teeth the parser saw only in part (`sam_teeth`).
 pub fn parse(
     model: &PortraitModel,
     image: &RgbImage,
     face: &Face,
     features: &EyeTeeth,
+    sam: Option<Sam>,
 ) -> Result<Parsed> {
     let Some(points) = face.landmarks.as_deref() else {
         return Ok(Parsed::default());
@@ -513,11 +521,32 @@ pub fn parse(
         .iter()
         .flat_map(|a| lips.iter().map(move |b| (a[0] - b[0]).hypot(a[1] - b[1])))
         .fold(0.0f32, f32::max);
-    let teeth = Window::around(teeth_p, &lips, MOUTH_REACH * mouth_width)
-        .filter(|w| w.count_above(TEETH) >= MIN_TEETH)
+    let window = Window::around(teeth_p, &lips, MOUTH_REACH * mouth_width)
+        .filter(|w| w.count_above(TEETH) >= MIN_TEETH);
+    let teeth = window
+        .as_ref()
         .map(|w| photo_loops(w.contours(TEETH)))
         .unwrap_or_default();
-    Ok(Parsed { eyes, teeth })
+    let refined_teeth = match (sam, &window) {
+        (Some(sam), Some(w)) => sam_teeth::refine(sam, image, &to_photo, teeth_p, w, points)?
+            .map(|values| {
+                let sam_window = Window {
+                    values: &values,
+                    x0: w.x0,
+                    y0: w.y0,
+                    x1: w.x1,
+                    y1: w.y1,
+                };
+                photo_loops(sam_window.contours(0.5))
+            })
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    };
+    Ok(Parsed {
+        eyes,
+        teeth,
+        refined_teeth,
+    })
 }
 
 #[cfg(test)]

@@ -225,6 +225,11 @@ pub struct RetouchFace {
     /// `mouth` stays); absent on faces found before it.
     #[serde(default)]
     pub parsed_teeth: Option<eye_teeth::Loops>,
+    /// SAM's outline of teeth the parser saw only in part (rawtonic-faces
+    /// `portrait::Sam`), on faces that have one; used in place of
+    /// `parsed_teeth` only when the retouch has `teeth_refine`.
+    #[serde(default)]
+    pub refined_teeth: Option<eye_teeth::Loops>,
     /// Blemishes (ids) the user keeps.
     #[serde(default)]
     pub kept: Vec<u32>,
@@ -267,6 +272,12 @@ pub struct FaceRetouch {
     /// disk. Faces found again keep the retouch's value.
     #[serde(rename = "irisDisk")]
     pub iris_disk: Option<f32>,
+    /// Set (1) when the retouch is made from faces SAM's teeth outline
+    /// (`RetouchFace::refined_teeth`) was looked for on; absent on
+    /// retouches made before it or without SAM's files, which keep the
+    /// parser's teeth. Faces found again keep the retouch's value.
+    #[serde(rename = "teethRefine")]
+    pub teeth_refine: Option<u32>,
 }
 
 /// Geometry keys (cache_utils) that correct colour, not where a pixel is:
@@ -515,6 +526,7 @@ pub fn scaled_recipe(adjustments: &Value, scale: f64) -> Value {
             scale_point(p);
         }
         scale_loops(face, "parsedTeeth");
+        scale_loops(face, "refinedTeeth");
         if let Some(blemishes) = face.get_mut("blemishes").and_then(Value::as_array_mut) {
             for b in blemishes {
                 for key in ["x", "y", "r"] {
@@ -1494,6 +1506,17 @@ fn retouch_skin(
 
 /// Applies the recipe's face retouch to the base image (float RGB, after
 /// spot removal). Returns whether anything changed.
+/// The teeth outlines `face` renders with: SAM's where the retouch was made
+/// with them (`FaceRetouch::teeth_refine`) and the face has some, else the
+/// parser's.
+fn teeth_outline<'a>(retouch: &FaceRetouch, face: &'a RetouchFace) -> Option<&'a [Vec<[f64; 2]>]> {
+    let refined = face
+        .refined_teeth
+        .as_deref()
+        .filter(|loops| retouch.teeth_refine.is_some_and(|v| v >= 1) && !loops.is_empty());
+    refined.or(face.parsed_teeth.as_deref())
+}
+
 pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool {
     let Some(retouch) = from_adjustments(adjustments) else {
         return false;
@@ -1540,7 +1563,7 @@ pub fn apply_face_retouch(image: &mut Rgb32FImage, adjustments: &Value) -> bool 
                 image,
                 &face.eyes,
                 face.mouth.as_deref(),
-                face.parsed_teeth.as_deref(),
+                teeth_outline(&retouch, face),
                 &eye_teeth::Placement {
                     adjustments,
                     frame,
@@ -1600,6 +1623,7 @@ mod tests {
             eyes: vec![],
             mouth: None,
             parsed_teeth: None,
+            refined_teeth: None,
             kept: vec![],
             added: vec![],
             settings,
