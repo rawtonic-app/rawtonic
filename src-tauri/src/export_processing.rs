@@ -4579,6 +4579,103 @@ mod tests {
         assert_ne!(other, first, "the reservation still holds for others");
     }
 
+    /// Save As from the Export dialog (one photo, `customFolder`, no
+    /// subfolder) goes to the named file through the same no-clobber
+    /// publication as a folder export: a file that appears there after
+    /// planning is never written over, and the bytes equal the folder
+    /// export's with the same settings.
+    #[test]
+    fn save_as_publishes_the_named_file_without_clobbering_like_a_folder_export() {
+        use rawtonic_export::export_processing::encode_export;
+
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.CR3");
+        rawtonic_fs::atomic_write(&raw, b"original RAW").unwrap();
+        let delivery = dir.path().join("delivery");
+        std::fs::create_dir(&delivery).unwrap();
+        let settings = serde_json::json!({
+            "jpegQuality": 83, "keepMetadata": false, "stripGps": false,
+            "nameTemplate": "{orig_base}", "destinationType": "customFolder",
+            "preserveFolders": false, "subfolder": "",
+        });
+        let folder_target = ExportTarget {
+            output_folder_or_file: delivery.to_string_lossy().into_owned(),
+            is_explicit_file_path: false,
+            base_origin_folders: Vec::new(),
+            export_settings: serde_json::from_value(settings).unwrap(),
+            output_format: "jpg".to_string(),
+            tracking: None,
+        };
+        let named = delivery.join("client a.jpg");
+        let save_as = ExportTarget {
+            output_folder_or_file: named.to_string_lossy().into_owned(),
+            is_explicit_file_path: true,
+            ..folder_target.clone()
+        };
+        let date = jiff::Timestamp::now();
+        let plan = |target: &ExportTarget| {
+            let used = std::sync::Mutex::new(std::collections::HashSet::new());
+            let item = PhotoItem {
+                global_index: 0,
+                image_path_str: raw.to_str().unwrap(),
+                appearance_count: 1,
+                explicit_vc: None,
+                total_paths: 1,
+            };
+            plan_output_path(target, &item, &raw, &date, None, 0, &used).unwrap()
+        };
+        let encode = |target: &ExportTarget| {
+            let mut image = image::RgbImage::new(16, 8);
+            for (x, y, pixel) in image.enumerate_pixels_mut() {
+                *pixel = image::Rgb([(x * 15) as u8, (y * 30) as u8, 128]);
+            }
+            encode_export(
+                image::DynamicImage::ImageRgb8(image),
+                &target.output_format,
+                &target.export_settings,
+                None,
+            )
+            .unwrap()
+        };
+        let key = "a.CR3\nkey";
+
+        // The named file is the planned output, as the dialog named it.
+        let output = plan(&save_as);
+        assert_eq!(output, named);
+        // Another program creates that file between planning and writing:
+        // the worker's publication refuses it and leaves it as it is.
+        std::fs::write(&named, b"other program").unwrap();
+        assert!(
+            super::publish_with(None, key)
+                .write_export(&output, encode(&save_as))
+                .is_err()
+        );
+        assert_eq!(std::fs::read(&named).unwrap(), b"other program");
+        std::fs::remove_file(&named).unwrap();
+
+        // Free again: written, byte for byte the folder export's file.
+        super::publish_with(None, key)
+            .write_export(&plan(&save_as), encode(&save_as))
+            .unwrap();
+        let folder_output = plan(&folder_target);
+        assert_eq!(folder_output, delivery.join("a.jpg"));
+        super::publish_with(None, key)
+            .write_export(&folder_output, encode(&folder_target))
+            .unwrap();
+        assert_eq!(
+            std::fs::read(&named).unwrap(),
+            std::fs::read(&folder_output).unwrap()
+        );
+        // No temporary or staging file is left beside them.
+        let mut names: Vec<_> = std::fs::read_dir(&delivery)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.jpg", "client a.jpg"]);
+        assert_eq!(std::fs::read(&raw).unwrap(), b"original RAW");
+    }
+
     #[test]
     fn exports_with_colliding_templates_preserve_other_originals_and_raw_jpeg_partners() {
         use rawtonic_export::export_processing::encode_export;

@@ -1,5 +1,5 @@
 import '../i18n';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import { runExportJobs } from './runExportJobs';
 import { invokeInOrder } from './catalogWrites';
@@ -185,4 +185,106 @@ it('says where the command ran when the queue refuses an export (the File menu, 
   expect(await runExportJobs([{ recipe: null, draft, settings, outputFormat }], ['/p/a.NEF'])).toBe(0);
   expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Signed · JPG: Provenance (C2PA)'));
   expect(useProcessStore.getState().exportState.status).toBe(Status.Error);
+});
+
+describe('Save As (one photo, a file the photographer names)', () => {
+  const planFor = (part: Partial<typeof DEFAULT_RECIPE_DRAFT>) => {
+    const draft = { ...DEFAULT_RECIPE_DRAFT, ...part };
+    return { recipe: null, draft, ...exportSettingsFromDraft(draft) };
+  };
+  const named = (name: string) =>
+    vi
+      .mocked(invoke)
+      .mockImplementation((command: string) =>
+        Promise.resolve(command === 'export_naming_preview' ? { name } : undefined)
+      );
+  const requests = () =>
+    vi
+      .mocked(invoke)
+      .mock.calls.filter(([command]) => command === 'export_images_batch')
+      .flatMap(([, args]) => (args as { requests: Record<string, unknown>[] }).requests);
+
+  it('offers the name from the naming template and exports that file with the other settings', async () => {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    named('a-web.jpg');
+    vi.mocked(save).mockResolvedValueOnce('/Delivery/client a.jpg');
+    // A folder, subfolder and folder preservation set in the form do not
+    // apply: the file goes exactly where the dialog says.
+    const job = planFor({
+      where: 'original',
+      folder: '/elsewhere',
+      subfolder: 'web',
+      preserveFolders: true,
+      quality: 77,
+      resize: true,
+      resizeMode: 'longEdge',
+      resizeValue: 2048,
+      template: '{orig_base}-web',
+      existingFiles: 'replaceIfChanged'
+    });
+    expect(await runExportJobs([job], ['/p/a.NEF'], { saveAs: true })).toBe(1);
+    expect(vi.mocked(save)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(save).mock.calls[0][0]).toMatchObject({ defaultPath: expect.stringMatching(/a-web\.jpg$/) });
+    const [request] = requests();
+    expect(request).toMatchObject({
+      paths: ['/p/a.NEF'],
+      outputFolderOrFile: '/Delivery/client a.jpg',
+      isExplicitFilePath: true,
+      outputFormat: 'jpg'
+    });
+    const settings = request.exportSettings as Record<string, unknown>;
+    expect(settings).toMatchObject({
+      jpegQuality: 77,
+      nameTemplate: '{orig_base}-web',
+      existingFiles: 'replaceIfChanged',
+      resize: job.settings.resize,
+      destinationType: 'customFolder',
+      preserveFolders: false,
+      subfolder: ''
+    });
+    // Everything else is the dialog's settings as they are.
+    const { destinationType: _d, preserveFolders: _p, subfolder: _s, ...rest } = job.settings;
+    expect(settings).toMatchObject(rest);
+  });
+
+  it('exports in the format of a typed image extension', async () => {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    named('a.jpg');
+    vi.mocked(save).mockResolvedValueOnce('/Delivery/a.TIF');
+    expect(await runExportJobs([planFor({ format: 'jpg' })], ['/p/a.NEF'], { saveAs: true })).toBe(1);
+    expect(requests()[0]).toMatchObject({ outputFormat: 'tiff', outputFolderOrFile: '/Delivery/a.TIF' });
+  });
+
+  it.each(['/p/a.NEF', '/p/A.nef', '/p/a.NEF.xmp', '/p/a.xmp', '/p/a.NEF.rrdata', '/p/a.cr3'])(
+    'refuses %s (the original, its sidecar or no image format) and writes nothing',
+    async (chosen) => {
+      const { save } = await import('@tauri-apps/plugin-dialog');
+      named('a.jpg');
+      vi.mocked(save).mockResolvedValueOnce(chosen);
+      expect(await runExportJobs([planFor({})], ['/p/a.NEF'], { saveAs: true })).toBe(0);
+      expect(requests()).toEqual([]);
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining(chosen.split('/').pop()!));
+    }
+  );
+
+  it('does nothing when the save dialog is cancelled', async () => {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    named('a.jpg');
+    vi.mocked(save).mockResolvedValueOnce(null);
+    useProcessStore.setState({
+      exportState: { status: Status.Idle, errorMessage: '', progress: { current: 0, total: 0 } }
+    });
+    expect(await runExportJobs([planFor({ where: 'original' })], ['/p/a.NEF'], { saveAs: true })).toBe(0);
+    expect(requests()).toEqual([]);
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(useProcessStore.getState().exportState).toMatchObject({ status: Status.Idle, errorMessage: '' });
+  });
+
+  it('names one file for one photo and one recipe only', async () => {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    expect(await runExportJobs([planFor({})], ['/p/a.NEF', '/p/b.NEF'], { saveAs: true })).toBe(0);
+    expect(await runExportJobs([planFor({}), planFor({})], ['/p/a.NEF'], { saveAs: true })).toBe(0);
+    expect(vi.mocked(save)).not.toHaveBeenCalled();
+    expect(requests()).toEqual([]);
+  });
 });

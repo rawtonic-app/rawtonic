@@ -3921,7 +3921,10 @@
         "exportWithRecipes_one": "Eksportuj z {{count}} przepisem",
         "exportWithRecipes_few": "Eksportuj z {{count}} przepisami",
         "exportWithRecipes_many": "Eksportuj z {{count}} przepisami",
-        "exportWithRecipes_other": "Eksportuj z {{count}} przepisu"
+        "exportWithRecipes_other": "Eksportuj z {{count}} przepisu",
+        "saveAs": "Zapisz jako…",
+        "saveAsHint": "Eksportuj to zdjęcie do pliku o wybranej nazwie i w wybranym folderze",
+        "saveAsOneRecipe": "Zapisz jako tworzy jeden plik: zaznacz jeden przepis lub żaden"
       },
       "border": {
         "add": "Dodaj ramkę",
@@ -4268,7 +4271,9 @@
         "queuedMany_many": "Dodano {{count}} eksportów do kolejki.",
         "queuedMany_other": "Dodano {{count}} eksportu do kolejki.",
         "queuedOne": "Dodano do kolejki eksportu.",
-        "unsavedEdits": "Nie udało się zapisać edycji {{names}}, więc nic nie zostało wyeksportowane. Wyeksportuj ponownie po ich zapisaniu."
+        "unsavedEdits": "Nie udało się zapisać edycji {{names}}, więc nic nie zostało wyeksportowane. Wyeksportuj ponownie po ich zapisaniu.",
+        "saveAsOriginal": "{{name}} to oryginał tego zdjęcia lub jego plik towarzyszący. Zapisz jako nigdy ich nie nadpisuje: wybierz inną nazwę.",
+        "saveAsFormat": "{{name}}: Rawtonic nie eksportuje plików .{{extension}}. Wybierz nazwę kończącą się na .jpg, .tif, .png, .webp, .jxl lub .avif."
       },
       "watermark": {
         "add": "Dodaj znak wodny",

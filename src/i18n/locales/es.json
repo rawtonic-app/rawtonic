@@ -3761,7 +3761,10 @@
         "export": "Exportar",
         "exportWithRecipes_one": "Exportar con {{count}} receta",
         "exportWithRecipes_many": "Exportar con {{count}} recetas",
-        "exportWithRecipes_other": "Exportar con {{count}} recetas"
+        "exportWithRecipes_other": "Exportar con {{count}} recetas",
+        "saveAs": "Guardar como…",
+        "saveAsHint": "Exportar esta foto a un archivo con el nombre y la carpeta que elijas",
+        "saveAsOneRecipe": "Guardar como crea un solo archivo: marca una receta o ninguna"
       },
       "border": {
         "add": "Añadir borde",
@@ -4099,7 +4102,9 @@
         "queuedMany_many": "{{count}} exportaciones añadidas a la cola.",
         "queuedMany_other": "{{count}} exportaciones añadidas a la cola.",
         "queuedOne": "Añadido a la cola de exportación.",
-        "unsavedEdits": "No se pudieron guardar las ediciones de {{names}}, así que no se exportó nada. Vuelve a exportar cuando estén guardadas."
+        "unsavedEdits": "No se pudieron guardar las ediciones de {{names}}, así que no se exportó nada. Vuelve a exportar cuando estén guardadas.",
+        "saveAsOriginal": "{{name}} es el original de esta foto o su archivo complementario. Guardar como nunca los sobrescribe: elige otro nombre.",
+        "saveAsFormat": "{{name}}: Rawtonic no exporta archivos .{{extension}}. Elige un nombre que termine en .jpg, .tif, .png, .webp, .jxl o .avif."
       },
       "watermark": {
         "add": "Añadir marca de agua",

@@ -3497,7 +3497,10 @@
         "chooseAndExport": "选择位置并导出",
         "choosing": "选择目标位置…",
         "export": "导出",
-        "exportWithRecipes_other": "用 {{count}} 个配方导出"
+        "exportWithRecipes_other": "用 {{count}} 个配方导出",
+        "saveAs": "另存为…",
+        "saveAsHint": "将此照片导出为你命名、放在你所选文件夹中的文件",
+        "saveAsOneRecipe": "另存为只生成一个文件：请只勾选一个配方或不勾选"
       },
       "border": {
         "add": "添加边框",
@@ -3817,6 +3820,8 @@
         "notQueued": "未导出任何内容：{{error}}",
         "queuedMany_other": "已将 {{count}} 个导出加入队列。",
         "queuedOne": "已加入导出队列。",
+        "saveAsFormat": "{{name}}：Rawtonic 不导出 .{{extension}} 文件。请选择以 .jpg、.tif、.png、.webp、.jxl 或 .avif 结尾的名称。",
+        "saveAsOriginal": "{{name}} 是这张照片的原始文件或其附属文件。另存为绝不会覆盖它们：请选择其他名称。",
         "unsavedEdits": "无法保存 {{names}} 的编辑，因此未导出任何内容。保存后请重新导出。"
       },
       "watermark": {

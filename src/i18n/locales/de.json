@@ -3600,7 +3600,10 @@
         "choosing": "Ziel auswählen…",
         "export": "Exportieren",
         "exportWithRecipes_one": "Mit {{count}} Rezept exportieren",
-        "exportWithRecipes_other": "Mit {{count}} Rezepten exportieren"
+        "exportWithRecipes_other": "Mit {{count}} Rezepten exportieren",
+        "saveAs": "Sichern unter…",
+        "saveAsHint": "Dieses Foto als Datei mit eigenem Namen in einen gewählten Ordner exportieren",
+        "saveAsOneRecipe": "„Sichern unter“ erzeugt eine Datei: höchstens ein Rezept ankreuzen"
       },
       "border": {
         "add": "Rahmen hinzufügen",
@@ -3929,6 +3932,8 @@
         "queuedMany_one": "{{count}} Export zur Warteschlange hinzugefügt.",
         "queuedMany_other": "{{count}} Exporte zur Warteschlange hinzugefügt.",
         "queuedOne": "Zur Exportwarteschlange hinzugefügt.",
+        "saveAsFormat": "{{name}}: Rawtonic exportiert keine .{{extension}}-Dateien. Wähle einen Namen mit .jpg, .tif, .png, .webp, .jxl oder .avif.",
+        "saveAsOriginal": "{{name}} ist das Original dieses Fotos oder seine Begleitdatei. „Sichern unter“ überschreibt sie nie: Wähle einen anderen Namen.",
         "unsavedEdits": "Die Bearbeitungen von {{names}} konnten nicht gespeichert werden, daher wurde nichts exportiert. Exportiere erneut, sobald sie gespeichert sind."
       },
       "watermark": {

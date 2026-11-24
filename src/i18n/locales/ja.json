@@ -3497,7 +3497,10 @@
         "chooseAndExport": "書き出し先を選んで書き出し",
         "choosing": "書き出し先を選択…",
         "export": "書き出し",
-        "exportWithRecipes_other": "{{count}} 個のレシピで書き出し"
+        "exportWithRecipes_other": "{{count}} 個のレシピで書き出し",
+        "saveAs": "別名で保存…",
+        "saveAsHint": "この写真を、名前とフォルダーを指定したファイルに書き出します",
+        "saveAsOneRecipe": "別名で保存は 1 つのファイルを作成します。レシピは 1 つだけ選ぶか、選ばないでください"
       },
       "border": {
         "add": "枠を追加",
@@ -3817,6 +3820,8 @@
         "notQueued": "何も書き出されませんでした: {{error}}",
         "queuedMany_other": "{{count}} 件の書き出しをキューに追加しました。",
         "queuedOne": "書き出しキューに追加しました。",
+        "saveAsFormat": "{{name}}: Rawtonic は .{{extension}} ファイルを書き出しません。.jpg、.tif、.png、.webp、.jxl、.avif で終わる名前を選んでください。",
+        "saveAsOriginal": "{{name}} はこの写真のオリジナルかサイドカーです。別名で保存では上書きしません。別の名前を選んでください。",
         "unsavedEdits": "{{names}} の編集を保存できなかったため、何も書き出していません。保存されたら、もう一度書き出してください。"
       },
       "watermark": {
