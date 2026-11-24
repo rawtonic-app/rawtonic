@@ -5,6 +5,7 @@
 //! (notes: benchmark-results/rawc1-2026-11-18). [`classify`] looks at the
 //! file's content to tell them from the RGB TIFFs editors and scanners write.
 
+pub mod camera_names;
 pub mod extensions;
 
 use std::collections::HashMap;

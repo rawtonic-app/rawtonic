@@ -700,7 +700,7 @@ fn facets_list_values_with_their_counts_within_a_search() {
     let p = |v: &str, n: usize| (v.to_string(), n);
     assert_eq!(
         pairs(Field::Camera),
-        [p("ILCE-7RM4", 2), p("Canon EOS R5", 1), p("", 1)]
+        [p("ILCE-7RM4", 2), p("EOS R5", 1), p("", 1)]
     );
     assert_eq!(pairs(Field::FileType), [p("raw", 3), p("jpeg", 1)]);
     assert_eq!(
@@ -1096,7 +1096,7 @@ fn camera_spellings_differing_in_case_are_one_value() {
         .map(|v| (v.value.as_str(), v.count))
         .collect();
     // As many as choosing it finds.
-    assert_eq!(cameras, [("ILCE-7RM4", 3), ("Canon EOS R5", 1)]);
+    assert_eq!(cameras, [("ILCE-7RM4", 3), ("EOS R5", 1)]);
     assert_eq!(
         found(
             &lib,
@@ -1740,4 +1740,270 @@ fn copies_with_a_keyword_of_their_own_are_found() {
     assert!(found[0].0.ends_with("DSC00124.ARW"));
     assert_eq!(found[0].1, "a1b2c3");
     assert!(lib.copies_with_keyword("Animals|Cats").unwrap().is_empty());
+}
+
+/// Smart albums and searches list a virtual copy by its own rating, colour
+/// label and keywords, as Lightroom evaluates them per copy (measured,
+/// notes: benchmark-results/smr5-2026-11-24); what the copy shares with its
+/// photograph (capture facts, file, folder, flag) selects both. Regular
+/// albums hold photographs, so a copy is never in one.
+#[test]
+fn virtual_copies_are_found_by_their_own_rating_label_and_keywords() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path());
+    // The rejected, unrated, blue Canon photograph's copy: five stars,
+    // purple, keyword People.
+    lib.save_copy_state(
+        &ids[2],
+        "aaaaa1",
+        &json!({"rating":5,"tags":["user:People","color:purple"],"adjustments":{}}),
+    )
+    .unwrap();
+    // The five-star, red, picked wedding photograph's copy: two stars, no
+    // label or keywords of its own.
+    lib.save_copy_state(
+        &ids[0],
+        "bbbbb2",
+        &json!({"rating":2,"tags":[],"adjustments":{}}),
+    )
+    .unwrap();
+    let items = |value: Value| names(lib.search_items(&rule(value)).unwrap());
+    assert_eq!(
+        items(json!({"field":"rating","op":"ge","value":4})),
+        ["DSC00123.ARW", "IMG_0001.CR3?vc=aaaaa1"]
+    );
+    assert_eq!(
+        items(json!({"field":"rating","op":"is","value":2})),
+        ["DSC00123.ARW?vc=bbbbb2"]
+    );
+    assert_eq!(
+        items(json!({"field":"label","op":"is","value":["purple"]})),
+        ["IMG_0001.CR3?vc=aaaaa1"]
+    );
+    assert_eq!(
+        items(json!({"field":"label","op":"is","value":["red"]})),
+        ["DSC00123.ARW"]
+    );
+    assert_eq!(
+        items(json!({"field":"label","op":"empty"})),
+        ["DSC00123.ARW?vc=bbbbb2", "DSC00124.ARW", "scan.jpg"]
+    );
+    assert_eq!(
+        items(json!({"field":"keyword","op":"is","value":"people"})),
+        ["IMG_0001.CR3?vc=aaaaa1"]
+    );
+    assert_eq!(
+        items(json!({"field":"keyword","op":"is","value":"wedding"})),
+        ["DSC00123.ARW", "DSC00124.ARW"]
+    );
+    assert_eq!(
+        items(json!({"field":"keyword","op":"empty"})),
+        ["DSC00123.ARW?vc=bbbbb2", "scan.jpg"]
+    );
+    assert_eq!(
+        items(json!({"field":"text","op":"contains","value":"people"})),
+        ["IMG_0001.CR3?vc=aaaaa1"]
+    );
+    assert_eq!(
+        items(json!({"field":"text","op":"contains","value":"bride"})),
+        ["DSC00123.ARW"]
+    );
+    // Shared with the photograph: capture facts, flag, file name.
+    assert_eq!(
+        items(json!({"field":"make","op":"words","value":"Canon"})),
+        ["IMG_0001.CR3", "IMG_0001.CR3?vc=aaaaa1"]
+    );
+    assert_eq!(
+        items(json!({"field":"flag","op":"is","value":["rejected"]})),
+        ["IMG_0001.CR3", "IMG_0001.CR3?vc=aaaaa1"]
+    );
+    assert_eq!(
+        items(json!({"combine":"all","rules":[
+            {"field":"rating","op":"ge","value":3},
+            {"field":"filename","op":"contains","value":"IMG"}]})),
+        ["IMG_0001.CR3?vc=aaaaa1"]
+    );
+    // A regular album holds the photograph only; a smart album naming a
+    // smart album lists the copies that one lists.
+    let album = lib.create_collection("Picks", None).unwrap();
+    lib.add_to_collection(&album.id, &ids[2..3]).unwrap();
+    assert_eq!(
+        names(lib.collection_item_paths(&album.id).unwrap()),
+        ["IMG_0001.CR3"]
+    );
+    let best = lib
+        .create_smart_collection(
+            "Best",
+            None,
+            &rule(json!({"field":"rating","op":"ge","value":4})),
+        )
+        .unwrap();
+    assert_eq!(best.count, 2);
+    let nested = lib
+        .create_smart_collection(
+            "Best Canon",
+            None,
+            &rule(json!({"combine":"all","rules":[
+                {"field":"album","op":"is","value":best.id},
+                {"field":"camera","op":"words","value":"R5"}]})),
+        )
+        .unwrap();
+    assert_eq!(
+        names(lib.collection_item_paths(&nested.id).unwrap()),
+        ["IMG_0001.CR3?vc=aaaaa1"]
+    );
+    let counts: Vec<(String, u32)> = lib
+        .collections()
+        .unwrap()
+        .into_iter()
+        .map(|c| (c.name, c.count))
+        .collect();
+    assert!(counts.contains(&("Best".into(), 2)), "{counts:?}");
+    assert!(counts.contains(&("Best Canon".into(), 1)), "{counts:?}");
+    // Photograph-only searches are unchanged.
+    assert_eq!(
+        found(&lib, json!({"field":"rating","op":"ge","value":4})),
+        ["DSC00123.ARW"]
+    );
+}
+
+/// A camera's RAW (whose decoder gives the catalogue's clean names) and its
+/// JPEG (whose EXIF states what the camera writes) are one camera: one
+/// value in the Camera and Make lists, one match for a camera rule (notes:
+/// benchmark-results/smr5-2026-11-24). A library whose photographs were
+/// named before gets the one names when it opens.
+#[test]
+fn a_bodys_raw_and_jpeg_are_one_camera() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+    let capture = lib.directory.join("Capture");
+    fs::create_dir_all(&capture).unwrap();
+    for (name, make, model) in [
+        ("DSC_0001.NEF", "Nikon", "D750"),
+        ("DSC_0001.JPG", "NIKON CORPORATION", "NIKON D750"),
+        ("IMG_0002.JPG", "Canon", "Canon EOS 6D"),
+        ("IMG_0002.CR2", "Canon", "EOS 6D"),
+        ("phone.HEIC", "Apple", "iPhone 99"),
+    ] {
+        let path = capture.join(name);
+        fs::write(&path, name.as_bytes()).unwrap();
+        let id = lib.add_asset(&path).unwrap().id;
+        let facts = CaptureFacts {
+            make: Some(make.into()),
+            model: Some(model.into()),
+            ..CaptureFacts::default()
+        };
+        lib.record_facts(&id, &facts).unwrap();
+    }
+    let check = |lib: &Library| {
+        assert_eq!(
+            found(lib, json!({"field":"camera","op":"is","value":"D750"})),
+            ["DSC_0001.JPG", "DSC_0001.NEF"]
+        );
+        assert_eq!(
+            found(lib, json!({"field":"camera","op":"is","value":"EOS 6D"})),
+            ["IMG_0002.CR2", "IMG_0002.JPG"]
+        );
+        assert_eq!(
+            found(lib, json!({"field":"make","op":"is","value":"Nikon"})),
+            ["DSC_0001.JPG", "DSC_0001.NEF"]
+        );
+        let facets = lib.facets(&Rule::everything(), &[Field::Camera]).unwrap();
+        let values = |field: Field| -> Vec<(String, usize)> {
+            let mut list: Vec<_> = facets[&field]
+                .iter()
+                .map(|v| (v.value.clone(), v.count))
+                .collect();
+            list.sort();
+            list
+        };
+        assert_eq!(
+            values(Field::Camera),
+            [
+                ("D750".to_string(), 2),
+                ("EOS 6D".to_string(), 2),
+                ("iPhone 99".to_string(), 1)
+            ]
+        );
+    };
+    check(&lib);
+    // Albums saved with the names a camera's files state, as the lists
+    // offered them before one name per camera.
+    let jpeg_camera = lib
+        .create_smart_collection(
+            "NIKON D750",
+            None,
+            &rule(json!({"field":"camera","op":"is","value":"NIKON D750"})),
+        )
+        .unwrap();
+    let jpeg_make = lib
+        .create_smart_collection(
+            "not NIKON CORPORATION",
+            None,
+            &rule(json!({"field":"make","op":"isNot","value":"NIKON CORPORATION"})),
+        )
+        .unwrap();
+    drop(lib);
+    // As a library recorded them before: each file's own names, no naming.
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    // The text index's triggers fold as the library does.
+    db.create_scalar_function(
+        "rawtonic_fold",
+        1,
+        rusqlite::functions::FunctionFlags::SQLITE_UTF8,
+        |ctx| Ok(ctx.get::<String>(0)?.to_lowercase()),
+    )
+    .unwrap();
+    db.execute_batch(
+        "UPDATE assets SET make='NIKON CORPORATION', camera='NIKON D750' WHERE rel_path LIKE '%DSC_0001.JPG';
+         UPDATE assets SET make='Canon', camera='Canon EOS 6D' WHERE rel_path LIKE '%IMG_0002.JPG';
+         DELETE FROM camera_naming;",
+    )
+    .unwrap();
+    drop(db);
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    check(&lib);
+    assert_eq!(
+        names(lib.collection_paths(&jpeg_camera.id).unwrap()),
+        ["DSC_0001.JPG", "DSC_0001.NEF"]
+    );
+    assert_eq!(
+        names(lib.collection_paths(&jpeg_make.id).unwrap()),
+        ["IMG_0002.CR2", "IMG_0002.JPG", "phone.HEIC"]
+    );
+    // The text index holds the new names, and still follows later facts.
+    assert!(
+        found(
+            &lib,
+            json!({"field":"text","op":"contains","value":"corporation"})
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        found(
+            &lib,
+            json!({"field":"text","op":"contains","value":"nikon d750"})
+        ),
+        ["DSC_0001.JPG", "DSC_0001.NEF"]
+    );
+    let phone = lib
+        .asset_at(&lib.directory.join("Capture/phone.HEIC"))
+        .unwrap()
+        .unwrap();
+    lib.record_facts(
+        &phone.id,
+        &CaptureFacts {
+            make: Some("Apple".into()),
+            model: Some("iPhone 98".into()),
+            ..CaptureFacts::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        found(
+            &lib,
+            json!({"field":"text","op":"contains","value":"iphone 98"})
+        ),
+        ["phone.HEIC"]
+    );
 }

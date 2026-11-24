@@ -457,6 +457,7 @@ impl Library {
         };
         library.plain_stored_paths()?;
         library.merge_duplicate_roots()?;
+        facts::one_camera_names(&library.conn)?;
         Ok(library)
     }
 
@@ -982,7 +983,7 @@ impl Library {
         let mut collections = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         for album in &mut collections {
             if album.kind == SMART {
-                album.count = self.search_count(&Rule::album(&album.id)).unwrap_or(0) as u32;
+                album.count = self.search_item_count(&Rule::album(&album.id)).unwrap_or(0) as u32;
             }
         }
         Ok(collections)
@@ -1022,7 +1023,7 @@ impl Library {
             id: id.clone(),
             name,
             parent: parent.map(str::to_string),
-            count: self.search_count(&Rule::album(&id))? as u32,
+            count: self.search_item_count(&Rule::album(&id))? as u32,
             kind: SMART.to_string(),
             position,
             rules: Some(rules.clone()),
@@ -1255,6 +1256,13 @@ impl Library {
     /// query.
     pub fn collection_paths(&self, id: &str) -> Result<Vec<PathBuf>, CatalogError> {
         self.search(&Rule::album(id))
+    }
+
+    /// What the album shows (`search_items`): its photographs, and for a
+    /// smart album the virtual copies its rules match, as
+    /// `<photograph>?vc=<copy>`.
+    pub fn collection_item_paths(&self, id: &str) -> Result<Vec<PathBuf>, CatalogError> {
+        self.search_items(&Rule::album(id))
     }
 
     pub fn primary_version(&self, asset: &str) -> Result<String, CatalogError> {

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Smart albums and the Library search list a virtual copy by its own rating, colour label and keywords, as Lightroom does: a five-star copy of a one-star photo is in "rating ≥ 4" without its photo, and a copy shows up in a smart album's grid and count. Copies still share their photo's flag, and ordinary albums still hold photos only.
+
+- A camera's RAW and JPEG files are one camera in the Library: the Camera list, searches and smart albums use one make and model for both (e.g. `Nikon` / `D750`, not also `NIKON CORPORATION` / `NIKON D750` for the JPEG). Existing libraries are renamed when opened, so a smart album saved from the JPEG spelling ("Camera is NIKON D750") now also contains that camera's RAW files. Lightroom smart collections with "Camera is" (and "is not") now import, except for a camera Rawtonic names once for several models Lightroom tells apart (such as Olympus Stylus 1 and 1s), which the import report lists as not imported.
+
 - Save As replaces the file you confirmed with the save dialog's Replace, in one atomic step; the photo, its sidecars and library photos stay refused.
 
 - Canon CR3 catalog facts retain capture date and camera information when image data follows the metadata, so import preset `{year}` uses the capture year.
