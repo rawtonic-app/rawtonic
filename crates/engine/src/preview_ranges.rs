@@ -1,5 +1,5 @@
-//! Reading a RAW's embedded preview ahead of its mapping, one read per
-//! byte range.
+//! Reading a RAW's embedded preview ahead of its mapping, in a few large
+//! reads.
 //!
 //! A grid tile of a never-edited RAW is its embedded camera JPEG, read
 //! through a mapping of the file (`file_io::read_file_mapped`). On a
@@ -46,8 +46,8 @@ const MAX_STRUCTURE_BYTES: u64 = 16 << 20;
 /// length) and is left to the mapping.
 const MAX_RANGE_BYTES: u64 = 64 << 20;
 
-/// What [`read_ahead`] read: the located preview ranges (offset, length,
-/// clipped to the file), and the reads and bytes it took in all.
+/// What [`read_ahead`] read: the located preview ranges (offset, length;
+/// all within the file), and the reads and bytes it took in all.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ReadAhead {
     pub ranges: Vec<(u64, u64)>,
@@ -72,9 +72,11 @@ pub fn read_ahead(file: &File, len: u64) -> ReadAhead {
     let mut ranges = Vec::new();
     let mut part = Vec::new();
     for (offset, length) in located.unwrap_or_default() {
-        let end = offset.saturating_add(length).min(len);
-        if offset < end && end - offset <= MAX_RANGE_BYTES {
-            ranges.push((offset, end - offset));
+        // A range past the end of the file is one the parsers do not read
+        // either (a truncated or damaged file): left to the mapping.
+        let end = offset.saturating_add(length);
+        if offset < end && end <= len && length <= MAX_RANGE_BYTES {
+            ranges.push((offset, length));
             probe.read_through(offset, end, &mut part);
         }
     }
@@ -101,10 +103,11 @@ fn read_structure(probe: &Probe) {
         let word = |at| bytes_at::<4>(probe, at).map(u32::from_be_bytes);
         if let (Some(tags), Some(length)) = (word(92), word(96))
             && u64::from(length) <= MAX_RANGE_BYTES
+            && let Some(end) = u64::from(tags)
+                .checked_add(u64::from(length))
+                .filter(|&end| end <= probe.len)
         {
-            let tags = u64::from(tags);
-            let end = tags.saturating_add(u64::from(length)).min(probe.len);
-            probe.read_through(tags, end, &mut Vec::new());
+            probe.read_through(u64::from(tags), end, &mut Vec::new());
         }
         if let Some(raw) = word(100) {
             let _ = rawler::formats::tiff::IFD::new_root_with_correction(
@@ -687,6 +690,22 @@ mod tests {
         tiff.extend(0u32.to_le_bytes());
         let done = read_ahead_of_sparse(&tiff, 48 << 20);
         assert!(done.bytes <= (HEAD_BLOCKS * BLOCK) as u64 + MAX_STRUCTURE_BYTES);
+    }
+
+    #[test]
+    fn a_range_past_the_end_of_the_file_is_not_read() {
+        // A truncated RAF: its JPEG (3 MB from 148) and its tag block
+        // (1 MB from 1.5 MB) end past the 2 MB file. The parsers read
+        // neither; clipped, both would be under the caps.
+        let mut raf = raf_with_jpeg(&jpeg(8, 8));
+        raf[88..92].copy_from_slice(&(3u32 << 20).to_be_bytes());
+        raf[92..96].copy_from_slice(&(3u32 << 19).to_be_bytes());
+        raf[96..100].copy_from_slice(&(1u32 << 20).to_be_bytes());
+        raf.resize(2 << 20, 3);
+        assert!(image_loader::raf_embedded_jpeg(&raf).is_none());
+        let done = read_ahead_of(&raf);
+        assert_eq!(done.ranges, Vec::new());
+        assert_eq!((done.reads, done.bytes), (1, (HEAD_BLOCKS * BLOCK) as u64));
     }
 
     /// An ISO BMFF box.
