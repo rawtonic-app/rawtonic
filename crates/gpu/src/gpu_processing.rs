@@ -4326,7 +4326,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 1 << 29;
+const PREVIEW_PIPELINE_COUNT: usize = 1 << 30;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -4348,7 +4348,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// 5 or older 8388608, halation 16777216, grain 33554432, raised Shadows'
 /// level of tone version 19 67108864, raised Shadows' bounds of tone
 /// version 20 134217728, lowered Whites' offset cap of tone version 22
-/// 268435456.
+/// 268435456, raised Shadows' and lowered Highlights' pixel anchor of tone
+/// version 23 536870912.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -4466,14 +4467,19 @@ const SHADOWS_V20_FEATURE: usize = 134217728;
 /// `whites_v22_offset`), compiled only for recipes of that version that
 /// lower Whites, so older recipes' pipelines keep the code they had.
 const WHITES_V22_FEATURE: usize = 268435456;
+/// Raised Shadows' and lowered Highlights' pixel anchor of tone version 23
+/// (`ANCHOR_V23`, shader `shadows_v23_gain`, `highlights_v23_target`),
+/// compiled only for recipes of that version that use either, so older
+/// recipes' pipelines keep the code they had.
+const ANCHOR_V23_FEATURE: usize = 536870912;
 
 /// Slots per page of a [`VariantTable`]: features that differ only in the
 /// low bits (detail, noise reduction, tone, relight, sharpening responses)
 /// share a page. 2^15 pages, as at 2^24 variants with 2^9 slots: the page
 /// array stays the size it was when the effects got a bit each (G76/WCC8)
-/// and when tone version 20's raised Shadows (2^13 slots) and version 22's
-/// lowered Whites (2^14) got one.
-const VARIANT_PAGE_BITS: u32 = 14;
+/// and when tone version 20's raised Shadows (2^13 slots), version 22's
+/// lowered Whites (2^14) and version 23's pixel anchor (2^15) got one.
+const VARIANT_PAGE_BITS: u32 = 15;
 const VARIANT_PAGE_SLOTS: usize = 1 << VARIANT_PAGE_BITS;
 const VARIANT_PAGES: usize = PREVIEW_PIPELINE_COUNT / VARIANT_PAGE_SLOTS;
 
@@ -5871,6 +5877,15 @@ fn whites_v22(adjustments: &AllAdjustments) -> bool {
         && whites_v12(adjustments)
 }
 
+/// Whether the recipe raises Shadows or lowers Highlights with tone version
+/// 23's pixel anchor, on the photo or a layer (`ANCHOR_V23`). Both act only
+/// under the Camera Raw look (shader `base_look_is_camera_raw`).
+fn anchor_v23(adjustments: &AllAdjustments) -> bool {
+    adjustments.global.tonemapper_mode == 3
+        && ToneVersion::from_uniform(adjustments.global.tone_version).pixel_anchor()
+        && (shadows_v20(adjustments) || highlights_v14(adjustments))
+}
+
 /// Whether the recipe raises Shadows with tone version 20's bounds, on the
 /// photo or a layer (`SHADOWS_V20`).
 fn shadows_v20(adjustments: &AllAdjustments) -> bool {
@@ -5924,7 +5939,8 @@ fn dehaze_v3(adjustments: &AllAdjustments) -> bool {
 /// of version 12 (1), raised Shadows of version 13 (2), lowered Highlights
 /// of version 14 (4), lowered Blacks of version 16 (8), raised Shadows'
 /// level of version 19 (16), raised Shadows' bounds of version 20 (32),
-/// lowered Whites' offset cap of version 22 (64).
+/// lowered Whites' offset cap of version 22 (64), raised Shadows' and
+/// lowered Highlights' pixel anchor of version 23 (128).
 fn tone_level(adjustments: &AllAdjustments) -> usize {
     usize::from(whites_v12(adjustments))
         | (usize::from(shadows_v13(adjustments)) << 1)
@@ -5933,10 +5949,11 @@ fn tone_level(adjustments: &AllAdjustments) -> usize {
         | (usize::from(shadows_v19(adjustments)) << 4)
         | (usize::from(shadows_v20(adjustments)) << 5)
         | (usize::from(whites_v22(adjustments)) << 6)
+        | (usize::from(anchor_v23(adjustments)) << 7)
 }
 
 /// `tone_level`'s values (`Range2Pipelines`, `MIXER_FEATURE_SLOTS`).
-const TONE_LEVELS: usize = 128;
+const TONE_LEVELS: usize = 256;
 
 /// Whether lowered Whites of tone version 10 reads the small blur's mean log
 /// luminance (shader.wgsl whites_v10_offset), on the photo or a layer.
@@ -6147,6 +6164,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let shadows_v19 = shadows_v19(adjustments);
     let shadows_v20 = shadows_v20(adjustments);
     let whites_v22 = whites_v22(adjustments);
+    let anchor_v23 = anchor_v23(adjustments);
     let hsl_v2 = hsl_v2(adjustments);
     let presence_v3 = presence_v3(adjustments);
     let dehaze_v2 = dehaze_v2(adjustments);
@@ -6194,6 +6212,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if shadows_v19 { SHADOWS_V19_FEATURE } else { 0 }
         | if shadows_v20 { SHADOWS_V20_FEATURE } else { 0 }
         | if whites_v22 { WHITES_V22_FEATURE } else { 0 }
+        | if anchor_v23 { ANCHOR_V23_FEATURE } else { 0 }
         | if hsl_v2 { HSL_V2_FEATURE } else { 0 }
         | if presence_v3 { PRESENCE_V3_FEATURE } else { 0 }
         | if dehaze_v2 { DEHAZE_V2_FEATURE } else { 0 }
@@ -6451,7 +6470,7 @@ fn export_variant(
 /// `GpuProcessor::range2_pipelines`, one table per main output on the heap:
 /// inline, the tables of all outputs made `GpuProcessor` too large for a
 /// test thread's stack once the tone levels doubled to 32. The tone levels
-/// are a `Vec` of `TONE_LEVELS` entries (64 since tone version 20: more
+/// are a `Vec` of `TONE_LEVELS` entries (256 since tone version 23: more
 /// than an array builds by default, and built on the heap).
 type Range2Pipelines = Vec<Range2OutputPipelines>;
 type Range2OutputPipelines =
@@ -7911,6 +7930,7 @@ fn variant_constants(
         ("SHADOWS_V19", ((features >> 26) & 1) as f64),
         ("SHADOWS_V20", ((features >> 27) & 1) as f64),
         ("WHITES_V22", ((features >> 28) & 1) as f64),
+        ("ANCHOR_V23", ((features >> 29) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -11210,6 +11230,7 @@ impl GpuProcessor {
                         ("SHADOWS_V19", on(tone & 16 != 0)),
                         ("SHADOWS_V20", on(tone & 32 != 0)),
                         ("WHITES_V22", on(tone & 64 != 0)),
+                        ("ANCHOR_V23", on(tone & 128 != 0)),
                         ("HSL_V2", on(hsl)),
                         ("PRESENCE_V3", on(presence)),
                         ("DEHAZE_V2", on(dehaze)),

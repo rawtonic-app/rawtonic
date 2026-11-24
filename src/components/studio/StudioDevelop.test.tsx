@@ -1942,7 +1942,7 @@ describe('Group reset', () => {
     expect(historyStepName(step(), i18n.t.bind(i18n))).toBe('Reset Exposure');
   });
 
-  it("the photo's Exposure reset takes a new edit's tone version and keeps its layers' Whites and Shadows", () => {
+  it("the photo's Exposure reset keeps the tone version a layer's raised Shadows render with", () => {
     const layerOf = (adjustments: Record<string, number>) => ({
       ...structuredClone(INITIAL_MASK_CONTAINER),
       id: 'l',
@@ -1954,12 +1954,33 @@ describe('Group reset', () => {
     mount();
     openGroups();
     fireEvent.click(screen.getByRole('button', { name: 'Reset Exposure' }));
+    // Version 23's pixel anchor changes raised Shadows, which no slider
+    // value re-expresses: the layer keeps rendering as under version 20.
+    expect(adjustments().toneVersion).toBe(20);
+    expect(adjustments().exposure).toBe(0);
+    expect(adjustments().shadows).toBe(0);
+    expect(adjustments().masks[0].adjustments.shadows).toBe(61);
+    expect(adjustments().masks[0].adjustments.whites).toBe(40);
+  });
+
+  it("the photo's Exposure reset takes a new edit's tone version and keeps its layers' raised Whites", () => {
+    const layerOf = (adjustments: Record<string, number>) => ({
+      ...structuredClone(INITIAL_MASK_CONTAINER),
+      id: 'l',
+      name: 'l',
+      subMasks: [createSubMask(Mask.Linear, { width: 6000, height: 4000 } as SelectedImage)],
+      adjustments: { ...structuredClone(INITIAL_MASK_CONTAINER.adjustments), ...adjustments }
+    });
+    setEdit({ toneVersion: 20, exposure: 0.5, shadows: 30, masks: [layerOf({ whites: 40, shadows: -20 })] });
+    mount();
+    openGroups();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Exposure' }));
     expect(adjustments().toneVersion).toBe(TONE_VERSION);
     expect(adjustments().exposure).toBe(0);
     expect(adjustments().shadows).toBe(0);
-    // Version 20's +61 is version 21's +50; Whites travel alike in 20 and 21.
-    expect(adjustments().masks[0].adjustments.shadows).toBe(50);
+    // Whites travel alike in 20 and later; lowered Shadows are unchanged.
     expect(adjustments().masks[0].adjustments.whites).toBe(40);
+    expect(adjustments().masks[0].adjustments.shadows).toBe(-20);
   });
 
   it("a slider's develop default on an edit of another tone version keeps the default's amount", () => {
