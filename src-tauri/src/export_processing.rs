@@ -512,9 +512,22 @@ pub struct PinnedPhoto {
     /// build, which skips the check.
     #[serde(default)]
     pub source_identity: Option<String>,
+    /// Its library marked it as a file Rawtonic rendered with generated
+    /// areas (an Edit With render, `Library::has_generated_provenance`): its
+    /// exports are marked as containing generated content.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub generated_source: bool,
 }
 
 impl PinnedPhoto {
+    /// Whether an export of this snapshot with `settings` is marked as
+    /// containing generated content: its recipe's generated areas, or its
+    /// file's own provenance (`generated_source`).
+    pub(crate) fn marks_generated(&self, settings: &ExportSettings) -> bool {
+        rawtonic_export::export_processing::export_marks_generated(&self.adjustments, settings)
+            || self.generated_source
+    }
+
     /// The EXIF of `source` as this snapshot has it, else as the original
     /// file holds it (what its first decode caches), never as a sidecar or
     /// library holds it by now.
@@ -653,6 +666,7 @@ pub(crate) fn pin_photos(
                     source_identity: require_local_tiff(&source)
                         .ok()
                         .and_then(|()| crate::session_bridge::source_identity(&source)),
+                    generated_source: crate::session_bridge::generated_provenance(&source),
                 })
             })
         })
@@ -752,6 +766,7 @@ fn save_image_with_metadata(
             enlarger: None,
             // Mask images carry no manifest.
             provenance: None,
+            source_generated: pinned.generated_source,
         },
     )
 }
@@ -1006,7 +1021,8 @@ fn export_masks_for_image(
                 &mask_image_path,
                 source_path_str,
                 export_settings,
-                rawtonic_engine::image_loader::has_generated_areas(js_adjustments),
+                rawtonic_engine::image_loader::has_generated_areas(js_adjustments)
+                    || pinned.generated_source,
                 pinned,
                 size_limit_missed,
             )?;
@@ -2923,6 +2939,7 @@ fn export_photo(
                 write: &write_export,
                 enlarger: Some(&enlarger),
                 provenance: provenance.as_deref(),
+                source_generated: pinned.generated_source,
             };
             let cancelled = || ensure_export_not_cancelled(cancellation_token);
             // A group renders at the first of its recipes still to be

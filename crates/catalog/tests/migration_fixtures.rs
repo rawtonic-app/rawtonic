@@ -65,7 +65,7 @@ fn register_functions(conn: &Connection) {
 }
 
 /// A database exactly as schema `version` created it: the scripts up to it
-/// (schema 22's, 23's, 27's, 28's and 32's columns were part of their scripts then).
+/// (schema 22's, 23's, 27's, 28's, 32's and 35's columns were part of their scripts then).
 fn schema_at(version: usize) -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     register_functions(&conn);
@@ -92,6 +92,11 @@ fn schema_at(version: usize) -> Connection {
                 .unwrap(),
             32 => conn
                 .execute_batch("ALTER TABLE assets ADD COLUMN lens_import TEXT;")
+                .unwrap(),
+            35 => conn
+                .execute_batch(
+                    "ALTER TABLE assets ADD COLUMN generated_provenance INTEGER NOT NULL DEFAULT 0;",
+                )
                 .unwrap(),
             _ => {}
         }

@@ -236,8 +236,9 @@ pub(crate) fn write_facts(
     let facts = facts.sanitized();
     let written = conn.execute(
         "UPDATE assets SET capture_time=?,capture_subsec=?,capture_offset=?,make=?,camera=?,lens=?,
-                focal_length=?,aperture=?,iso=?,exposure=?,source_type=?,exposure_mode=?,
-                exposure_bias=?,sequence=?,facts_read=1
+                focal_length=?,aperture=?,iso=?,exposure=?,
+                source_type=CASE WHEN generated_provenance=1 AND ?11='' THEN source_type ELSE ?11 END,
+                exposure_mode=?,exposure_bias=?,sequence=?,facts_read=1
          WHERE id=?",
         params![
             facts.captured,
@@ -310,6 +311,36 @@ impl Library {
         }
         tx.commit()?;
         Ok(written)
+    }
+
+    /// Marks asset `id` as a file Rawtonic rendered with areas a generative
+    /// model made (an Edit With render of such a photo), for good: exports
+    /// of it are marked as containing generated content, and its source
+    /// type stays the marking `source_type` states even when its file, saved
+    /// by another program since, states none. Returns whether it exists.
+    pub fn mark_generated_provenance(
+        &self,
+        id: &str,
+        source_type: &str,
+    ) -> Result<bool, CatalogError> {
+        let code = rawtonic_metadata::provenance::source_type_code(source_type);
+        Ok(self.conn.execute(
+            "UPDATE assets SET generated_provenance=1,source_type=? WHERE id=?",
+            params![code, id],
+        )? == 1)
+    }
+
+    /// Whether asset `id` was marked by [`Library::mark_generated_provenance`].
+    pub fn has_generated_provenance(&self, id: &str) -> Result<bool, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT generated_provenance=1 FROM assets WHERE id=?",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(false))
     }
 
     /// Asset `id`'s capture facts, and whether its file was read for them.

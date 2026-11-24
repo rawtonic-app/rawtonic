@@ -337,6 +337,7 @@ pub(crate) fn queue_inspected<T: Clone>(
                     request.edit_target = Some(crate::open_with::EditTarget {
                         source: request.paths[0].clone(),
                         target: request.output_folder_or_file.clone(),
+                        generated: photo.marks_generated(&request.export_settings),
                         library: photo.owner,
                         metadata: request.embedded_library_metadata(photo.metadata),
                     });

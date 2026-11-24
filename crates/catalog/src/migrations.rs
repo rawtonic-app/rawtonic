@@ -116,6 +116,13 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration::sql(33, include_str!("../migrations/0033.sql")),
     // The camera naming the photographs' make and model follow.
     Migration::sql(34, include_str!("../migrations/0034.sql")),
+    // Renders Rawtonic made with generated areas (Edit With), marked for good.
+    Migration::with_columns(
+        35,
+        "assets",
+        &[("generated_provenance", "INTEGER NOT NULL DEFAULT 0")],
+        include_str!("../migrations/0035.sql"),
+    ),
 ];
 
 /// The newest schema: the last migration's.

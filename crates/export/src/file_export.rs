@@ -379,6 +379,8 @@ impl FileExporter {
                     write: &write,
                     enlarger: self.enlarger.as_deref(),
                     provenance: self.provenance.as_deref(),
+                    // Outside a library (the CLI) no file is known to be one.
+                    source_generated: false,
                 },
                 &|| Ok(()),
             )
