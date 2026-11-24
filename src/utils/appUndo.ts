@@ -1146,7 +1146,7 @@ export function showCullingChanges(changes: CullingChange[]) {
       }
       if (after.kind === 'flag') {
         if (imageFlags === state.imageFlags) imageFlags = { ...imageFlags };
-        imageFlags[pathKey(sourceOf(path))] = after.value;
+        imageFlags[pathKey(path)] = after.value;
       }
       if (after.kind === 'color') colors.set(path, after.value);
     }

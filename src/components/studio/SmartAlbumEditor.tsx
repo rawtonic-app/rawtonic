@@ -57,7 +57,8 @@ const FIELDS: { field: Field; kind: Kind }[] = [
   { field: 'sourceType', kind: 'choice' },
   { field: 'eyes', kind: 'choice' },
   { field: 'suggestion', kind: 'choice' },
-  { field: 'stacked', kind: 'bool' }
+  { field: 'stacked', kind: 'bool' },
+  { field: 'virtualCopy', kind: 'bool' }
 ];
 const kindOf = (field: Field): Kind => FIELDS.find((f) => f.field === field)?.kind ?? 'text';
 const isExposure = (field: Field): boolean => field === 'exposure' || field === 'exposureExact';

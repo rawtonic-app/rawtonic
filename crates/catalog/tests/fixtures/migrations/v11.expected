@@ -1,4 +1,4 @@
-# user_version 34
+# user_version 36
 # schema
 'index' | 'asset_imports_batch' | 'asset_imports' | 'CREATE INDEX asset_imports_batch ON asset_imports(batch_id)'
 'index' | 'asset_keywords_keyword' | 'asset_keywords' | 'CREATE INDEX asset_keywords_keyword ON asset_keywords(keyword)'
@@ -25,6 +25,7 @@
 'index' | 'sqlite_autoindex_face_eyes_1' | 'face_eyes' | NULL
 'index' | 'sqlite_autoindex_file_ops_log_1' | 'file_ops_log' | NULL
 'index' | 'sqlite_autoindex_folder_root_volumes_1' | 'folder_root_volumes' | NULL
+'index' | 'sqlite_autoindex_forgotten_copies_1' | 'forgotten_copies' | NULL
 'index' | 'sqlite_autoindex_hot_folder_files_1' | 'hot_folder_files' | NULL
 'index' | 'sqlite_autoindex_image_hashes_1' | 'image_hashes' | NULL
 'index' | 'sqlite_autoindex_imported_recipes_1' | 'imported_recipes' | NULL
@@ -78,9 +79,10 @@
  asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
  captured TEXT NOT NULL, subsec TEXT, offset TEXT)'
 'table' | 'collection_assets' | 'collection_assets' | 'CREATE TABLE "collection_assets"(
- collection_id TEXT REFERENCES "collections"(id) ON DELETE CASCADE,
+ collection_id TEXT REFERENCES collections(id) ON DELETE CASCADE,
  asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
- PRIMARY KEY(collection_id, asset_id)
+ copy TEXT NOT NULL DEFAULT '''',
+ PRIMARY KEY(collection_id, asset_id, copy)
 )'
 'table' | 'collections' | 'collections' | 'CREATE TABLE "collections"(
  id TEXT PRIMARY KEY,
@@ -132,6 +134,11 @@
  PRIMARY KEY(asset_id, face))'
 'table' | 'file_ops_log' | 'file_ops_log' | 'CREATE TABLE file_ops_log(id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
 'table' | 'folder_root_volumes' | 'folder_root_volumes' | 'CREATE TABLE folder_root_volumes(path TEXT PRIMARY KEY, volume TEXT NOT NULL)'
+'table' | 'forgotten_copies' | 'forgotten_copies' | 'CREATE TABLE forgotten_copies(
+ asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+ copy TEXT NOT NULL,
+ flag INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1),
+ PRIMARY KEY(asset_id, copy))'
 'table' | 'hot_folder' | 'hot_folder' | 'CREATE TABLE hot_folder(
  id INTEGER PRIMARY KEY CHECK(id=1),
  folder TEXT NOT NULL,
@@ -224,7 +231,7 @@
 'table' | 'styles' | 'styles' | 'CREATE TABLE styles(id TEXT PRIMARY KEY, name TEXT NOT NULL, recipe_json TEXT NOT NULL)'
 'table' | 'tasks' | 'tasks' | 'CREATE TABLE tasks(id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, progress REAL NOT NULL DEFAULT 0, error TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
 'table' | 'versions' | 'versions' | 'CREATE TABLE versions(id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
- name TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0, head INTEGER, legacy_state TEXT, ai_facts INTEGER NOT NULL DEFAULT 0)'
+ name TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0, head INTEGER, legacy_state TEXT, ai_facts INTEGER NOT NULL DEFAULT 0, flag INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1))'
 'table' | 'workspaces' | 'workspaces' | 'CREATE TABLE workspaces(id TEXT PRIMARY KEY, name TEXT NOT NULL, settings_json TEXT NOT NULL)'
 'trigger' | 'assets_ad' | 'assets' | 'CREATE TRIGGER assets_ad AFTER DELETE ON assets BEGIN
  DELETE FROM asset_search WHERE asset_id = old.id;
@@ -288,19 +295,19 @@ END'
 '00000000-0000-4000-8000-000000000007' | 'session' | 'Trash/DSC00099.ARW' | 20000007 | 1780000007 | 'xxh3:000000000000d889' | '2026-06-01 11:00:00' | 'ILCE-7RM4' | '' | 6000 | 4000 | 1 | 'arw' | NULL | NULL | 1 | '' | '0000000000000000000000000000000000000000000000000000000000000007' | NULL | NULL | NULL | 'Sony' | NULL | NULL | NULL | NULL | 0 | 0 | '' | NULL | NULL | NULL | NULL | NULL | NULL
 '00000000-0000-4000-8000-000000000008' | 'session' | 'Selects/DSC00200.ARW' | 20000008 | 1780000008 | 'xxh3:000000000000f778' | NULL | '' | '' | 6000 | 4000 | 1 | 'arw' | NULL | NULL | 0 | '' | '0000000000000000000000000000000000000000000000000000000000000008' | NULL | NULL | NULL | '' | NULL | NULL | NULL | NULL | 0 | 0 | '' | NULL | NULL | NULL | NULL | NULL | NULL
 '00000000-0000-4000-8000-000000000009' | 'session' | 'Capture/Day 2/DSCF1234.RAF' | 20000009 | 1780000009 | 'xxh3:0000000000011667' | '2026-06-03 07:45:00' | 'X-T5' | '' | 6000 | 4000 | 1 | 'raf' | NULL | NULL | 0 | 'landscape' | '0000000000000000000000000000000000000000000000000000000000000009' | NULL | NULL | NULL | 'Fujifilm' | NULL | NULL | 160 | 0.004 | 0 | 0 | '' | NULL | NULL | NULL | NULL | NULL | NULL
-# table versions (12 rows): id, asset_id, name, is_primary, head, legacy_state, ai_facts
-'00000000-0000-4000-9000-000000000001' | '00000000-0000-4000-8000-000000000001' | 'Original' | 1 | 3 | NULL | 516
-'00000000-0000-4000-9000-000000000002' | '00000000-0000-4000-8000-000000000002' | 'Original' | 1 | 4 | NULL | 0
-'00000000-0000-4000-9000-000000000003' | '00000000-0000-4000-8000-000000000003' | 'Original' | 1 | 6 | NULL | 0
-'00000000-0000-4000-9000-000000000004' | '00000000-0000-4000-8000-000000000004' | 'Original' | 1 | NULL | NULL | 0
-'00000000-0000-4000-9000-000000000005' | '00000000-0000-4000-8000-000000000005' | 'Original' | 1 | NULL | NULL | 0
-'00000000-0000-4000-9000-000000000006' | '00000000-0000-4000-8000-000000000006' | 'Original' | 1 | NULL | NULL | 0
-'00000000-0000-4000-9000-000000000007' | '00000000-0000-4000-8000-000000000007' | 'Original' | 1 | NULL | NULL | 0
-'00000000-0000-4000-9000-000000000008' | '00000000-0000-4000-8000-000000000008' | 'Original' | 1 | NULL | NULL | 0
-'00000000-0000-4000-9000-000000000009' | '00000000-0000-4000-8000-000000000009' | 'Original' | 1 | NULL | NULL | 0
-'00000000-0000-4000-9000-000000000101' | '00000000-0000-4000-8000-000000000001' | 'a1b2c3' | 0 | NULL | '{"adjustments":{"exposure":1.0}}' | 0
-'00000000-0000-4000-9000-000000000102' | '00000000-0000-4000-8000-000000000001' | '0f0f0f' | 0 | NULL | '{"adjustments":{"aiPatches":[{"id":"p1","patchData":{"color":"rawtonic-blob:sha256:none","model":"external"},"visible":true}]}}' | 33
-'00000000-0000-4000-9000-000000000103' | '00000000-0000-4000-8000-000000000002' | 'beef01' | 0 | NULL | '{"adjustments":{"saturation":-100}}' | 0
+# table versions (12 rows): id, asset_id, name, is_primary, head, legacy_state, ai_facts, flag
+'00000000-0000-4000-9000-000000000001' | '00000000-0000-4000-8000-000000000001' | 'Original' | 1 | 3 | NULL | 516 | 0
+'00000000-0000-4000-9000-000000000002' | '00000000-0000-4000-8000-000000000002' | 'Original' | 1 | 4 | NULL | 0 | 0
+'00000000-0000-4000-9000-000000000003' | '00000000-0000-4000-8000-000000000003' | 'Original' | 1 | 6 | NULL | 0 | 0
+'00000000-0000-4000-9000-000000000004' | '00000000-0000-4000-8000-000000000004' | 'Original' | 1 | NULL | NULL | 0 | 0
+'00000000-0000-4000-9000-000000000005' | '00000000-0000-4000-8000-000000000005' | 'Original' | 1 | NULL | NULL | 0 | 0
+'00000000-0000-4000-9000-000000000006' | '00000000-0000-4000-8000-000000000006' | 'Original' | 1 | NULL | NULL | 0 | 0
+'00000000-0000-4000-9000-000000000007' | '00000000-0000-4000-8000-000000000007' | 'Original' | 1 | NULL | NULL | 0 | 0
+'00000000-0000-4000-9000-000000000008' | '00000000-0000-4000-8000-000000000008' | 'Original' | 1 | NULL | NULL | 0 | 0
+'00000000-0000-4000-9000-000000000009' | '00000000-0000-4000-8000-000000000009' | 'Original' | 1 | NULL | NULL | 0 | 0
+'00000000-0000-4000-9000-000000000101' | '00000000-0000-4000-8000-000000000001' | 'a1b2c3' | 0 | NULL | '{"adjustments":{"exposure":1.0}}' | 0 | 1
+'00000000-0000-4000-9000-000000000102' | '00000000-0000-4000-8000-000000000001' | '0f0f0f' | 0 | NULL | '{"adjustments":{"aiPatches":[{"id":"p1","patchData":{"color":"rawtonic-blob:sha256:none","model":"external"},"visible":true}]}}' | 33 | 1
+'00000000-0000-4000-9000-000000000103' | '00000000-0000-4000-8000-000000000002' | 'beef01' | 0 | NULL | '{"adjustments":{"saturation":-100}}' | 0 | 0
 # table recipes (6 rows): id, version_id, parent, schema_version, payload, snapshot, created_at
 1 | '00000000-0000-4000-9000-000000000001' | NULL | 1 | '{"adjustments":{"exposure":0.3}}' | NULL | '2026-06-01 12:00:01'
 2 | '00000000-0000-4000-9000-000000000001' | 1 | 1 | '{"adjustments":{"contrast":10,"exposure":0.5}}' | 'Before AI' | '2026-06-01 12:00:02'
@@ -382,12 +389,6 @@ END'
 'album-wedding' | 'Wedding' | 'group-clients' | 'album' | 0 | NULL
 'group-clients' | 'Clients' | NULL | 'group' | 0 | NULL
 'smart-five-stars' | 'Four stars and up' | NULL | 'smart' | 2 | '{"combine":"all","rules":[{"field":"rating","op":"ge","value":4}]}'
-# table collection_assets (5 rows): collection_id, asset_id
-'album-portraits' | '00000000-0000-4000-8000-000000000003'
-'album-portraits' | '00000000-0000-4000-8000-000000000007'
-'album-wedding' | '00000000-0000-4000-8000-000000000001'
-'album-wedding' | '00000000-0000-4000-8000-000000000002'
-'album-wedding' | '00000000-0000-4000-8000-000000000004'
 # table snapshots (0 rows): key, id, version_id, name, created_at, adjustments
 # table snapshot_blob_refs (0 rows): snapshot_key, hash
 # table folder_root_volumes (0 rows): path, volume
@@ -405,6 +406,13 @@ END'
 # table pending_capture_times (0 rows): asset_id, wall_time
 # table camera_naming (1 rows): id, fingerprint
 1 | '<decoder naming>'
+# table forgotten_copies (0 rows): asset_id, copy, flag
+# table collection_assets (5 rows): collection_id, asset_id, copy
+'album-portraits' | '00000000-0000-4000-8000-000000000003' | ''
+'album-portraits' | '00000000-0000-4000-8000-000000000007' | ''
+'album-wedding' | '00000000-0000-4000-8000-000000000001' | ''
+'album-wedding' | '00000000-0000-4000-8000-000000000002' | ''
+'album-wedding' | '00000000-0000-4000-8000-000000000004' | ''
 # foreign_key_check
 # searches
 text contains 0123: ["00000000-0000-4000-8000-000000000001"]

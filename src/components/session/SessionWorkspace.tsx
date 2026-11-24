@@ -411,7 +411,6 @@ interface ImportReport {
   missing: number;
   copiesSkipped: number;
   smartAlbumsSkipped?: string[];
-  copiesInAlbums?: string[];
   smartAlbumsByFacts?: string[];
   /** Virtual copies imported as virtual copies of their photograph. */
   copies?: number;
@@ -1298,11 +1297,6 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       if (report.smartAlbumsSkipped?.length)
         notify.warning(t('session.toasts.importSmartAlbumsSkipped', { n: report.smartAlbumsSkipped.length }), {
           detail: report.smartAlbumsSkipped.join('\n'),
-          autoClose: false
-        });
-      if (report.copiesInAlbums?.length)
-        notify.warning(t('session.toasts.importCopiesInAlbums', { n: report.copiesInAlbums.length }), {
-          detail: report.copiesInAlbums.join('\n'),
           autoClose: false
         });
       if (report.smartAlbumsByFacts?.length)

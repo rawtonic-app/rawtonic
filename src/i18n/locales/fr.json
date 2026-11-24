@@ -1767,6 +1767,7 @@
         "albums": "albums",
         "captureTime": "heure de prise de vue",
         "copies": "copies virtuelles",
+        "copyFlags": "drapeaux des copies virtuelles",
         "edit": "retouche",
         "eyes": "contrôles des yeux",
         "metadata": "métadonnées",
@@ -2274,7 +2275,6 @@
       "importCopies_one": "{{count}} copie virtuelle importée",
       "importCopies_many": "{{count}} copies virtuelles importées",
       "importCopies_other": "{{count}} copies virtuelles importées",
-      "importCopiesInAlbums": "Les albums contiennent des photos, pas des copies virtuelles — ces copies ont été ajoutées en tant que leurs photos : {{n}}.",
       "importCopiesSkipped_one": "{{count}} copie virtuelle non importée",
       "importCopiesSkipped_many": "{{count}} copies virtuelles non importées",
       "importCopiesSkipped_other": "{{count}} copies virtuelles non importées",
@@ -4878,7 +4878,8 @@
           "sourceType": "Source numérique (dans le fichier)",
           "stacked": "Dans une pile",
           "suggestion": "Suggestion de tri",
-          "text": "Tout texte consultable"
+          "text": "Tout texte consultable",
+          "virtualCopy": "Est une copie virtuelle"
         },
         "folderPlaceholder": "Chemin du dossier",
         "fromFilter": "Enregistrer comme album intelligent…",

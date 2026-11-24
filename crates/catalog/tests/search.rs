@@ -1867,6 +1867,186 @@ fn virtual_copies_are_found_by_their_own_rating_label_and_keywords() {
     );
 }
 
+/// A virtual copy is a library item of its own beyond rating, label and
+/// keywords, as in Lightroom (notes: benchmark-results/smr5-2026-11-24,
+/// smr6-2026-11-25): its own pick flag (a new copy starts with its
+/// photograph's), membership of a regular album without its photograph,
+/// Lightroom's copy status (`virtualCopy`), and the value lists count it.
+#[test]
+fn virtual_copies_have_their_own_flags_albums_status_and_counts() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path());
+    // Copies of the rejected Canon photograph and of the picked wedding one.
+    lib.save_copy_state(
+        &ids[2],
+        "aaaaa1",
+        &json!({"rating":5,"tags":["user:People"],"adjustments":{}}),
+    )
+    .unwrap();
+    lib.save_copy_state(
+        &ids[0],
+        "bbbbb2",
+        &json!({"rating":2,"tags":[],"adjustments":{}}),
+    )
+    .unwrap();
+    let items = |value: Value| names(lib.search_items(&rule(value)).unwrap());
+    let picked = || items(json!({"field":"flag","op":"is","value":["picked"]}));
+    // Each copy starts with its photograph's flag.
+    assert_eq!(picked(), ["DSC00123.ARW", "DSC00123.ARW?vc=bbbbb2"]);
+    // Picking the rejected photograph's copy picks the copy only.
+    let before = lib
+        .set_item_flags(&[
+            (ids[2].clone(), Some("aaaaa1".into()), 1),
+            (ids[0].clone(), Some("bbbbb2".into()), 0),
+        ])
+        .unwrap();
+    assert_eq!(
+        before,
+        [
+            (ids[2].clone(), Some("aaaaa1".into()), -1),
+            (ids[0].clone(), Some("bbbbb2".into()), 1)
+        ]
+    );
+    assert_eq!(picked(), ["DSC00123.ARW", "IMG_0001.CR3?vc=aaaaa1"]);
+    assert_eq!(
+        items(json!({"field":"flag","op":"is","value":["rejected"]})),
+        ["IMG_0001.CR3"]
+    );
+    assert_eq!(
+        (
+            lib.copy_flag(&ids[2], "aaaaa1").unwrap(),
+            lib.metadata(&ids[2]).unwrap().flag
+        ),
+        (1, -1)
+    );
+    let flags = lib.flags().unwrap();
+    let flag_of = |name: &str| {
+        flags
+            .iter()
+            .find(|(path, _)| path.file_name().unwrap().to_string_lossy() == name)
+            .map(|(_, flag)| *flag)
+    };
+    assert_eq!(flag_of("IMG_0001.CR3?vc=aaaaa1"), Some(1));
+    assert_eq!(flag_of("IMG_0001.CR3"), Some(-1));
+    assert_eq!(flag_of("DSC00123.ARW?vc=bbbbb2"), None);
+    // A copy the library does not record changes nothing, nor do the others.
+    assert!(
+        lib.set_item_flags(&[
+            (ids[1].clone(), None, 1),
+            (ids[1].clone(), Some("ccccc3".into()), 1)
+        ])
+        .is_err()
+    );
+    assert_eq!(lib.metadata(&ids[1]).unwrap().flag, 0);
+    // A regular album holds a copy without its photograph.
+    let album = lib.create_collection("Selects", None).unwrap();
+    lib.add_items_to_collection(
+        &album.id,
+        &[
+            (ids[2].clone(), Some("aaaaa1".into())),
+            (ids[1].clone(), None),
+        ],
+    )
+    .unwrap();
+    let members = || names(lib.collection_item_paths(&album.id).unwrap());
+    let count = || {
+        lib.collections()
+            .unwrap()
+            .into_iter()
+            .find(|c| c.id == album.id)
+            .unwrap()
+            .count
+    };
+    assert_eq!(members(), ["DSC00124.ARW", "IMG_0001.CR3?vc=aaaaa1"]);
+    assert_eq!(count(), 2);
+    assert!(
+        lib.add_items_to_collection(&album.id, &[(ids[1].clone(), Some("../x".into()))])
+            .is_err()
+    );
+    // A smart album naming the album lists the same items.
+    assert_eq!(
+        items(json!({"field":"album","op":"is","value":album.id})),
+        ["DSC00124.ARW", "IMG_0001.CR3?vc=aaaaa1"]
+    );
+    // Removing the photograph leaves the copy, and the reverse.
+    lib.remove_items_from_collection(&album.id, &[(ids[2].clone(), None)])
+        .unwrap();
+    assert_eq!(members(), ["DSC00124.ARW", "IMG_0001.CR3?vc=aaaaa1"]);
+    lib.remove_items_from_collection(&album.id, &[(ids[2].clone(), Some("aaaaa1".into()))])
+        .unwrap();
+    assert_eq!(members(), ["DSC00124.ARW"]);
+    // A copy the library forgets (its sidecar in the Trash) is not
+    // listed; recorded again (the Trash's Undo) it has its flag and albums.
+    lib.add_items_to_collection(&album.id, &[(ids[2].clone(), Some("aaaaa1".into()))])
+        .unwrap();
+    assert!(lib.remove_copy(&ids[2], "aaaaa1").unwrap());
+    assert_eq!((members(), count()), (vec!["DSC00124.ARW".to_string()], 1));
+    assert!(!picked().contains(&"IMG_0001.CR3?vc=aaaaa1".to_string()));
+    lib.save_copy_state(
+        &ids[2],
+        "aaaaa1",
+        &json!({"rating":5,"tags":["user:People"],"adjustments":{}}),
+    )
+    .unwrap();
+    assert_eq!(members(), ["DSC00124.ARW", "IMG_0001.CR3?vc=aaaaa1"]);
+    assert_eq!((lib.copy_flag(&ids[2], "aaaaa1").unwrap(), count()), (1, 2));
+    lib.remove_items_from_collection(&album.id, &[(ids[2].clone(), Some("aaaaa1".into()))])
+        .unwrap();
+    // Copy status: virtual copies only, or every photograph that is not one.
+    assert_eq!(
+        items(json!({"field":"virtualCopy","op":"is","value":true})),
+        ["DSC00123.ARW?vc=bbbbb2", "IMG_0001.CR3?vc=aaaaa1"]
+    );
+    assert_eq!(
+        items(json!({"field":"virtualCopy","op":"isNot","value":true})),
+        ["DSC00123.ARW", "DSC00124.ARW", "IMG_0001.CR3", "scan.jpg"]
+    );
+    assert_eq!(
+        items(json!({"combine":"all","rules":[
+            {"field":"virtualCopy","op":"is","value":false},
+            {"field":"rating","op":"ge","value":5}]})),
+        ["DSC00123.ARW"]
+    );
+    // The value lists count copies as items of their own.
+    let facets = lib
+        .facets(
+            &Rule::everything(),
+            &[Field::Rating, Field::Camera, Field::Keyword],
+        )
+        .unwrap();
+    let count_of = |field: Field, value: &str| {
+        facets[&field]
+            .iter()
+            .find(|v| v.value == value)
+            .map_or(0, |v| v.count)
+    };
+    assert_eq!(
+        count_of(Field::Rating, "5"),
+        2,
+        "{:?}",
+        facets[&Field::Rating]
+    );
+    assert_eq!(count_of(Field::Rating, "2"), 1);
+    assert_eq!(
+        count_of(Field::Camera, "ILCE-7RM4"),
+        3,
+        "{:?}",
+        facets[&Field::Camera]
+    );
+    assert_eq!(
+        count_of(Field::Keyword, "People"),
+        1,
+        "{:?}",
+        facets[&Field::Keyword]
+    );
+    assert_eq!(count_of(Field::Keyword, "wedding"), 2);
+    // The copy of the wedding photograph has no keywords of its own.
+    assert_eq!(count_of(Field::Keyword, ""), 2);
+    // Library and search count the same items.
+    let total: usize = facets[&Field::Rating].iter().map(|v| v.count).sum();
+    assert_eq!(total, lib.search_item_count(&Rule::everything()).unwrap());
+}
+
 /// A camera's RAW (whose decoder gives the catalogue's clean names) and its
 /// JPEG (whose EXIF states what the camera writes) are one camera: one
 /// value in the Camera and Make lists, one match for a camera rule (notes:
@@ -1927,6 +2107,52 @@ fn a_bodys_raw_and_jpeg_are_one_camera() {
         );
     };
     check(&lib);
+    // Words of the names a camera's files state still find it (rules
+    // saved before one name per camera; Lightroom matches the EXIF model).
+    for (value, expected) in [
+        (
+            json!({"field":"camera","op":"contains","value":"NIKON"}),
+            vec!["DSC_0001.JPG", "DSC_0001.NEF"],
+        ),
+        (
+            json!({"field":"camera","op":"startsWith","value":"nikon d"}),
+            vec!["DSC_0001.JPG", "DSC_0001.NEF"],
+        ),
+        (
+            json!({"field":"camera","op":"startsWith","value":"Canon EOS"}),
+            vec!["IMG_0002.CR2", "IMG_0002.JPG"],
+        ),
+        (
+            json!({"field":"camera","op":"words","value":"Canon"}),
+            vec!["IMG_0002.CR2", "IMG_0002.JPG"],
+        ),
+        (
+            json!({"field":"make","op":"contains","value":"corporation"}),
+            vec!["DSC_0001.JPG", "DSC_0001.NEF"],
+        ),
+        (
+            json!({"field":"camera","op":"endsWith","value":"D750"}),
+            vec!["DSC_0001.JPG", "DSC_0001.NEF"],
+        ),
+        (
+            json!({"field":"camera","op":"notContains","value":"NIKON"}),
+            vec!["IMG_0002.CR2", "IMG_0002.JPG", "phone.HEIC"],
+        ),
+        (
+            json!({"field":"camera","op":"contains","value":"D75"}),
+            vec!["DSC_0001.JPG", "DSC_0001.NEF"],
+        ),
+        (
+            json!({"field":"camera","op":"startsWith","value":"D7"}),
+            vec!["DSC_0001.JPG", "DSC_0001.NEF"],
+        ),
+        (
+            json!({"field":"camera","op":"contains","value":"NIKON 6D"}),
+            vec![],
+        ),
+    ] {
+        assert_eq!(found(&lib, value.clone()), expected, "{value}");
+    }
     // Albums saved with the names a camera's files state, as the lists
     // offered them before one name per camera.
     let jpeg_camera = lib

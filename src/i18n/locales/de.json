@@ -1683,6 +1683,7 @@
         "albums": "Alben",
         "captureTime": "Aufnahmezeit",
         "copies": "virtuelle Kopien",
+        "copyFlags": "Markierungen virtueller Kopien",
         "edit": "Bearbeitung",
         "eyes": "Augenprüfungen",
         "metadata": "Metadaten",
@@ -2161,7 +2162,6 @@
       "importAiMasksOnOpen_other": "KI-Masken von {{count}} Fotos werden berechnet, wenn sie in Entwickeln geöffnet oder exportiert werden",
       "importCopies_one": "{{count}} virtuelle Kopie importiert",
       "importCopies_other": "{{count}} virtuelle Kopien importiert",
-      "importCopiesInAlbums": "Alben enthalten Fotos, keine virtuellen Kopien – diese Kopien wurden als ihre Fotos hinzugefügt: {{n}}.",
       "importCopiesSkipped_one": "{{count}} virtuelle Kopie nicht importiert",
       "importCopiesSkipped_other": "{{count}} virtuelle Kopien nicht importiert",
       "importCropsClipped_one": "{{count}} Freistellung ragte über das Bildfeld der Kamera hinaus und wurde darauf beschnitten",
@@ -4681,7 +4681,8 @@
           "sourceType": "Digitale Quelle (in der Datei)",
           "stacked": "In einem Stapel",
           "suggestion": "Aussortier-Vorschlag",
-          "text": "Beliebiger durchsuchbarer Text"
+          "text": "Beliebiger durchsuchbarer Text",
+          "virtualCopy": "Ist eine virtuelle Kopie"
         },
         "folderPlaceholder": "Ordnerpfad",
         "fromFilter": "Als Smart-Album speichern…",
