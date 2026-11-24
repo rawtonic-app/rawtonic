@@ -18,8 +18,8 @@
 //!   with Paper 100 it tints white like a toned paper base.
 //! - Shadows: rising linearly from black (black stays black) to 0.69 of the
 //!   Balance point, then falling towards white.
-//! - Density 0 keeps the grey's lightness; each unit darkens the tone by
-//!   that share of its chroma (Capture One's toning: about 80).
+//! - Density 0 keeps the grey's lightness; 100 darkens the tone by twice
+//!   its chroma (Capture One's warm toning: about 50, its blue toning 75).
 //! - Every entry is fitted into the sRGB cube: above it by lowering the
 //!   lightness (a tinted white is darker than white), below it by lowering
 //!   the chroma; lightness never falls with a lighter grey.
@@ -42,6 +42,9 @@ const FADE_START: f64 = 0.86;
 /// of its fall towards white.
 const SHADOW_PEAK: f64 = 0.69;
 const SHADOW_FALL: f64 = 1.9;
+/// Lightness lost per unit of chroma at density 100 (Capture One's toning
+/// darkens by 0.2–1.5 times its chroma, by hue).
+const DENSITY_GAIN: f64 = 2.0;
 /// Oklab chroma per unit of saturation at full weight.
 const CHROMA_PER_UNIT: f64 = 0.0028;
 /// Hue turn in degrees per unit of lightness, and the lightness it turns
@@ -144,7 +147,7 @@ fn toned(toning: &BwToning, l: f64) -> [f64; 3] {
             continue;
         }
         let angle = hue_angle(band.hue) + (turn * (l - around)).to_radians();
-        out[0] -= amount(band.density) * chroma;
+        out[0] -= DENSITY_GAIN * amount(band.density) * chroma;
         out[1] += chroma * angle.cos();
         out[2] += chroma * angle.sin();
     }
@@ -297,7 +300,7 @@ mod tests {
             ..BwToning::default()
         };
         let dense = BwToning {
-            highlights: tone(40.0, 60.0, 80.0),
+            highlights: tone(40.0, 60.0, 40.0),
             ..base
         };
         let (a, b) = (lut(&base)[22], lut(&dense)[22]);
