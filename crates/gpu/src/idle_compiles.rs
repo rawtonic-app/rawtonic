@@ -1855,7 +1855,10 @@ mod tests {
             "the frame waited {waited:?} for the run made ahead"
         );
         assert!(processor.preview_pipelines[plan[0]].get().is_some());
-        assert!(TOLD_TO_STOP.load(Ordering::SeqCst) > 0, "the run was not told to stop");
+        assert!(
+            TOLD_TO_STOP.load(Ordering::SeqCst) > 0,
+            "the run was not told to stop"
+        );
         drop(processor);
         std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
         set_compile_limit(None);

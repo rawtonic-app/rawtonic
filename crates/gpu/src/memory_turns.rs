@@ -463,9 +463,17 @@ mod tests {
         turns.run_ended(AiRun::Ahead);
         // A run asked for is what the photographer waits for too.
         turns.run(AiRun::Asked);
-        assert_eq!(turns.compile(true), (false, 0), "an asked run is in progress");
+        assert_eq!(
+            turns.compile(true),
+            (false, 0),
+            "an asked run is in progress"
+        );
         turns.run(AiRun::Ahead);
-        assert_eq!(turns.compile(true), (false, 0), "an asked run is in progress");
+        assert_eq!(
+            turns.compile(true),
+            (false, 0),
+            "an asked run is in progress"
+        );
         turns.run_ended(AiRun::Asked);
         assert_eq!(turns.compile(true), (true, 1));
         turns.compile_ended();
