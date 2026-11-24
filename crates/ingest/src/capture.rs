@@ -584,7 +584,13 @@ fn bmff_metadata_within(
     {
         return Ok(None);
     }
-    let mut pieces = Vec::with_capacity(ranges.len());
+    if len > SPARSE_LIMIT {
+        return Ok(None);
+    }
+    // The decoder checks mdat against the file length. Retain that length
+    // without reading image data; otherwise this valid sparse view looks
+    // truncated. Real metadata ranges below replace this zero if necessary.
+    let mut pieces = vec![(len.saturating_sub(1), vec![0])];
     for (offset, size) in ranges {
         file.seek(SeekFrom::Start(offset))?;
         let mut bytes = vec![0; size as usize];

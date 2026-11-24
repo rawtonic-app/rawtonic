@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Canon CR3 catalog facts retain capture date and camera information when image data follows the metadata, so import preset `{year}` uses the capture year.
+
 - Capture One catalog imports keep catalog capture times as corrections, retaining the camera date for reset.
 
 - Assigning a keyboard shortcut gives it to the new command, clears its previous owner, and names that owner in Preferences.
