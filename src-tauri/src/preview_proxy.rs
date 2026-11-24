@@ -496,10 +496,26 @@ fn preview_paths<'a>(
     recipe: Option<&'a Value>,
 ) -> Box<dyn Iterator<Item = PathBuf> + 'a> {
     let own = proxy_path_of(source, kind);
+    // Without a preview of this kind there is nothing to try either way, and
+    // asking whether the original is available opens it (GRD2: four opens
+    // per Library tile lookup, 18 ms each on a Wi-Fi share). The kept ones
+    // are looked for only when the photograph's own is missing, as callers
+    // go on to them then.
+    let kept = match &own {
+        Some(own) if own.is_file() => None,
+        _ => Some(kept_paths(source, kind, recipe)),
+    };
+    if kept.as_ref().is_some_and(Vec::is_empty) {
+        return Box::new(std::iter::empty());
+    }
     if source_available(source) {
         return Box::new(
-            own.into_iter()
-                .chain(std::iter::once_with(move || kept_paths(source, kind, recipe)).flatten()),
+            own.into_iter().chain(
+                std::iter::once_with(move || {
+                    kept.unwrap_or_else(|| kept_paths(source, kind, recipe))
+                })
+                .flatten(),
+            ),
         );
     }
     let master;
