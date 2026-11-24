@@ -126,6 +126,12 @@ impl RenderVersion {
         self.0 >= crate::image_loader::CROSS_DEAD_RENDER_VERSION
     }
 
+    /// A dead photosite takes the median of three repairs
+    /// (`image_loader::DeadTest::IsolatedMedian`).
+    pub fn median_dead_test(self) -> bool {
+        self.0 >= crate::image_loader::MEDIAN_DEAD_RENDER_VERSION
+    }
+
     /// Colours outside the output space keep their hue.
     pub fn gamut_mapping(self) -> bool {
         self.0 >= ip::GAMUT_MAPPING_RENDER_VERSION

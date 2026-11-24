@@ -117,7 +117,6 @@ pub fn isolated<T: Copy + Send + Sync>(
             1.0
         }
     });
-    let cross = (dead_test == DeadTest::IsolatedCross).then_some(wb);
     let black_guard = dead_test.black_line_guard();
     let period = [cfa.width, cfa.height].map(|p| if p % 2 == 0 { p.max(2) } else { 2 * p });
     let mut offsets: Vec<(isize, isize)> = (-REACH..=REACH)
@@ -163,7 +162,7 @@ pub fn isolated<T: Copy + Send + Sync>(
     // no repair when that is not a number.
     let dead_level = |x: usize, y: usize| -> Option<f32> {
         let level = black
-            .then(|| colour_ratio_repair(cfa, site(x, y), y, x, cross, |r, c| value(c, r)))
+            .then(|| dead_repair(cfa, site(x, y), y, x, dead_test, wb, |r, c| value(c, r)))
             .flatten()
             .unwrap_or_else(|| median(x, y, None));
         (!black || level.is_finite()).then_some(level)

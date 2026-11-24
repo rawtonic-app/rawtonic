@@ -493,6 +493,7 @@ fn decoder_key(settings: &AppSettings, variant: DecodeVariant) -> String {
         DeadTest::IsolatedTexture => key + ";dead=texture",
         DeadTest::IsolatedBlack => key + ";dead=black",
         DeadTest::IsolatedCross => key + ";dead=cross",
+        DeadTest::IsolatedMedian => key + ";dead=median",
     };
     let key = if variant.frame > 0 {
         format!("{key};frame={}", variant.frame)
@@ -527,7 +528,9 @@ fn decoder_settings(decoder: &str) -> &str {
 pub(crate) fn variant_of_key(decoder: &str) -> DecodeVariant {
     DecodeVariant {
         multiscale: decoder.contains(";cnrms=1"),
-        dead_test: if decoder.contains(";dead=cross") {
+        dead_test: if decoder.contains(";dead=median") {
+            DeadTest::IsolatedMedian
+        } else if decoder.contains(";dead=cross") {
             DeadTest::IsolatedCross
         } else if decoder.contains(";dead=black") {
             DeadTest::IsolatedBlack
@@ -1835,7 +1838,7 @@ pub(crate) mod frame_fixture {
 pub(crate) fn write_for_test(source: &Path, image: &DynamicImage, size: u32) {
     let variant = DecodeVariant {
         multiscale: true,
-        dead_test: DeadTest::IsolatedCross,
+        dead_test: DeadTest::IsolatedMedian,
         frame: 0,
         black: BlackLevels::UnbiasedBorder,
         highlights: HighlightRebuild::Ratios,
@@ -1872,7 +1875,7 @@ pub(crate) mod tests {
     /// What a never-edited RAW's decode is made for.
     const NEW_EDIT: DecodeVariant = DecodeVariant {
         multiscale: true,
-        dead_test: DeadTest::IsolatedCross,
+        dead_test: DeadTest::IsolatedMedian,
         frame: 0,
         black: BlackLevels::UnbiasedBorder,
         highlights: HighlightRebuild::Ratios,
@@ -2288,6 +2291,7 @@ pub(crate) mod tests {
                 DeadTest::IsolatedTexture,
                 DeadTest::IsolatedBlack,
                 DeadTest::IsolatedCross,
+                DeadTest::IsolatedMedian,
             ] {
                 for frame in [0, 1] {
                     for black in [
