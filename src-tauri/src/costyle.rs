@@ -711,7 +711,8 @@ fn bw_toning(num: &impl Fn(&str) -> Option<f64>) -> Option<Value> {
     let round = |v: f64| (v * 10.0).round() / 10.0;
     let band = |hue: f64, saturation: f64, density: f64| {
         json!({
-            recipe_color::HUE.name(): round(hue.rem_euclid(360.0)),
+            // Whole degrees 0–359, as the slider holds them.
+            recipe_color::HUE.name(): hue.rem_euclid(360.0).round() % 360.0,
             recipe_color::SATURATION.name(): round(saturation.clamp(0.0, 100.0)),
             recipe_color::TONE_DENSITY.name(): round((density * 50.0).clamp(0.0, 100.0)),
         })
@@ -1707,6 +1708,11 @@ mod tests {
         assert_eq!(toning["balance"], json!(-12.9));
         assert_eq!(toning["paper"], json!(85.0));
         assert_eq!(convert_costyle_to_preset(style, "bw").unwrap().name, "bw");
+        // A hue that lands just below 360° comes in as 0°, as the slider holds it.
+        let red = r#"<SL><E K="BwEnabled" V="1"/><E K="BwLightHue" V="10"/>
+            <E K="BwLightSaturation" V="30"/></SL>"#;
+        let a = convert_costyle_to_preset(red, "red").unwrap().adjustments;
+        assert_eq!(a["blackAndWhiteToning"]["highlights"]["hue"], json!(0.0));
     }
 
     #[test]
