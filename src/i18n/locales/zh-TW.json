@@ -1006,6 +1006,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "圖形驅動程式多次停止回應。您的編輯不受影響；請結束並重新開啟 Rawtonic 以繼續沖洗。詳細資訊：{{details}}",
+    "gpuDeviceRecovered": "圖形驅動程式停止回應。Rawtonic 已重新啟動圖形處理；您的編輯不受影響。",
     "gpuStartFailed": "Rawtonic 無法啟動圖形處理器，因此無法沖洗或匯出照片。請重設圖形設定並重試；如果仍無效，請更新顯示卡驅動程式。詳細資訊：{{details}}",
     "operationFailed": "無法完成操作。"
   },
@@ -2110,6 +2112,12 @@
       "ingestWaiting": "中斷的匯入中有 {{n}} 張照片正在等待其記憶卡或磁碟機；連接後開啟圖庫即可繼續匯入。",
       "showImported": "顯示",
       "sidecarsCopied_other": "已複製 {{count}} 個 XMP 附屬檔案",
+      "sourceGeometryAll": "套用 Capture One 的拉直，並依各影像的長寬比取代裁切（{{n}} 張相片）",
+      "sourceGeometryApplied": "已將 Capture One 的拉直與裁切套用到 {{n}} 張相片（還原可復原）",
+      "sourceGeometryErrors": "部分相片未能套用 Capture One 的拉直與裁切：{{n}} 張。",
+      "sourceGeometryFailed": "無法套用 Capture One 的拉直與裁切",
+      "sourceGeometryOtherLibrary": "請開啟匯入這些相片的圖庫，再套用 Capture One 的拉直與裁切。",
+      "sourceGeometryPhoto": "將 Capture One 的拉直與裁切套用到 {{name}}",
       "watching": "正在監看 {{folder}} 中的新照片。",
       "watchingMissing": "找不到監看資料夾 {{folder}}；恢復後將繼續監看。",
       "watchingResumed": "已繼續監看 {{folder}}。"
@@ -3115,6 +3123,8 @@
       "rotateLeft": "向左旋轉",
       "rotateRight": "向右旋轉",
       "size": "尺寸",
+      "sourceGeometry": "套用 Capture One 的拉直與裁切",
+      "sourceGeometryTitle": "以 Capture One 的拉直角度、90° 旋轉與保持畫幅自身比例且不含空角的自動裁切取代這張相片的對應設定（在 Capture One 中手繪的裁切不會被讀取，您自己的裁切會被取代）；其他調整均保留（還原可復原）",
       "straighten": "拉直",
       "straightenToolTitle": "沿應水平或垂直的邊緣畫一條線",
       "swapOrientation": "切換直式與橫式",
@@ -5683,6 +5693,7 @@
     "rename": "重新命名",
     "reset": "重設",
     "skipFailed": "略過失敗的項目",
+    "sourceGeometry": "套用 Capture One 幾何設定",
     "stacks": "堆疊",
     "style": "套用樣式",
     "sync": "同步調整",

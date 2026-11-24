@@ -1310,12 +1310,16 @@ pub(crate) async fn export_images_impl(
                         // A retry exports the same snapshot of the photo
                         // into the files the first attempt reserved.
                         let planned = PlannedFiles::default();
+                        // After a lost device the photo goes once more on
+                        // the new one the app starts (DVL2); later photos
+                        // take the newest device (`export_context`).
+                        let attempt = |context: &Arc<GpuContext>, wanted: &[usize]| {
                         rawtonic_runtime::gpu_memory::retry_out_of_memory(
-                            &wanted,
+                            wanted,
                             |wanted| {
                                 export_photo(
                                     &app_handle_clone,
-                                    &context_clone,
+                                    context,
                                     &settings,
                                     &targets,
                                     wanted,
@@ -1335,7 +1339,8 @@ pub(crate) async fn export_images_impl(
                             },
                             |target| planned.unpublished(target),
                             |again, wait| {
-                                // A lost device stays lost: no retry helps.
+                                // A lost device is no memory shortage: it goes again
+                                // on the new device (`retry_after_device_loss`).
                                 if rawtonic_gpu::device_start::device_lost() {
                                     return false;
                                 }
@@ -1343,8 +1348,33 @@ pub(crate) async fn export_images_impl(
                                     "Export: the graphics card ran out of memory for {} recipe(s) of {image_path_str}; again in {wait:?}",
                                     again.len()
                                 );
-                                release_gpu_memory(&app_handle_clone, &context_clone);
+                                release_gpu_memory(&app_handle_clone, context);
                                 wait_unless_cancelled(wait, &cancellation_token_clone)
+                            },
+                        )
+                        };
+                        rawtonic_runtime::gpu_memory::retry_after_device_loss(
+                            &wanted,
+                            export_context(
+                                &app_handle_clone.state::<crate::state::gpu::GpuState>(),
+                                &context_clone,
+                            ),
+                            attempt,
+                            |target| planned.unpublished(target),
+                            |context, error| {
+                                lost_under(
+                                    &app_handle_clone.state::<crate::state::gpu::GpuState>(),
+                                    context,
+                                    error,
+                                )
+                            },
+                            |context| {
+                                device_after_loss(
+                                    &app_handle_clone.state::<crate::state::gpu::GpuState>(),
+                                    context,
+                                    &cancellation_token_clone,
+                                    DEVICE_RECOVERY_WAIT,
+                                )
                             },
                         )
                     })
@@ -1491,6 +1521,118 @@ pub(crate) async fn export_images_impl(
     });
 
     Ok(())
+}
+
+/// The context a photo of an export runs on: the app's current one, which
+/// is a new device after a loss (DVL2, `gpu_recovery`), else the run's.
+fn export_context(gpu: &crate::state::gpu::GpuState, run: &Arc<GpuContext>) -> Arc<GpuContext> {
+    match gpu.context() {
+        Some(current) if !Arc::ptr_eq(&current.device, &run.device) => Arc::new(current),
+        _ => Arc::clone(run),
+    }
+}
+
+/// Whether an export on `context` failed with `error` because its device
+/// was lost: the lost error, or any error once the app replaced the device
+/// (its objects fail with whatever they meet first).
+fn lost_under(gpu: &crate::state::gpu::GpuState, context: &GpuContext, error: &str) -> bool {
+    error.contains(rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST)
+        || rawtonic_gpu::device_start::device_lost()
+        || gpu
+            .context()
+            .is_some_and(|current| !Arc::ptr_eq(&current.device, &context.device))
+}
+
+/// The new device's context once the app replaced the lost `context`'s
+/// (`gpu_recovery`), waiting up to [`DEVICE_RECOVERY_WAIT`]; `None` when
+/// none came (the recovery gave up) or the export was cancelled.
+fn device_after_loss(
+    gpu: &crate::state::gpu::GpuState,
+    context: &Arc<GpuContext>,
+    cancelled: &std::sync::atomic::AtomicBool,
+    wait: std::time::Duration,
+) -> Option<Arc<GpuContext>> {
+    let started = std::time::Instant::now();
+    log::warn!("Export: the graphics device was lost; waiting for the new one to export again");
+    while started.elapsed() < wait {
+        if cancelled.load(Ordering::SeqCst) {
+            return None;
+        }
+        if let Some(current) = gpu.context()
+            && !Arc::ptr_eq(&current.device, &context.device)
+            && !rawtonic_gpu::device_start::device_lost()
+        {
+            log::info!(
+                "Export: exporting again on the new graphics device after {:?}",
+                started.elapsed()
+            );
+            // As at the export's start: the new device's idle compiles take
+            // the shown photo's variant first, which the export waits for.
+            rawtonic_gpu::gpu_processing::export_of_shown_photo_starts();
+            return Some(Arc::new(current));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    log::warn!("Export: no new graphics device within {wait:?}");
+    None
+}
+
+/// How long an export waits for the app's new device after a loss: the
+/// recovery's back-off (10 s) and a device start, with room.
+pub(crate) const DEVICE_RECOVERY_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// `render` on `context`, where a panic after the device was lost (wgpu
+/// panics in `Device::poll` while reporting a driver reset during a
+/// readback) is the lost error, so the retry classifies it; any other
+/// panic goes on.
+fn render_catching_loss<T>(
+    gpu: &crate::state::gpu::GpuState,
+    context: &Arc<GpuContext>,
+    render: &mut impl FnMut(&Arc<GpuContext>) -> Result<T, String>,
+) -> Result<T, String> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render(context))) {
+        Ok(result) => result,
+        // Lost for this attempt's device also when the app already started
+        // a replacement (`lost_under`).
+        Err(_) if lost_under(gpu, context, "") => {
+            log::warn!("Export: a render panicked after the graphics device was lost");
+            Err(rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST.to_string())
+        }
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+/// One render of a single photo (a collage's cell) that goes once more on
+/// the new device the app starts when the GPU device was lost under it
+/// (DVL3; the queue export's retry, `retry_after_device_loss`, with the
+/// same context, loss test and wait). `render` takes the context it
+/// renders on and writes nothing until it succeeds.
+pub(crate) fn render_after_device_loss<T>(
+    gpu: &crate::state::gpu::GpuState,
+    run: &Arc<GpuContext>,
+    cancelled: &AtomicBool,
+    wait: std::time::Duration,
+    mut render: impl FnMut(&Arc<GpuContext>) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut result = None;
+    let mut results = rawtonic_runtime::gpu_memory::retry_after_device_loss(
+        &[()],
+        export_context(gpu, run),
+        |context, _| {
+            vec![(
+                (),
+                render_catching_loss(gpu, context, &mut render).map(|value| result = Some(value)),
+            )]
+        },
+        |()| true,
+        |context, error| lost_under(gpu, context, error),
+        |context| device_after_loss(gpu, context, cancelled, wait),
+    );
+    match results.pop() {
+        Some((_, Ok(()))) => result.ok_or_else(|| "the render gave nothing".to_string()),
+        Some((_, Err(error))) => Err(error),
+        None => Err("the render gave nothing".to_string()),
+    }
 }
 
 /// What an export whose thread panicked reports: after a lost GPU device
@@ -2894,33 +3036,6 @@ pub async fn run_headless_export(
 
     println!("Found {} images to export. Processing...", paths.len());
 
-    let export_settings = ExportSettings {
-        jpeg_quality: session.quality,
-        tiff_bit_depth: session.tiff_bit_depth,
-        resize: None,
-        border: None,
-        pad: None,
-        keep_metadata: session.keep_metadata,
-        color_space: session.color_space,
-        preserve_timestamps: true,
-        strip_gps: false,
-        keep_creator_contact: session.keep_creator_contact,
-        filename_template: None,
-        name_template: None,
-        job_name: None,
-        recipe_name: None,
-        sequence_start: None,
-        watermark: None,
-        export_masks: false,
-        preserve_folders: true,
-        destination_type: None,
-        subfolder: None,
-        output_sharpening: None,
-        super_resolution: false,
-        provenance: None,
-        existing_files: Default::default(),
-    };
-
     let mut custom_adjustments = None;
     if let Some(adj_path) = &session.adjustments_override {
         let content = std::fs::read_to_string(adj_path)
@@ -2963,24 +3078,7 @@ pub async fn run_headless_export(
         read,
     };
 
-    let recipes = match &session.recipes {
-        Some(file) => headless_recipes(file)?,
-        None => vec![HeadlessRecipe {
-            format: session.format,
-            settings: export_settings,
-        }],
-    };
-    let targets = recipes
-        .into_iter()
-        .map(|recipe| ExportTarget {
-            output_folder_or_file: session.output.clone(),
-            is_explicit_file_path,
-            base_origin_folders: vec![session.source.clone()],
-            export_settings: recipe.settings,
-            output_format: recipe.format,
-            tracking: None,
-        })
-        .collect();
+    let targets = headless_targets(&session, is_explicit_file_path)?;
 
     export_images_impl(
         paths,
@@ -2997,6 +3095,57 @@ pub async fn run_headless_export(
         Ok(Err(errors)) => Err(format!("Export completed with {} errors.", errors)),
         Err(_) => Err("Export task panicked or was cancelled.".to_string()),
     }
+}
+
+fn headless_targets(
+    session: &crate::launch_request::HeadlessExportSession,
+    is_explicit_file_path: bool,
+) -> Result<Vec<ExportTarget>, String> {
+    let export_settings = ExportSettings {
+        jpeg_quality: session.quality,
+        tiff_bit_depth: session.tiff_bit_depth,
+        resize: None,
+        border: None,
+        pad: None,
+        keep_metadata: session.keep_metadata,
+        color_space: session.color_space,
+        preserve_timestamps: true,
+        strip_gps: false,
+        keep_creator_contact: session.keep_creator_contact,
+        filename_template: None,
+        name_template: None,
+        job_name: None,
+        recipe_name: None,
+        sequence_start: None,
+        watermark: None,
+        export_masks: false,
+        preserve_folders: true,
+        destination_type: None,
+        subfolder: None,
+        output_sharpening: None,
+        super_resolution: false,
+        provenance: None,
+        existing_files: session.existing_files,
+    };
+
+    let recipes = match &session.recipes {
+        Some(file) => headless_recipes(file)?,
+        None => vec![HeadlessRecipe {
+            format: session.format.clone(),
+            settings: export_settings,
+        }],
+    };
+    Ok(recipes
+        .into_iter()
+        .map(|recipe| ExportTarget {
+            output_folder_or_file: session.output.clone(),
+            is_explicit_file_path,
+            base_origin_folders: vec![session.source.clone()],
+            export_settings: recipe.settings,
+            output_format: recipe.format,
+            tracking: None,
+        })
+        .collect())
 }
 
 /// A recipe of a headless export with `--recipes`: the format and the
@@ -3971,6 +4120,50 @@ mod tests {
         );
         std::fs::write(&file, "[]").unwrap();
         assert!(super::headless_recipes(file.to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn headless_targets_use_each_saved_policy_instead_of_the_command_line() {
+        use crate::launch_request::{LaunchRequest, parse_launch_args};
+        use rawtonic_export::existing_files::ExistingFiles;
+
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("recipes.json");
+        std::fs::write(
+            &file,
+            r#"[
+              {"format": "jpg", "settings": {"jpegQuality": 80, "keepMetadata": false, "stripGps": true}},
+              {"format": "tiff", "settings": {"jpegQuality": 90, "keepMetadata": true, "stripGps": false, "existingFiles": "replaceIfChanged"}}
+            ]"#,
+        )
+        .unwrap();
+        let args = [
+            "export",
+            "photo.png",
+            "--output",
+            "out",
+            "--on-conflict",
+            "skip",
+            "--recipes",
+            file.to_str().unwrap(),
+        ]
+        .map(str::to_owned);
+        let LaunchRequest::HeadlessExport(mut session) = parse_launch_args(&args, None) else {
+            panic!("expected a headless export");
+        };
+        let policies = |session: &crate::launch_request::HeadlessExportSession| {
+            super::headless_targets(session, false)
+                .unwrap()
+                .into_iter()
+                .map(|target| target.export_settings.existing_files)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            policies(&session),
+            [ExistingFiles::KeepBoth, ExistingFiles::ReplaceIfChanged]
+        );
+        session.recipes = None;
+        assert_eq!(policies(&session), [ExistingFiles::Skip]);
     }
 
     #[test]

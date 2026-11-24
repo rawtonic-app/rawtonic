@@ -8,11 +8,13 @@ import type { NextCaptureForm, PresetChoice } from './nextCapture';
 export default function NextCaptureFields({
   value,
   onChange,
-  presets
+  presets,
+  onMetadataSavingChange
 }: {
   value: NextCaptureForm;
-  onChange: (value: NextCaptureForm) => void;
+  onChange: (patch: Partial<NextCaptureForm>) => void;
   presets: PresetChoice[];
+  onMetadataSavingChange?: (saving: boolean) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -22,7 +24,7 @@ export default function NextCaptureFields({
         <select
           aria-label={t('session.hotFolder.nextCapture')}
           value={value.choice}
-          onChange={(e) => onChange({ ...value, choice: e.target.value })}
+          onChange={(e) => onChange({ choice: e.target.value })}
         >
           <option value="defaults">{t('session.hotFolder.defaults')}</option>
           <option value="copyFromLast">{t('session.hotFolder.copyFromLast')}</option>
@@ -38,7 +40,7 @@ export default function NextCaptureFields({
         <select
           aria-label={t('session.hotFolder.rating')}
           value={value.rating}
-          onChange={(e) => onChange({ ...value, rating: Number(e.target.value) })}
+          onChange={(e) => onChange({ rating: Number(e.target.value) })}
         >
           <option value={0}>{t('session.hotFolder.noRating')}</option>
           {[1, 2, 3, 4, 5].map((stars) => (
@@ -55,10 +57,14 @@ export default function NextCaptureFields({
           value={value.keywords}
           placeholder={t('session.hotFolder.keywordsPlaceholder')}
           spellCheck={false}
-          onChange={(e) => onChange({ ...value, keywords: e.target.value })}
+          onChange={(e) => onChange({ keywords: e.target.value })}
         />
       </label>
-      <IngestMetadata value={value.import} onChange={(next) => onChange({ ...value, import: next })} />
+      <IngestMetadata
+        value={value.import}
+        onChange={(next) => onChange({ import: next })}
+        onSavingChange={onMetadataSavingChange}
+      />
     </>
   );
 }

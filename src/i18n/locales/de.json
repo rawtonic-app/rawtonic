@@ -1021,6 +1021,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "Der Grafiktreiber reagierte mehrmals nicht mehr. Deine Bearbeitungen sind sicher; beende Rawtonic und öffne es erneut, um weiter zu entwickeln. Details: {{details}}",
+    "gpuDeviceRecovered": "Der Grafiktreiber reagierte nicht mehr. Rawtonic hat die Grafik neu gestartet; deine Bearbeitungen sind sicher.",
     "gpuStartFailed": "Rawtonic konnte den Grafikprozessor nicht starten, daher lassen sich Fotos weder entwickeln noch exportieren. Setze die Grafikeinstellungen zurück und versuche es erneut; hilft das nicht, aktualisiere den Grafiktreiber. Details: {{details}}",
     "operationFailed": "Der Vorgang konnte nicht abgeschlossen werden."
   },
@@ -2192,6 +2194,12 @@
       "showImported": "Anzeigen",
       "sidecarsCopied_one": "{{count}} XMP-Sidecar-Datei kopiert",
       "sidecarsCopied_other": "{{count}} XMP-Sidecar-Dateien kopiert",
+      "sourceGeometryAll": "Capture-One-Geradestellung anwenden und Beschnitte im Seitenverhältnis des jeweiligen Bildes ersetzen ({{n}} Fotos)",
+      "sourceGeometryApplied": "Capture-One-Geradestellung und -Beschnitt auf {{n}} Foto(s) angewendet (Rückgängig stellt sie wieder her)",
+      "sourceGeometryErrors": "Capture-One-Geradestellung und -Beschnitt bei manchen Fotos nicht angewendet: {{n}}.",
+      "sourceGeometryFailed": "Capture-One-Geradestellung und -Beschnitt konnten nicht angewendet werden",
+      "sourceGeometryOtherLibrary": "Öffnen Sie die Bibliothek, in die diese Fotos importiert wurden, um Geradestellung und Beschnitt von Capture One anzuwenden.",
+      "sourceGeometryPhoto": "Capture-One-Geradestellung und -Beschnitt auf {{name}} anwenden",
       "watching": "{{folder}} wird auf neue Fotos überwacht.",
       "watchingMissing": "Überwachter Ordner {{folder}} nicht gefunden; die Überwachung geht weiter, sobald er wieder da ist.",
       "watchingResumed": "{{folder}} wird wieder überwacht."
@@ -3213,6 +3221,8 @@
       "rotateLeft": "Links drehen",
       "rotateRight": "Rechts drehen",
       "size": "Größe",
+      "sourceGeometry": "Capture-One-Geradestellung und -Beschnitt anwenden",
+      "sourceGeometryTitle": "Geradestellung, Vierteldrehungen und Beschnitt dieses Fotos durch die von Capture One ersetzen: dessen Geradestellungswinkel und ein automatischer Beschnitt im Seitenverhältnis des Bildrahmens ohne leere Ecken (ein in Capture One gezeichneter Beschnitt wird nicht gelesen, und Ihr eigener Beschnitt wird ersetzt). Alle anderen Einstellungen bleiben (Rückgängig stellt sie wieder her)",
       "straighten": "Ausrichten",
       "straightenToolTitle": "Ziehe eine Linie entlang einer Kante, die waagerecht oder senkrecht sein soll",
       "swapOrientation": "Hoch- und Querformat tauschen",
@@ -5833,6 +5843,7 @@
     "rename": "Umbenennen",
     "reset": "Zurücksetzen",
     "skipFailed": "Fehlgeschlagene überspringen",
+    "sourceGeometry": "Capture-One-Geometrie anwenden",
     "stacks": "Stapeln",
     "style": "Stil anwenden",
     "sync": "Anpassungen synchronisieren",

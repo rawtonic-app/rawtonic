@@ -8,8 +8,10 @@
 //! (G76/WSMOKE14). Here the idle compile runs in a helper process (the app
 //! started again in a headless mode, `set_idle_compile_helper`) that
 //! compiles the one pipeline into a pipeline cache of its own and exits.
-//! The moment a compile or an export waits for the compile slot
-//! (`slot_wanted`) the helper is killed, which frees its memory at once, and
+//! The moment a compile waits for the compile slot (`slot_wanted`), or an
+//! export for the compiles to end while no frame or export waits for the
+//! helper's job (`IdleCompiles::helper_stops`), the helper is killed, which
+//! frees its memory at once, and
 //! the job goes back to the front of its queue for the next idle time.
 //! When it finishes, the app compiles the same pipeline through the cache
 //! the helper left (`pipeline_cache::foreign`), which the driver answers
@@ -245,9 +247,9 @@ pub(super) fn compile_in_helper(
                 "GPU idle compile of {arg}: helper stopped after {:.2} s ({})",
                 started.elapsed().as_secs_f64(),
                 if wanted {
-                    "a compile or an export waits for the slot; it runs again in idle time"
+                    "a compile waits for the slot; it runs again in idle time"
                 } else if stop() {
-                    "idle compiles end, an export's variant or an AI run asked for goes first"
+                    "idle compiles end, an export's or a frame's variant or an AI run asked for goes first, or an export waits for the compiles to end"
                 } else {
                     "time limit"
                 }

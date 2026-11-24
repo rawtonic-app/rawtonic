@@ -72,6 +72,16 @@ describe('render errors', () => {
     expect(renderErrorMessage('Thread crashed: panicked')).toBe('Thread crashed: panicked');
     expect(renderErrorMessage('constructor')).toBe('constructor');
   });
+
+  it.each([
+    ['Unreadable export request', 'Die gespeicherten Einstellungen dieses Exports konnten nicht gelesen werden.'],
+    ['Cannot load queued export', 'Die gespeicherten Einstellungen dieses Exports konnten nicht gelesen werden.'],
+    ['Cannot start queued export', 'Der Export konnte nicht gestartet werden. Versuche es erneut.'],
+    ['Cannot read queued photos', 'Der Export konnte nicht gestartet werden. Versuche es erneut.']
+  ])('localizes the queued export error prefix %s', async (prefix, message) => {
+    await i18n.changeLanguage('de');
+    expect(renderErrorMessage(`${prefix}: database unavailable`)).toBe(message);
+  });
 });
 
 it('localizes the persisted Nikon High Efficiency export reason and adds the Mac option', async () => {

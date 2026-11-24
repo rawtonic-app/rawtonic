@@ -99,6 +99,8 @@ pub struct Entry {
     pub try_exec: Option<String>,
     pub mime_types: Vec<String>,
     pub icon: Option<String>,
+    /// Position of this file's applications directory in the lookup order.
+    data_rank: usize,
     raster_editor: bool,
     no_display: bool,
     only_show_in: Option<Vec<String>>,
@@ -227,6 +229,7 @@ pub fn parse_entry(text: &str, path: &Path, id: &str, languages: &[String]) -> O
             .map(str::to_owned)
             .collect(),
         icon: fields.get("Icon").map(|v| unescape(v)),
+        data_rank: 1,
         raster_editor,
         no_display: flag("NoDisplay"),
         only_show_in: list("OnlyShowIn").map(|v| v.into_iter().map(str::to_owned).collect()),
@@ -294,7 +297,7 @@ pub fn all_entries(dirs: &Dirs, languages: &[String], path_dirs: &[PathBuf]) -> 
     }
     let mut seen = HashSet::new();
     let mut entries = Vec::new();
-    for data in &dirs.data {
+    for (rank, data) in dirs.data.iter().enumerate() {
         let base = data.join("applications");
         let mut found = Vec::new();
         walk(&base, &base, &mut found, 0);
@@ -307,12 +310,13 @@ pub fn all_entries(dirs: &Dirs, languages: &[String], path_dirs: &[PathBuf]) -> 
             let Ok(text) = fs::read_to_string(&path) else {
                 continue;
             };
-            if let Some(entry) = parse_entry(&text, &path, &id, languages)
+            if let Some(mut entry) = parse_entry(&text, &path, &id, languages)
                 && entry
                     .try_exec
                     .as_deref()
                     .is_none_or(|t| program_exists(t, path_dirs))
             {
+                entry.data_rank = rank + 1;
                 entries.push(entry);
             }
         }
@@ -399,25 +403,34 @@ pub fn mime_family(mime: &str, subclasses: &[String], aliases: &[String]) -> Vec
     family
 }
 
+#[derive(Debug, Clone)]
+struct Association {
+    id: String,
+    /// Config files have rank zero, ahead of every applications directory.
+    data_rank: usize,
+}
+
 /// What `mimeapps.list` files say, merged in precedence order.
 #[derive(Debug, Default, Clone)]
 pub struct Associations {
     /// Per type, desktop file IDs in preference order.
-    pub default: HashMap<String, Vec<String>>,
-    pub added: HashMap<String, Vec<String>>,
-    pub removed: HashMap<String, Vec<String>>,
+    default: HashMap<String, Vec<Association>>,
+    added: HashMap<String, Vec<Association>>,
+    removed: HashMap<String, Vec<Association>>,
 }
 
 impl Associations {
-    pub fn is_removed(&self, mime: &str, id: &str) -> bool {
-        self.removed
-            .get(mime)
-            .is_some_and(|ids| ids.iter().any(|i| i == id))
+    pub fn is_removed(&self, mime: &str, entry: &Entry) -> bool {
+        self.removed.get(mime).is_some_and(|associations| {
+            associations
+                .iter()
+                .any(|a| a.id == entry.id && a.data_rank <= entry.data_rank)
+        })
     }
 
     /// Merges one file's text; call it for the most specific file first, an
     /// earlier file's choices come before a later one's.
-    pub fn add_file(&mut self, text: &str) {
+    fn add_file(&mut self, text: &str, data_rank: usize) {
         // What higher-priority files removed binds this file's additions.
         let removed_before = self.removed.clone();
         let mut section = "";
@@ -445,9 +458,12 @@ impl Associations {
                 let blocked = blocked
                     && removed_before
                         .get(mime)
-                        .is_some_and(|r| r.iter().any(|r| r == id));
-                if !blocked && !list.iter().any(|l| l == id) {
-                    list.push(id.to_string());
+                        .is_some_and(|r| r.iter().any(|r| r.id == id));
+                if !blocked && !list.iter().any(|a| a.id == id) {
+                    list.push(Association {
+                        id: id.to_string(),
+                        data_rank,
+                    });
                 }
             }
         }
@@ -458,18 +474,22 @@ impl Associations {
     /// data directory's `applications`.
     pub fn read(dirs: &Dirs) -> Self {
         let mut out = Associations::default();
-        let mut folders: Vec<PathBuf> = dirs.config.clone();
-        folders.extend(dirs.data.iter().map(|d| d.join("applications")));
-        for folder in folders {
+        let folders = dirs.config.iter().cloned().map(|dir| (0, dir)).chain(
+            dirs.data
+                .iter()
+                .enumerate()
+                .map(|(rank, dir)| (rank + 1, dir.join("applications"))),
+        );
+        for (data_rank, folder) in folders {
             for desktop in &dirs.desktops {
                 if let Ok(text) =
                     fs::read_to_string(folder.join(format!("{desktop}-mimeapps.list")))
                 {
-                    out.add_file(&text);
+                    out.add_file(&text, data_rank);
                 }
             }
             if let Ok(text) = fs::read_to_string(folder.join("mimeapps.list")) {
-                out.add_file(&text);
+                out.add_file(&text, data_rank);
             }
         }
         out
@@ -499,16 +519,18 @@ pub fn apps_for_family<'a>(
             default = assoc
                 .default
                 .get(mime)
-                .and_then(|ids| ids.iter().find(|id| by_id.contains_key(id.as_str())))
-                .cloned();
+                .and_then(|apps| apps.iter().find(|a| by_id.contains_key(a.id.as_str())))
+                .map(|a| a.id.clone());
         }
-        for id in assoc.added.get(mime).into_iter().flatten() {
-            if let Some(entry) = by_id.get(id.as_str()) {
+        for addition in assoc.added.get(mime).into_iter().flatten() {
+            if let Some(entry) = by_id.get(addition.id.as_str())
+                && addition.data_rank <= entry.data_rank
+            {
                 push(entry);
             }
         }
         for entry in entries {
-            if entry.mime_types.iter().any(|m| m == mime) && !assoc.is_removed(mime, &entry.id) {
+            if entry.mime_types.iter().any(|m| m == mime) && !assoc.is_removed(mime, entry) {
                 push(entry);
             }
         }
@@ -872,14 +894,19 @@ mod tests {
     #[test]
     fn a_removal_of_the_user_beats_an_addition_of_the_system() {
         let mut assoc = Associations::default();
-        assoc.add_file("[Removed Associations]\nimage/tiff=paint.desktop;\n");
-        assoc.add_file("[Added Associations]\nimage/tiff=paint.desktop;edit.desktop;\n");
-        assert_eq!(assoc.added["image/tiff"], ["edit.desktop"]);
+        assoc.add_file("[Removed Associations]\nimage/tiff=paint.desktop;\n", 0);
+        assoc.add_file(
+            "[Added Associations]\nimage/tiff=paint.desktop;edit.desktop;\n",
+            1,
+        );
+        assert_eq!(assoc.added["image/tiff"].len(), 1);
+        assert_eq!(assoc.added["image/tiff"][0].id, "edit.desktop");
         // An addition of the user stays, a lower file's removal does not undo it.
         let mut assoc = Associations::default();
-        assoc.add_file("[Added Associations]\nimage/tiff=paint.desktop;\n");
-        assoc.add_file("[Removed Associations]\nimage/tiff=paint.desktop;\n");
-        assert_eq!(assoc.added["image/tiff"], ["paint.desktop"]);
+        assoc.add_file("[Added Associations]\nimage/tiff=paint.desktop;\n", 0);
+        assoc.add_file("[Removed Associations]\nimage/tiff=paint.desktop;\n", 1);
+        assert_eq!(assoc.added["image/tiff"].len(), 1);
+        assert_eq!(assoc.added["image/tiff"][0].id, "paint.desktop");
     }
 
     #[test]
@@ -1080,6 +1107,7 @@ mod tests {
             try_exec: None,
             mime_types: mimes.iter().map(|m| m.to_string()).collect(),
             icon: None,
+            data_rank: 1,
             raster_editor: false,
             no_display: false,
             only_show_in: None,
@@ -1101,9 +1129,10 @@ mod tests {
             "[Default Applications]\nimage/tiff=missing.desktop;gimp.desktop;\n\
              [Added Associations]\nimage/tiff=extra.desktop;\n\
              [Removed Associations]\nimage/tiff=removed.desktop;\n",
+            0,
         );
         // A later (less specific) file does not override an earlier choice.
-        assoc.add_file("[Default Applications]\nimage/tiff=viewer.desktop\n");
+        assoc.add_file("[Default Applications]\nimage/tiff=viewer.desktop\n", 1);
         let family = vec!["image/tiff".to_string(), "image/x-dcraw".to_string()];
         let (apps, default) = apps_for_family(&family, &entries, &assoc);
         let ids: Vec<_> = apps.iter().map(|e| e.id.as_str()).collect();
@@ -1112,7 +1141,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known XDG precedence gap: merged removals hide higher-priority desktop entries"]
     fn a_system_mime_removal_does_not_hide_a_user_desktop_entry() {
         let tmp = tempfile::tempdir().unwrap();
         let user = tmp.path().join("user");
@@ -1134,7 +1162,8 @@ mod tests {
         // directory or a directory later in the lookup order.
         rawtonic_fs::atomic_write(
             &system.join("applications/mimeapps.list"),
-            "[Removed Associations]\nimage/tiff=editor.desktop;other.desktop;\n",
+            "[Removed Associations]\nimage/tiff=editor.desktop;other.desktop;\n\
+             [Added Associations]\nimage/png=editor.desktop;\n",
         )
         .unwrap();
         let dirs = Dirs {
@@ -1146,6 +1175,62 @@ mod tests {
             apps_for_family(&["image/tiff".into()], &entries, &Associations::read(&dirs));
         let paths: Vec<_> = apps.iter().map(|app| &app.path).collect();
         assert_eq!(paths, [&user.join("applications/editor.desktop")]);
+        let (apps, _) =
+            apps_for_family(&["image/png".into()], &entries, &Associations::read(&dirs));
+        assert!(
+            apps.is_empty(),
+            "a lower-priority addition also stays local"
+        );
+
+        rawtonic_fs::atomic_write(
+            &user.join("applications/mimeapps.list"),
+            "[Removed Associations]\nimage/tiff=editor.desktop;\n",
+        )
+        .unwrap();
+        let (apps, _) =
+            apps_for_family(&["image/tiff".into()], &entries, &Associations::read(&dirs));
+        assert!(apps.is_empty(), "the user's removal still applies");
+    }
+
+    #[test]
+    fn config_and_middle_data_mime_associations_apply_at_their_own_scope() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = tmp.path().join("config");
+        let user = tmp.path().join("user");
+        let local = tmp.path().join("local");
+        let system = tmp.path().join("system");
+        fs::create_dir(&config).unwrap();
+        for (dir, id) in [(&user, "user"), (&local, "local"), (&system, "system")] {
+            fs::create_dir_all(dir.join("applications")).unwrap();
+            rawtonic_fs::atomic_write(
+                &dir.join(format!("applications/{id}.desktop")),
+                entry_text("MimeType=image/tiff;image/png;\n"),
+            )
+            .unwrap();
+        }
+        rawtonic_fs::atomic_write(
+            &local.join("applications/mimeapps.list"),
+            "[Removed Associations]\nimage/tiff=user.desktop;local.desktop;system.desktop;\n",
+        )
+        .unwrap();
+        rawtonic_fs::atomic_write(
+            &config.join("mimeapps.list"),
+            "[Removed Associations]\nimage/png=user.desktop;local.desktop;system.desktop;\n",
+        )
+        .unwrap();
+        let dirs = Dirs {
+            data: vec![user, local, system],
+            config: vec![config],
+            ..Dirs::default()
+        };
+        let entries = all_entries(&dirs, &[], &[]);
+        assert_eq!(entries.len(), 3);
+        let associations = Associations::read(&dirs);
+        let (tiff, _) = apps_for_family(&["image/tiff".into()], &entries, &associations);
+        let ids: Vec<_> = tiff.iter().map(|app| app.id.as_str()).collect();
+        assert_eq!(ids, ["user.desktop"]);
+        let (png, _) = apps_for_family(&["image/png".into()], &entries, &associations);
+        assert!(png.is_empty());
     }
 
     #[test]
@@ -1185,7 +1270,8 @@ mod tests {
         assert_eq!(names, ["User Editor", "Nested"]);
         assert_eq!(entries[1].id, "sub-nested.desktop");
         let assoc = Associations::read(&dirs);
-        assert_eq!(assoc.default["image/tiff"], ["editor.desktop"]);
+        assert_eq!(assoc.default["image/tiff"].len(), 1);
+        assert_eq!(assoc.default["image/tiff"][0].id, "editor.desktop");
     }
 
     #[test]

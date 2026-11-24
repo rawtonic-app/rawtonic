@@ -4,6 +4,7 @@ use tauri::Emitter;
 
 use crate::export_processing::TiffBitDepth;
 use rawtonic_engine::output_color_space::OutputColorSpace;
+use rawtonic_export::existing_files::ExistingFiles;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,6 +25,8 @@ pub struct HeadlessExportSession {
     pub color_space: OutputColorSpace,
     pub keep_metadata: bool,
     pub keep_creator_contact: bool,
+    /// Conflict policy of a headless export without a recipes file.
+    pub existing_files: ExistingFiles,
     pub adjustments_override: Option<String>,
     /// Upper limit for files exported at the same time (`--jobs`).
     pub max_jobs: Option<usize>,
@@ -85,6 +88,7 @@ pub fn parse_launch_args(args: &[String], base: Option<&Path>) -> LaunchRequest 
         let mut color_space = OutputColorSpace::Srgb;
         let mut keep_metadata = false;
         let mut keep_creator_contact = false;
+        let mut existing_files = ExistingFiles::default();
         let mut adjustments_override = None;
         let mut max_jobs = None;
         let mut recipes = None;
@@ -148,6 +152,17 @@ pub fn parse_launch_args(args: &[String], base: Option<&Path>) -> LaunchRequest 
                 }
                 "--keep-metadata" => keep_metadata = true,
                 "--keep-creator-contact" => keep_creator_contact = true,
+                "--on-conflict" => {
+                    let Some(value) = iter.next() else {
+                        return LaunchRequest::InvalidHeadless(
+                            "Missing value for --on-conflict.".to_string(),
+                        );
+                    };
+                    match ExistingFiles::parse(value) {
+                        Ok(policy) => existing_files = policy,
+                        Err(error) => return LaunchRequest::InvalidHeadless(error),
+                    }
+                }
                 "--jobs" => {
                     let Some(value) = iter.next() else {
                         return LaunchRequest::InvalidHeadless(
@@ -190,6 +205,7 @@ pub fn parse_launch_args(args: &[String], base: Option<&Path>) -> LaunchRequest 
             color_space,
             keep_metadata,
             keep_creator_contact,
+            existing_files,
             adjustments_override,
             max_jobs,
             recipes,
@@ -325,6 +341,56 @@ mod tests {
             parse_launch_args(&args(&["--recipes"]), None),
             LaunchRequest::InvalidHeadless(_)
         ));
+    }
+
+    #[test]
+    fn headless_exports_parse_the_conflict_policy() {
+        let parse = |extra: &[&str]| {
+            let mut args = strings(&["export", "Capture", "--output", "Output"]);
+            args.extend(strings(extra));
+            parse_launch_args(&args, None)
+        };
+        for (extra, expected) in [
+            (&[][..], ExistingFiles::KeepBoth),
+            (&["--on-conflict", "keep-both"], ExistingFiles::KeepBoth),
+            (&["--on-conflict", "skip"], ExistingFiles::Skip),
+            (
+                &["--on-conflict", "replace-if-changed"],
+                ExistingFiles::ReplaceIfChanged,
+            ),
+        ] {
+            let LaunchRequest::HeadlessExport(session) = parse(extra) else {
+                panic!("expected a headless export for {extra:?}");
+            };
+            assert_eq!(session.existing_files, expected, "{extra:?}");
+        }
+        for extra in [
+            &["--on-conflict"][..],
+            &["--on-conflict", "ask"],
+            &["--on-conflict", "unknown"],
+        ] {
+            let LaunchRequest::InvalidHeadless(error) = parse(extra) else {
+                panic!("expected a conflict policy error for {extra:?}");
+            };
+            assert!(error.contains(extra.last().unwrap()), "{error}");
+        }
+    }
+
+    #[test]
+    fn headless_conflict_option_and_recipes_parse_in_either_order() {
+        for extra in [
+            ["--on-conflict", "skip", "--recipes", "recipes.json"],
+            ["--recipes", "recipes.json", "--on-conflict", "skip"],
+        ] {
+            let mut args = strings(&["export", "Capture", "--output", "Output"]);
+            args.extend(strings(&extra));
+            let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, None) else {
+                panic!("expected a headless export for {extra:?}");
+            };
+            // The runner uses the recipe file's own settings when it is set.
+            assert_eq!(session.recipes.as_deref(), Some("recipes.json"));
+            assert_eq!(session.existing_files, ExistingFiles::Skip);
+        }
     }
 
     fn strings(args: &[&str]) -> Vec<String> {

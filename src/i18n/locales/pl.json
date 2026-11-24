@@ -1121,6 +1121,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "Sterownik grafiki kilka razy przestał odpowiadać. Twoje zmiany są bezpieczne; zamknij i ponownie otwórz Rawtonic, aby dalej wywoływać zdjęcia. Szczegóły: {{details}}",
+    "gpuDeviceRecovered": "Sterownik grafiki przestał odpowiadać. Rawtonic ponownie uruchomił grafikę; Twoje zmiany są bezpieczne.",
     "gpuStartFailed": "Rawtonic nie mógł uruchomić procesora graficznego, więc nie można wywoływać ani eksportować zdjęć. Zresetuj ustawienia grafiki i spróbuj ponownie; jeśli to nie pomoże, zaktualizuj sterownik karty graficznej. Szczegóły: {{details}}",
     "operationFailed": "Nie udało się ukończyć operacji."
   },
@@ -2437,6 +2439,12 @@
       "sidecarsCopied_few": "skopiowano {{count}} pliki XMP",
       "sidecarsCopied_many": "skopiowano {{count}} plików XMP",
       "sidecarsCopied_other": "skopiowano {{count}} pliku XMP",
+      "sourceGeometryAll": "Zastosuj prostowanie z Capture One i zastąp kadry z zachowaniem proporcji każdego obrazu ({{n}} zdjęć)",
+      "sourceGeometryApplied": "Zastosowano prostowanie i kadrowanie z Capture One do {{n}} zdjęć (Cofnij je przywraca)",
+      "sourceGeometryErrors": "Nie zastosowano prostowania i kadrowania z Capture One do części zdjęć: {{n}}.",
+      "sourceGeometryFailed": "Nie udało się zastosować prostowania i kadrowania z Capture One",
+      "sourceGeometryOtherLibrary": "Otwórz bibliotekę, do której zaimportowano te zdjęcia, aby zastosować prostowanie i kadrowanie z Capture One.",
+      "sourceGeometryPhoto": "Zastosuj prostowanie i kadrowanie z Capture One do {{name}}",
       "watching": "Obserwowanie folderu {{folder}} w poszukiwaniu nowych zdjęć.",
       "watchingMissing": "Nie znaleziono folderu obserwowanego {{folder}}; obserwowanie będzie kontynuowane, gdy wróci.",
       "watchingResumed": "Ponownie obserwowany jest folder {{folder}}."
@@ -3524,6 +3532,8 @@
       "rotateLeft": "Obróć w lewo",
       "rotateRight": "Obróć w prawo",
       "size": "Rozmiar",
+      "sourceGeometry": "Zastosuj prostowanie i kadrowanie z Capture One",
+      "sourceGeometryTitle": "Zastępuje prostowanie, obroty o ćwierć obrotu i kadrowanie tego zdjęcia ustawieniami z Capture One: jego kąt prostowania i automatyczny kadr o własnych proporcjach ramki, bez pustych rogów (kadr narysowany w Capture One nie jest odczytywany, a Twój własny kadr zostaje zastąpiony). Wszystkie pozostałe korekty zostają (Cofnij je przywraca)",
       "straighten": "Prostowanie",
       "straightenToolTitle": "Narysuj linię wzdłuż krawędzi, która ma być pozioma lub pionowa",
       "swapOrientation": "Zamień orientację pionową i poziomą",
@@ -6278,6 +6288,7 @@
     "rename": "Zmień nazwę",
     "reset": "Resetuj",
     "skipFailed": "Pomiń nieudane elementy",
+    "sourceGeometry": "Zastosuj geometrię z Capture One",
     "stacks": "Stosy",
     "style": "Zastosuj styl",
     "sync": "Synchronizuj korekty",

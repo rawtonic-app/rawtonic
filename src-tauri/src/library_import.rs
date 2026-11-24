@@ -128,6 +128,12 @@ pub struct ImportReport {
     /// other editor's settings imported as a new virtual copy beside them,
     /// one line each.
     pub edits_kept: Vec<String>,
+    /// Photographs (and virtual copies) kept as imported earlier whose
+    /// straightening Capture One shows and an earlier import did not read
+    /// (`Settled::unread_straightening`): their paths as in the warning's
+    /// line, for "Apply Capture One straightening and crop"
+    /// (`library_apply_source_geometry`).
+    pub geometry_offers: Vec<GeometryOffer>,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -548,7 +554,9 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
     let mut layers = match &photo.develop {
         Develop::CaptureOne(entries) => capture_one_shadows_report(entries)
             .into_iter()
-            .chain(capture_one_lens_report(entries))
+            .chain(capture_one_lens_report(entries, &photo.path))
+            .chain(capture_one_rotation_report(entries, &photo.path))
+            .chain(capture_one_color_editor_report(entries))
             .collect(),
         _ => Vec::new(),
     };
@@ -813,6 +821,8 @@ fn settle_reimport(
     imported: Imported,
 ) {
     report.errors.extend(imported.error);
+    report.warnings.extend(imported.warning);
+    report.geometry_offers.extend(imported.geometry_offer);
     // A copy's sidecar followed in `reimport_copy` already.
     if let Some(change) = imported.change {
         match copy.map_or_else(|| follow_sidecar(catalog, asset, &change), |_| Ok(true)) {
@@ -971,6 +981,39 @@ struct Imported {
     change: Option<RecipeChange>,
     /// Why an update was not made after all, for the summary's errors.
     error: Option<String>,
+    /// A line for the summary's warnings (`Settled::unread_straightening`).
+    warning: Option<String>,
+    /// The path of that line (`ImportReport::geometry_offers`).
+    geometry_offer: Option<GeometryOffer>,
+}
+
+/// What the import report shows for a photo it offers "Apply Capture One
+/// straightening and crop" for: the action applies exactly this, and writes
+/// nothing if Capture One shows another geometry by then.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeometryOffer {
+    pub path: String,
+    /// Straightening angle in degrees.
+    pub rotation: f64,
+    pub orientation_steps: f64,
+}
+
+impl GeometryOffer {
+    fn of(path: String, incoming: Option<&Value>) -> Self {
+        Self {
+            path,
+            rotation: geometry_value(incoming, geometry::ROTATION.name()),
+            orientation_steps: geometry_value(incoming, geometry::ORIENTATION_STEPS.name()),
+        }
+    }
+
+    fn as_recipe(&self) -> Value {
+        json!({
+            geometry::ROTATION.name(): self.rotation,
+            geometry::ORIENTATION_STEPS.name(): self.orientation_steps,
+        })
+    }
 }
 
 /// What a repeated import does with an edit already here (decision C1RI1
@@ -1109,11 +1152,163 @@ fn coverage_unreadable(photo: &Photo) -> bool {
 /// settings, its Capture One layers and their painted coverage (the
 /// rasters' values, which their serialized form leaves out).
 fn source_digest(photo: &Photo) -> String {
+    source_digest_of(photo, &photo.develop, &photo.capture_one_layers)
+}
+
+/// Capture One settings the reader takes since G50L (2026-11-24): an
+/// import recorded before read the same session without them.
+const CAPTURE_ONE_KEYS_SINCE_G50L: [&str; 2] = ["Rotation", "Crop"];
+
+/// The digest an earlier reader recorded for these same settings
+/// (`source_digest` without `CAPTURE_ONE_KEYS_SINCE_G50L`), where it differs
+/// from today's: settings unchanged in the other editor are no change for
+/// a repeated import, whatever the reader now reads of them.
+fn earlier_source_digest(photo: &Photo) -> Option<String> {
+    let newer = |settings: &[(String, String)]| {
+        settings
+            .iter()
+            .any(|(k, _)| CAPTURE_ONE_KEYS_SINCE_G50L.contains(&k.as_str()))
+    };
+    let Develop::CaptureOne(entries) = &photo.develop else {
+        return None;
+    };
+    if !newer(entries)
+        && !photo
+            .capture_one_layers
+            .iter()
+            .any(|layer| newer(&layer.settings))
+    {
+        return None;
+    }
+    let older = |settings: &[(String, String)]| -> Vec<(String, String)> {
+        settings
+            .iter()
+            .filter(|(k, _)| !CAPTURE_ONE_KEYS_SINCE_G50L.contains(&k.as_str()))
+            .cloned()
+            .collect()
+    };
+    let layers: Vec<_> = photo
+        .capture_one_layers
+        .iter()
+        .map(|layer| rawtonic_interop::capture_one::Layer {
+            settings: older(&layer.settings),
+            ..layer.clone()
+        })
+        .collect();
+    Some(source_digest_of(
+        photo,
+        &Develop::CaptureOne(older(entries)),
+        &layers,
+    ))
+}
+
+/// The import `record` of a version as of today's reader: one an earlier
+/// reader made of the same settings (`earlier_source_digest`) holds
+/// today's digest, so the settings count as unchanged and a later change
+/// in the other editor still shows. True when an earlier reader's digest
+/// matched.
+fn current_record(record: Option<ImportRecord>, photo: &Photo) -> (Option<ImportRecord>, bool) {
+    let Some(mut record) = record else {
+        return (None, false);
+    };
+    let earlier = earlier_source_digest(photo).is_some_and(|earlier| earlier == record.source);
+    if earlier {
+        record.source = source_digest(photo);
+    }
+    (Some(record), earlier)
+}
+
+/// A repeated import's decision for one version (`reimport_here` on the
+/// record as of today's reader).
+#[derive(Debug, PartialEq)]
+struct Settled {
+    rule: Reimport,
+    /// The record to store now: an earlier reader's, upgraded.
+    upgrade: Option<ImportRecord>,
+    /// The version keeps an import an earlier reader made although the
+    /// other editor straightens or turns the photo otherwise: that reader
+    /// could not see whether it did so then or since, so the edit stays,
+    /// the import names it (every time, until the edit matches) and its
+    /// record is not upgraded.
+    unread_straightening: bool,
+}
+
+fn settle_rule(
+    record: Option<ImportRecord>,
+    own: Option<&Value>,
+    sidecar: Option<Value>,
+    photo: &Photo,
+    incoming: Option<&Value>,
+) -> Settled {
+    let (current, earlier) = current_record(record.clone(), photo);
+    let rule = reimport_here(current.as_ref(), own, sidecar, photo, incoming);
+    let unread_straightening = earlier
+        && rule == Reimport::Keep
+        && straightens(incoming)
+        && straightening_differs(own, incoming);
+    let upgrade = current.filter(|c| !unread_straightening && record.as_ref() != Some(c));
+    Settled {
+        rule,
+        upgrade,
+        unread_straightening,
+    }
+}
+
+/// Half the Crop tool's straightening step (0.1°): an angle typed there to
+/// match an imported one counts as matching it.
+const STRAIGHTENING_MATCH: f64 = 0.05;
+
+fn geometry_value(recipe: Option<&Value>, key: &str) -> f64 {
+    recipe
+        .and_then(|r| r.get(key))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0)
+}
+
+/// Whether a recipe straightens or turns the photo (an import's: what the
+/// other editor does to it).
+fn straightens(recipe: Option<&Value>) -> bool {
+    geometry_value(recipe, geometry::ROTATION.name()).abs() > STRAIGHTENING_MATCH
+        || geometry_value(recipe, geometry::ORIENTATION_STEPS.name()) != 0.0
+}
+
+/// Whether two recipes straighten or turn the photo differently (angles
+/// within `STRAIGHTENING_MATCH` match).
+fn straightening_differs(a: Option<&Value>, b: Option<&Value>) -> bool {
+    let rotation = geometry::ROTATION.name();
+    let steps = geometry::ORIENTATION_STEPS.name();
+    (geometry_value(a, rotation) - geometry_value(b, rotation)).abs() > STRAIGHTENING_MATCH
+        || geometry_value(a, steps) != geometry_value(b, steps)
+}
+
+/// The import summary's line for `Settled::unread_straightening`.
+fn unread_straightening_line(path: &str, incoming: Option<&Value>) -> String {
+    let value = |key: &str| {
+        incoming
+            .and_then(|r| r.get(key))
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0)
+    };
+    let turns = value(geometry::ORIENTATION_STEPS.name());
+    let turns = if turns != 0.0 {
+        format!(", turned {} quarter turn(s) clockwise", turns)
+    } else {
+        String::new()
+    };
+    format!(
+        "{path}: kept as imported earlier; Capture One shows it straightened by {}°{turns}, which imports before this version did not read: straighten it here to match, or apply Capture One's straightening and crop (a crop of the frame's own aspect ratio without empty corners; a crop drawn in Capture One is not read)",
+        value(geometry::ROTATION.name())
+    )
+}
+
+fn source_digest_of(
+    photo: &Photo,
+    develop: &Develop,
+    layers: &[rawtonic_interop::capture_one::Layer],
+) -> String {
     use sha2::Digest;
     let mut digest = sha2::Sha256::new();
-    digest.update(
-        serde_json::to_vec(&(&photo.develop, &photo.capture_one_layers)).unwrap_or_default(),
-    );
+    digest.update(serde_json::to_vec(&(develop, layers)).unwrap_or_default());
     for raster in layer_rasters(photo) {
         match raster.values() {
             Some(values) => digest.update(&values),
@@ -1242,6 +1437,7 @@ fn recipe_for_with(
     if let Develop::CaptureOne(entries) = develop {
         capture_one_lens(entries, path, &mut adjustments);
         capture_one_chromatic_aberration(entries, path, &mut adjustments);
+        capture_one_rotation(entries, path, &mut adjustments);
     }
     // An HDR edit whose settings the converter does not translate is still
     // an imported edit: its HDR settings are kept (below).
@@ -1461,12 +1657,9 @@ fn capture_one_lens(entries: &[(String, String)], path: &Path, adjustments: &mut
     if map.contains_key(lens::CORRECTION_MODE.name()) {
         return;
     }
-    if let Some(k1) = capture_one_generic_distortion_k1(entries) {
+    if let Some(params) = capture_one_generic_params(entries, path) {
         map.insert(lens::CORRECTION_MODE.name().into(), json!("manual"));
-        map.insert(
-            lens::DISTORTION_PARAMS.name().into(),
-            json!({"model": 0, "k1": k1, "k2": 0.0, "k3": 0.0, "zoom": 1.0, "exact_zoom": true}),
-        );
+        map.insert(lens::DISTORTION_PARAMS.name().into(), params);
         return;
     }
     let Some((distortion, falloff)) = capture_one_lens_amounts(entries) else {
@@ -1508,7 +1701,10 @@ fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(Option<f64>
             .filter(|v| v.is_finite())
             .map(|v| v.clamp(0.0, 200.0))
     };
-    get("LensIdGuid").filter(|v| !v.trim().is_empty() && !is_generic_lens(v))?;
+    get("LensIdGuid").filter(|v| !v.trim().is_empty())?;
+    if generic_profile(entries).is_some() {
+        return None;
+    }
     let amounts = (amount("LensGeoAbr"), amount("LensLightFallOff"));
     (amounts.0.is_some() || amounts.1.is_some()).then_some(amounts)
 }
@@ -1524,22 +1720,352 @@ fn capture_one_lens_amounts(entries: &[(String, String)]) -> Option<(Option<f64>
 /// 3648 px one (the best of Rawtonic's other distortion controls: 15–66 px).
 const CAPTURE_ONE_GENERIC_K1_PER_PERCENT: f64 = -0.0012;
 
-/// The `k1` of Capture One's Generic Distortion above 0 (0–100 %) with the
-/// Generic profile, which holds no data of the lens: the photo then has no
-/// lens profile either, as in Capture One. None for other lenses and at 0
-/// (Rawtonic's default correction stays, `capture_one_lens_report`).
-fn capture_one_generic_distortion_k1(entries: &[(String, String)]) -> Option<f64> {
-    capture_one_entry(entries, "LensIdGuid").filter(|v| is_generic_lens(v))?;
-    let amount = capture_one_entry(entries, "LensGeoAbr")?
+/// Rawtonic's polynomial distortion `k1` per percent of Capture One's
+/// "Generic pincushion distortion" profile. Measured on Capture One 16.9.1
+/// renders of two cameras at 25/50/75/100 (notes:
+/// benchmark-results/g50l-2026-11-24): a point of its frame at radius r
+/// (half diagonals of the uncorrected frame) shows the photo at
+/// r (1 + 0.02 × amount × r²), the centre at scale 1, the frame cropped so
+/// its corners reach the photo's corners. Model 0 with this `k1` at exact
+/// zoom 1, which zooms just as far as the border needs, renders it within
+/// 0.2–0.6 px rms on a 7360 px wide frame (1.6–2.8 px on a 3648 px one, a
+/// constant offset of that photo's decode), the field of view equal to
+/// Capture One's crop to 0.03 %.
+const CAPTURE_ONE_PINCUSHION_K1_PER_PERCENT: f64 = 0.02;
+
+/// Capture One's Generic Light Falloff as a radial gain: log2 gain =
+/// (amount / 100)^`CAPTURE_ONE_FALLOFF_POWER` × L(ρ), L(ρ) = c₁ρ² + c₂ρ⁴ +
+/// c₃ρ⁶ with ρ the distance from the centre over half the frame's long side
+/// (the same ρ on 3:2 and 4:3 frames; half diagonals fit the held-out
+/// camera worse). Fitted on one camera's renders at 50 and 100 (Nikon D800),
+/// compared through each scene's own tone relation between the two editors'
+/// renders without falloff (notes: benchmark-results/g50l-2026-11-24):
+/// residual 0.015–0.017 EV rms; held-out cameras (E-450, two Canons)
+/// 0.015–0.04 EV at 50 and 0.03–0.07 EV at 100 within ρ ≤ 1, more in the
+/// far corners at 100 (+3.5…+4.5 EV there).
+const CAPTURE_ONE_FALLOFF_L: [f64; 3] = [3.0, -1.01, 0.61];
+const CAPTURE_ONE_FALLOFF_POWER: f64 = 0.83;
+
+/// The `LensIdGuid` of Capture One's "Generic pincushion distortion"
+/// profile (in its lens menu under the recommended lenses): like Generic, it
+/// holds no data of the lens; seen on a Nikon NEF of Capture One 16.9.1
+/// (notes: benchmark-results/c1r3-2026-11-23).
+const CAPTURE_ONE_GENERIC_PINCUSHION_LENS: &str = "A4C7C116-2472-4B0F-9C39-5775CDAD2FF1";
+
+/// Which of Capture One's lens profiles without lens data `entries` use.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum GenericProfile {
+    Generic,
+    Pincushion,
+}
+
+fn generic_profile(entries: &[(String, String)]) -> Option<GenericProfile> {
+    let guid = capture_one_entry(entries, "LensIdGuid")?;
+    if is_generic_lens(guid) {
+        Some(GenericProfile::Generic)
+    } else if guid.eq_ignore_ascii_case(CAPTURE_ONE_GENERIC_PINCUSHION_LENS) {
+        Some(GenericProfile::Pincushion)
+    } else {
+        None
+    }
+}
+
+/// The amount (`curve|amount|…`) of Capture One's setting `key`, above 0,
+/// clamped to its slider's 100.
+fn capture_one_amount(entries: &[(String, String)], key: &str) -> Option<f64> {
+    capture_one_entry(entries, key)?
         .split('|')
         .nth(1)?
         .trim()
         .parse::<f64>()
         .ok()
-        .filter(|v| v.is_finite() && *v > 0.0)?
-        .min(100.0);
-    // Rounded to the amount's hundred-thousandths: no float dust in recipes.
-    Some((amount * CAPTURE_ONE_GENERIC_K1_PER_PERCENT * 1e5).round() / 1e5)
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .map(|v| v.min(100.0))
+}
+
+/// Rounded to the hundred-thousandths: no float dust in recipes.
+fn rounded(value: f64) -> f64 {
+    (value * 1e5).round() / 1e5
+}
+
+/// The `k1` of the Distortion above 0 (0–100 %) on one of Capture One's
+/// profiles without lens data (the photo then has no lens profile either,
+/// as in Capture One): Generic's barrel, the pincushion profile's own.
+/// None for other lenses and at 0 (Rawtonic's default correction stays,
+/// `capture_one_lens_report`).
+fn capture_one_generic_distortion_k1(entries: &[(String, String)]) -> Option<f64> {
+    let per_percent = match generic_profile(entries)? {
+        GenericProfile::Generic => CAPTURE_ONE_GENERIC_K1_PER_PERCENT,
+        GenericProfile::Pincushion => CAPTURE_ONE_PINCUSHION_K1_PER_PERCENT,
+    };
+    Some(rounded(
+        capture_one_amount(entries, "LensGeoAbr")? * per_percent,
+    ))
+}
+
+/// The lens vignetting terms (`vig_k1..3`: gain 1 / (1 + k₁r² + k₂r⁴ +
+/// k₃r⁶), r in half diagonals) of the Generic profile's Light Falloff above
+/// 0 on a frame `aspect` (long over short side) wide: the measured gain
+/// (`CAPTURE_ONE_FALLOFF_L`) fitted in relative terms (weighted least
+/// squares on 65 radii, within 0.03 EV at 3:2 and 4:3 up to amount 50,
+/// 0.06–0.1 EV only in the far corners at 100). None for other profiles,
+/// at 0 and where the fit would leave the frame unshaded somewhere.
+fn capture_one_generic_falloff(entries: &[(String, String)], aspect: f64) -> Option<[f64; 3]> {
+    if generic_profile(entries)? != GenericProfile::Generic || !aspect.is_finite() || aspect < 1.0 {
+        return None;
+    }
+    let strength =
+        (capture_one_amount(entries, "LensLightFallOff")? / 100.0).powf(CAPTURE_ONE_FALLOFF_POWER);
+    // Half diagonal over half the long side.
+    let diagonal = (1.0 + 1.0 / (aspect * aspect)).sqrt();
+    let [c1, c2, c3] = CAPTURE_ONE_FALLOFF_L;
+    let (mut ata, mut atb) = ([[0.0f64; 3]; 3], [0.0f64; 3]);
+    for i in 0..=64 {
+        let r = f64::from(i) / 64.0;
+        let rho2 = (r * diagonal).powi(2);
+        let ev = strength * (c1 * rho2 + c2 * rho2 * rho2 + c3 * rho2 * rho2 * rho2);
+        let v = (-ev).exp2();
+        let r2 = r * r;
+        let basis = [r2, r2 * r2, r2 * r2 * r2].map(|b| b / v);
+        let target = (v - 1.0) / v;
+        for (row, a) in ata.iter_mut().zip(basis) {
+            for (cell, b) in row.iter_mut().zip(basis) {
+                *cell += a * b;
+            }
+        }
+        for (cell, a) in atb.iter_mut().zip(basis) {
+            *cell += a * target;
+        }
+    }
+    let k = solve3(ata, atb)?.map(rounded);
+    // Shaded everywhere (the warp leaves a pixel whose factor is not above
+    // 0 unshaded): the fit stays well above it at Capture One's 100.
+    let factor = |r: f64| {
+        let r2 = r * r;
+        1.0 + k[0] * r2 + k[1] * r2 * r2 + k[2] * r2 * r2 * r2
+    };
+    (0..=256)
+        .all(|i| factor(f64::from(i) / 256.0) > 1e-3)
+        .then_some(k)
+}
+
+/// `a x = b` for a 3 × 3 system (Gaussian elimination, partial pivoting).
+fn solve3(mut a: [[f64; 3]; 3], mut b: [f64; 3]) -> Option<[f64; 3]> {
+    for col in 0..3 {
+        let pivot = (col..3).max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))?;
+        if a[pivot][col].abs() < 1e-12 {
+            return None;
+        }
+        a.swap(col, pivot);
+        b.swap(col, pivot);
+        let (pivot_row, pivot_b) = (a[col], b[col]);
+        for (row, rhs) in a.iter_mut().zip(b.iter_mut()).skip(col + 1) {
+            let f = row[col] / pivot_row[col];
+            for (cell, p) in row.iter_mut().zip(pivot_row).skip(col) {
+                *cell -= f * p;
+            }
+            *rhs -= f * pivot_b;
+        }
+    }
+    let mut x = [0.0; 3];
+    for row in (0..3).rev() {
+        let sum: f64 = (row + 1..3).map(|c| a[row][c] * x[c]).sum();
+        x[row] = (b[row] - sum) / a[row][row];
+    }
+    x.iter().all(|v| v.is_finite()).then_some(x)
+}
+
+/// The photo's frame as Rawtonic renders it before any crop or turn of
+/// the photographer's: width and height as shown (its EXIF orientation
+/// applied) and that orientation. A RAW's frame (`source_frame`), another
+/// file's pixels.
+fn photo_frame(path: &Path) -> Option<(f64, f64, u16)> {
+    let (w, h, orientation) = if crate::formats::is_raw_file(path) {
+        let source = rawler::rawsource::RawSource::new(path).ok()?;
+        let (frame, _) = rawtonic_rawdecode::source_frame::frame_and_sensor(
+            &source,
+            rawtonic_rawdecode::source_frame::VERSION,
+        )?;
+        let [_, _, w, h] = frame.rect;
+        (w as f64, h as f64, frame.orientation)
+    } else {
+        let (w, h) = image::image_dimensions(path).ok()?;
+        let orientation = std::fs::read(path)
+            .ok()
+            .map(|bytes| crate::image_loader::source_orientation(&bytes, &path.to_string_lossy()))
+            .unwrap_or(1);
+        (f64::from(w), f64::from(h), orientation)
+    };
+    if !(w > 0.0 && h > 0.0) {
+        return None;
+    }
+    Some(if (5..=8).contains(&orientation) {
+        (h, w, orientation)
+    } else {
+        (w, h, orientation)
+    })
+}
+
+/// The photo's frame (`photo_frame`), long over short side.
+fn frame_aspect(path: &Path) -> Option<f64> {
+    let (w, h, _) = photo_frame(path)?;
+    Some(w.max(h) / w.min(h))
+}
+
+/// Capture One's rotation of a photo shown with EXIF `orientation`, as
+/// Rawtonic's quarter turns (`orientationSteps`, clockwise) and
+/// straightening (`rotation`, −45…45°). Capture One's `Rotation` is the
+/// whole clockwise rotation, the EXIF orientation's own quarter turns
+/// included (C1R7 session: 90 on an EXIF 6 file, 270 on EXIF 8 ones, 5 on
+/// an EXIF 1 RAW straightened by 5°, whose render Rawtonic's `rotation` 5
+/// matches to 0.001°; notes: benchmark-results/g50l-2026-11-24). None for
+/// mirrored orientations (how Capture One counts those is not measured).
+fn capture_one_turns(total: f64, orientation: u16) -> Option<(u64, f64)> {
+    let own = match orientation {
+        1 => 0.0,
+        6 => 90.0,
+        3 => 180.0,
+        8 => 270.0,
+        _ => return None,
+    };
+    let rest = (total - own).rem_euclid(360.0);
+    let rest = if rest > 180.0 { rest - 360.0 } else { rest };
+    let quarters = (rest / 90.0).round();
+    let straighten = rounded(rest - 90.0 * quarters);
+    Some(((quarters as i64).rem_euclid(4) as u64, straighten))
+}
+
+/// The largest crop of a `width` × `height` frame's own aspect ratio
+/// about its centre that the frame straightened by `degrees` fills: the
+/// crop Capture One shows for a straightened photo without a crop of its
+/// own (C1R7: 6600 × 4405 of a 7360 × 4912 frame at 5°, 6542 × 4366 in
+/// Rawtonic's pixels, Capture One framing 0.9 % tighter through its lens
+/// profile; this crop 6532 × 4359).
+fn straightened_crop(width: f64, height: f64, degrees: f64) -> Value {
+    let (sin, cos) = degrees.to_radians().sin_cos();
+    let (sin, cos) = (sin.abs(), cos.abs());
+    let aspect = width / height;
+    let w = (width / (cos + sin / aspect)).min(height / (sin + cos / aspect));
+    let h = w / aspect;
+    json!({
+        "x": ((width - w) / 2.0).max(0.0),
+        "y": ((height - h) / 2.0).max(0.0),
+        "width": w,
+        "height": h,
+    })
+}
+
+/// Capture One's crop (`left;top;width;height`): `0;0;0;0` or nothing is
+/// none.
+fn capture_one_has_crop(entries: &[(String, String)]) -> bool {
+    capture_one_entry(entries, "Crop").is_some_and(|crop| {
+        crop.split(';')
+            .any(|v| v.trim().parse::<f64>().is_ok_and(|v| v != 0.0))
+    })
+}
+
+/// Capture One's rotation (`capture_one_turns`) as Rawtonic's quarter turns
+/// and straightening, a straightened photo cropped as Capture One shows it
+/// (`straightened_crop`). Capture One's own crop is not read (its numbers
+/// are not measured): the straightened photo still gets the crop without
+/// empty corners, and the report names the crop
+/// (`capture_one_rotation_report`). A recipe that has its own geometry
+/// already keeps it.
+fn capture_one_rotation(entries: &[(String, String)], path: &Path, adjustments: &mut Value) {
+    let Some(total) = capture_one_entry(entries, "Rotation")
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| v.is_finite())
+    else {
+        return;
+    };
+    let Some(map) = adjustments.as_object_mut() else {
+        return;
+    };
+    if [
+        geometry::ROTATION.name(),
+        geometry::ORIENTATION_STEPS.name(),
+        geometry::CROP.name(),
+    ]
+    .iter()
+    .any(|key| map.contains_key(*key))
+    {
+        return;
+    }
+    let Some((width, height, orientation)) = photo_frame(path) else {
+        return;
+    };
+    let Some((steps, straighten)) = capture_one_turns(total, orientation) else {
+        return;
+    };
+    if steps != 0 {
+        map.insert(geometry::ORIENTATION_STEPS.name().into(), json!(steps));
+    }
+    if straighten != 0.0 {
+        let (width, height) = if steps % 2 == 1 {
+            (height, width)
+        } else {
+            (width, height)
+        };
+        map.insert(geometry::ROTATION.name().into(), json!(straighten));
+        map.insert(
+            geometry::CROP.name().into(),
+            straightened_crop(width, height, straighten),
+        );
+    }
+}
+
+/// The import report's lines for Capture One's rotation and crop
+/// Rawtonic does not take over: its crop, and a straightening of a photo
+/// whose frame cannot be read or whose EXIF orientation is mirrored.
+fn capture_one_rotation_report(entries: &[(String, String)], path: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    if capture_one_has_crop(entries) {
+        out.push("Capture One's crop not carried".to_string());
+    }
+    // Quarter turns of a photo whose frame cannot be read (offline) are as
+    // a rule its EXIF orientation: only a straightening is named, and the
+    // frame is read only then.
+    let total = capture_one_entry(entries, "Rotation")
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| v.is_finite());
+    if let Some(total) = total.filter(|t| t.rem_euclid(90.0) != 0.0) {
+        let carried = photo_frame(path)
+            .is_some_and(|(_, _, orientation)| capture_one_turns(total, orientation).is_some());
+        if !carried {
+            out.push(format!("Capture One's rotation {total}° not carried"));
+        }
+    }
+    out
+}
+
+/// The Light Falloff terms for the photo at `path`
+/// (`capture_one_generic_falloff` on its frame's aspect).
+fn capture_one_generic_falloff_for(entries: &[(String, String)], path: &Path) -> Option<[f64; 3]> {
+    // The frame is read only for a falloff to carry.
+    capture_one_amount(entries, "LensLightFallOff")?;
+    generic_profile(entries).filter(|p| *p == GenericProfile::Generic)?;
+    capture_one_generic_falloff(entries, frame_aspect(path)?)
+}
+
+/// Rawtonic's polynomial correction (`lensDistortionParams` model 0, the
+/// Lens tool's "Imported correction") for Capture One's profiles without
+/// lens data: the Distortion (`capture_one_generic_distortion_k1`) and the
+/// Generic profile's Light Falloff (`capture_one_generic_falloff_for`).
+/// None when neither is above 0 or carried.
+fn capture_one_generic_params(entries: &[(String, String)], path: &Path) -> Option<Value> {
+    generic_profile(entries)?;
+    let k1 = capture_one_generic_distortion_k1(entries);
+    let vignetting = capture_one_generic_falloff_for(entries, path);
+    if k1.is_none() && vignetting.is_none() {
+        return None;
+    }
+    let mut params = json!({"model": 0, "k1": k1.unwrap_or(0.0), "k2": 0.0, "k3": 0.0, "zoom": 1.0, "exact_zoom": true});
+    if let Some([a, b, c]) = vignetting {
+        params["vig_k1"] = json!(a);
+        params["vig_k2"] = json!(b);
+        params["vig_k3"] = json!(c);
+    }
+    Some(params)
 }
 
 /// The `LensIdGuid` of Capture One's "Generic" lens profile, the one it
@@ -1562,6 +2088,16 @@ fn capture_one_entry<'a>(entries: &'a [(String, String)], key: &str) -> Option<&
         .map(|(_, v)| v.trim())
 }
 
+fn capture_one_color_editor_report(entries: &[(String, String)]) -> Option<String> {
+    // As in the style converter, the last entry takes precedence.
+    let (_, value) = entries
+        .iter()
+        .rev()
+        .find(|(key, _)| key == "ColorCorrections")?;
+    crate::costyle::color_editor_is_partial(value)
+        .then(|| "Capture One's Color Editor settings could not be fully translated".into())
+}
+
 /// The import report's line for a Capture One Shadow that lifts (or
 /// darkens) further than Rawtonic's Shadows reach (`costyle::shadows_amount`).
 fn capture_one_shadows_report(entries: &[(String, String)]) -> Option<String> {
@@ -1576,30 +2112,34 @@ fn capture_one_shadows_report(entries: &[(String, String)]) -> Option<String> {
 }
 
 /// The import report's lines for Capture One's lens settings Rawtonic does
-/// not take over as they are: the Generic profile (the photo keeps
-/// Rawtonic's default correction for its lens, never a lens profile picked
-/// in its place, unless its Distortion above 0 is carried as a polynomial
-/// distortion, `capture_one_generic_distortion_k1`, which is nothing left
-/// out) with the amounts set on it that have no measured equivalent on
-/// Rawtonic's sliders; and an analysed chromatic aberration
-/// curve (Rawtonic measures the photo's own CA instead).
-fn capture_one_lens_report(entries: &[(String, String)]) -> Vec<String> {
+/// not take over as they are: a profile without lens data (Generic or the
+/// pincushion profile; the photo keeps Rawtonic's default correction for
+/// its lens, never a lens profile picked in its place, unless a setting on
+/// it came over as the polynomial correction,
+/// `capture_one_generic_params`) with the amounts set on it that have no
+/// measured equivalent (or, for the falloff, no frame to fit it to); and an
+/// analysed chromatic aberration curve (Rawtonic measures the photo's own
+/// CA instead).
+fn capture_one_lens_report(entries: &[(String, String)], path: &Path) -> Vec<String> {
     let mut out = Vec::new();
-    if capture_one_entry(entries, "LensIdGuid").is_some_and(is_generic_lens) {
-        // A Distortion that came over as a polynomial is no setting left
-        // out: nothing to report for it.
+    if let Some(profile) = generic_profile(entries) {
+        let name = match profile {
+            GenericProfile::Generic => "Generic",
+            GenericProfile::Pincushion => "Generic pincushion",
+        };
+        // A setting that came over as the polynomial is no setting left out.
         let distortion_carried = capture_one_generic_distortion_k1(entries).is_some();
-        if !distortion_carried {
-            out.push(
-                "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies"
-                    .to_string(),
-            );
+        let falloff_carried = capture_one_generic_falloff_for(entries, path).is_some();
+        if !distortion_carried && !falloff_carried {
+            out.push(format!(
+                "Capture One's {name} lens profile: Rawtonic's default lens correction for this lens applies"
+            ));
         }
-        for (key, name) in [
-            ("LensGeoAbr", "Distortion"),
-            ("LensLightFallOff", "Light Falloff"),
+        for (key, setting, carried) in [
+            ("LensGeoAbr", "Distortion", distortion_carried),
+            ("LensLightFallOff", "Light Falloff", falloff_carried),
         ] {
-            if key == "LensGeoAbr" && distortion_carried {
+            if carried {
                 continue;
             }
             let amount = capture_one_entry(entries, key)
@@ -1608,7 +2148,7 @@ fn capture_one_lens_report(entries: &[(String, String)]) -> Vec<String> {
                 .filter(|v| v.is_finite() && *v != 0.0);
             if let Some(amount) = amount {
                 out.push(format!(
-                    "Capture One's {name} {amount} with the Generic profile not carried (no measured equivalent)"
+                    "Capture One's {setting} {amount} with the {name} profile not carried (no measured equivalent)"
                 ));
             }
         }
@@ -1804,13 +2344,22 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
                 Some(version) => catalog.imported_recipe(version)?,
                 None => None,
             };
-            let rule = reimport_here(
-                record.as_ref(),
+            let settled = settle_rule(
+                record,
                 own.as_ref(),
                 sidecar_edit(&asset.path, None, own.as_ref()),
                 photo,
                 adjustments.as_ref(),
             );
+            if let (Some(version), Some(upgrade)) = (&version, &settled.upgrade) {
+                catalog.record_imported_recipe(version, upgrade)?;
+            }
+            if settled.unread_straightening {
+                let path = asset.path.to_string_lossy().into_owned();
+                imported.warning = Some(unread_straightening_line(&path, adjustments.as_ref()));
+                imported.geometry_offer = Some(GeometryOffer::of(path, adjustments.as_ref()));
+            }
+            let rule = settled.rule;
             if rule != Reimport::Apply {
                 contents.editor_state = None;
                 imported.translated = false;
@@ -2008,13 +2557,22 @@ fn reimport_copy(
         .and_then(|state| state.get("adjustments").cloned());
     let recipe = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path);
     let incoming = recipe.as_ref().map(|(adjustments, _)| adjustments.clone());
-    let rule = reimport_here(
-        catalog.imported_recipe(&version)?.as_ref(),
+    let settled = settle_rule(
+        catalog.imported_recipe(&version)?,
         own.as_ref(),
         sidecar_edit(&catalog.asset(asset)?.path, Some(copy), own.as_ref()),
         photo,
         incoming.as_ref(),
     );
+    if let Some(upgrade) = &settled.upgrade {
+        catalog.record_imported_recipe(&version, upgrade)?;
+    }
+    if settled.unread_straightening {
+        let path = photo_ref::PhotoRef::of_path(&catalog.asset(asset)?.path, Some(copy)).format();
+        imported.warning = Some(unread_straightening_line(&path, incoming.as_ref()));
+        imported.geometry_offer = Some(GeometryOffer::of(path, incoming.as_ref()));
+    }
+    let rule = settled.rule;
     match rule {
         Reimport::Apply => {
             let previous = state.clone();
@@ -2157,6 +2715,273 @@ fn publish_new(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
         rawtonic_fs::sync_dir(parent)?;
     }
     Ok(())
+}
+
+/// What "Apply Capture One straightening and crop" did.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeometryApplied {
+    /// Each changed edit's whole recipe before and after: one Undo step.
+    pub recipe_changes: Vec<RecipeChange>,
+    /// Offered paths the source has no photograph for, or that already
+    /// follow Capture One's geometry (nothing written).
+    pub unchanged: Vec<String>,
+    pub errors: Vec<String>,
+}
+
+/// The recipe keys Capture One's straightening and crop set
+/// (`capture_one_rotation`): the only ones the action replaces.
+const SOURCE_GEOMETRY_KEYS: [&str; 3] = [
+    geometry::ROTATION.name(),
+    geometry::ORIENTATION_STEPS.name(),
+    geometry::CROP.name(),
+];
+
+/// The photograph's or virtual copy's `paths` (as `ImportReport::geometry_offers`
+/// names them) take over the straightening, quarter turns and crop of the
+/// source's translation; every other adjustment stays. One `RecipeChange`
+/// each, for one Undo step; the record of the last import is brought to
+/// today's reader, so the repeated import no longer names the photo. Only
+/// the library's edit and its derived sidecar are written, never the photo.
+pub fn apply_source_geometry(
+    catalog: &Library,
+    source: &Source,
+    offers: &[GeometryOffer],
+) -> GeometryApplied {
+    let mut applied = GeometryApplied::default();
+    for photo in &source.photos {
+        let parent = photo
+            .copy_of
+            .as_deref()
+            .and_then(|key| source.photos.iter().find(|p| p.key == key))
+            .unwrap_or(photo);
+        let Ok(Some(asset)) = catalog.asset_at(&parent.path) else {
+            continue;
+        };
+        let copy = if photo.copy_of.is_some() {
+            let origin = copy_origin(&source.name, photo);
+            let known = catalog.copies(&asset.id).unwrap_or_default();
+            match (0..16)
+                .map(|attempt| copy_id(&asset.id, &origin, attempt))
+                .find(|id| known.contains(id))
+            {
+                Some(id) => Some(id),
+                None => continue,
+            }
+        } else {
+            None
+        };
+        let path = match &copy {
+            Some(id) => photo_ref::PhotoRef::of_path(&asset.path, Some(id)).format(),
+            None => asset.path.to_string_lossy().into_owned(),
+        };
+        let Some(offer) = offers.iter().find(|o| o.path == path) else {
+            continue;
+        };
+        match apply_geometry_to(catalog, &asset.id, copy.as_deref(), &path, photo, offer) {
+            Ok(Some(change)) => {
+                let followed = follow_sidecar(catalog, &asset.id, &change);
+                // Not written beside the photo (changed there since, or the
+                // file cannot be written): a virtual copy is read from its
+                // sidecar, so the library's edit goes back as it was and
+                // nothing counts as applied, as in a repeated import. A
+                // photograph's own edit stays in the library, as after an
+                // edit whose sidecar could not be written.
+                let back = match &followed {
+                    Ok(false) => true,
+                    Err(_) => copy.is_some(),
+                    Ok(true) => false,
+                };
+                if back && let Err(e) = put_back(catalog, &asset.id, copy.as_deref(), &change) {
+                    applied.errors.push(format!("{path}: {e:#}"));
+                }
+                match followed {
+                    Ok(true) => {
+                        record_current(catalog, &asset.id, copy.as_deref(), photo);
+                        applied.recipe_changes.push(change);
+                    }
+                    Ok(false) => applied.errors.push(changed_elsewhere(&change)),
+                    Err(e) => {
+                        applied.errors.push(format!("{path}: {e}"));
+                        if copy.is_none() {
+                            record_current(catalog, &asset.id, None, photo);
+                            applied.recipe_changes.push(change);
+                        }
+                    }
+                }
+            }
+            Ok(None) => applied.unchanged.push(path),
+            Err(e) => applied.errors.push(format!("{path}: {e:#}")),
+        }
+    }
+    applied
+}
+
+/// The edit of `change.before` back in the library.
+fn put_back(
+    catalog: &Library,
+    asset: &str,
+    copy: Option<&str>,
+    change: &RecipeChange,
+) -> anyhow::Result<()> {
+    let state = match copy {
+        Some(id) => catalog.copy_state(asset, id)?,
+        None => catalog.editor_state(asset)?,
+    };
+    let Some(mut state) = state else {
+        return Ok(());
+    };
+    state["adjustments"] = change.before.clone();
+    match copy {
+        Some(id) => catalog.save_copy_state(asset, id, &state)?,
+        None => catalog.save_editor_state(asset, &state)?,
+    }
+    Ok(())
+}
+
+/// The version's import record as of today's reader (the repeated import
+/// then no longer names the straightening). A failure leaves the record
+/// as it was: the import names the photo again.
+fn record_current(catalog: &Library, asset: &str, copy: Option<&str>, photo: &Photo) {
+    let _ = (|| -> anyhow::Result<()> {
+        if let Some(version) = catalog.version_for(asset, copy)? {
+            let (current, _) = current_record(catalog.imported_recipe(&version)?, photo);
+            if let Some(current) = current {
+                catalog.record_imported_recipe(&version, &current)?;
+            }
+        }
+        Ok(())
+    })();
+}
+
+/// The geometry step of `apply_source_geometry` for one version: the change
+/// made, none when it follows the source's geometry already.
+fn apply_geometry_to(
+    catalog: &Library,
+    asset: &str,
+    copy: Option<&str>,
+    path: &str,
+    photo: &Photo,
+    offer: &GeometryOffer,
+) -> anyhow::Result<Option<RecipeChange>> {
+    let state = match copy {
+        Some(id) => catalog.copy_state(asset, id)?,
+        None => catalog.editor_state(asset)?,
+    };
+    let Some(mut state) = state else {
+        anyhow::bail!("no edit here to apply it to");
+    };
+    // The geometry is read from the photo's frame: without it (the file is
+    // offline or unreadable) the translation holds none, which must not
+    // clear what is saved.
+    let Some((width, height, _)) = photo_frame(&photo.path) else {
+        anyhow::bail!(
+            "the photo's frame cannot be read (is the file online?); nothing was changed"
+        );
+    };
+    let Some((incoming, _)) = recipe_for(&photo.develop, &photo.capture_one_layers, &photo.path)
+    else {
+        return Ok(None);
+    };
+    // Offered for a photo Capture One straightens: where it does not any
+    // more (reset there since), the saved geometry is not replaced.
+    if !straightens(Some(&incoming)) {
+        anyhow::bail!("Capture One no longer straightens or turns this photo; nothing was changed");
+    }
+    // What the person read is what is applied: Capture One's session changed
+    // since (the report's angle is no longer its angle) writes nothing and
+    // names the new value.
+    if straightening_differs(Some(&offer.as_recipe()), Some(&incoming)) {
+        let now = GeometryOffer::of(path.to_string(), Some(&incoming));
+        anyhow::bail!(
+            "Capture One now shows {}° (turned {} quarter turn(s)), not {}° (turned {}) as shown; nothing was changed. Import again to see the current value",
+            now.rotation,
+            now.orientation_steps,
+            offer.rotation,
+            offer.orientation_steps
+        );
+    }
+    let before = state.get("adjustments").cloned().unwrap_or(Value::Null);
+    // The crop is made on the file's newest frame: an edit that develops an
+    // older one (`sourceFrameVersion`, a Sony ARW before the whole sensor)
+    // would show it beside another frame.
+    if crate::formats::is_raw_file(&photo.path)
+        && let Ok(source) = rawler::rawsource::RawSource::new(&photo.path)
+    {
+        let saved = before
+            .get("sourceFrameVersion")
+            .and_then(Value::as_u64)
+            .unwrap_or(0) as u32;
+        let frame = rawtonic_rawdecode::source_frame::effective;
+        if frame(&source, saved) != frame(&source, rawtonic_rawdecode::source_frame::VERSION) {
+            anyhow::bail!(
+                "this edit develops an older frame of the file than the one Capture One's geometry is made for; nothing was changed"
+            );
+        }
+    }
+    let mut after = if before.is_object() {
+        before.clone()
+    } else {
+        json!({})
+    };
+    let map = after.as_object_mut().expect("an object");
+    for key in SOURCE_GEOMETRY_KEYS {
+        match incoming.get(key) {
+            Some(value) => map.insert(key.into(), value.clone()),
+            None => map.remove(key),
+        };
+    }
+    if edit_digest(Some(&before)) == edit_digest(Some(&after)) {
+        return Ok(None);
+    }
+    // Drawn masks without a frame stay on the photo's content.
+    crate::mask_generation::keep_drawn_masks_on_photo(&before, &mut after, Some((width, height)));
+    state["adjustments"] = after.clone();
+    match copy {
+        Some(id) => catalog.save_copy_state(asset, id, &state)?,
+        None => catalog.save_editor_state(asset, &state)?,
+    }
+    // The stored edit as the library holds it, which Undo compares with.
+    let stored = match copy {
+        Some(id) => catalog.copy_state(asset, id)?,
+        None => catalog.editor_state(asset)?,
+    }
+    .and_then(|state| state.get("adjustments").cloned())
+    .unwrap_or(after);
+    Ok(Some(RecipeChange {
+        path: path.to_string(),
+        before,
+        after: stored,
+    }))
+}
+
+#[tauri::command]
+pub async fn library_apply_source_geometry(
+    source: String,
+    directory: String,
+    relinks: Vec<Relink>,
+    offers: Vec<GeometryOffer>,
+    app_handle: tauri::AppHandle,
+) -> Result<GeometryApplied, String> {
+    let applied = tauri::async_runtime::spawn_blocking(move || {
+        let (mut lib, _) = read_source(Path::new(&source))?;
+        for relink in &relinks {
+            lib.relink(&relink.from, &relink.to);
+        }
+        let catalog = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        Ok::<_, String>(apply_source_geometry(&catalog, &lib, &offers))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    crate::file_management::refresh_thumbnails(
+        app_handle,
+        applied
+            .recipe_changes
+            .iter()
+            .map(|change| change.path.clone())
+            .collect(),
+    );
+    Ok(applied)
 }
 
 #[tauri::command]
@@ -2326,6 +3151,628 @@ mod tests {
         assert_eq!(adjustments, json!({"lensCorrectionMode": "manual"}));
     }
 
+    /// G50L: the Generic profile's Light Falloff comes over as the lens
+    /// vignetting terms of the polynomial correction, fitted to the gain
+    /// measured on Capture One's renders for the photo's frame; with its
+    /// Distortion in the same correction; not where the frame cannot be read
+    /// (reported as before).
+    #[test]
+    fn capture_one_generic_light_falloff_comes_over_as_lens_vignetting() {
+        let entries = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        // A 3:2 frame, as Rawtonic renders it.
+        let photo_path = dir.path().join("a.png");
+        image::RgbImage::new(300, 200).save(&photo_path).unwrap();
+        let falloff = |amount: &str, distortion: &str| {
+            entries(&[
+                ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
+                ("LensGeoAbr", distortion),
+                ("LensLightFallOff", amount),
+            ])
+        };
+        // log2 gain the measured model gives at `rho` (half the long side).
+        let measured = |amount: f64, rho: f64| {
+            let [c1, c2, c3] = CAPTURE_ONE_FALLOFF_L;
+            let x = rho * rho;
+            (amount / 100.0).powf(CAPTURE_ONE_FALLOFF_POWER)
+                * (c1 * x + c2 * x * x + c3 * x * x * x)
+        };
+        for amount in [10.0, 50.0, 100.0] {
+            let c1 = falloff(&format!("|{amount}|1"), "|0.000000|1|100|-1");
+            let mut adjustments = json!({});
+            capture_one_lens(&c1, &photo_path, &mut adjustments);
+            assert_eq!(adjustments["lensCorrectionMode"], "manual");
+            let params = &adjustments["lensDistortionParams"];
+            assert_eq!(params["model"], 0);
+            assert_eq!(params["k1"], 0.0, "Distortion 0: the photo is not moved");
+            assert_eq!(params["exact_zoom"], true);
+            let k = ["vig_k1", "vig_k2", "vig_k3"].map(|key| params[key].as_f64().unwrap());
+            // The renderer's gain 1 / (1 + k1 r² + k2 r⁴ + k3 r⁶), r in half
+            // diagonals (1.2019 half long sides on 3:2), against the model.
+            let diagonal = (1.0f64 + 1.0 / 2.25).sqrt();
+            for i in 0..=20 {
+                let r = f64::from(i) / 20.0;
+                let r2 = r * r;
+                let ours = -(1.0 + k[0] * r2 + k[1] * r2 * r2 + k[2] * r2 * r2 * r2).log2();
+                let want = measured(amount, r * diagonal);
+                let tolerance = if r * diagonal <= 1.0 { 0.06 } else { 0.1 };
+                assert!(
+                    (ours - want).abs() < tolerance,
+                    "amount {amount} r {r}: {ours} vs {want}"
+                );
+            }
+            assert!(
+                capture_one_lens_report(&c1, &photo_path).is_empty(),
+                "{:?}",
+                capture_one_lens_report(&c1, &photo_path)
+            );
+        }
+        // Distortion and Light Falloff together: one correction.
+        let both = falloff("|50|1", "|30.0|1|100|-1");
+        let mut adjustments = json!({});
+        capture_one_lens(&both, &photo_path, &mut adjustments);
+        assert_eq!(adjustments["lensDistortionParams"]["k1"], json!(-0.036));
+        assert!(
+            adjustments["lensDistortionParams"]["vig_k1"]
+                .as_f64()
+                .unwrap()
+                < -0.5
+        );
+        assert!(capture_one_lens_report(&both, &photo_path).is_empty());
+        // A frame that cannot be read: the falloff is not guessed.
+        let unreadable = dir.path().join("b.ORF");
+        fs::write(&unreadable, b"not a raw").unwrap();
+        let mut adjustments = json!({});
+        capture_one_lens(&falloff("|50|1", "|0|1"), &unreadable, &mut adjustments);
+        assert_eq!(adjustments, json!({}));
+        assert_eq!(
+            capture_one_lens_report(&falloff("|50|1", "|0|1"), &unreadable),
+            [
+                "Capture One's Generic lens profile: Rawtonic's default lens correction for this lens applies",
+                "Capture One's Light Falloff 50 with the Generic profile not carried (no measured equivalent)"
+            ]
+        );
+    }
+
+    /// G50L (C1R7 session): Capture One's `Rotation` is the photo's whole
+    /// clockwise rotation, its EXIF orientation included. Its own quarter
+    /// turns come over as `orientationSteps`, the straightening as
+    /// `rotation` with the crop Capture One shows (the largest of the
+    /// frame's aspect ratio), the EXIF orientation's part not twice; its crop
+    /// is named in the report, not guessed.
+    #[test]
+    fn capture_one_straightening_and_quarter_turns_come_over() {
+        assert_eq!(capture_one_turns(5.0, 1), Some((0, 5.0)));
+        assert_eq!(capture_one_turns(90.0, 6), Some((0, 0.0)));
+        assert_eq!(capture_one_turns(270.0, 8), Some((0, 0.0)));
+        assert_eq!(capture_one_turns(180.0, 3), Some((0, 0.0)));
+        assert_eq!(capture_one_turns(95.0, 1), Some((1, 5.0)));
+        assert_eq!(capture_one_turns(93.0, 6), Some((0, 3.0)));
+        assert_eq!(capture_one_turns(357.0, 1), Some((0, -3.0)));
+        assert_eq!(capture_one_turns(-3.0, 1), Some((0, -3.0)));
+        assert_eq!(capture_one_turns(88.0, 1), Some((1, -2.0)));
+        assert_eq!(capture_one_turns(0.0, 6), Some((3, 0.0)));
+        assert_eq!(capture_one_turns(90.0, 2), None);
+
+        // The 36 MP frame Capture One straightened by 5°: 6542 × 4366 of
+        // Rawtonic's pixels in Capture One's render (its lens framing 0.9 %
+        // tighter), the largest crop of the frame's aspect ratio 6532 × 4359.
+        let crop = straightened_crop(7360.0, 4912.0, 5.0);
+        let (w, h) = (
+            crop["width"].as_f64().unwrap(),
+            crop["height"].as_f64().unwrap(),
+        );
+        assert!(
+            (w - 6532.0).abs() < 1.0 && (h - 4359.0).abs() < 1.0,
+            "{crop}"
+        );
+        assert!((crop["x"].as_f64().unwrap() - (7360.0 - w) / 2.0).abs() < 1e-9);
+        // Every corner of the crop shows the photo (inside the frame
+        // turned back by the straightening).
+        let (sin, cos) = 5f64.to_radians().sin_cos();
+        for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+            let (x, y) = (sx * w / 2.0, sy * h / 2.0);
+            let (u, v) = (x * cos + y * sin, -x * sin + y * cos);
+            assert!(u.abs() <= 3680.0 + 1e-6 && v.abs() <= 2456.0 + 1e-6);
+        }
+
+        let entries = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let photo_path = dir.path().join("a.png");
+        image::RgbImage::new(300, 200).save(&photo_path).unwrap();
+        let rotated = |rotation: &str| {
+            let mut adjustments = json!({});
+            capture_one_rotation(
+                &entries(&[
+                    ("Rotation", rotation),
+                    ("Crop", "0.000000;0.000000;0.000000;0.000000"),
+                ]),
+                &photo_path,
+                &mut adjustments,
+            );
+            adjustments
+        };
+        assert_eq!(
+            rotated("5"),
+            json!({"rotation": 5.0, "crop": straightened_crop(300.0, 200.0, 5.0)})
+        );
+        assert_eq!(rotated("0"), json!({}));
+        // A quarter turn of the photographer's: the frame turns, nothing is
+        // straightened or cropped.
+        assert_eq!(rotated("90"), json!({"orientationSteps": 1}));
+        // Turned and straightened: the crop is of the turned frame.
+        assert_eq!(
+            rotated("265"),
+            json!({"orientationSteps": 3, "rotation": -5.0,
+                   "crop": straightened_crop(200.0, 300.0, -5.0)})
+        );
+        // Through the whole recipe, a rotation alone is an edit.
+        let (recipe, _) = recipe_for(
+            &Develop::CaptureOne(entries(&[("Rotation", "5")])),
+            &[],
+            &photo_path,
+        )
+        .unwrap();
+        assert_eq!(recipe["rotation"], json!(5.0));
+        // Capture One's own crop is named, not guessed.
+        assert!(
+            capture_one_rotation_report(&entries(&[("Rotation", "5")]), &photo_path).is_empty()
+        );
+        assert_eq!(
+            capture_one_rotation_report(
+                &entries(&[("Rotation", "0"), ("Crop", "120;80;2000;1500")]),
+                &photo_path
+            ),
+            ["Capture One's crop not carried"]
+        );
+        // A frame that cannot be read: not guessed, reported.
+        let unreadable = dir.path().join("b.NEF");
+        fs::write(&unreadable, b"not a raw").unwrap();
+        let mut adjustments = json!({});
+        capture_one_rotation(
+            &entries(&[("Rotation", "5")]),
+            &unreadable,
+            &mut adjustments,
+        );
+        assert_eq!(adjustments, json!({}));
+        assert_eq!(
+            capture_one_rotation_report(&entries(&[("Rotation", "5")]), &unreadable),
+            ["Capture One's rotation 5° not carried"]
+        );
+    }
+
+    /// C1G1: "Apply Capture One straightening and crop" for a photo an
+    /// earlier build imported (its record cannot tell whether the
+    /// straightening is new): the import offers it, the action replaces only
+    /// the straightening, quarter turns and crop (one change for one Undo
+    /// step), the photo, the other adjustments and the digest of its edit
+    /// stay, and a repeated import names it no more.
+    #[test]
+    fn apply_source_geometry_replaces_only_the_geometry_and_clears_the_warning() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let photos = tmp.path().join("photos");
+        fs::create_dir_all(&photos).unwrap();
+        let file = photos.join("a.png");
+        image::RgbImage::new(300, 200).save(&file).unwrap();
+        let original = fs::read(&file).unwrap();
+        let entries = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let source = |pairs: &[(&str, &str)]| Source {
+            name: "C1".into(),
+            photos: vec![photo(
+                "1",
+                file.clone(),
+                Develop::CaptureOne(entries(pairs)),
+                None,
+            )],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        // Imported by an earlier build: it read neither Rotation nor Crop.
+        import_into(&catalog, &source(&[("Exposure", "0.3")])).unwrap();
+        let asset = catalog.asset_at(&file).unwrap().unwrap();
+        let mut state = catalog.editor_state(&asset.id).unwrap().unwrap();
+        state["adjustments"]["exposure"] = json!(0.9);
+        state["adjustments"]["contrast"] = json!(12);
+        // A drawn mask without a frame (made before frames were kept).
+        state["adjustments"]["masks"] = json!([{"id": "m", "visible": true, "subMasks": [
+            {"id": "s", "type": "radial", "visible": true, "mode": "additive",
+             "parameters": {"centerX": 100.0, "centerY": 60.0, "radiusX": 40.0,
+                            "radiusY": 40.0, "rotation": 0.0, "feather": 0.5}}]}]);
+        catalog.save_editor_state(&asset.id, &state).unwrap();
+        let own = catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"].clone();
+
+        // Capture One straightens it by 5°: kept, named, offered.
+        let level = source(&[("Exposure", "0.3"), ("Rotation", "5"), ("Crop", "0;0;0;0")]);
+        let report = import_into(&catalog, &level).unwrap();
+        let path = asset.path.to_string_lossy().into_owned();
+        assert_eq!(
+            report
+                .geometry_offers
+                .iter()
+                .map(|o| &o.path)
+                .collect::<Vec<_>>(),
+            [&path],
+            "{report:?}"
+        );
+        assert_eq!(report.warnings.len(), 1, "{report:?}");
+        assert!(report.recipe_changes.is_empty());
+
+        // The report shows what is applied.
+        let offer = report.geometry_offers.clone();
+        assert_eq!(report.geometry_offers[0].rotation, 5.0);
+        // Capture One's session changed since the report (10° now): nothing
+        // is written, the new value is named.
+        let tenfold = source(&[("Exposure", "0.3"), ("Rotation", "10"), ("Crop", "0;0;0;0")]);
+        let stale = apply_source_geometry(&catalog, &tenfold, &report.geometry_offers);
+        assert!(stale.recipe_changes.is_empty(), "{stale:?}");
+        assert!(
+            stale.errors[0].contains("now shows 10°") && stale.errors[0].contains("not 5°"),
+            "{stale:?}"
+        );
+        assert_eq!(
+            catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
+            own
+        );
+        let applied = apply_source_geometry(&catalog, &level, &report.geometry_offers);
+        assert!(applied.errors.is_empty(), "{applied:?}");
+        assert_eq!(applied.recipe_changes.len(), 1, "{applied:?}");
+        let change = &applied.recipe_changes[0];
+        assert_eq!(change.path, path);
+        // One Undo step: the whole recipe from before comes back.
+        assert_eq!(edit_digest(Some(&change.before)), edit_digest(Some(&own)));
+        let now = catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"].clone();
+        assert_eq!(edit_digest(Some(&change.after)), edit_digest(Some(&now)));
+        assert_eq!(now["rotation"], json!(5.0));
+        assert_eq!(now["crop"], straightened_crop(300.0, 200.0, 5.0));
+        // Nothing else changed.
+        let strip = |mut recipe: Value| {
+            let map = recipe.as_object_mut().unwrap();
+            for key in SOURCE_GEOMETRY_KEYS {
+                map.remove(key);
+            }
+            map.remove("masks");
+            recipe
+        };
+        // The drawn mask stays on the photo's content: it got the frame it
+        // was drawn in.
+        let parameters = &now["masks"][0]["subMasks"][0]["parameters"];
+        assert!(!parameters["frame"].is_null(), "{parameters}");
+        assert_eq!(parameters["centerX"], json!(100.0));
+        assert_eq!(strip(now.clone()), strip(own.clone()));
+        assert_eq!(
+            (now["exposure"].as_f64(), now["contrast"].as_i64()),
+            (Some(0.9), Some(12))
+        );
+        assert_eq!(fs::read(&file).unwrap(), original);
+
+        // A repeated import no longer names it and keeps the edit.
+        let again = import_into(&catalog, &level).unwrap();
+        assert!(again.warnings.is_empty(), "{again:?}");
+        assert!(again.geometry_offers.is_empty(), "{again:?}");
+        assert!(
+            again.recipe_changes.is_empty() && again.copies == 0,
+            "{again:?}"
+        );
+        assert_eq!(
+            catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
+            now
+        );
+        // Reset in Capture One since the offer: the saved straightening is not
+        // cleared by the action.
+        let reset = source(&[("Exposure", "0.3"), ("Rotation", "0"), ("Crop", "0;0;0;0")]);
+        let cleared = apply_source_geometry(&catalog, &reset, &offer);
+        assert!(cleared.recipe_changes.is_empty(), "{cleared:?}");
+        assert_eq!(cleared.errors.len(), 1, "{cleared:?}");
+        assert_eq!(
+            catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
+            now
+        );
+        // Applying again changes nothing.
+        let twice = apply_source_geometry(&catalog, &level, &offer);
+        assert!(
+            twice.recipe_changes.is_empty() && twice.errors.is_empty(),
+            "{twice:?}"
+        );
+        assert_eq!(twice.unchanged, [path]);
+        // A path that was not offered is left alone.
+        let other = apply_source_geometry(
+            &catalog,
+            &level,
+            &[GeometryOffer::of("elsewhere.NEF".into(), None)],
+        );
+        assert!(other.recipe_changes.is_empty() && other.unchanged.is_empty());
+    }
+
+    /// The geometry is read from the photo's frame: with the file offline the
+    /// translation holds none, which must not clear the saved straightening.
+    #[test]
+    fn apply_source_geometry_writes_nothing_for_an_unreadable_photo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let file = tmp.path().join("a.png");
+        image::RgbImage::new(300, 200).save(&file).unwrap();
+        let entries = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let source = |pairs: &[(&str, &str)]| Source {
+            name: "C1".into(),
+            photos: vec![photo(
+                "1",
+                file.clone(),
+                Develop::CaptureOne(entries(pairs)),
+                None,
+            )],
+            albums: vec![],
+            stacks: vec![],
+            not_read: NotRead::default(),
+        };
+        import_into(&catalog, &source(&[("Exposure", "0.3")])).unwrap();
+        let asset = catalog.asset_at(&file).unwrap().unwrap();
+        let mut state = catalog.editor_state(&asset.id).unwrap().unwrap();
+        state["adjustments"]["rotation"] = json!(2.0);
+        state["adjustments"]["exposure"] = json!(0.9);
+        catalog.save_editor_state(&asset.id, &state).unwrap();
+        let own = catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"].clone();
+        let level = source(&[("Exposure", "0.3"), ("Rotation", "5"), ("Crop", "0;0;0;0")]);
+        let path = asset.path.to_string_lossy().into_owned();
+        fs::remove_file(&file).unwrap();
+        let offer = [GeometryOffer::of(
+            path.clone(),
+            Some(&json!({"rotation": 5.0})),
+        )];
+        let applied = apply_source_geometry(&catalog, &level, &offer);
+        assert!(applied.recipe_changes.is_empty() && applied.unchanged.is_empty());
+        assert_eq!(applied.errors.len(), 1, "{applied:?}");
+        assert_eq!(
+            catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
+            own
+        );
+    }
+
+    /// The report's field names the webview reads (`geometryOffers`) and the
+    /// applied result's (`recipeChanges`, `unchanged`, `errors`).
+    #[test]
+    fn geometry_action_ipc_shapes() {
+        let report = serde_json::to_value(ImportReport {
+            geometry_offers: vec![GeometryOffer {
+                path: "a.NEF".into(),
+                rotation: 5.0,
+                orientation_steps: 0.0,
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(
+            report["geometryOffers"],
+            json!([{"path": "a.NEF", "rotation": 5.0, "orientationSteps": 0.0}])
+        );
+        let applied = serde_json::to_value(GeometryApplied::default()).unwrap();
+        for key in ["recipeChanges", "unchanged", "errors"] {
+            assert!(applied[key].is_array(), "{key}");
+        }
+    }
+
+    /// G50L review: the reader takes Capture One's rotation and crop since
+    /// G50L. A session imported before and unchanged in Capture One since
+    /// is no change: a repeated import keeps the photo's recipe (no "newer
+    /// settings" copy beside an edit made here) and upgrades the record, so
+    /// a later change in Capture One still comes in. Where Capture One
+    /// straightens the photo, the earlier record cannot tell whether that
+    /// was so then or done since: the edit stays, the import names it every
+    /// time, the record is not upgraded.
+    #[test]
+    fn settings_read_since_an_earlier_import_are_no_change_there() {
+        let entries = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let session = |pairs: &[(&str, &str)]| {
+            photo(
+                "1",
+                PathBuf::from("missing/a.NEF"),
+                Develop::CaptureOne(entries(pairs)),
+                None,
+            )
+        };
+        let before = session(&[("Exposure", "0.3")]);
+        let imported = json!({"exposure": 0.3});
+        let edited = json!({"exposure": 0.9});
+        let record = ImportRecord {
+            source: source_digest(&before),
+            translated: edit_digest(Some(&imported)),
+            stored: edit_digest(Some(&imported)),
+        };
+        assert_eq!(earlier_source_digest(&before), None);
+
+        // Unchanged in Capture One, nothing to straighten: kept, the record
+        // upgraded; a later change there comes in.
+        let level = session(&[("Exposure", "0.3"), ("Rotation", "0"), ("Crop", "0;0;0;0")]);
+        assert_eq!(earlier_source_digest(&level), Some(record.source.clone()));
+        for (own, rule) in [(&imported, Reimport::Same), (&edited, Reimport::Keep)] {
+            let settled = settle_rule(
+                Some(record.clone()),
+                Some(own),
+                None,
+                &level,
+                Some(&imported),
+            );
+            assert_eq!(settled.rule, rule);
+            assert!(!settled.unread_straightening);
+            assert_eq!(
+                settled.upgrade.as_ref().unwrap().source,
+                source_digest(&level)
+            );
+        }
+        let upgraded = settle_rule(
+            Some(record.clone()),
+            Some(&imported),
+            None,
+            &level,
+            Some(&imported),
+        )
+        .upgrade
+        .unwrap();
+        let changed = session(&[("Exposure", "0.7"), ("Rotation", "0"), ("Crop", "0;0;0;0")]);
+        assert_eq!(
+            settle_rule(
+                Some(upgraded),
+                Some(&imported),
+                None,
+                &changed,
+                Some(&json!({"exposure": 0.7}))
+            )
+            .rule,
+            Reimport::Apply
+        );
+
+        // Straightened in Capture One (then or since, the earlier record
+        // cannot tell): the edit stays, named, the record kept as it was.
+        let straightened = session(&[("Exposure", "0.3"), ("Rotation", "5"), ("Crop", "0;0;0;0")]);
+        let incoming = json!({"exposure": 0.3, "rotation": 5.0});
+        for own in [&imported, &edited] {
+            let settled = settle_rule(
+                Some(record.clone()),
+                Some(own),
+                None,
+                &straightened,
+                Some(&incoming),
+            );
+            assert_eq!(settled.rule, Reimport::Keep, "{own}");
+            assert!(settled.unread_straightening);
+            assert_eq!(settled.upgrade, None);
+        }
+        assert!(unread_straightening_line("a.NEF", Some(&incoming)).contains("straightened by 5°"));
+        // Straightened here to match: settled, the record upgraded.
+        let matched = json!({"exposure": 0.3, "rotation": 5.0});
+        let settled = settle_rule(
+            Some(record.clone()),
+            Some(&matched),
+            None,
+            &straightened,
+            Some(&incoming),
+        );
+        assert!(!settled.unread_straightening);
+        assert!(settled.upgrade.is_some());
+        // Matched by hand in the Crop tool (0.1° steps) to a fractional
+        // angle: settled.
+        let fractional = json!({"exposure": 0.3, "rotation": 5.13});
+        let typed = json!({"exposure": 0.3, "rotation": 5.1});
+        let settled = settle_rule(
+            Some(record.clone()),
+            Some(&typed),
+            None,
+            &straightened,
+            Some(&fractional),
+        );
+        assert!(!settled.unread_straightening);
+        assert!(settled.upgrade.is_some());
+        // Straightened only here, Capture One's photo level: nothing to name,
+        // the record upgraded.
+        let local = json!({"exposure": 0.9, "rotation": 3.0});
+        let settled = settle_rule(
+            Some(record.clone()),
+            Some(&local),
+            None,
+            &level,
+            Some(&imported),
+        );
+        assert_eq!(settled.rule, Reimport::Keep);
+        assert!(!settled.unread_straightening);
+        assert!(settled.upgrade.is_some());
+        // A record of today's reader is left alone.
+        let today = ImportRecord {
+            source: source_digest(&straightened),
+            ..record.clone()
+        };
+        let settled = settle_rule(
+            Some(today),
+            Some(&imported),
+            None,
+            &straightened,
+            Some(&incoming),
+        );
+        assert_eq!(settled.rule, Reimport::Keep);
+        assert!(!settled.unread_straightening && settled.upgrade.is_none());
+    }
+
+    /// G50L: Capture One's "Generic pincushion distortion" profile is
+    /// Rawtonic's polynomial distortion with k1 = +0.02 × amount at exact
+    /// zoom 1 (filled to the corners, as Capture One crops), never a lens
+    /// profile of the photo's lens at Capture One's amount.
+    #[test]
+    fn capture_one_generic_pincushion_profile_comes_over_as_the_polynomial() {
+        let entries = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.NEF");
+        fs::write(&raw, b"not a raw").unwrap();
+        let pincushion = |distortion: &str, falloff: &str| {
+            entries(&[
+                ("LensIdGuid", "A4C7C116-2472-4B0F-9C39-5775CDAD2FF1"),
+                ("LensGeoAbr", distortion),
+                ("LensLightFallOff", falloff),
+            ])
+        };
+        let c1 = pincushion("0,0;1000,20;2000,160|25.000000|1|100|-1", "|0|1");
+        assert_eq!(capture_one_lens_amounts(&c1), None);
+        let mut adjustments = json!({});
+        capture_one_lens(&c1, &raw, &mut adjustments);
+        assert_eq!(
+            adjustments,
+            json!({
+                "lensCorrectionMode": "manual",
+                "lensDistortionParams": {
+                    "model": 0, "k1": 0.5, "k2": 0.0, "k3": 0.0,
+                    "zoom": 1.0, "exact_zoom": true
+                }
+            })
+        );
+        assert!(capture_one_lens_report(&c1, &raw).is_empty());
+        let mut full = json!({});
+        capture_one_lens(&pincushion("|100.000000|1|100|-1", "|0|1"), &raw, &mut full);
+        assert_eq!(full["lensDistortionParams"]["k1"], json!(2.0));
+        // Its Light Falloff was not measured: reported, not carried.
+        let with_falloff = pincushion("|50|1|100|-1", "|40|1");
+        assert_eq!(
+            capture_one_lens_report(&with_falloff, &raw),
+            [
+                "Capture One's Light Falloff 40 with the Generic pincushion profile not carried (no measured equivalent)"
+            ]
+        );
+        // At 0 it corrects nothing in Capture One: the default stays, said once.
+        let untouched = pincushion("|0.000000|1|100|-1", "|0|1");
+        let mut kept = json!({});
+        capture_one_lens(&untouched, &raw, &mut kept);
+        assert_eq!(kept, json!({}));
+        assert_eq!(capture_one_lens_report(&untouched, &raw).len(), 1);
+    }
+
     /// C1Q1: Capture One's Generic lens profile (no profile of the lens) is
     /// not swapped for a lens profile: the photo keeps Rawtonic's default
     /// for its lens, and the report says so and names Generic amounts that
@@ -2368,7 +3815,7 @@ mod tests {
         );
         // Nothing to report: the Distortion came over (a Light Falloff of 0
         // is no setting).
-        assert!(capture_one_lens_report(&generic).is_empty());
+        assert!(capture_one_lens_report(&generic, &raw).is_empty());
         // Light Falloff on the Generic profile has no equivalent: reported.
         let with_falloff = entries(&[
             ("LensIdGuid", CAPTURE_ONE_GENERIC_LENS),
@@ -2376,7 +3823,7 @@ mod tests {
             ("LensLightFallOff", "|20.0|1"),
         ]);
         assert_eq!(
-            capture_one_lens_report(&with_falloff),
+            capture_one_lens_report(&with_falloff, &raw),
             [
                 "Capture One's Light Falloff 20 with the Generic profile not carried (no measured equivalent)"
             ]
@@ -2405,7 +3852,7 @@ mod tests {
             ("LensGeoAbr", "0,0;1000,-10|0.000000|1|100|-1"),
             ("LensLightFallOff", "|0|1"),
         ]);
-        assert_eq!(capture_one_lens_report(&untouched).len(), 1);
+        assert_eq!(capture_one_lens_report(&untouched, &raw).len(), 1);
         let mut kept = json!({});
         capture_one_lens(&untouched, &raw, &mut kept);
         assert_eq!(
@@ -2419,7 +3866,7 @@ mod tests {
             ("LensGeoAbr", "0,0;1000,-10|60.0|1|100|-1"),
             ("ChromaticAberEnabled", "1"),
         ]);
-        assert!(capture_one_lens_report(&profiled).is_empty());
+        assert!(capture_one_lens_report(&profiled, &raw).is_empty());
 
         // Chromatic Aberration: on is Rawtonic's CA correction on (by default
         // on a RAW's new edit, set on other files), off turns it off.
@@ -2451,7 +3898,7 @@ mod tests {
             ("LensChromAbrCustomCurve", "0,0;1000,1|0,0;1000,-1"),
         ]);
         assert_eq!(
-            capture_one_lens_report(&analysed),
+            capture_one_lens_report(&analysed, &raw),
             [
                 "Capture One's analysed chromatic aberration curve not carried (Rawtonic measures the photo's own)"
             ]
@@ -4156,6 +5603,24 @@ mod tests {
         assert!(crate::image_loader::has_base_retouch(adjustments));
         // Nothing was written beside the photograph.
         assert_eq!(fs::read(&path).unwrap(), jpeg);
+    }
+
+    #[test]
+    fn capture_one_import_reports_a_partially_translated_photo_color_editor() {
+        let path = PathBuf::from("portrait.jpg");
+        let develop =
+            |entry: &str| Develop::CaptureOne(vec![("ColorCorrections".into(), entry.into())]);
+        // This Skin Tone range translates, but its amount is approximate.
+        let skin = "1,1,2,3,-10,1,180,120,90,-30,30,-100,100,15,0,0,0,0";
+        let partial = photo("1", path.clone(), develop(skin), None);
+        assert!(translate(&partial.develop).unwrap()["colorRanges"].is_array());
+        assert_eq!(
+            import_warnings(&partial),
+            ["portrait.jpg: Capture One's Color Editor settings could not be fully translated"]
+        );
+        let advanced = skin.replacen("1,1,2,", "1,1,1,", 1);
+        let full = photo("2", path, develop(&advanced), None);
+        assert!(import_warnings(&full).is_empty());
     }
 
     #[test]

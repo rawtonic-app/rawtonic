@@ -1006,6 +1006,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "グラフィックドライバが何度も応答しなくなりました。編集内容は失われていません。現像を続けるには Rawtonic を終了して再度開いてください。詳細: {{details}}",
+    "gpuDeviceRecovered": "グラフィックドライバが応答しなくなりました。Rawtonic がグラフィックを再起動しました。編集内容は失われていません。",
     "gpuStartFailed": "Rawtonic はグラフィックプロセッサを起動できなかったため、写真の現像も書き出しもできません。グラフィック設定をリセットして再試行してください。それでも解決しない場合はグラフィックドライバを更新してください。詳細: {{details}}",
     "operationFailed": "操作を完了できませんでした。"
   },
@@ -2110,6 +2112,12 @@
       "ingestWaiting": "中断された読み込みの {{n}} 枚がカードまたはドライブを待っています。接続した状態でライブラリを開くと読み込みが再開されます。",
       "showImported": "表示",
       "sidecarsCopied_other": "XMP サイドカー {{count}} 件をコピー",
+      "sourceGeometryAll": "Capture One の水平補正を適用し、各画像の縦横比でクロップを置き換える（{{n}} 枚）",
+      "sourceGeometryApplied": "Capture One の水平補正とクロップを {{n}} 件に適用しました（元に戻すで戻せます）",
+      "sourceGeometryErrors": "一部の写真に Capture One の水平補正とクロップを適用できませんでした: {{n}} 件。",
+      "sourceGeometryFailed": "Capture One の水平補正とクロップを適用できませんでした",
+      "sourceGeometryOtherLibrary": "これらの写真を読み込んだライブラリーを開いて、Capture One の水平補正とクロップを適用してください。",
+      "sourceGeometryPhoto": "Capture One の水平補正とクロップを {{name}} に適用",
       "watching": "{{folder}} で新しい写真を監視しています。",
       "watchingMissing": "監視フォルダ {{folder}} が見つかりません。戻ると監視を続けます。",
       "watchingResumed": "{{folder}} の監視を再開しました。"
@@ -3115,6 +3123,8 @@
       "rotateLeft": "左に回転",
       "rotateRight": "右に回転",
       "size": "サイズ",
+      "sourceGeometry": "Capture One の水平補正とクロップを適用",
+      "sourceGeometryTitle": "この写真の水平補正、90°回転、クロップを Capture One のものに置き換えます: 水平補正の角度と、フレーム自身の縦横比で空白の角が出ない自動クロップ（Capture One で描いたクロップは読み取られず、ご自身のクロップは置き換えられます）。ほかの調整はそのままです（元に戻すで戻せます）",
       "straighten": "角度補正",
       "straightenToolTitle": "水平または垂直にしたい縁に沿って線を引きます",
       "swapOrientation": "縦位置と横位置を切り替え",
@@ -5683,6 +5693,7 @@
     "rename": "名前の変更",
     "reset": "リセット",
     "skipFailed": "失敗した項目をスキップ",
+    "sourceGeometry": "Capture One のジオメトリを適用",
     "stacks": "スタック",
     "style": "スタイルを適用",
     "sync": "補正設定を同期",

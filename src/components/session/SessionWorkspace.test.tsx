@@ -20,6 +20,7 @@ import { flattenPresets, parseKeywords } from './nextCapture';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { open } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
+import { useGeometryOffers } from '../../utils/sourceGeometry';
 import { notify, notify as toast } from '../../activity/notify';
 import { useUIStore } from '../../store/useUIStore';
 import { ContextMenuProvider } from '../../context/ContextMenuContext';
@@ -789,6 +790,53 @@ it('starts a hot folder with a saved import metadata preset', async () => {
   );
 });
 
+it('starts watching with the new metadata preset ID after its save finishes', async () => {
+  const user = userEvent.setup();
+  useSettingsStore.setState({ appSettings: { importMetadataPresets: [] } as unknown as AppSettings });
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  let finishSave!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finishSave = resolve;
+  });
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === 'save_settings') return pending;
+    if (command === 'hot_folder_start')
+      return { folder: '/tether', session: '/jobs/Acme', imported: 0, nextCapture: { mode: 'defaults' } };
+    return base(command, args);
+  });
+  render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+  await user.click(screen.getByRole('button', { name: 'Create a session' }));
+  await user.type(screen.getByLabelText('Session name'), 'Acme');
+  await user.click(screen.getByRole('button', { name: 'Location' }));
+  await user.click(screen.getByRole('button', { name: 'Create session' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: /Hot folder/ })).toHaveProperty('disabled', false));
+  await user.click(screen.getByRole('button', { name: /Hot folder/ }));
+  await user.type(screen.getByLabelText('Watched folder'), '/tether');
+  const presetPicker = screen.getByLabelText('Metadata preset');
+  await user.selectOptions(presetPicker, 'new');
+  const metadata = within(presetPicker.closest('section')!);
+  await user.type(metadata.getByLabelText('Preset name'), 'Rights');
+  await user.type(metadata.getByLabelText('Creator'), 'Ada Photo');
+  await user.click(metadata.getByRole('button', { name: 'Save preset' }));
+  try {
+    await user.selectOptions(screen.getByLabelText('Next capture rating'), '3');
+    const start = screen.getByRole('button', { name: 'Start watching' });
+    await user.click(start);
+    expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'hot_folder_start')).toBe(false);
+    expect(start).toHaveProperty('disabled', true);
+  } finally {
+    await act(async () => finishSave());
+  }
+  const [saved] = useSettingsStore.getState().appSettings!.importMetadataPresets!;
+  expect(saved.id).toEqual(expect.any(String));
+  expect(saved.id).not.toBe('');
+  await user.click(screen.getByRole('button', { name: 'Start watching' }));
+  expect(invoke).toHaveBeenCalledWith(
+    'hot_folder_start',
+    expect.objectContaining({ metadata: { rating: 3, keywords: [], import: saved } })
+  );
+});
+
 it('resumes the hot folder a library keeps when it opens, and shows a missing folder', async () => {
   const user = userEvent.setup();
   const base = vi.mocked(invoke).getMockImplementation()!;
@@ -952,6 +1000,102 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
     expect.stringContaining('12 photos imported (5 with edits, 2 albums)'),
     expect.anything()
   );
+});
+
+it('offers "Apply Capture One straightening and crop" for photos an earlier import did not read, never by itself', async () => {
+  const user = userEvent.setup();
+  localStorage.clear();
+  useGeometryOffers.setState({ offers: [] });
+  const catalog = { ...summary, manifest: { ...summary.manifest, mode: 'catalog' } };
+  const offers = [
+    { path: '/photos/A.NEF', rotation: 5, orientationSteps: 0 },
+    { path: '/photos/B.NEF', rotation: -2.5, orientationSteps: 1 }
+  ];
+  const warnings = offers.map(
+    ({ path }) => `${path}: kept as imported earlier; Capture One shows it straightened by 5°`
+  );
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) =>
+    command === 'session_create' || command === 'session_summary'
+      ? catalog
+      : command === 'library_import_preview'
+        ? {
+            name: 'Session',
+            kind: 'captureOne',
+            photos: 2,
+            copies: 0,
+            edited: 2,
+            albums: 0,
+            roots: [],
+            notRead: { smartAlbums: 0, localAdjustments: 0, unlocated: 0 }
+          }
+        : command === 'library_import'
+          ? {
+              imported: 2,
+              withSettings: 2,
+              missing: 0,
+              copiesSkipped: 0,
+              albums: 0,
+              errors: [],
+              warnings,
+              geometryOffers: offers
+            }
+          : command === 'library_apply_source_geometry'
+            ? {
+                recipeChanges: [],
+                unchanged: (args as { offers: { path: string }[] }).offers.map((o) => o.path),
+                errors: []
+              }
+            : base(command, args)
+  );
+  render(
+    <ContextMenuProvider>
+      <SessionWorkspace onNavigate={vi.fn(async () => {})} />
+    </ContextMenuProvider>
+  );
+  await user.click(screen.getByRole('button', { name: 'Create a session' }));
+  await user.type(screen.getByLabelText('Session name'), 'Acme');
+  await user.click(screen.getByRole('button', { name: 'Location' }));
+  await user.click(screen.getByRole('button', { name: 'Create session' }));
+  await waitFor(() => expect(screen.getByTitle('/jobs/Acme')).toBeTruthy());
+  await user.click(screen.getByTitle('/jobs/Acme'));
+  await user.click(await screen.findByRole('menuitem', { name: /Import from Lightroom/ }));
+  await user.type(screen.getByLabelText('Library to import'), '/C1/Trip.cosessiondb');
+  await user.click(screen.getByRole('button', { name: 'Check' }));
+  await user.click(await screen.findByRole('button', { name: /Import into Acme/ }));
+  await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+  // Nothing was applied by the import itself.
+  expect(invoke).not.toHaveBeenCalledWith('library_apply_source_geometry', expect.anything());
+  const options = vi.mocked(toast.warning).mock.calls.at(-1)![1] as {
+    actions: { label: string; run(): unknown }[];
+  };
+  expect(options.actions.map((a) => a.label)).toEqual([
+    'Apply Capture One straightening and crop to A.NEF',
+    'Apply Capture One straightening and crop to B.NEF',
+    'Apply Capture One straightening and replace crops using each frame’s aspect ratio (2 photos)'
+  ]);
+  expect(useGeometryOffers.getState().offers[0].photos).toEqual(offers);
+  // Another library is open: the offers wait, nothing is written there.
+  useLibraryStore.setState({ sessionDirectory: '/jobs/Other' });
+  await options.actions[0].run();
+  expect(invoke).not.toHaveBeenCalledWith('library_apply_source_geometry', expect.anything());
+  expect(useGeometryOffers.getState().offers[0].photos).toEqual(offers);
+  useLibraryStore.setState({ sessionDirectory: '/jobs/Acme' });
+  // One photo, then the rest ("for all listed photos").
+  await options.actions[0].run();
+  expect(invoke).toHaveBeenCalledWith('library_apply_source_geometry', {
+    source: '/C1/Trip.cosessiondb',
+    directory: '/jobs/Acme',
+    relinks: [],
+    offers: [offers[0]]
+  });
+  expect(useGeometryOffers.getState().offers[0].photos).toEqual([offers[1]]);
+  await options.actions[2].run();
+  expect(invoke).toHaveBeenCalledWith(
+    'library_apply_source_geometry',
+    expect.objectContaining({ offers: [offers[1]] })
+  );
+  expect(useGeometryOffers.getState().offers).toEqual([]);
 });
 
 it('starts from Lightroom or Capture One on the welcome screen: a catalog first, then the import', async () => {

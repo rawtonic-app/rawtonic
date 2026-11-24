@@ -247,21 +247,140 @@ pub(crate) async fn set_multi_view(
 }
 
 /// Numbers the zooms in the order they are received, with a layout
-/// ([`set_multi_view`]) or alone ([`set_multi_view_zoom`]); the newest
-/// applied is [`ZOOM_APPLIED`] (read and written under the display lock). A
-/// layout's zooms, applied after its stand-ins are decoded, never undo a
-/// zoom or pan received after it, and an older zoom never undoes a layout's.
+/// ([`set_multi_view`]) or alone ([`set_multi_view_zoom`]); which of them
+/// are applied is [`ZOOM_TURNS`]' (used under the display lock). A layout's
+/// zooms, applied after its stand-ins are decoded, never undo a zoom or pan
+/// received after it, and an older zoom never undoes a layout's.
 static ZOOM_SEQ: AtomicU64 = AtomicU64::new(0);
-static ZOOM_APPLIED: AtomicU64 = AtomicU64::new(0);
+static ZOOM_TURNS: Mutex<ZoomTurns> = Mutex::new(ZoomTurns {
+    applied: 0,
+    early: None,
+});
 
-/// Whether zooms numbered `seq` are newer than the ones applied (and are
-/// now the applied ones).
-fn take_zoom_turn(seq: u64) -> bool {
-    let newer = seq > ZOOM_APPLIED.load(Ordering::SeqCst);
-    if newer {
-        ZOOM_APPLIED.store(seq, Ordering::SeqCst);
+fn zoom_turns() -> std::sync::MutexGuard<'static, ZoomTurns> {
+    ZOOM_TURNS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The order zooms are applied in. A zoom alone is computed by the webview
+/// for the layout with its primary; it can reach the display before that
+/// layout (the two requests race for the display lock). Applied then, it
+/// took the next primary's zoom away while that photograph was still a
+/// secondary, so its cell showed it to fit until the editor applied the
+/// zoom (WMV5, Zoom Lock off: 0.5–0.8 s at fit in 2 of 10 switches). Such a
+/// zoom waits for its layout and is applied right after it.
+#[derive(Debug, Default)]
+struct ZoomTurns {
+    /// The newest zooms applied.
+    applied: u64,
+    /// The newest zooms received for a primary not shown yet.
+    early: Option<EarlyZooms>,
+}
+
+#[derive(Debug)]
+struct EarlyZooms {
+    seq: u64,
+    primary: Option<String>,
+    zooms: CellZooms,
+}
+
+impl ZoomTurns {
+    /// Zooms numbered `seq` computed for the layout with `primary`, while
+    /// the display shows `shown` as the primary: the zooms to apply now.
+    fn zoom(
+        &mut self,
+        seq: u64,
+        primary: Option<String>,
+        shown: Option<&str>,
+        zooms: CellZooms,
+    ) -> Option<CellZooms> {
+        if seq <= self.applied {
+            return None;
+        }
+        if primary.as_deref() != shown {
+            if self.early.as_ref().is_none_or(|early| early.seq < seq) {
+                self.early = Some(EarlyZooms {
+                    seq,
+                    primary,
+                    zooms,
+                });
+            }
+            return None;
+        }
+        self.applied = seq;
+        Some(zooms)
     }
-    newer
+
+    /// A layout with `primary` and its zooms numbered `seq`: the zooms to
+    /// apply with it (its own, when newer than the ones applied) and then
+    /// those received for it before it was shown (when newer still).
+    fn layout(
+        &mut self,
+        primary: Option<&str>,
+        zooms: Option<(CellZooms, u64)>,
+    ) -> (Option<CellZooms>, Option<CellZooms>) {
+        let own = zooms.and_then(|(zooms, seq)| {
+            (seq > self.applied).then(|| {
+                self.applied = seq;
+                zooms
+            })
+        });
+        let early = match self.early.take() {
+            Some(early) if early.primary.as_deref() == primary => {
+                (early.seq > self.applied).then(|| {
+                    self.applied = early.seq;
+                    early.zooms
+                })
+            }
+            // For another layout still on its way.
+            other => {
+                self.early = other.filter(|early| early.seq > self.applied);
+                None
+            }
+        };
+        (own, early)
+    }
+}
+
+/// The layout and zooms a display's multi view shows, for the display of a
+/// new device after a lost one (`gpu_recovery`, `show_again`).
+pub(crate) struct Shown {
+    primary: Option<String>,
+    cells: Vec<CellPayload>,
+    zoom: Option<CellZoom>,
+    cell_zooms: HashMap<String, CellZoom>,
+}
+
+/// What `display`'s multi view shows, when it is active.
+pub(crate) fn shown_on(display: &gpu_processing::WgpuDisplay) -> Option<Shown> {
+    let multi = display.multi_view();
+    multi.is_active().then(|| Shown {
+        primary: multi.primary().map(str::to_string),
+        cells: multi
+            .cells()
+            .iter()
+            .map(|cell| CellPayload {
+                path: cell.path.clone(),
+                area: cell.area,
+            })
+            .collect(),
+        zoom: multi.zoom(),
+        cell_zooms: multi.cell_zooms().clone(),
+    })
+}
+
+/// Shows `shown` again on the new device's display with its zooms, in the
+/// layout's own step (a new display's multi view starts at fit). WDVL3:
+/// zoomed cells showed the whole photograph at fit under their 100 % badge
+/// for 26 s after a loss, until their regions developed. The cells are
+/// enlarged at once and their regions develop again (`show_cells`); a zoom
+/// the webview sends after this one is newer and wins.
+pub(crate) fn show_again(app_handle: &tauri::AppHandle, shown: Shown) {
+    let zooms = CellZooms {
+        shared: shown.zoom,
+        cells: shown.cell_zooms,
+    };
+    let seq = ZOOM_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
+    show_cells(app_handle, shown.primary, shown.cells, Some((zooms, seq)));
 }
 
 fn show_cells(
@@ -293,6 +412,12 @@ fn show_cells(
         if worker.generation.load(Ordering::SeqCst) != generation {
             return true;
         }
+        let (zooms, early_zooms) = if cells.is_empty() {
+            zoom_turns().early = None;
+            (None, None)
+        } else {
+            zoom_turns().layout(primary.as_deref(), zooms)
+        };
         display.set_multi_view(
             &context.device,
             &context.queue,
@@ -304,8 +429,13 @@ fn show_cells(
                     area: cell.area,
                 })
                 .collect(),
-            zooms.and_then(|(zooms, seq)| take_zoom_turn(seq).then_some(zooms)),
+            zooms,
         );
+        // The zooms the webview sent for this layout before it was shown
+        // (the incoming primary's held zoom was taken in the step above).
+        if let Some(early) = early_zooms {
+            display.set_multi_view_zooms(early.shared, early.cells);
+        }
         // The live frame in its cell at once, not after the webview's
         // editor has laid out the cell (a frame later).
         display.place_primary_at_fit();
@@ -318,6 +448,7 @@ fn show_cells(
                 width,
                 height,
                 still.image.as_raw(),
+                || shown_of(app_handle, path),
             )
         });
         drop(early);
@@ -669,6 +800,7 @@ fn show_stand_ins(
             width,
             height,
             still.image.as_raw(),
+            || shown_of(app_handle, path),
         ) {
             shown += 1;
         }
@@ -824,6 +956,20 @@ pub(crate) async fn render_browser_view(
     .map_err(|e| format!("Browser view task failed: {e}"))?;
     drop(permit);
     result
+}
+
+/// The size `path`'s photograph is shown at, when a cell of it was
+/// developed before (its facts are kept): for a zoomed stand-in.
+fn shown_of(app_handle: &tauri::AppHandle, path: &str) -> Option<[f32; 2]> {
+    let facts = worker(app_handle)
+        .memory
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .facts
+        .get(path)
+        .copied()?;
+    let (width, height) = shown_size(&saved_recipe_of(path), facts);
+    Some([width, height])
 }
 
 /// The size a photograph is shown at: its crop, else the whole frame turned
@@ -2169,10 +2315,13 @@ fn cell_zooms(payload: ZoomsPayload) -> CellZooms {
 /// `cells` to its own zoom and pan (the others to fit). The cells'
 /// photographs are enlarged at once; the visible regions are then developed
 /// at their magnification.
+/// `primary` is the primary of the layout the zooms were computed for: sent
+/// before that layout is shown, they wait for it ([`ZoomTurns`]).
 #[tauri::command]
 pub(crate) async fn set_multi_view_zoom(
     zoom: Option<ZoomPayload>,
     cells: Option<HashMap<String, ZoomPayload>>,
+    primary: Option<String>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let seq = ZOOM_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
@@ -2190,9 +2339,20 @@ pub(crate) async fn set_multi_view_zoom(
                 return;
             };
             let multi = display.multi_view();
-            if !multi.is_active() || !take_zoom_turn(seq) {
+            if !multi.is_active() {
                 return;
             }
+            let zooms = CellZooms {
+                shared,
+                cells: individual,
+            };
+            let Some(CellZooms {
+                shared,
+                cells: individual,
+            }) = zoom_turns().zoom(seq, primary, multi.primary(), zooms)
+            else {
+                return;
+            };
             if multi.zoom() == shared && multi.cell_zooms() == &individual {
                 return;
             }
@@ -3035,7 +3195,18 @@ fn whole_photo_measures(
                     CELL_RENDER,
                 )
                 .inspect_err(|e| {
-                    log::warn!("[multi_view] {path}: no whole-photograph noise measurement: {e}")
+                    // Not the restart advice of an export the lost error
+                    // carries (WDVL3): the cells develop again on the new
+                    // device (`gpu_recovery`).
+                    if e.contains(rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST)
+                        || rawtonic_gpu::device_start::device_lost()
+                    {
+                        log::info!(
+                            "[multi_view] {path}: no whole-photograph noise measurement: the graphics device was lost meanwhile"
+                        );
+                    } else {
+                        log::warn!("[multi_view] {path}: no whole-photograph noise measurement: {e}")
+                    }
                 })
                 .ok()
                 .flatten()
@@ -4435,6 +4606,90 @@ fn live_region(
 mod tests {
     use super::*;
 
+    fn zooms_of(cells: &[(&str, f32)]) -> CellZooms {
+        CellZooms {
+            shared: None,
+            cells: cells
+                .iter()
+                .map(|(path, scale)| {
+                    (
+                        path.to_string(),
+                        CellZoom {
+                            scale: *scale,
+                            center: [0.5, 0.5],
+                        },
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    /// WMV5 (Zoom Lock off): "b", zoomed, is clicked beside the primary
+    /// "a". The layout (1) and then the webview's zooms for it (2, "b" left
+    /// out as the primary) race for the display lock; the zooms come first.
+    /// Applied then, they took "b"'s zoom away while it was still a
+    /// secondary, so the layout found it at fit and its cell showed the
+    /// whole photograph until the editor applied the zoom.
+    #[test]
+    fn zooms_for_a_layout_not_shown_yet_wait_for_it() {
+        let mut turns = ZoomTurns::default();
+        let before = zooms_of(&[("b", 1.0)]);
+        assert_eq!(
+            turns.zoom(1, Some("a".into()), Some("a"), before.clone()),
+            Some(before)
+        );
+        let layout = zooms_of(&[("a", 1.0)]);
+        let after = zooms_of(&[("a", 1.0), ("c", 2.0)]);
+        // The zooms for "b" as the primary reach the display first: they wait.
+        assert_eq!(
+            turns.zoom(3, Some("b".into()), Some("a"), after.clone()),
+            None
+        );
+        // The layout (2): its own zooms, then the ones that waited for it.
+        assert_eq!(
+            turns.layout(Some("b"), Some((layout.clone(), 2))),
+            (Some(layout.clone()), Some(after))
+        );
+        // Older zooms never undo them.
+        assert_eq!(turns.zoom(2, Some("b".into()), Some("b"), layout), None);
+    }
+
+    #[test]
+    fn zooms_that_waited_never_undo_newer_ones() {
+        let mut turns = ZoomTurns::default();
+        let early = zooms_of(&[("a", 1.0)]);
+        let layout = zooms_of(&[("a", 2.0)]);
+        // A layout newer than the zooms that waited for its primary wins.
+        assert_eq!(
+            turns.zoom(4, Some("b".into()), Some("a"), early.clone()),
+            None
+        );
+        assert_eq!(
+            turns.layout(Some("b"), Some((layout.clone(), 5))),
+            (Some(layout.clone()), None)
+        );
+        // Zooms for another primary keep waiting through a layout that is
+        // not theirs, but not past newer zooms.
+        assert_eq!(
+            turns.zoom(6, Some("c".into()), Some("b"), early.clone()),
+            None
+        );
+        assert_eq!(turns.layout(Some("b"), None), (None, None));
+        assert_eq!(
+            turns.layout(Some("c"), Some((layout.clone(), 3))),
+            (None, Some(early.clone()))
+        );
+        assert_eq!(
+            turns.zoom(7, Some("d".into()), Some("c"), early.clone()),
+            None
+        );
+        assert_eq!(
+            turns.zoom(8, Some("c".into()), Some("c"), layout.clone()),
+            Some(layout)
+        );
+        assert_eq!(turns.layout(Some("d"), None), (None, None));
+    }
+
     #[test]
     fn nrr4_whole_base_key_distinguishes_real_dimensions_at_the_same_scale() {
         let first = RegionBase {
@@ -4732,10 +4987,18 @@ mod tests {
         assert_eq!(cell_zooms(args("fit").zooms.unwrap()), CellZooms::default());
         // Zooms apply in the order received: one received after the
         // layout wins over the layout's own, an older one never undoes it.
-        let first = ZOOM_SEQ.fetch_add(2, Ordering::SeqCst) + 1;
-        assert!(take_zoom_turn(first + 1));
-        assert!(!take_zoom_turn(first));
-        assert!(!take_zoom_turn(first + 1));
+        let mut turns = ZoomTurns::default();
+        let shown = || (Some("a".to_string()), Some("a"), CellZooms::default());
+        let zoom_turn = |turns: &mut ZoomTurns, seq| {
+            let (primary, on, zooms) = shown();
+            turns.zoom(seq, primary, on, zooms).is_some()
+        };
+        assert!(zoom_turn(&mut turns, 2));
+        assert_eq!(
+            turns.layout(Some("a"), Some((CellZooms::default(), 1))),
+            (None, None)
+        );
+        assert!(!zoom_turn(&mut turns, 2));
         // Leaving the multi view sends no zooms: the cells are released.
         let single = args("single");
         assert!(single.primary.is_none() && single.cells.is_empty() && single.zooms.is_none());

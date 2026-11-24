@@ -80,7 +80,7 @@ fn apps_in(dirs: &Dirs, files: &[&Path], edit_with: bool) -> (Vec<AppChoice>, Op
             .unwrap_or_default();
         let (apps, def) = desktop::apps_for_family(&family, &entries, &assoc);
         let mut choices: Vec<_> = apps.iter().map(|entry| (*entry, true)).collect();
-        if edit_with {
+        if edit_with && !family.is_empty() {
             let mime_ids: HashSet<_> = apps.iter().map(|entry| entry.id.as_str()).collect();
             choices.extend(
                 entries
@@ -88,7 +88,7 @@ fn apps_in(dirs: &Dirs, files: &[&Path], edit_with: bool) -> (Vec<AppChoice>, Op
                     .filter(|entry| {
                         !mime_ids.contains(entry.id.as_str())
                             && entry.offers_raster_editing(&dirs.desktops)
-                            && !family.iter().any(|mime| assoc.is_removed(mime, &entry.id))
+                            && !family.iter().any(|mime| assoc.is_removed(mime, entry))
                     })
                     .map(|entry| (entry, false)),
             );
@@ -411,6 +411,13 @@ mod tests {
             apps.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
             ["c-handler", "Paint", "a-paint", "b-edit"]
         );
+
+        let (apps, default) = apps_in(&dirs, &[Path::new("/p/photo.unknown")], true);
+        assert!(
+            apps.is_empty(),
+            "unknown types should have no raster-editor fallback"
+        );
+        assert!(default.is_none());
 
         let (apps, _) = apps_in(&dirs, &[jpeg], false);
         assert_eq!(

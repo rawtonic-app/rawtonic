@@ -341,7 +341,10 @@ pub fn ingest_capture(
     if let Some(contents) = &contents {
         // The derived editor sidecar and XMP, as after an edit; the library
         // already holds the adjustments and metadata.
-        crate::session_bridge::rederive(lib, &asset);
+        {
+            let _turn = crate::session_bridge::write_turn();
+            crate::session_bridge::rederive(lib, &asset);
+        }
         // Metadata that the editor's own state does not carry (creator,
         // copyright, contact) reaches the XMP sidecar all the same.
         if contents.editor_state.is_none()
@@ -1106,16 +1109,38 @@ mod tests {
         // What the failed try left behind under sequence 1.
         let earlier = capture.join("Job_0001.ARW");
         fs::write(&earlier, b"capture").unwrap();
-        let preset = NextCapture::Preset {
-            name: "Studio".into(),
-            adjustments: json!({"contrast": 12}),
+        let card = rawtonic_metadata::Metadata {
+            creator: "Card photographer".into(),
+            keywords: vec!["card".into()],
+            ..Default::default()
+        };
+        for photo in [&source, &earlier] {
+            rawtonic_metadata::write_xmp(&photo.with_extension("xmp"), &card, None, None).unwrap();
+        }
+        let settings = CaptureSettings {
+            next_capture: NextCapture::Preset {
+                name: "Studio".into(),
+                adjustments: json!({"contrast": 12}),
+            },
+            metadata: NextCaptureMetadata {
+                import: Some(rawtonic_ingest::metadata::MetadataPreset {
+                    id: "rights".into(),
+                    name: "Rights".into(),
+                    metadata: rawtonic_ingest::metadata::ImportMetadata {
+                        creator: "Preset photographer".into(),
+                        keywords: vec!["preset".into()],
+                        ..Default::default()
+                    },
+                }),
+                ..Default::default()
+            },
         };
         let (result, asset) = ingest_capture(
             &lib,
             &source,
             "{job}_{seq:4}.{ext}",
             2,
-            &preset.clone().into(),
+            &settings,
             None,
             Some(&earlier),
             &AtomicBool::new(false),
@@ -1128,6 +1153,11 @@ mod tests {
             lib.editor_state(&asset).unwrap().unwrap()["adjustments"]["contrast"],
             12
         );
+        let metadata = lib.metadata(&asset).unwrap();
+        assert_eq!(metadata.creator, "Card photographer");
+        assert_eq!(metadata.keywords, ["card", "preset"]);
+        let persisted = fs::read_to_string(earlier.with_extension("xmp")).unwrap();
+        assert_eq!(rawtonic_metadata::read_xmp(&persisted).unwrap().0, metadata);
         let files: Vec<_> = fs::read_dir(&capture)
             .unwrap()
             .flatten()
@@ -1517,6 +1547,13 @@ mod tests {
         fs::create_dir(&hot).unwrap();
         let source = hot.join("A.ARW");
         fs::write(&source, b"capture").unwrap();
+        // No embedded date. Use a year that differs from the test run's date.
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&source)
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_600_000_000))
+            .unwrap();
         let mut import = rawtonic_ingest::metadata::ImportMetadata {
             creator: "Ada Photo".into(),
             copyright: "(c) {year} Ada".into(),
@@ -1557,14 +1594,19 @@ mod tests {
         let meta = lib.metadata(&asset).unwrap();
         assert_eq!(meta.rating, 2);
         assert_eq!(meta.creator, "Ada Photo");
-        assert!(meta.copyright.starts_with("(c) 20") && meta.copyright.ends_with(" Ada"));
-        assert!(!meta.copyright.contains("{year}"));
+        assert_eq!(meta.copyright, "(c) 2020 Ada");
         assert_eq!(meta.iptc["usageTerms"], "Editorial");
         assert_eq!(meta.iptc["creatorEmail"], "ada@example.org");
         assert_eq!(meta.keywords, ["studio", "wedding"]);
         let copy = shown.destination.unwrap();
         let xmp = fs::read_to_string(rawtonic_metadata::sidecar_path(&copy).unwrap()).unwrap();
-        for needle in ["Ada Photo", "Editorial", "ada@example.org", "wedding"] {
+        for needle in [
+            "Ada Photo",
+            "(c) 2020 Ada",
+            "Editorial",
+            "ada@example.org",
+            "wedding",
+        ] {
             assert!(xmp.contains(needle), "{needle} missing in the sidecar");
         }
         assert_eq!(fs::read(&source).unwrap(), b"capture");

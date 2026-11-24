@@ -81,6 +81,7 @@ export enum Invokes {
   HotFolderStop = 'hot_folder_stop',
   LibraryImportPreview = 'library_import_preview',
   LibraryImport = 'library_import',
+  LibraryApplySourceGeometry = 'library_apply_source_geometry',
   SessionSummary = 'session_summary',
   SessionPendingXmp = 'session_pending_xmp',
   SessionMissedDuplicates = 'session_missed_duplicates',

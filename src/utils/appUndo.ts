@@ -85,7 +85,7 @@ export interface KeywordLabel {
   keyword?: string;
 }
 export type BatchLabel =
-  'matchLight' | 'paste' | 'sync' | 'reset' | 'style' | 'lensCorrection' | 'apply' | 'importEdits';
+  'matchLight' | 'paste' | 'sync' | 'reset' | 'style' | 'lensCorrection' | 'apply' | 'importEdits' | 'sourceGeometry';
 interface Step {
   order: number;
   action: CullingValue['kind'] | 'recipes' | 'xmp' | 'captureTime' | 'stacks' | 'catalogImport' | 'keywords';
@@ -577,7 +577,7 @@ export function catalogImportAction(library: string, receipts: XmpReceipt[]) {
  * wrote (those still exactly as the last import left them, brought up to
  * date) as one undoable step: Undo writes each photo's recipe from before
  * the import back, Redo the imported one (nothing when it changed none). */
-export function importedRecipesAction(changes: RecipeSnapshot[]) {
+export function importedRecipesAction(changes: RecipeSnapshot[], label: BatchLabel = 'importEdits') {
   if (!changes.length) return;
   debouncedSetHistory.flush();
   branch++;
@@ -590,7 +590,7 @@ export function importedRecipesAction(changes: RecipeSnapshot[]) {
     action: 'recipes',
     changes: [],
     snapshots: changes,
-    label: 'importEdits',
+    label,
     directory: useLibraryStore.getState().sessionDirectory
   };
   currentTargets.set(
@@ -989,6 +989,8 @@ function batchLabel(label: BatchLabel | undefined) {
       return i18n.t('undoHistory.apply');
     case 'importEdits':
       return i18n.t('undoHistory.importEdits');
+    case 'sourceGeometry':
+      return i18n.t('undoHistory.sourceGeometry');
     default:
       return i18n.t('undoHistory.matchLight');
   }

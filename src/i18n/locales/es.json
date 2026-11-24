@@ -1071,6 +1071,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "El controlador gráfico dejó de responder varias veces. Tus ediciones están a salvo; cierra y vuelve a abrir Rawtonic para seguir revelando. Detalles: {{details}}",
+    "gpuDeviceRecovered": "El controlador gráfico dejó de responder. Rawtonic reinició los gráficos; tus ediciones están a salvo.",
     "gpuStartFailed": "Rawtonic no pudo iniciar el procesador gráfico, así que no se pueden revelar ni exportar fotos. Restablece los ajustes gráficos y reintenta; si no ayuda, actualiza el controlador gráfico. Detalles: {{details}}",
     "operationFailed": "No se ha podido completar la operación."
   },
@@ -2315,6 +2317,12 @@
       "sidecarsCopied_one": "{{count}} archivo XMP complementario copiado",
       "sidecarsCopied_many": "{{count}} archivos XMP complementarios copiados",
       "sidecarsCopied_other": "{{count}} archivos XMP complementarios copiados",
+      "sourceGeometryAll": "Aplicar el enderezado de Capture One y sustituir los recortes con la relación de aspecto de cada imagen ({{n}} fotos)",
+      "sourceGeometryApplied": "Enderezado y recorte de Capture One aplicados a {{n}} foto(s) (Deshacer los devuelve)",
+      "sourceGeometryErrors": "Enderezado y recorte de Capture One no aplicados a algunas fotos: {{n}}.",
+      "sourceGeometryFailed": "No se pudieron aplicar el enderezado y el recorte de Capture One",
+      "sourceGeometryOtherLibrary": "Abra la biblioteca en la que se importaron estas fotos para aplicar el enderezado y el recorte de Capture One.",
+      "sourceGeometryPhoto": "Aplicar el enderezado y el recorte de Capture One a {{name}}",
       "watching": "Vigilando {{folder}} por si llegan fotos nuevas.",
       "watchingMissing": "No se encuentra la carpeta vigilada {{folder}}; la vigilancia continúa cuando vuelva.",
       "watchingResumed": "Vigilando {{folder}} de nuevo."
@@ -3369,6 +3377,8 @@
       "rotateLeft": "Girar a la izquierda",
       "rotateRight": "Girar a la derecha",
       "size": "Tamaño",
+      "sourceGeometry": "Aplicar el enderezado y el recorte de Capture One",
+      "sourceGeometryTitle": "Sustituir el enderezado, los giros de un cuarto y el recorte de esta foto por los de Capture One: su ángulo de enderezado y un recorte automático con la proporción propia del encuadre y sin esquinas vacías (un recorte dibujado en Capture One no se lee y su propio recorte se sustituye). El resto de ajustes se mantiene (Deshacer los devuelve)",
       "straighten": "Enderezar",
       "straightenToolTitle": "Dibuja una línea a lo largo de un borde que deba quedar horizontal o vertical",
       "swapOrientation": "Cambiar entre vertical y horizontal",
@@ -6056,6 +6066,7 @@
     "rename": "Renombrar",
     "reset": "Restablecer",
     "skipFailed": "Omitir elementos fallidos",
+    "sourceGeometry": "Aplicar geometría de Capture One",
     "stacks": "Apilamiento",
     "style": "Aplicar estilo",
     "sync": "Sincronizar ajustes",

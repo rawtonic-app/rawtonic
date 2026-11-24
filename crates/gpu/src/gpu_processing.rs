@@ -7,6 +7,7 @@ use image::Luma;
 use image::{DynamicImage, GenericImageView, GrayImage, ImageBuffer, Rgba};
 use std::num::NonZero;
 
+use rawtonic_rawdecode::gpu_submit;
 use rawtonic_rawdecode::gpu_util::create_buffer_init;
 use wgpu::util::{DeviceExt, TextureDataOrder};
 
@@ -153,6 +154,9 @@ pub fn processing_device_descriptor(adapter: &wgpu::Adapter) -> wgpu::DeviceDesc
     }
     // Used only once the app opens a cache file (`pipeline_cache::open`).
     required_features |= crate::pipeline_cache::device_features(adapter);
+    // Each render submission's own GPU time, for the watchdog's log
+    // (`gpu_submit::time_on_gpu`).
+    required_features |= adapter.features() & rawtonic_rawdecode::gpu_submit::TIMING_FEATURES;
     wgpu::DeviceDescriptor {
         label: Some("Processing Device"),
         required_features,
@@ -218,6 +222,9 @@ impl GpuContext {
 
 /// An uploaded source texture, kept between renders of the same photo.
 pub struct GpuImageCache {
+    /// The device the textures were made on: a cache of a device the app
+    /// replaced after a loss (DVL2) is uploaded again.
+    pub device: std::sync::Weak<wgpu::Device>,
     pub texture: wgpu::Texture,
     pub texture_view: wgpu::TextureView,
     pub width: u32,
@@ -248,8 +255,17 @@ pub struct GpuImageCache {
 const SPARE_SOURCE_MAX_BYTES: u64 = 64 << 20;
 
 impl GpuImageCache {
-    fn is_source(&self, transform_hash: u64, width: u32, height: u32) -> bool {
-        self.transform_hash == transform_hash && self.width == width && self.height == height
+    fn is_source(
+        &self,
+        device: &Arc<wgpu::Device>,
+        transform_hash: u64,
+        width: u32,
+        height: u32,
+    ) -> bool {
+        std::sync::Weak::ptr_eq(&self.device, &Arc::downgrade(device))
+            && self.transform_hash == transform_hash
+            && self.width == width
+            && self.height == height
     }
 
     fn worth_keeping(&self) -> bool {
@@ -536,9 +552,20 @@ struct PyramidParams {
 /// and so stalls other threads' submissions): the colour noise pyramid is
 /// built stage by stage, and a display frame submitted meanwhile runs after
 /// the stage in flight, not after all of them.
-fn submit_and_wait(context: &GpuContext, encoder: wgpu::CommandEncoder) -> Result<(), String> {
+fn submit_and_wait(
+    context: &GpuContext,
+    label: &'static str,
+    pixels: u64,
+    encoder: wgpu::CommandEncoder,
+) -> Result<(), String> {
     let (tx, done) = std::sync::mpsc::channel();
-    context.queue.submit(Some(encoder.finish()));
+    gpu_submit::submit(
+        &context.device,
+        &context.queue,
+        label,
+        pixels,
+        Some(encoder.finish()),
+    );
     context.queue.on_submitted_work_done(move || {
         let _ = tx.send(());
     });
@@ -717,7 +744,12 @@ impl GpuPyramid {
             sizes[0],
             8,
         );
-        submit_and_wait(context, encoder)?;
+        submit_and_wait(
+            context,
+            "colour noise pyramid level 1",
+            u64::from(width) * u64::from(height),
+            encoder,
+        )?;
         let mut encoder = device.create_command_encoder(&Default::default());
         for l in 1..color_noise::LEVELS {
             params.fine_size = sizes[l - 1];
@@ -737,7 +769,12 @@ impl GpuPyramid {
                 16,
             );
         }
-        submit_and_wait(context, encoder)?;
+        submit_and_wait(
+            context,
+            "colour noise pyramid levels",
+            u64::from(width) * u64::from(height),
+            encoder,
+        )?;
         let mut encoder = device.create_command_encoder(&Default::default());
         // The measured blocks of each level's detail, one storage buffer
         // (each level's run aligned for its binding offset).
@@ -804,7 +841,13 @@ impl GpuPyramid {
             mapped_at_creation: false,
         });
         encoder.copy_buffer_to_buffer(&blocks, 0, &readback, 0, total);
-        context.queue.submit(Some(encoder.finish()));
+        gpu_submit::submit(
+            &context.device,
+            &context.queue,
+            "colour noise measurement",
+            u64::from(width) * u64::from(height),
+            Some(encoder.finish()),
+        );
         let (tx, mapped) = std::sync::mpsc::channel();
         readback
             .slice(..)
@@ -866,7 +909,7 @@ impl GpuPyramid {
             levels.push(prepared);
             follow.push(following);
             rebuilt.push(empty_view(context, "Chroma rebuilt level", size, rgba));
-            submit_and_wait(context, encoder)?;
+            submit_and_wait(context, "colour noise level preparation", 0, encoder)?;
         }
         Ok(ChromaReconstruction {
             levels,
@@ -993,7 +1036,13 @@ impl GpuPyramid {
             size,
             16,
         );
-        context.queue.submit(Some(encoder.finish()));
+        gpu_submit::submit(
+            &context.device,
+            &context.queue,
+            "colour noise coarsest level",
+            0,
+            Some(encoder.finish()),
+        );
         Some(smoothed)
     }
 }
@@ -1227,7 +1276,13 @@ impl ChromaGpu {
             &pyramid.levels[0],
             &pyramid.levels[0],
         );
-        context.queue.submit(Some(encoder.finish()));
+        gpu_submit::submit(
+            &context.device,
+            &context.queue,
+            "colour noise pack",
+            0,
+            Some(encoder.finish()),
+        );
         chroma
     }
 
@@ -1281,7 +1336,7 @@ impl ChromaGpu {
                 &mut encoder,
                 context.device.create_command_encoder(&Default::default()),
             );
-            submit_and_wait(context, stage)?;
+            submit_and_wait(context, "colour noise rebuild stage", 0, stage)?;
         }
         drop(encoder);
         Ok(())
@@ -1360,7 +1415,13 @@ impl ChromaGpu {
             pass.set_bind_group(1, &group1, &[]);
             pass.dispatch_workgroups(source.width.div_ceil(16), source.height.div_ceil(16), 1);
         }
-        context.queue.submit(Some(encoder.finish()));
+        gpu_submit::submit(
+            &context.device,
+            &context.queue,
+            "colour noise energy",
+            u64::from(source.width) * u64::from(source.height),
+            Some(encoder.finish()),
+        );
     }
 
     /// Rebuilds level 1 for `thresholds` on the CPU.
@@ -1462,7 +1523,13 @@ impl ChromaGpu {
             reconstruction.rebuilt[0].clone(),
         );
         self.encode_pack(context, pipelines, &mut encoder, &level1, &rebuilt);
-        context.queue.submit(Some(encoder.finish()));
+        gpu_submit::submit(
+            &context.device,
+            &context.queue,
+            "colour noise rebuild",
+            0,
+            Some(encoder.finish()),
+        );
         Ok(())
     }
 
@@ -1522,7 +1589,7 @@ impl ChromaGpu {
                 },
                 size,
             );
-            submit_and_wait(context, encoder)?;
+            submit_and_wait(context, "colour noise export preparation", 0, encoder)?;
             coarser = rebuilt;
         }
         let [width, height] = pyramid.sizes[0];
@@ -1578,7 +1645,7 @@ impl ChromaGpu {
                 &mut encoder,
                 context.device.create_command_encoder(&Default::default()),
             );
-            submit_and_wait(context, stage)?;
+            submit_and_wait(context, "colour noise export rebuild stage", 0, stage)?;
         }
         Ok(())
     }
@@ -3383,6 +3450,13 @@ impl WgpuDisplay {
         if self.current_bind_group.is_none() && self.camera_cover.is_none() && !multi {
             return;
         }
+        // A zoomed cell that just became the primary keeps its own frames at
+        // its zoom until its live frame is placed there (multi_view).
+        let held = multi && self.live_frame_shown() && {
+            let placed =
+                (!self.frame_uncropped && self.split_x.is_none()).then_some(self.geometry.rect);
+            self.multi.holds_primary(placed, std::time::Instant::now())
+        };
         #[cfg(feature = "performance-profiling")]
         let acquire_stage = crate::performance::PerformanceStage::new("display_acquire");
         let output = match self.surface.get_current_texture() {
@@ -3457,7 +3531,7 @@ impl WgpuDisplay {
             None => self
                 .current_bind_group
                 .as_ref()
-                .filter(|_| self.live_frame_shown())
+                .filter(|_| !held && self.live_frame_shown())
                 .map(|bind_group| PrimaryDraw {
                     bind_group,
                     before,
@@ -3476,7 +3550,7 @@ impl WgpuDisplay {
             multi.then_some(&self.multi),
             primary,
         );
-        queue.submit(Some(encoder.finish()));
+        gpu_submit::submit(device, queue, "display draw", 0, Some(encoder.finish()));
         queue.present(output);
         // Handed to the window server, not yet on screen. Pointer
         // sessions in the webview log join these by wall-clock time.
@@ -3613,6 +3687,7 @@ impl WgpuDisplay {
     /// Shows a cached image of `path`'s whole photograph (display-encoded
     /// RGBA8) in its cell until the cell's own render arrives; never over a
     /// texture the cell has (`MultiView::stand_in`). Whether it was kept.
+    #[allow(clippy::too_many_arguments)]
     pub fn stand_in_cell(
         &mut self,
         device: &wgpu::Device,
@@ -3621,9 +3696,19 @@ impl WgpuDisplay {
         width: u32,
         height: u32,
         rgba: &[u8],
+        shown: impl FnOnce() -> Option<[f32; 2]>,
     ) -> bool {
         let mut multi = std::mem::take(&mut self.multi);
-        let kept = multi.stand_in(device, queue, &self.bindings(), path, width, height, rgba);
+        let kept = multi.stand_in(
+            device,
+            queue,
+            &self.bindings(),
+            path,
+            width,
+            height,
+            rgba,
+            shown,
+        );
         self.multi = multi;
         kept
     }
@@ -3779,7 +3864,7 @@ fn begin_texture_readback(
         size,
     );
 
-    queue.submit(Some(encoder.finish()));
+    gpu_submit::submit(device, queue, "readback copy", 0, Some(encoder.finish()));
     let (tx, mapped) = std::sync::mpsc::channel();
     buffer
         .slice(..)
@@ -4692,7 +4777,8 @@ pub struct GpuProcessor {
     encode_pipelines: [std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>; 2],
     tile_output_size: wgpu::Extent3d,
     /// Whether renders that allow it run in [`EXPORT_TILE_SIZE`] tiles
-    /// (`render_tile_size`).
+    /// (`render_tile_size`): export processors, and every processor on a
+    /// GPU that needs short submissions (`short_submissions`).
     small_export_tiles: bool,
     adjustments_buffer: wgpu::Buffer,
     /// Count, then the tile-local regions of the current dispatch.
@@ -6872,6 +6958,33 @@ fn env_compile_limit() -> Option<Option<usize>> {
     Some((n > 0).then_some(n))
 }
 
+/// Whether this process's GPU must get short submissions: on Windows one
+/// submission of more than about 2 s loses the device (the watchdog,
+/// TdrDelay), and a lost device froze the multi view for good (DVL1). A
+/// 2048-pixel tile's passes run about 0.5 s on a Radeon 680M with large
+/// recipes, several times that beside the next photo's decode; a
+/// [`EXPORT_TILE_SIZE`] tile runs a quarter of it. Set at device start
+/// for integrated GPUs (`device_start`); processors made afterwards render
+/// in small tiles where the bytes do not change (`render_tile_size`).
+/// `RAWTONIC_SHORT_GPU_SUBMISSIONS=0|1` overrides it.
+static SHORT_SUBMISSIONS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_short_submissions(short: bool) {
+    let short = match std::env::var("RAWTONIC_SHORT_GPU_SUBMISSIONS").as_deref() {
+        Ok("0") => false,
+        Ok("1") => true,
+        _ => short,
+    };
+    if short {
+        log::info!("GPU renders run in {EXPORT_TILE_SIZE}-pixel tiles (short submissions)");
+    }
+    SHORT_SUBMISSIONS.store(short, std::sync::atomic::Ordering::Release);
+}
+
+pub fn short_submissions() -> bool {
+    SHORT_SUBMISSIONS.load(std::sync::atomic::Ordering::Acquire)
+}
+
 /// Sets the limit for the device just started (`None`: no limit); the
 /// environment variable overrides it.
 pub fn set_compile_limit(limit: Option<usize>) {
@@ -6887,9 +7000,9 @@ pub fn set_compile_limit(limit: Option<usize>) {
     COMPILE_LIMIT.freed.notify_all();
 }
 
-/// Compiles and exports waiting for a compile slot (`compile_slot`,
-/// `wait_for_running_compiles`): an idle compile in a helper process is
-/// stopped for them (`idle_compile_child`).
+/// Compiles waiting for a compile slot (`compile_slot`): an idle compile in
+/// a helper process is stopped for them (`idle_compile_child`). An export
+/// waiting for the compiles to end counts in `ENDS_AWAITED` instead.
 static SLOT_WANTED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Counts in `SLOT_WANTED` while it lives.
@@ -6908,9 +7021,42 @@ impl Drop for SlotWanted {
     }
 }
 
-/// Whether a compile or an export waits for a compile slot now.
+/// Exports waiting for the compiles to end (`wait_for_running_compiles`)
+/// without an idle worker compiling their variant: no idle compile starts
+/// meanwhile (`background_compile_slot`), and a helper compiling a job no
+/// frame or export waits for stops (`IdleCompiles::helper_stops`). One
+/// they wait for goes on: the export waits for it to end. WDVL3: after a
+/// lost device the shown photo's frame waited for its variant in a helper
+/// while two export lanes waited for the compiles to end; the lanes
+/// stopped that helper (they counted as compiles wanting the slot), the
+/// worker started it again for the frame, 95 times a second, and the
+/// exports waited for good.
+static ENDS_AWAITED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Counts in `ENDS_AWAITED` while it lives.
+struct EndsAwaited;
+
+impl EndsAwaited {
+    fn new() -> Self {
+        ENDS_AWAITED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Self
+    }
+}
+
+impl Drop for EndsAwaited {
+    fn drop(&mut self) {
+        ENDS_AWAITED.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Whether a compile waits for a compile slot now.
 fn slot_wanted() -> bool {
     SLOT_WANTED.load(std::sync::atomic::Ordering::SeqCst) > 0
+}
+
+/// Whether an export waits for the compiles to end now (`ENDS_AWAITED`).
+fn ends_awaited() -> bool {
+    ENDS_AWAITED.load(std::sync::atomic::Ordering::SeqCst) > 0
 }
 
 /// A held compile slot; `id` names it in `SLOT_HOLDERS`.
@@ -7004,20 +7150,34 @@ pub fn wait_for_running_compiles(what: &str) {
         .state
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    // An idle compile in a helper process stops for it, unless the idle
-    // worker compiles the variant this export renders with first
+    // An idle compile in a helper process that no frame or export waits
+    // for stops for it (`ENDS_AWAITED`), unless the idle worker compiles
+    // the variant this export renders with first
     // (`export_of_shown_photo_starts`): then the export waits for that, and
     // the worker stops any other helper itself.
     let awaits_variant = idle_compiles::export_awaits_variant;
-    let wants = ((state.0 > 0 || compiles_pending()) && !awaits_variant()).then(SlotWanted::new);
+    let wants = ((state.0 > 0 || compiles_pending()) && !awaits_variant()).then(EndsAwaited::new);
     // A compile that waits for a slot is not signalled on `freed` while it
     // waits, so this looks again every 250 ms.
+    let mut told = started;
     while state.0 > 0 || compiles_pending() || awaits_variant() {
         state = COMPILE_LIMIT
             .freed
             .wait_timeout(state, std::time::Duration::from_millis(250))
             .unwrap_or_else(|e| e.into_inner())
             .0;
+        // A wait that goes on is told (WDVL2: an export waited for good
+        // without a line in the log).
+        if told.elapsed() >= std::time::Duration::from_secs(10) {
+            told = std::time::Instant::now();
+            log::warn!(
+                "GPU {what}: waiting {:.0} s for shader compiles (slots held {}, compiles pending {}, an idle worker compiles an export's variant {})",
+                started.elapsed().as_secs_f64(),
+                state.0,
+                compiles_pending(),
+                awaits_variant()
+            );
+        }
     }
     drop(state);
     drop(wants);
@@ -7046,14 +7206,24 @@ pub fn compiles_limited() -> bool {
 
 /// A compile slot for an idle compile (`idle_compiles`), only while no other
 /// heavy compile waits for one or runs: those go first. `None` if one does.
-fn background_compile_slot(what: &str) -> Option<CompileSlot> {
+/// `awaited`: an export or a frame waits for the worker's job (its variant).
+fn background_compile_slot(what: &str, awaited: bool) -> Option<CompileSlot> {
     let mut state = COMPILE_LIMIT
         .state
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     // Small and tiny creations run beside it (`CompileWeight`).
     let heavy = HEAVY_PENDING.load(std::sync::atomic::Ordering::SeqCst) > 0;
-    if heavy || state.0 > 0 || state.1.is_some_and(|max| state.0 >= max) {
+    // Nor while an export waits for the compiles to end (`ENDS_AWAITED`):
+    // it stopped the helper of the last one, and a new one started at once
+    // took the slot again before the export saw it free. WDVL1: an export
+    // retried after a lost device waited for 5 min while the helper
+    // restarted 80 times a second. A job an export or a frame waits for
+    // starts all the same: the export waiting for the compiles to end waits
+    // for it too (WDVL2: with two export lanes, one waited for the compiles
+    // and the other for its variant, which no worker then compiled).
+    let ends_awaited = !awaited && ends_awaited();
+    if heavy || ends_awaited || state.0 > 0 || state.1.is_some_and(|max| state.0 >= max) {
         return None;
     }
     state.0 += 1;
@@ -7885,6 +8055,11 @@ const EXPORT_TILE_SIZE: u32 = 1024;
 const TILE_OVERLAP: u32 = 128;
 
 impl GpuProcessor {
+    /// Whether this processor was made on `context`'s device.
+    pub fn uses(&self, context: &GpuContext) -> bool {
+        Arc::ptr_eq(&self.context.device, &context.device)
+    }
+
     pub fn new(context: GpuContext, max_width: u32, max_height: u32) -> Result<Self, String> {
         Self::with_shader_source(
             context,
@@ -8877,7 +9052,10 @@ impl GpuProcessor {
             encode_bgls: [encode_bgl, high_precision_encode_bgl],
             encode_pipelines: Default::default(),
             tile_output_size: clamped_tile_size,
-            small_export_tiles,
+            // On a GPU whose submissions must stay short (an integrated
+            // GPU, `set_short_submissions`) display renders take the small
+            // tiles too.
+            small_export_tiles: small_export_tiles || short_submissions(),
             adjustments_buffer,
             render_regions_buffer,
             prepared_layers_buffer,
@@ -9584,7 +9762,13 @@ impl GpuProcessor {
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
         }
-        queue.submit(Some(encoder.finish()));
+        gpu_submit::submit(
+            device,
+            queue,
+            "layer sums",
+            u64::from(width) * u64::from(height),
+            Some(encoder.finish()),
+        );
         cache.buffer = Some(buffer.clone());
         cache.key = key;
         cache.exclude = exclude;
@@ -11874,7 +12058,7 @@ impl GpuProcessor {
                 cpass.dispatch_workgroups(FLARE_MAP_SIZE / 16, FLARE_MAP_SIZE / 16, 1);
             }
 
-            queue.submit(Some(encoder.finish()));
+            gpu_submit::submit(device, queue, "flare", 0, Some(encoder.finish()));
         }
 
         // Display frames cache the detail stage with the blurs when every tile
@@ -12270,7 +12454,13 @@ impl GpuProcessor {
                         );
                     }
 
-                    queue.submit(Some(blur_encoder.finish()));
+                    gpu_submit::submit(
+                        device,
+                        queue,
+                        "tile blur",
+                        u64::from(input_width) * u64::from(blurred_rows),
+                        Some(blur_encoder.finish()),
+                    );
                     Some(output_view.clone())
                 };
 
@@ -12682,7 +12872,13 @@ impl GpuProcessor {
                             1,
                         );
                     }
-                    queue.submit(Some(encoder.finish()));
+                    gpu_submit::submit(
+                        device,
+                        queue,
+                        "tile detail",
+                        u64::from(tile_width) * u64::from(tile_height),
+                        Some(encoder.finish()),
+                    );
                 }
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: 14,
@@ -12855,6 +13051,7 @@ impl GpuProcessor {
                     bytemuck::bytes_of(&*tile_adjustments),
                 );
                 let mut main_encoder = device.create_command_encoder(&Default::default());
+                let tile_pixels = u64::from(tile_width) * u64::from(tile_height);
                 if let Some((pipeline, bind_group, _)) = &terms {
                     let mut pass = main_encoder.begin_compute_pass(&Default::default());
                     pass.set_pipeline(pipeline);
@@ -12942,7 +13139,13 @@ impl GpuProcessor {
                         }
                     }
                 }
-                queue.submit(Some(main_encoder.finish()));
+                gpu_submit::submit(
+                    device,
+                    queue,
+                    "tile passes",
+                    tile_pixels,
+                    Some(main_encoder.finish()),
+                );
 
                 if !output_to_display {
                     if deferred && regions.len() != 1 {
@@ -12975,7 +13178,13 @@ impl GpuProcessor {
                                     1,
                                 );
                             }
-                            queue.submit(Some(encoder.finish()));
+                            gpu_submit::submit(
+                                device,
+                                queue,
+                                "tile encode",
+                                u64::from(tile_width) * u64::from(tile_height),
+                                Some(encoder.finish()),
+                            );
                         }
                         // The copy of this tile is read back while the GPU
                         // renders the next one (queue order keeps the shared
@@ -13122,6 +13331,7 @@ pub fn upload_render_source(
         .map(Arc::new);
     Ok(Some(UploadedImage(
         Box::new(GpuImageCache {
+            device: Arc::downgrade(&context.device),
             texture,
             texture_view,
             width,
@@ -13179,6 +13389,7 @@ pub fn upload_fringed_render_source(
     let texture_view = texture.create_view(&Default::default());
     Ok(Some(UploadedImage(
         Box::new(GpuImageCache {
+            device: Arc::downgrade(&context.device),
             texture,
             texture_view,
             width,
@@ -13282,6 +13493,7 @@ pub fn upload_warped_render_source(
     let texture_view = texture.create_view(&Default::default());
     Ok(WarpedUpload::Uploaded(UploadedImage(
         Box::new(GpuImageCache {
+            device: Arc::downgrade(&context.device),
             texture,
             texture_view,
             width,
@@ -13944,7 +14156,9 @@ fn lock_processor<'a>(
     let new_height = max_dim;
 
     if let Some(p) = processor_lock.as_ref() {
-        if p.width < width || p.height < height {
+        // A processor made on a device the driver took away and the app
+        // replaced (DVL2 recovery) is never used with the new one.
+        if p.width < width || p.height < height || !p.processor.uses(context) {
             needs_new_processor = true;
         }
     } else {
@@ -14936,7 +15150,7 @@ fn render_dynamic_image(
     let mut needs_new_cache = false;
 
     if let Some(cache) = &*cache_lock {
-        if !preuploaded && !cache.is_source(transform_hash, width, height) {
+        if !preuploaded && !cache.is_source(&context.device, transform_hash, width, height) {
             needs_new_cache = true;
         }
     } else {
@@ -14952,7 +15166,7 @@ fn render_dynamic_image(
             .map(Box::new);
         match older {
             // A drag's draft and its final frame alternate.
-            Some(mut older) if older.is_source(transform_hash, width, height) => {
+            Some(mut older) if older.is_source(&context.device, transform_hash, width, height) => {
                 older.spare = keep;
                 *cache_lock = Some(*older);
                 needs_new_cache = false;
@@ -14977,6 +15191,7 @@ fn render_dynamic_image(
         drop(upload_stage);
 
         *cache_lock = Some(GpuImageCache {
+            device: Arc::downgrade(&context.device),
             texture,
             texture_view,
             width,
@@ -15180,7 +15395,13 @@ fn render_dynamic_image(
     }
 
     if submit_final_encoder {
-        queue.submit(Some(final_encoder.finish()));
+        gpu_submit::submit(
+            device,
+            queue,
+            "render finish",
+            0,
+            Some(final_encoder.finish()),
+        );
     }
 
     if let Some(analytics) = analytics_config {

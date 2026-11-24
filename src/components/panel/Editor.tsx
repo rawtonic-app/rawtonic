@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect, useImperativeHandle } from 'react';
 import { wheelAction, listenForPinch } from '../../utils/viewerWheel';
+import { onGpuRecovered } from '../../utils/gpuRecovery';
 import { Crop, PercentCrop } from 'react-image-crop';
 import { Loader2 } from 'lucide-react';
 import clsx from 'clsx';
@@ -131,6 +132,9 @@ export interface TransformWrapperHandle {
     /** Where an animated zoom or pan is going (the transform it ends at), else
      * the current one: what a frame requested now will be shown at. */
     readonly targetTransformState: TransformState;
+    /** How many transforms were applied so far (each zoom, pan, reset or
+     * placement, also one that leaves it where it was). */
+    readonly applied: number;
   };
 }
 
@@ -244,6 +248,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   /** The viewer shows browser frames (Linux), not the native display. */
   const browserFramesRef = useRef(false);
   const transformStateRef = useRef<TransformState>(transformState);
+  const appliedRef = useRef(0);
   transformStateRef.current = transformState;
   const [isPanningState, setIsPanningState] = useState(false);
   const isClickAnimating = useRef(false);
@@ -634,6 +639,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     (x: number, y: number, scale: number, animating = false) => {
       // Any other transform (a wheel, a pan, a reset) ends the animation.
       if (!animating) animationTargetRef.current = null;
+      appliedRef.current += 1;
       transformStateRef.current = { positionX: x, positionY: y, scale };
       setTransformState({ scale, positionX: x, positionY: y });
 
@@ -846,6 +852,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         },
         get targetTransformState() {
           return animationTargetRef.current ?? transformStateRef.current;
+        },
+        get applied() {
+          return appliedRef.current;
         }
       }
     }),
@@ -1909,10 +1918,18 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         scheduleSync();
     });
 
+    // A new GPU device after a lost one (utils/gpuRecovery) starts with a
+    // display of its own: it gets the placement again, not only the pixels.
+    const stopRecovered = onGpuRecovered(() => {
+      lastWgpuTransformRef.current = null;
+      scheduleSync();
+    });
+
     return () => {
       isEffectActive = false;
       unsubscribeSplit();
       unsubscribeLayout();
+      stopRecovered();
       if (wgpuSyncRef.current !== null) {
         cancelAnimationFrame(wgpuSyncRef.current);
         wgpuSyncRef.current = null;

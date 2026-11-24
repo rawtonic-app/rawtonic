@@ -1006,6 +1006,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "그래픽 드라이버가 여러 번 응답하지 않았습니다. 편집 내용은 안전합니다. 계속 현상하려면 Rawtonic을 종료했다가 다시 여세요. 자세한 내용: {{details}}",
+    "gpuDeviceRecovered": "그래픽 드라이버가 응답하지 않았습니다. Rawtonic이 그래픽을 다시 시작했습니다. 편집 내용은 안전합니다.",
     "gpuStartFailed": "Rawtonic이 그래픽 프로세서를 시작하지 못해 사진을 현상하거나 내보낼 수 없습니다. 그래픽 설정을 초기화한 후 다시 시도하고, 그래도 안 되면 그래픽 드라이버를 업데이트하세요. 자세한 내용: {{details}}",
     "operationFailed": "작업을 완료하지 못했습니다."
   },
@@ -2110,6 +2112,12 @@
       "ingestWaiting": "중단된 가져오기의 사진 {{n}}장이 카드나 드라이브를 기다립니다. 연결된 상태로 라이브러리를 열면 가져오기가 계속됩니다.",
       "showImported": "보기",
       "sidecarsCopied_other": "XMP 사이드카 {{count}}개 복사됨",
+      "sourceGeometryAll": "Capture One의 수평 보정을 적용하고 각 이미지의 종횡비로 자르기를 대체 ({{n}}장)",
+      "sourceGeometryApplied": "Capture One의 수평 보정과 자르기를 {{n}}장에 적용했습니다(실행 취소로 되돌릴 수 있음)",
+      "sourceGeometryErrors": "일부 사진에 Capture One의 수평 보정과 자르기를 적용하지 못했습니다: {{n}}장.",
+      "sourceGeometryFailed": "Capture One의 수평 보정과 자르기를 적용하지 못했습니다",
+      "sourceGeometryOtherLibrary": "이 사진들을 가져온 라이브러리를 열어 Capture One의 수평 보정과 자르기를 적용하세요.",
+      "sourceGeometryPhoto": "Capture One의 수평 보정과 자르기를 {{name}}에 적용",
       "watching": "{{folder}}에서 새 사진을 감시하는 중입니다.",
       "watchingMissing": "감시 폴더 {{folder}}을(를) 찾을 수 없습니다. 다시 나타나면 감시를 계속합니다.",
       "watchingResumed": "{{folder}} 감시를 다시 시작했습니다."
@@ -3115,6 +3123,8 @@
       "rotateLeft": "왼쪽으로 회전",
       "rotateRight": "오른쪽으로 회전",
       "size": "크기",
+      "sourceGeometry": "Capture One의 수평 보정과 자르기 적용",
+      "sourceGeometryTitle": "이 사진의 수평 보정, 90° 회전, 자르기를 Capture One의 것으로 바꿉니다: 수평 보정 각도와 프레임 고유의 가로세로 비율을 유지하며 빈 모서리가 없는 자동 자르기(Capture One에서 그린 자르기는 읽지 않으며, 직접 만든 자르기는 대체됩니다). 다른 보정은 그대로입니다(실행 취소로 되돌릴 수 있음)",
       "straighten": "수평 맞추기",
       "straightenToolTitle": "수평 또는 수직이어야 하는 가장자리를 따라 선을 그리세요",
       "swapOrientation": "세로와 가로 전환",
@@ -5683,6 +5693,7 @@
     "rename": "이름 변경",
     "reset": "재설정",
     "skipFailed": "실패한 항목 건너뛰기",
+    "sourceGeometry": "Capture One 기하 적용",
     "stacks": "스택",
     "style": "스타일 적용",
     "sync": "조정값 동기화",

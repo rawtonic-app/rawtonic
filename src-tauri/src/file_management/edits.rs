@@ -7,8 +7,8 @@ use super::generate_single_thumbnail_and_cache;
 use super::increment_thumbnail_progress;
 use super::parse_virtual_path;
 use super::resolve_thumbnail_cache_dir;
-use super::sync_metadata_from_xmp;
 use super::sync_metadata_to_xmp;
+use super::xmp_sync::load_sidecar_with_xmp;
 use crate::app_state::AppState;
 use crate::batch_journal::{self, BatchKind};
 use crate::formats::is_raw_file;
@@ -1993,14 +1993,7 @@ pub(crate) fn load_metadata_blocking(
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
     let (source_path, sidecar_path) = parse_virtual_path(&path);
-    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
-
-    if enable_xmp_sync
-        && sync_metadata_from_xmp(&source_path, &mut metadata)
-        && let Ok(json) = serde_json::to_string_pretty(&metadata)
-    {
-        let _ = crate::session_bridge::write_editor_sidecar(&sidecar_path, json);
-    }
+    let mut metadata = load_sidecar_with_xmp(&source_path, &sidecar_path, enable_xmp_sync);
 
     // For the editor only (not written): its history carries it (see
     // LensLookup::Keep).
@@ -2282,15 +2275,16 @@ mod tests {
 
     /// A virtual copy in a folder that takes writes but cannot be read (so
     /// it cannot be synced after the replace): the sidecar holds the edit,
-    /// which export reads, so it is saved, with its undo step, and the
-    /// library keeps the same recipe for a relink.
+    /// with its undo step, and the library holds the same recipe. Relinking
+    /// the photo recreates the copy sidecar for the export pin.
     #[cfg(unix)]
     #[test]
     fn a_virtual_copy_written_into_a_folder_that_cannot_be_read_is_saved() {
         let temp = tempfile::tempdir().unwrap();
         let (_, pinned) = relink_copy_saved_in_unreadable_folder(temp.path());
         assert_eq!(
-            pinned.adjustments["exposure"], 1.5,
+            pinned.adjustments,
+            serde_json::json!({"exposure": 1.5, "saturation": -60}),
             "the relinked copy's export pin"
         );
     }
@@ -2313,35 +2307,37 @@ mod tests {
         rawtonic_fs::atomic_write(&source, &original).unwrap();
         let copy = format!("{}?vc=c0ffee", source.to_string_lossy());
         let paths = vec![copy.clone()];
-        let edited = |exposure: f64| {
+        let edited = |exposure: f64, saturation: i32| {
             move |_: &str, _: &Path, sidecar: &Path| {
                 let mut metadata = crate::exif_processing::load_sidecar(sidecar);
-                metadata.adjustments = serde_json::json!({"exposure": exposure});
+                metadata.adjustments =
+                    serde_json::json!({"exposure": exposure, "saturation": saturation});
                 Ok(metadata)
             }
         };
-        let (_, edits) = edit_sidecars_recorded(&paths, None, edited(0.5));
+        let (_, edits) = edit_sidecars_recorded(&paths, None, edited(0.5, 20));
         assert!(
             edits.failures.is_empty() && edits.unwritten.is_empty(),
             "{edits:?}"
         );
 
         fs::set_permissions(&capture, fs::Permissions::from_mode(0o300)).unwrap();
-        let (changes, edits) = edit_sidecars_recorded(&paths, None, edited(1.5));
+        let (changes, edits) = edit_sidecars_recorded(&paths, None, edited(1.5, -60));
         fs::set_permissions(&capture, fs::Permissions::from_mode(0o755)).unwrap();
 
         let (_, sidecar) = parse_virtual_path(&copy);
         let asset = lib.asset_at(&source).unwrap().unwrap();
-        let file = crate::exif_processing::load_sidecar(&sidecar).adjustments["exposure"].clone();
-        let library =
-            lib.copy_state(&asset.id, "c0ffee").unwrap().unwrap()["adjustments"]["exposure"]
-                .clone();
+        let file = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        let library = &lib.copy_state(&asset.id, "c0ffee").unwrap().unwrap()["adjustments"];
         assert_eq!(
-            file, library,
+            &file, library,
             "the file and the library hold the same recipe"
         );
         assert!(edits.failures.is_empty(), "{edits:?}");
-        assert_eq!(file, 1.5);
+        assert_eq!(
+            file,
+            serde_json::json!({"exposure": 1.5, "saturation": -60})
+        );
         assert_eq!(changes.len(), 1, "its undo step");
 
         // Move only the photo. Relink must recreate the copy sidecar at
@@ -2393,7 +2389,10 @@ mod tests {
         };
 
         let actual = export("pinned.png", Some(pinned.adjustments));
-        let expected = export("direct.png", Some(serde_json::json!({"exposure": 1.5})));
+        let expected = export(
+            "direct.png",
+            Some(serde_json::json!({"exposure": 1.5, "saturation": -60})),
+        );
         let master = export("master.png", None);
         assert_ne!(expected, master, "the edit must visibly change the export");
         assert_eq!(

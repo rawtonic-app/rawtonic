@@ -6,6 +6,9 @@ import { useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { debouncedSetHistory } from '../../hooks/useEditorActions';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
+import { useGeometryOffers } from '../../utils/sourceGeometry';
+import { useLibraryStore } from '../../store/useLibraryStore';
+import { invoke } from '@tauri-apps/api/core';
 import type { AppSettings, SelectedImage } from '../ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
@@ -80,4 +83,40 @@ it('returns focus to the photograph after choosing a crop ratio', () => {
   select.focus();
   fireEvent.change(select, { target: { value: '1' } });
   expect(document.activeElement).toBe(container.querySelector('.studio-viewer'));
+});
+
+it('offers Capture One straightening and crop only for a photo the import named, and applies it on a click', async () => {
+  useLibraryStore.setState({ sessionDirectory: '/jobs/Acme' });
+  useGeometryOffers.setState({ offers: [] });
+  const { rerender } = render(<StudioCropControls />);
+  expect(screen.queryByRole('button', { name: 'Apply Capture One straightening and crop' })).toBeNull();
+  useGeometryOffers.setState({
+    offers: [
+      {
+        directory: '/jobs/Acme',
+        source: '/C1/Trip.cosessiondb',
+        relinks: [],
+        photos: [{ path: '/s/a.NEF', rotation: 5, orientationSteps: 0 }]
+      }
+    ]
+  });
+  rerender(<StudioCropControls />);
+  const button = await screen.findByRole('button', { name: 'Apply Capture One straightening and crop' });
+  // Not applied by itself.
+  expect(invoke).not.toHaveBeenCalledWith('library_apply_source_geometry', expect.anything());
+  vi.mocked(invoke).mockImplementation(async (command) =>
+    command === 'library_apply_source_geometry' ? { recipeChanges: [], unchanged: ['/s/a.NEF'], errors: [] } : undefined
+  );
+  // The angle the report showed is on the entry.
+  expect(screen.getByLabelText('5°')).toBeTruthy();
+  fireEvent.click(button);
+  await vi.waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith('library_apply_source_geometry', {
+      source: '/C1/Trip.cosessiondb',
+      directory: '/jobs/Acme',
+      relinks: [],
+      offers: [{ path: '/s/a.NEF', rotation: 5, orientationSteps: 0 }]
+    })
+  );
+  await vi.waitFor(() => expect(useGeometryOffers.getState().offers).toEqual([]));
 });

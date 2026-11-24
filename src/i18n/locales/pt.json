@@ -1071,6 +1071,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "O driver gráfico deixou de responder várias vezes. As suas edições estão seguras; feche e reabra o Rawtonic para continuar a revelar. Detalhes: {{details}}",
+    "gpuDeviceRecovered": "O driver gráfico deixou de responder. O Rawtonic reiniciou os gráficos; as suas edições estão seguras.",
     "gpuStartFailed": "O Rawtonic não conseguiu iniciar o processador gráfico, por isso não é possível revelar nem exportar fotos. Redefina as configurações gráficas e tente de novo; se não ajudar, atualize o driver gráfico. Detalhes: {{details}}",
     "operationFailed": "Não foi possível concluir a operação."
   },
@@ -2315,6 +2317,12 @@
       "sidecarsCopied_one": "{{count}} arquivo XMP associado copiado",
       "sidecarsCopied_many": "{{count}} arquivos XMP associados copiados",
       "sidecarsCopied_other": "{{count}} arquivos XMP associados copiados",
+      "sourceGeometryAll": "Aplicar o endireitamento do Capture One e substituir os recortes com a proporção de cada imagem ({{n}} fotos)",
+      "sourceGeometryApplied": "Endireitamento e recorte do Capture One aplicados a {{n}} foto(s) (Desfazer repõe-nos)",
+      "sourceGeometryErrors": "Endireitamento e recorte do Capture One não aplicados a algumas fotos: {{n}}.",
+      "sourceGeometryFailed": "Não foi possível aplicar o endireitamento e o recorte do Capture One",
+      "sourceGeometryOtherLibrary": "Abra a biblioteca em que estas fotos foram importadas para aplicar o endireitamento e o recorte do Capture One.",
+      "sourceGeometryPhoto": "Aplicar o endireitamento e o recorte do Capture One a {{name}}",
       "watching": "Monitorando {{folder}} em busca de novas fotos.",
       "watchingMissing": "Pasta monitorada {{folder}} não encontrada; o monitoramento continua quando ela voltar.",
       "watchingResumed": "Monitorando {{folder}} novamente."
@@ -3369,6 +3377,8 @@
       "rotateLeft": "Girar para a esquerda",
       "rotateRight": "Girar para a direita",
       "size": "Tamanho",
+      "sourceGeometry": "Aplicar o endireitamento e o recorte do Capture One",
+      "sourceGeometryTitle": "Substitui o endireitamento, as rotações de um quarto e o recorte desta foto pelos do Capture One: o seu ângulo de endireitamento e um recorte automático com a proporção do próprio enquadramento e sem cantos vazios (um recorte desenhado no Capture One não é lido e o seu próprio recorte é substituído). Todos os outros ajustes ficam (Desfazer repõe-nos)",
       "straighten": "Endireitar",
       "straightenToolTitle": "Desenhe uma linha ao longo de uma borda que deve ficar nivelada ou no prumo",
       "swapOrientation": "Alternar retrato e paisagem",
@@ -6056,6 +6066,7 @@
     "rename": "Renomear",
     "reset": "Repor",
     "skipFailed": "Ignorar itens com falha",
+    "sourceGeometry": "Aplicar geometria do Capture One",
     "stacks": "Empilhamento",
     "style": "Aplicar estilo",
     "sync": "Sincronizar ajustes",

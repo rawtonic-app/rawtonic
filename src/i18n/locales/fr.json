@@ -1071,6 +1071,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "Le pilote graphique a cessé de répondre plusieurs fois. Vos réglages sont intacts ; quittez puis rouvrez Rawtonic pour continuer à développer. Détails : {{details}}",
+    "gpuDeviceRecovered": "Le pilote graphique ne répondait plus. Rawtonic a redémarré le traitement graphique ; vos réglages sont intacts.",
     "gpuStartFailed": "Rawtonic n'a pas pu démarrer le processeur graphique : les photos ne peuvent être ni développées ni exportées. Réinitialisez les réglages graphiques et réessayez ; si cela ne suffit pas, mettez à jour le pilote graphique. Détails : {{details}}",
     "operationFailed": "L’opération n’a pas pu être terminée."
   },
@@ -2315,6 +2317,12 @@
       "sidecarsCopied_one": "{{count}} fichier annexe XMP copié",
       "sidecarsCopied_many": "{{count}} fichiers annexes XMP copiés",
       "sidecarsCopied_other": "{{count}} fichiers annexes XMP copiés",
+      "sourceGeometryAll": "Appliquer le redressement de Capture One et remplacer les recadrages au format de chaque image ({{n}} photos)",
+      "sourceGeometryApplied": "Redressement et recadrage de Capture One appliqués à {{n}} photo(s) (Annuler les rétablit)",
+      "sourceGeometryErrors": "Redressement et recadrage de Capture One non appliqués à certaines photos : {{n}}.",
+      "sourceGeometryFailed": "Le redressement et le recadrage de Capture One n'ont pas pu être appliqués",
+      "sourceGeometryOtherLibrary": "Ouvrez la bibliothèque dans laquelle ces photos ont été importées pour appliquer le redressement et le recadrage de Capture One.",
+      "sourceGeometryPhoto": "Appliquer le redressement et le recadrage de Capture One à {{name}}",
       "watching": "Surveillance de {{folder}} pour les nouvelles photos.",
       "watchingMissing": "Dossier surveillé {{folder}} introuvable ; la surveillance reprend dès qu’il revient.",
       "watchingResumed": "Surveillance de {{folder}} reprise."
@@ -3369,6 +3377,8 @@
       "rotateLeft": "Pivoter à gauche",
       "rotateRight": "Pivoter à droite",
       "size": "Taille",
+      "sourceGeometry": "Appliquer le redressement et le recadrage de Capture One",
+      "sourceGeometryTitle": "Remplacer le redressement, les quarts de tour et le recadrage de cette photo par ceux de Capture One : son angle de redressement et un recadrage automatique au rapport d'aspect propre du cadre, sans coins vides (un recadrage tracé dans Capture One n'est pas lu, et votre propre recadrage est remplacé). Tous les autres réglages restent (Annuler les rétablit)",
       "straighten": "Redresser",
       "straightenToolTitle": "Tracez une ligne le long d’un bord qui doit être horizontal ou vertical",
       "swapOrientation": "Inverser portrait et paysage",
@@ -6056,6 +6066,7 @@
     "rename": "Renommer",
     "reset": "Réinitialiser",
     "skipFailed": "Ignorer les éléments en échec",
+    "sourceGeometry": "Appliquer la géométrie de Capture One",
     "stacks": "Empilement",
     "style": "Appliquer le style",
     "sync": "Synchroniser les ajustements",

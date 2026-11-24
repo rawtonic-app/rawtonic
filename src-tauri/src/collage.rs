@@ -15,6 +15,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tauri::{Emitter, Manager};
 
 /// One photo of the collage: its cell and where the photo is drawn, in
@@ -100,7 +101,7 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
     let luts = app_handle.state::<crate::state::luts::LutState>();
     let develop = app_handle.state::<DevelopSession>();
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
-    let context = get_or_init_gpu_context(&gpu, app_handle)?;
+    let context = Arc::new(get_or_init_gpu_context(&gpu, app_handle)?);
     let settings = crate::state::settings::current(app_handle);
     let tiff = spec.format == "tiff";
     let extension = if tiff { "tiff" } else { "jpg" };
@@ -160,31 +161,42 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
             &mut || {},
         )
         .map_err(|e| format!("{source}: not placed, {e}"))?;
-        let export_source = prepare_export_source(&source, pristine, measures, &adjustments)?
-            .in_library(crate::photo_library::library_of_str(&source));
         let tonemapper_override = |is_raw| {
             crate::image_processing::resolve_tonemapper_override_from_handle(app_handle, is_raw)
         };
         let load_lut = |path: &str| crate::lut_processing::get_or_load_lut(&luts, path).ok();
-        let env = RenderEnv {
-            context: &context,
-            processor: &gpu.processor,
-            image_cache: &develop.gpu_image_cache,
-            tonemapper_override: &tonemapper_override,
-            load_lut: &load_lut,
-            render_inputs: None,
-        };
-        let rendered = process_image_for_export(
-            &source,
-            export_source,
-            &adjustments,
-            &versions,
-            &export_settings,
-            &env,
-            is_raw,
-            "tiff",
-        )?
-        .into_rgb32f();
+        // A lost GPU device renders the cell once more on the new one
+        // (DVL3), as the queue's exports do; nothing is composed before.
+        let rendered = crate::export_processing::render_after_device_loss(
+            &gpu,
+            &context,
+            &AtomicBool::new(false),
+            crate::export_processing::DEVICE_RECOVERY_WAIT,
+            |context| {
+                let export_source =
+                    prepare_export_source(&source, Arc::clone(&pristine), measures, &adjustments)?
+                        .in_library(crate::photo_library::library_of_str(&source));
+                let env = RenderEnv {
+                    context,
+                    processor: &gpu.processor,
+                    image_cache: &develop.gpu_image_cache,
+                    tonemapper_override: &tonemapper_override,
+                    load_lut: &load_lut,
+                    render_inputs: None,
+                };
+                process_image_for_export(
+                    &source,
+                    export_source,
+                    &adjustments,
+                    &versions,
+                    &export_settings,
+                    &env,
+                    is_raw,
+                    "tiff",
+                )
+                .map(|image| image.into_rgb32f())
+            },
+        )?;
 
         // Resample the photo to its drawn size, then place it.
         let [dx, dy, dw, dh] = cell.draw;

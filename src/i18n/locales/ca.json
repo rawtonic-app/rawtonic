@@ -1071,6 +1071,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "El controlador gràfic ha deixat de respondre diverses vegades. Les teves edicions estan segures; tanca i torna a obrir Rawtonic per continuar revelant. Detalls: {{details}}",
+    "gpuDeviceRecovered": "El controlador gràfic ha deixat de respondre. Rawtonic ha reiniciat els gràfics; les teves edicions estan segures.",
     "gpuStartFailed": "Rawtonic no ha pogut iniciar el processador gràfic, de manera que no es poden revelar ni exportar fotos. Restableix els ajustos gràfics i torna-ho a provar; si no n'hi ha prou, actualitza el controlador gràfic. Detalls: {{details}}",
     "operationFailed": "No s’ha pogut completar l’operació."
   },
@@ -2315,6 +2317,12 @@
       "sidecarsCopied_one": "{{count}} fitxer XMP complementari copiat",
       "sidecarsCopied_many": "{{count}} fitxers XMP complementaris copiats",
       "sidecarsCopied_other": "{{count}} fitxers XMP complementaris copiats",
+      "sourceGeometryAll": "Aplica l’adreçament de Capture One i substitueix els retalls amb la relació d’aspecte de cada imatge ({{n}} fotos)",
+      "sourceGeometryApplied": "Adreçament i retallada de Capture One aplicats a {{n}} foto(s) (Desfés els restitueix)",
+      "sourceGeometryErrors": "Adreçament i retallada de Capture One no aplicats a algunes fotos: {{n}}.",
+      "sourceGeometryFailed": "No s'han pogut aplicar l'adreçament i la retallada de Capture One",
+      "sourceGeometryOtherLibrary": "Obre la biblioteca on es van importar aquestes fotos per aplicar l'adreçament i la retallada de Capture One.",
+      "sourceGeometryPhoto": "Aplica l'adreçament i la retallada de Capture One a {{name}}",
       "watching": "Vigilant {{folder}} per si arriben fotos noves.",
       "watchingMissing": "No es troba la carpeta vigilada {{folder}}; la vigilància continua quan torni.",
       "watchingResumed": "Vigilant {{folder}} de nou."
@@ -3369,6 +3377,8 @@
       "rotateLeft": "Gira a l’esquerra",
       "rotateRight": "Gira a la dreta",
       "size": "Mida",
+      "sourceGeometry": "Aplica l'adreçament i la retallada de Capture One",
+      "sourceGeometryTitle": "Substitueix l'adreçament, els girs d'un quart i la retallada d'aquesta foto pels de Capture One: el seu angle d'adreçament i una retallada automàtica amb la proporció pròpia de l'enquadrament i sense cantonades buides (una retallada dibuixada a Capture One no es llegeix i la teva retallada es substitueix). La resta d'ajustos es mantenen (Desfés els restitueix)",
       "straighten": "Redreça",
       "straightenToolTitle": "Dibuixa una línia al llarg d’una vora que hagi de quedar horitzontal o vertical",
       "swapOrientation": "Canvia entre vertical i horitzontal",
@@ -6056,6 +6066,7 @@
     "rename": "Canvia el nom",
     "reset": "Restableix",
     "skipFailed": "Omet els elements fallits",
+    "sourceGeometry": "Aplica la geometria de Capture One",
     "stacks": "Apilament",
     "style": "Aplica l'estil",
     "sync": "Sincronitza els ajustaments",
