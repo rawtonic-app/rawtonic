@@ -343,6 +343,56 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn headless_exports_parse_the_conflict_policy() {
+        let parse = |extra: &[&str]| {
+            let mut args = strings(&["export", "Capture", "--output", "Output"]);
+            args.extend(strings(extra));
+            parse_launch_args(&args, None)
+        };
+        for (extra, expected) in [
+            (&[][..], ExistingFiles::KeepBoth),
+            (&["--on-conflict", "keep-both"], ExistingFiles::KeepBoth),
+            (&["--on-conflict", "skip"], ExistingFiles::Skip),
+            (
+                &["--on-conflict", "replace-if-changed"],
+                ExistingFiles::ReplaceIfChanged,
+            ),
+        ] {
+            let LaunchRequest::HeadlessExport(session) = parse(extra) else {
+                panic!("expected a headless export for {extra:?}");
+            };
+            assert_eq!(session.existing_files, expected, "{extra:?}");
+        }
+        for extra in [
+            &["--on-conflict"][..],
+            &["--on-conflict", "ask"],
+            &["--on-conflict", "unknown"],
+        ] {
+            let LaunchRequest::InvalidHeadless(error) = parse(extra) else {
+                panic!("expected a conflict policy error for {extra:?}");
+            };
+            assert!(error.contains(extra.last().unwrap()), "{error}");
+        }
+    }
+
+    #[test]
+    fn headless_conflict_option_and_recipes_parse_in_either_order() {
+        for extra in [
+            ["--on-conflict", "skip", "--recipes", "recipes.json"],
+            ["--recipes", "recipes.json", "--on-conflict", "skip"],
+        ] {
+            let mut args = strings(&["export", "Capture", "--output", "Output"]);
+            args.extend(strings(&extra));
+            let LaunchRequest::HeadlessExport(session) = parse_launch_args(&args, None) else {
+                panic!("expected a headless export for {extra:?}");
+            };
+            // The runner uses the recipe file's own settings when it is set.
+            assert_eq!(session.recipes.as_deref(), Some("recipes.json"));
+            assert_eq!(session.existing_files, ExistingFiles::Skip);
+        }
+    }
+
     fn strings(args: &[&str]) -> Vec<String> {
         args.iter().map(|s| s.to_string()).collect()
     }
