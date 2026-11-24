@@ -6,8 +6,8 @@
 //!
 //! Run: `cargo test -p rawtonic-gpu -- --ignored bw_toning`.
 
-use super::*;
 use super::color_grading::{decode, encode, from_oklab, to_oklab};
+use super::*;
 use rawtonic_engine::bw_toning::BW_TONING_LUT_SIZE;
 use rawtonic_engine::image_processing::get_all_adjustments_from_json;
 
@@ -40,7 +40,9 @@ fn bw_toning_adds_the_tables_shift_to_the_grey() {
         let mut recipe = plain_recipe.clone();
         recipe["blackAndWhiteToning"] = toning.clone();
         // The table the renderer receives for this recipe.
-        let table = get_all_adjustments_from_json(&recipe, false, None).global.bw_toning_lut;
+        let table = get_all_adjustments_from_json(&recipe, false, None)
+            .global
+            .bw_toning_lut;
         let rendered = render_srgb(&context, &slot, chart, &recipe, true, &[]);
         // Colours inside the cube, and those on or near its surface, which
         // the output's knee eases a little (ease_into_gamut): the table puts

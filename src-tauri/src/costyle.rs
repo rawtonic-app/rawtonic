@@ -725,7 +725,11 @@ fn bw_toning(num: &impl Fn(&str) -> Option<f64>) -> Option<Value> {
         )
     });
     let shadows = dark.map_or_else(off, |(h, s)| {
-        band(h + at_c1_hue(&C1_TONE_SHADOWS, h, 0), s * at_c1_hue(&C1_TONE_SHADOWS, h, 1), 0.0)
+        band(
+            h + at_c1_hue(&C1_TONE_SHADOWS, h, 0),
+            s * at_c1_hue(&C1_TONE_SHADOWS, h, 1),
+            0.0,
+        )
     });
     let balance = match (light, dark) {
         (Some(_), Some((_, s))) => -12.9 - 10.0 * s / 60.0,

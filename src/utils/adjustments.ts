@@ -2864,7 +2864,10 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     { label: 'modals.copyPaste.groups.colorGrading', keys: [ColorAdjustment.ColorGrading, 'colorGradingVersion'] },
     { label: 'modals.copyPaste.groups.colorMixer', keys: [ColorAdjustment.Hsl, 'colorRanges', 'hslVersion'] },
     { label: 'modals.copyPaste.groups.colorCalibration', keys: ['colorCalibration'] },
-    { label: 'modals.copyPaste.groups.blackAndWhite', keys: ['blackAndWhite', 'grayMixer', 'bwVersion', 'blackAndWhiteToning'] }
+    {
+      label: 'modals.copyPaste.groups.blackAndWhite',
+      keys: ['blackAndWhite', 'grayMixer', 'bwVersion', 'blackAndWhiteToning']
+    }
   ],
   details: [
     {

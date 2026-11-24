@@ -134,7 +134,10 @@ fn toned(toning: &BwToning, l: f64) -> [f64; 3] {
     let amount = |v: f64| v.clamp(0.0, BwToning::AMOUNT_MAX) / BwToning::AMOUNT_MAX;
     let (wh, ws) = weights(
         l,
-        toning.balance.clamp(BwToning::BALANCE_MIN, BwToning::BALANCE_MAX) / BwToning::BALANCE_MAX,
+        toning
+            .balance
+            .clamp(BwToning::BALANCE_MIN, BwToning::BALANCE_MAX)
+            / BwToning::BALANCE_MAX,
         amount(toning.paper),
     );
     let mut out = [l, 0.0, 0.0];
@@ -222,7 +225,9 @@ mod tests {
 
     /// Inside sRGB up to the table's f32 rounding.
     fn inside(lab: [f64; 3]) -> bool {
-        oklab_to_linear(lab).iter().all(|&c| (-1e-4..=1.0 + 1e-4).contains(&c))
+        oklab_to_linear(lab)
+            .iter()
+            .all(|&c| (-1e-4..=1.0 + 1e-4).contains(&c))
     }
 
     fn grey_l(i: usize) -> f64 {
@@ -271,7 +276,11 @@ mod tests {
                 entry[0].abs() < 1e-6 || (entry[0] < 0.0 && !in_srgb(kept)),
                 "lightness kept at {i}: {entry:?}"
             );
-            let lab = [grey_l(i) + entry[0] as f64, entry[1] as f64, entry[2] as f64];
+            let lab = [
+                grey_l(i) + entry[0] as f64,
+                entry[1] as f64,
+                entry[2] as f64,
+            ];
             assert!(inside(lab), "inside sRGB at {i}");
         }
         // Warm highlights, cool shadows.
@@ -289,8 +298,14 @@ mod tests {
             ..BwToning::default()
         };
         let white = lut(&toning)[BW_TONING_LUT_SIZE - 1];
-        assert!(white[1].hypot(white[2]) > 0.08, "white is tinted: {white:?}");
-        assert!(white[0] < -0.02, "a tinted white is darker than white: {white:?}");
+        assert!(
+            white[1].hypot(white[2]) > 0.08,
+            "white is tinted: {white:?}"
+        );
+        assert!(
+            white[0] < -0.02,
+            "a tinted white is darker than white: {white:?}"
+        );
     }
 
     #[test]
@@ -306,7 +321,10 @@ mod tests {
         let (a, b) = (lut(&base)[22], lut(&dense)[22]);
         let chroma = (b[1] as f64).hypot(b[2] as f64);
         assert!(a[0].abs() < 1e-6);
-        assert!((b[0] as f64 + 0.8 * chroma).abs() < 1e-3, "dL = −0.8 C: {b:?}");
+        assert!(
+            (b[0] as f64 + 0.8 * chroma).abs() < 1e-3,
+            "dL = −0.8 C: {b:?}"
+        );
     }
 
     #[test]
@@ -321,8 +339,14 @@ mod tests {
                 };
                 let table = lut(&toning);
                 for i in 1..BW_TONING_LUT_SIZE {
-                    let (prev, here) = (grey_l(i - 1) + table[i - 1][0] as f64, grey_l(i) + table[i][0] as f64);
-                    assert!(here >= prev - 1e-6, "paper {paper} density {density} at {i}");
+                    let (prev, here) = (
+                        grey_l(i - 1) + table[i - 1][0] as f64,
+                        grey_l(i) + table[i][0] as f64,
+                    );
+                    assert!(
+                        here >= prev - 1e-6,
+                        "paper {paper} density {density} at {i}"
+                    );
                     let lab = [here, table[i][1] as f64, table[i][2] as f64];
                     assert!(inside(lab), "inside sRGB at {i}");
                 }
@@ -357,10 +381,7 @@ mod tests {
         // In colour, without saturation, or with the colour section hidden:
         // the uniforms are those of the same recipe without the key.
         for (with, without) in [
-            (
-                json!({"blackAndWhiteToning": toning}),
-                json!({}),
-            ),
+            (json!({"blackAndWhiteToning": toning}), json!({})),
             (
                 json!({"blackAndWhite": true, "blackAndWhiteToning": {"paper": 100, "balance": 50}}),
                 json!({"blackAndWhite": true}),
