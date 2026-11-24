@@ -139,7 +139,7 @@ pub fn extract_color_tags(image: &DynamicImage) -> Vec<String> {
         .map(|(name, &count)| (name.clone(), count))
         .collect();
 
-    colorful_tags.sort_by_key(|b| std::cmp::Reverse(b.1));
+    colorful_tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
     if !colorful_tags.is_empty() {
         colorful_tags
@@ -150,7 +150,7 @@ pub fn extract_color_tags(image: &DynamicImage) -> Vec<String> {
     } else {
         color_counts
             .into_iter()
-            .max_by_key(|&(_, count)| count)
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)))
             .map(|(name, _)| vec![name])
             .unwrap_or_default()
     }
@@ -233,26 +233,39 @@ pub fn generate_tags(
         .collect();
     let initial_tags = select_tags(&scores, tags, max_tags);
 
-    let mut final_tags_set: HashSet<String> = initial_tags.iter().cloned().collect();
+    let color_tags = if is_custom {
+        Vec::new()
+    } else {
+        extract_color_tags(image)
+    };
+    Ok(limit_tags(&initial_tags, !is_custom, color_tags, max_tags))
+}
 
-    if !is_custom {
-        let color_tags = extract_color_tags(image);
-        for color_tag in color_tags {
-            final_tags_set.insert(color_tag);
+// Adapted from CyberTimon/RapidRAW 367145a1, AGPL-3.0.
+fn limit_tags(
+    ranked_tags: &[String],
+    add_parents: bool,
+    color_tags: Vec<String>,
+    max_tags: usize,
+) -> Vec<String> {
+    let mut final_tags: Vec<String> = Vec::new();
+    let mut add_tag = |tag: &str| {
+        if final_tags.len() < max_tags && !final_tags.iter().any(|t| t == tag) {
+            final_tags.push(tag.to_string());
         }
-
-        for tag in &initial_tags {
-            if let Some(parents) = TAG_HIERARCHY.get(tag.as_str()) {
-                for &parent in parents {
-                    final_tags_set.insert(parent.to_string());
-                }
+    };
+    for tag in ranked_tags {
+        add_tag(tag);
+        if add_parents && let Some(parents) = TAG_HIERARCHY.get(tag.as_str()) {
+            for parent in parents {
+                add_tag(parent);
             }
         }
     }
-
-    let final_tags = final_tags_set.into_iter().collect();
-
-    Ok(final_tags)
+    for color_tag in &color_tags {
+        add_tag(color_tag);
+    }
+    final_tags
 }
 
 #[tauri::command]
@@ -962,6 +975,60 @@ fn clear_tags_under(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn equal_colour_counts_have_a_stable_tie_break() {
+        for (left, right, expected) in [
+            ([255, 0, 0], [0, 0, 255], vec!["blue", "red"]),
+            ([0, 0, 0], [255, 255, 255], vec!["white"]),
+        ] {
+            let image = DynamicImage::ImageRgb8(image::RgbImage::from_fn(100, 100, |x, _| {
+                image::Rgb(if x < 50 { left } else { right })
+            }));
+            for _ in 0..20 {
+                assert_eq!(extract_color_tags(&image), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn generated_tag_budget_includes_parents_and_colours_in_rank_order() {
+        let tags: Vec<String> = [
+            "dog", "cat", "tree", "car", "bird", "flower", "house", "boat",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let dim = crate::ai_processing::SIGLIP_EMBED_DIM;
+        let mut embeddings = vec![0.0; dim * tags.len()];
+        for (i, row) in embeddings.chunks_exact_mut(dim).enumerate() {
+            row[0] = 0.3 - i as f32 * 0.001;
+        }
+        let mut embedding = vec![0.0; dim];
+        embedding[0] = 1.0;
+        let image = DynamicImage::new_rgb8(2, 2);
+        for limit in [0, 1, 8, 30] {
+            let result =
+                generate_tags(&image, &embedding, &tags, &embeddings, false, limit).unwrap();
+            assert!(result.len() <= limit, "{result:?}");
+            assert_eq!(
+                result,
+                generate_tags(&image, &embedding, &tags, &embeddings, false, limit).unwrap()
+            );
+            if limit > 0 {
+                assert_eq!(result[0], "dog");
+            }
+            if limit == 8 {
+                assert_eq!(&result[..4], ["dog", "animal", "pet", "cat"]);
+            }
+            if limit == 30 {
+                assert_eq!(result.last().unwrap(), "black");
+            }
+            let custom =
+                generate_tags(&image, &embedding, &tags, &embeddings, true, limit).unwrap();
+            assert_eq!(custom, tags.iter().take(limit).cloned().collect::<Vec<_>>());
+        }
+    }
 
     /// Renaming a keyword renames the keywords under it, keeps others and
     /// colour labels, and merges into a keyword the photograph has.

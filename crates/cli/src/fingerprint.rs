@@ -3,6 +3,7 @@
 //! what a rawler update or a decode change altered. See
 //! docs/testing/README.md.
 use anyhow::{Context, Result};
+use rawtonic_runtime::cli_eprintln;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -127,7 +128,7 @@ pub fn run(args: FingerprintArgs) -> Result<()> {
         let bytes = match std::fs::read(path) {
             Ok(bytes) => bytes,
             Err(e) => {
-                eprintln!("{}: {e}", path.display());
+                cli_eprintln!("{}: {e}", path.display());
                 failures
                     .entry("unreadable".into())
                     .or_default()
@@ -151,7 +152,7 @@ pub fn run(args: FingerprintArgs) -> Result<()> {
         }
         entries.insert(key, value);
         if (i + 1) % 50 == 0 {
-            eprintln!("{} / {} files", i + 1, files.len());
+            cli_eprintln!("{} / {} files", i + 1, files.len());
         }
     }
     let report = json!({
@@ -171,7 +172,7 @@ pub fn run(args: FingerprintArgs) -> Result<()> {
             .get(((timings.len().max(1) - 1) as f64 * q).round() as usize)
             .copied()
     };
-    eprintln!(
+    cli_eprintln!(
         "{}",
         serde_json::to_string_pretty(&json!({
             "files": entries.len(),
@@ -189,11 +190,14 @@ pub fn run(args: FingerprintArgs) -> Result<()> {
             let report: Value = serde_json::from_slice(&serde_json::to_vec_pretty(&report)?)?;
             let diff = compare(&baseline, &report);
             for line in &diff.lines {
-                println!("{line}");
+                rawtonic_runtime::cli_output::write_result_line(std::io::stdout(), line)?;
             }
-            eprintln!(
+            cli_eprintln!(
                 "{} changed, {} new, {} missing, {} unchanged",
-                diff.changed, diff.new, diff.missing, diff.unchanged
+                diff.changed,
+                diff.new,
+                diff.missing,
+                diff.unchanged
             );
             anyhow::ensure!(
                 diff.changed + diff.new + diff.missing == 0,
@@ -203,7 +207,7 @@ pub fn run(args: FingerprintArgs) -> Result<()> {
             Ok(())
         }
         None if args.out.is_none() => {
-            println!("{}", serde_json::to_string_pretty(&report)?);
+            crate::print(&report)?;
             Ok(())
         }
         None => Ok(()),

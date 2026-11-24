@@ -600,3 +600,70 @@ describe('region curve split handles under the curve (UXR1 D4)', () => {
     expect(onRegionChange).toHaveBeenLastCalledWith({ ...region, highlightSplit: 75 });
   });
 });
+
+it('Shift slows point drag to one fifth without snapping the grab offset', () => {
+  const onChange = vi.fn();
+  const curves = {
+    ...INITIAL_ADJUSTMENTS.curves,
+    luma: [
+      { x: 0, y: 0 },
+      { x: 100, y: 100 },
+      { x: 255, y: 255 }
+    ]
+  };
+  const { container } = render(
+    <PointCurve curves={curves} onChange={onChange} disabled={false} onInteraction={vi.fn()} />
+  );
+  const svg = stubCurvePointer(container);
+  fireEvent.pointerDown(svg, { button: 0, clientX: 103, clientY: 155 });
+  fireEvent.pointerMove(svg, { buttons: 1, clientX: 153, clientY: 105, shiftKey: true });
+  fireEvent.pointerUp(svg);
+  expect(onChange.mock.lastCall?.[0].luma[1]).toEqual({ x: 110, y: 110 });
+});
+it('grabs the nearest point within 12 screen pixels, including the endpoint', () => {
+  const curves = {
+    ...INITIAL_ADJUSTMENTS.curves,
+    luma: [
+      { x: 0, y: 0 },
+      { x: 100, y: 100 },
+      { x: 110, y: 100 },
+      { x: 255, y: 255 }
+    ]
+  };
+  const onChange = vi.fn();
+  const { container } = render(
+    <PointCurve curves={curves} onChange={onChange} disabled={false} onInteraction={vi.fn()} />
+  );
+  const svg = stubCurvePointer(container);
+  fireEvent.pointerDown(svg, { button: 0, clientX: 109, clientY: 155 });
+  fireEvent.pointerMove(svg, { buttons: 1, clientX: 119, clientY: 145 });
+  fireEvent.pointerUp(svg);
+  expect(onChange.mock.lastCall?.[0].luma[2]).toEqual({ x: 120, y: 110 });
+  onChange.mockClear();
+  fireEvent.pointerDown(svg, { button: 0, clientX: 12, clientY: 255 });
+  fireEvent.pointerMove(svg, { buttons: 1, clientX: 22, clientY: 245 });
+  fireEvent.pointerUp(svg);
+  expect(onChange.mock.lastCall?.[0].luma[0]).toEqual({ x: 0, y: 10 });
+});
+
+it('keeps the unclamped drag target when crossing a neighbour and returning', () => {
+  const onChange = vi.fn();
+  const curves = {
+    ...INITIAL_ADJUSTMENTS.curves,
+    luma: [
+      { x: 0, y: 0 },
+      { x: 100, y: 100 },
+      { x: 110, y: 110 },
+      { x: 255, y: 255 }
+    ]
+  };
+  const { container } = render(
+    <PointCurve curves={curves} onChange={onChange} disabled={false} onInteraction={vi.fn()} />
+  );
+  const svg = stubCurvePointer(container);
+  fireEvent.pointerDown(svg, { button: 0, clientX: 100, clientY: 155 });
+  fireEvent.pointerMove(svg, { buttons: 1, clientX: 130, clientY: 155 });
+  fireEvent.pointerMove(svg, { buttons: 1, clientX: 100, clientY: 155 });
+  fireEvent.pointerUp(svg);
+  expect(onChange.mock.lastCall?.[0].luma[1]).toEqual({ x: 100, y: 100 });
+});

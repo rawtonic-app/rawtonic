@@ -24,6 +24,14 @@
 
 ### Fixes
 
+- Automatic keyword suggestions respect the requested total count, including parent and colour keywords, and keep a stable order.
+
+- Hold Shift while dragging a curve point for finer control; clicks within 12 pixels grab the nearest point, including endpoints.
+
+- Headless exports and CLI progress finish normally when a downstream command closes its output pipe.
+
+- RAW-only library filters keep matching photos visible when RAW+JPEG grouping prefers JPEG.
+
 - After importing a Capture One session or a Lightroom catalog into an open catalog, the imported photographs' folder in the Folders panel and the Previous Import album ("Last import") now appear at once. Before, they stayed missing until the app was restarted. The folder list now also follows a hot-folder capture, a tethered shot or a folder synchronization that adds photographs outside the listed folders.
 - Capture One catalog and session import reports name the photos whose Color Editor settings were approximated or partly left out.
 - After a lost graphics device (driver reset), a collage cell whose render met the loss is rendered once more on the new device, as the export queue does, instead of failing the collage. In a multi view, a zoomed cell shows its cached thumbnail enlarged at once on the new device, no longer the whole photo at fit until its region develops again.

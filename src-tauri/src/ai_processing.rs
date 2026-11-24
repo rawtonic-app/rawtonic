@@ -276,7 +276,7 @@ pub fn configure_acceleration(app_handle: &tauri::AppHandle, resources: &Path, g
     }
     plugin_dirs.dedup();
     // Runs before the logger is set up, like the ORT_DYLIB_PATH line.
-    println!(
+    rawtonic_runtime::cli_println!(
         "AI: GPU providers {} (plugin folders {:?})",
         if gpu { "allowed" } else { "off by preference" },
         plugin_dirs
@@ -673,7 +673,10 @@ pub(crate) async fn download_verified_in(
 
     if !is_valid {
         if dest_path.exists() {
-            println!("Model {} has incorrect hash. Re-downloading.", model_name);
+            rawtonic_runtime::cli_println!(
+                "Model {} has incorrect hash. Re-downloading.",
+                model_name
+            );
         }
         // The finish event also when the download is dropped (a cancelled
         // removal stops waiting for it); in a batch, once for all its
