@@ -35,7 +35,7 @@ fn running_in_flatpak() -> bool {
 /// Preferences shows where updates come from instead of the update switches
 /// when Flatpak delivers them.
 #[tauri::command]
-pub fn updates_managed_by_flatpak() -> bool {
+pub async fn updates_managed_by_flatpak() -> bool {
     running_in_flatpak()
 }
 
