@@ -10,7 +10,7 @@ use rayon::prelude::*;
 
 use crate::FaceAnalysis;
 use crate::eye_teeth::EyeTeeth;
-use crate::portrait::{Parsed, PortraitModel};
+use crate::portrait::{Parsed, PortraitModel, Sam};
 
 /// The photo as displayed, 8-bit sRGB: what the networks were trained on.
 /// `linear`: the image is a linear RAW decode.
@@ -56,11 +56,14 @@ fn png_data_url(image: &GrayImage) -> Result<String, String> {
 /// (rawtonic-engine `face_retouch`), and the face box and a small thumbnail
 /// for the panel. With `portrait` the eye and teeth parser's outlines too
 /// (`parsedEye`, `parsedIris` per eye it found, `parsedTeeth` on every face,
-/// empty where Face Mesh's outlines stay; `portrait`).
+/// empty where Face Mesh's outlines stay; `portrait`). With `sam` too, SAM's
+/// outline of teeth the parser saw only in part (`refinedTeeth`, on the faces
+/// that have one; `portrait::Sam`).
 pub fn retouch_faces(
     image: &RgbImage,
     analysis: &FaceAnalysis,
     portrait: Option<&PortraitModel>,
+    sam: Option<Sam>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let features: Vec<EyeTeeth> = analysis
         .faces
@@ -73,7 +76,9 @@ pub fn retouch_faces(
             .faces
             .iter()
             .zip(&features)
-            .map(|(face, features)| crate::portrait::parse(model, image, face, features).map(Some))
+            .map(|(face, features)| {
+                crate::portrait::parse(model, image, face, features, sam).map(Some)
+            })
             .collect::<anyhow::Result<_>>()
             .map_err(|e| format!("{e:#}"))?,
         None => vec![None; analysis.faces.len()],
@@ -146,6 +151,9 @@ pub fn retouch_faces(
             });
             if let Some(p) = parsed {
                 entry["parsedTeeth"] = serde_json::json!(loops(&p.teeth));
+                if !p.refined_teeth.is_empty() {
+                    entry["refinedTeeth"] = serde_json::json!(loops(&p.refined_teeth));
+                }
             }
             Ok(Some(entry))
         })
@@ -158,6 +166,15 @@ pub fn retouch_faces(
 /// the value it was first made with when its faces are found again.
 pub fn iris_disk(portrait: Option<&PortraitModel>) -> Option<f32> {
     portrait.map(|_| crate::portrait::IRIS_DISK)
+}
+
+/// The face retouch's `teethRefine` for faces `retouch_faces` made with
+/// `portrait` and `sam` (1: a face's `refinedTeeth` replace its
+/// `parsedTeeth`); none without them. Like `irisDisk`, a retouch keeps the
+/// value it was first made with, so retouches made before SAM's teeth, or
+/// without its files, render their teeth as they did.
+pub fn teeth_refine(portrait: Option<&PortraitModel>, sam: Option<Sam>) -> Option<u32> {
+    (portrait.is_some() && sam.is_some()).then_some(1)
 }
 
 /// A People selection (`ai-people`) of `parts` (`Part::name`) of everyone

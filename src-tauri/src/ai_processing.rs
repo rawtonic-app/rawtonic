@@ -48,8 +48,8 @@ const MODEL_PACK_URL: &str =
 // SAM 2.1 Hiera-T (Meta, Apache-2.0 weights), exported by
 // scripts/models/export_sam2.py: the photo stretched to 1024 x 1024 in,
 // point/box masks out. It replaced SAM ViT-B on 2026-10-09 (docs/MODELS.md).
-const ENCODER_FILENAME: &str = "sam2.1_tiny_encoder.onnx";
-const DECODER_FILENAME: &str = "sam2.1_tiny_decoder.onnx";
+const ENCODER_FILENAME: &str = rawtonic_faces::portrait::sam_teeth::ENCODER_FILE;
+const DECODER_FILENAME: &str = rawtonic_faces::portrait::sam_teeth::DECODER_FILE;
 const SAM_INPUT_SIZE: u32 = 1024;
 /// Long edge of the decoder's first-pass mask, which only places the second
 /// pass's prompt points (four pixels per cell of its 256 × 256 mask).
@@ -947,6 +947,33 @@ pub async fn get_or_init_depth_model(
         ai.depth_model = Some(model.clone())
     });
     Ok(model)
+}
+
+/// SAM 2.1 for Teeth's outline of teeth the eye and teeth parser saw only
+/// in part (rawtonic-faces `portrait::Sam`): fetched with the parser when
+/// `download` (the user's click on Eyes and Teeth' download), otherwise only
+/// when installed. `None` when it is not there or fails to load: Teeth then
+/// keeps the parser's outline, and a retouch made then keeps it
+/// (`teethRefine` stays unset).
+pub async fn teeth_sam_models(
+    app_handle: &tauri::AppHandle,
+    download: bool,
+) -> Option<Arc<SamModels>> {
+    let ai_state = app_handle.state::<AiState>();
+    if !download {
+        let installed = ensure_local_runtime().is_ok()
+            && get_models_dir(app_handle).is_ok_and(|dir| {
+                verify_sha256(&dir.join(ENCODER_FILENAME), ENCODER_SHA256).unwrap_or(false)
+                    && verify_sha256(&dir.join(DECODER_FILENAME), DECODER_SHA256).unwrap_or(false)
+            });
+        if !installed {
+            return None;
+        }
+    }
+    get_or_init_sam_models(app_handle, &ai_state)
+        .await
+        .inspect_err(|e| log::warn!("Teeth: SAM 2.1 not loaded, the parser's outline stays: {e:#}"))
+        .ok()
 }
 
 /// Loads SAM 2.1 ahead of the first object mask when its files are already

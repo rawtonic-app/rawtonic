@@ -7,7 +7,9 @@
 //!     MODELS_DIR (onnx|coreml) RUNS PHOTO...
 //! MODELS_DIR holds the face models and the parser's files (`portrait`);
 //! `coreml` takes the assembled Core ML program (macOS), `onnx` the ONNX
-//! model on ONNX Runtime's CPU provider (ORT_DYLIB_PATH).
+//! model on ONNX Runtime's CPU provider (ORT_DYLIB_PATH). With `WITH_SAM=1`
+//! the parse also runs SAM's teeth outline (`portrait::Sam`; SAM 2.1's
+//! `sam2.1_tiny_*.onnx` in MODELS_DIR, loaded as the app loads them).
 
 use std::path::Path;
 use std::time::Instant;
@@ -38,6 +40,14 @@ fn main() -> Result<()> {
         start.elapsed().as_millis(),
         model.backend_name()
     );
+    let sam = if std::env::var("WITH_SAM").is_ok_and(|v| v == "1") {
+        let t = Instant::now();
+        let models = portrait::sam_teeth::load(dir)?.context("SAM 2.1 files")?;
+        println!("SAM load {} ms", t.elapsed().as_millis());
+        Some(models)
+    } else {
+        None
+    };
     let mut times = Vec::new();
     for (k, photo) in photos.iter().enumerate() {
         let image = image::open(photo).with_context(|| photo.clone())?.to_rgb8();
@@ -46,7 +56,10 @@ fn main() -> Result<()> {
             let features = rawtonic_faces::eye_teeth::eye_teeth(&image, face);
             for run in 0..runs {
                 let t = Instant::now();
-                portrait::parse(&model, &image, face, &features)?;
+                let sam = sam
+                    .as_ref()
+                    .map(|(encoder, decoder)| portrait::Sam { encoder, decoder });
+                portrait::parse(&model, &image, face, &features, sam)?;
                 let ms = t.elapsed().as_secs_f64() * 1e3;
                 if k == 0 && run == 0 {
                     println!("first parse {ms:.0} ms");
@@ -67,6 +80,7 @@ fn main() -> Result<()> {
         );
     }
     std::mem::forget(model);
+    std::mem::forget(sam);
     std::mem::forget(faces);
     Ok(())
 }

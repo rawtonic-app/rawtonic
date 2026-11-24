@@ -1343,6 +1343,47 @@ mod tests {
         assert!(a == b && changed(&before, &a, 200, 216));
     }
 
+    #[test]
+    fn sams_teeth_replace_the_parsers_only_on_retouches_made_with_them() {
+        let (before, mut recipe) = face();
+        let entry = &mut recipe["faceRetouch"]["faces"][0];
+        entry["mouth"] = Value::Null;
+        // The parser saw the left half of the teeth, SAM all of them.
+        entry["parsedTeeth"] = json!([[
+            [170.0, 210.0],
+            [200.0, 210.0],
+            [200.0, 224.0],
+            [170.0, 224.0]
+        ]]);
+        entry["refinedTeeth"] = json!([[
+            [170.0, 210.0],
+            [230.0, 210.0],
+            [230.0, 224.0],
+            [170.0, 224.0]
+        ]]);
+        let settings = json!({"teethBrightness": 100});
+        let render = |recipe: &Value| {
+            let mut image = before.clone();
+            apply_face_retouch(&mut image, &with(recipe.clone(), settings.clone()));
+            image
+        };
+        // Made before SAM's teeth: the parser's outline, as it rendered.
+        let old = render(&recipe);
+        assert!(changed(&before, &old, 185, 216));
+        assert!(!changed(&before, &old, 220, 216));
+        // Made with them: SAM's outline.
+        let mut refined = recipe.clone();
+        refined["faceRetouch"]["teethRefine"] = json!(1);
+        let new = render(&refined);
+        assert!(changed(&before, &new, 185, 216) && changed(&before, &new, 220, 216));
+        // A face without SAM's outline keeps the parser's.
+        refined["faceRetouch"]["faces"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("refinedTeeth");
+        assert!(render(&refined) == old);
+    }
+
     /// An open mouth as the parser sees it: its teeth outline takes in the
     /// whole opening, the dark gaps between the teeth, the gum line above
     /// them and the black of the mouth below.
@@ -1490,10 +1531,12 @@ mod tests {
         let face = &mut recipe["faceRetouch"]["faces"][0];
         face["eyes"][0]["parsedEye"] = json!([[[10.0, 20.0], [30.0, 20.0], [30.0, 40.0]]]);
         face["parsedTeeth"] = json!([[[100.0, 200.0], [140.0, 200.0], [140.0, 220.0]]]);
+        face["refinedTeeth"] = json!([[[100.0, 200.0], [160.0, 200.0], [160.0, 220.0]]]);
         let scaled = crate::face_retouch::scaled_recipe(&recipe, 0.5);
         let face = &scaled["faceRetouch"]["faces"][0];
         assert_eq!(face["eyes"][0]["parsedEye"][0][2], json!([15.0, 20.0]));
         assert_eq!(face["parsedTeeth"][0][1], json!([70.0, 100.0]));
+        assert_eq!(face["refinedTeeth"][0][1], json!([80.0, 100.0]));
     }
 
     #[test]

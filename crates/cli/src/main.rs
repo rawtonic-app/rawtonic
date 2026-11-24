@@ -415,6 +415,7 @@ fn with_face_retouch(
     settings: &serde_json::Value,
     models: &rawtonic_faces::FaceModels,
     portrait: Option<&rawtonic_faces::portrait::PortraitModel>,
+    sam: Option<rawtonic_faces::portrait::Sam>,
 ) -> Result<serde_json::Value> {
     let bytes = std::fs::read(source).with_context(|| format!("Read {source}"))?;
     let is_raw = rawtonic_engine::formats::is_raw_file(source);
@@ -454,7 +455,7 @@ fn with_face_retouch(
     );
     let image = rawtonic_faces::recipe::display_rgb8(&framed, is_raw);
     let analysis = rawtonic_faces::analyze(&image, models)?;
-    let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait)
+    let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait, sam)
         .map_err(anyhow::Error::msg)?;
     cli_eprintln!("{source}: {} face(s)", faces.len());
     recipe["faceRetouch"] = serde_json::json!({
@@ -465,6 +466,9 @@ fn with_face_retouch(
     });
     if let Some(disk) = rawtonic_faces::recipe::iris_disk(portrait) {
         recipe["faceRetouch"]["irisDisk"] = serde_json::json!(disk);
+    }
+    if let Some(refine) = rawtonic_faces::recipe::teeth_refine(portrait, sam) {
+        recipe["faceRetouch"]["teethRefine"] = serde_json::json!(refine);
     }
     Ok(recipe)
 }
@@ -1412,6 +1416,15 @@ fn export(args: ExportArgs) -> Result<()> {
                         .context("Eyes and Teeth")
                 })
                 .transpose()?;
+            // SAM's teeth outline where SAM 2.1 is installed, as in the app.
+            let sam_models = match &portrait {
+                Some(_) => rawtonic_faces::portrait::sam_teeth::load(&models_dir(models.clone())?)
+                    .context("SAM 2.1")?,
+                None => None,
+            };
+            let sam = sam_models
+                .as_ref()
+                .map(|(encoder, decoder)| rawtonic_faces::portrait::Sam { encoder, decoder });
             let recipes = named
                 .iter()
                 .zip(recipes)
@@ -1425,6 +1438,7 @@ fn export(args: ExportArgs) -> Result<()> {
                         &settings,
                         &face_models,
                         portrait.as_ref(),
+                        sam,
                     )
                     .map(Some)
                 })
@@ -1432,6 +1446,7 @@ fn export(args: ExportArgs) -> Result<()> {
             // ONNX Runtime aborts when its environment is torn down at exit.
             std::mem::forget(face_models);
             std::mem::forget(portrait);
+            std::mem::forget(sam_models);
             recipes
         }
         None => recipes,

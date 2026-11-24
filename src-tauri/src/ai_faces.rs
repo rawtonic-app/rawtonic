@@ -278,6 +278,14 @@ pub(crate) async fn portrait_model(
     Ok(Some(model))
 }
 
+/// SAM 2.1's models as Teeth's outline uses them (`portrait::Sam`).
+fn teeth_sam(models: &crate::ai_processing::SamModels) -> rawtonic_faces::portrait::Sam<'_> {
+    rawtonic_faces::portrait::Sam {
+        encoder: &models.encoder,
+        decoder: &models.decoder,
+    }
+}
+
 /// The analysis of the open photo with `js_adjustments`' geometry, made on
 /// first use.
 async fn analysis(
@@ -468,6 +476,16 @@ pub async fn analyze_face_retouch(
         None
     };
     let eyes_teeth_missing = eyes_teeth.unwrap_or(false) && portrait.is_none();
+    let sam = match &portrait {
+        Some(_) => {
+            crate::ai_processing::teeth_sam_models(
+                &app_handle,
+                download_eyes_teeth.unwrap_or(false),
+            )
+            .await
+        }
+        None => None,
+    };
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
         let develop = app_handle.state::<DevelopSession>();
@@ -480,14 +498,18 @@ pub async fn analyze_face_retouch(
             crate::adjustment_utils::apply_spatial_transformations(warped.as_ref(), &uncropped);
         let image = rawtonic_faces::recipe::display_rgb8(&framed, is_raw);
         let analysis = rawtonic_faces::analyze(&image, &models).map_err(|e| e.to_string())?;
+        let sam = sam.as_deref().map(teeth_sam);
         let mut found = serde_json::json!({
             "frame": rawtonic_engine::face_retouch::frame_key(&js_adjustments),
-            "faces": rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait.as_deref())?,
+            "faces": rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait.as_deref(), sam)?,
             "eyesTeethMissing": eyes_teeth_missing,
         });
         // For a retouch the panel makes from these faces.
         if let Some(disk) = rawtonic_faces::recipe::iris_disk(portrait.as_deref()) {
             found["irisDisk"] = serde_json::json!(disk);
+        }
+        if let Some(refine) = rawtonic_faces::recipe::teeth_refine(portrait.as_deref(), sam) {
+            found["teethRefine"] = serde_json::json!(refine);
         }
         Ok(found)
     })
@@ -571,6 +593,10 @@ pub async fn apply_face_retouch_to_paths(
     } else {
         None
     };
+    let sam = match &portrait {
+        Some(_) => crate::ai_processing::teeth_sam_models(&app_handle, true).await,
+        None => None,
+    };
     let app_settings = crate::state::settings::current(&app_handle);
     let face_settings = Arc::new(face_settings);
     let mut done = 0;
@@ -602,6 +628,7 @@ pub async fn apply_face_retouch_to_paths(
         let (source_path, sidecar_path) = rawtonic_export::sidecars::parse_virtual_path(&in_photo);
         let models = models.clone();
         let portrait = portrait.clone();
+        let sam = sam.clone();
         let app_settings = app_settings.clone();
         let settings = settings.clone();
         // Both layers flattened into this one: a panicking (or cancelled)
@@ -649,8 +676,13 @@ pub async fn apply_face_retouch_to_paths(
                 let image = rawtonic_faces::recipe::display_rgb8(&framed, is_raw);
                 let analysis =
                     rawtonic_faces::analyze(&image, &models).map_err(|e| e.to_string())?;
-                let mut faces =
-                    rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait.as_deref())?;
+                let sam = sam.as_deref().map(teeth_sam);
+                let mut faces = rawtonic_faces::recipe::retouch_faces(
+                    &image,
+                    &analysis,
+                    portrait.as_deref(),
+                    sam,
+                )?;
                 carry_face_settings(
                     &mut faces,
                     &face_settings,
@@ -671,6 +703,10 @@ pub async fn apply_face_retouch_to_paths(
                 }
                 if let Some(disk) = rawtonic_faces::recipe::iris_disk(portrait.as_deref()) {
                     value["irisDisk"] = serde_json::json!(disk);
+                }
+                if let Some(refine) = rawtonic_faces::recipe::teeth_refine(portrait.as_deref(), sam)
+                {
+                    value["teethRefine"] = serde_json::json!(refine);
                 }
                 Ok(value)
             })
@@ -848,7 +884,8 @@ mod tests {
         for file in files {
             let image = image::open(&file).unwrap().into_rgb8();
             let analysis = rawtonic_faces::analyze(&image, &models).unwrap();
-            let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis, None).unwrap();
+            let faces =
+                rawtonic_faces::recipe::retouch_faces(&image, &analysis, None, None).unwrap();
             if faces.is_empty() {
                 continue;
             }
@@ -1026,7 +1063,8 @@ mod tests {
         for file in files {
             let image = image::open(&file).unwrap().into_rgb8();
             let analysis = rawtonic_faces::analyze(&image, &models).unwrap();
-            let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis, None).unwrap();
+            let faces =
+                rawtonic_faces::recipe::retouch_faces(&image, &analysis, None, None).unwrap();
             if faces.is_empty() {
                 continue;
             }

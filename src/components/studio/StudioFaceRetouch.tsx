@@ -83,6 +83,18 @@ export interface Analysis {
   /** The Iris disk of a retouch made from these faces (the parser looked
    * at them). */
   irisDisk?: number;
+  /** Set when SAM's teeth outline was looked for on these faces. */
+  teethRefine?: number;
+}
+
+/** What a retouch made from `analysis` keeps however often its faces are
+ * found again: the parser's Iris disk and whether SAM's teeth outlines
+ * (`refinedTeeth`) replace the parser's. */
+export function parserMarks(analysis: Analysis | undefined): Pick<FaceRetouch, 'irisDisk' | 'teethRefine'> {
+  return {
+    ...(analysis?.irisDisk !== undefined && { irisDisk: analysis.irisDisk }),
+    ...(analysis?.teethRefine !== undefined && { teethRefine: analysis.teethRefine })
+  };
 }
 
 /** Analyses of photos (path + geometry), so a photo's faces are found
@@ -364,7 +376,8 @@ export function withEyesAndMouth(faces: RetouchFace[], analysed: RetouchFace[]):
           ...face,
           eyes: best.eyes ?? [],
           mouth: best.mouth ?? null,
-          ...(best.parsedTeeth !== undefined && { parsedTeeth: best.parsedTeeth })
+          ...(best.parsedTeeth !== undefined && { parsedTeeth: best.parsedTeeth }),
+          ...(best.refinedTeeth !== undefined && { refinedTeeth: best.refinedTeeth })
         }
       : face;
   });
@@ -399,9 +412,15 @@ export function eyesTeethSet(retouch: FaceRetouch) {
 export function withParsedEyesTeeth(faces: RetouchFace[], analysed: RetouchFace[]): RetouchFace[] {
   return faces.map((face) => {
     const best = nearestFace(face, analysed);
-    return best?.parsedTeeth !== undefined
-      ? { ...face, eyes: best.eyes ?? [], mouth: best.mouth ?? null, parsedTeeth: best.parsedTeeth }
-      : face;
+    if (best?.parsedTeeth === undefined) return face;
+    const { refinedTeeth: _, ...own } = face;
+    return {
+      ...own,
+      eyes: best.eyes ?? [],
+      mouth: best.mouth ?? null,
+      parsedTeeth: best.parsedTeeth,
+      ...(best.refinedTeeth !== undefined && { refinedTeeth: best.refinedTeeth })
+    };
   });
 }
 
@@ -580,10 +599,11 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
               faceRetouch: {
                 ...old,
                 faces: withEyesAndMouth(old.faces, analysis.faces),
-                // No eye was rendered before: the disk of these faces.
+                // No eye was rendered before: the disk and teeth of these faces.
                 ...(old.irisDisk === undefined &&
+                  old.teethRefine === undefined &&
                   !eyesTeethParsed(old.faces) &&
-                  analysis.irisDisk !== undefined && { irisDisk: analysis.irisDisk })
+                  parserMarks(analysis))
               }
             };
           }
@@ -659,7 +679,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
                 faces: analysis.faces,
                 frame: analysis.frame,
                 geometry: frameGeometry(prev, analysis.frame),
-                ...(analysis.irisDisk !== undefined && { irisDisk: analysis.irisDisk })
+                ...parserMarks(analysis)
               }
             : null;
       return base ? { ...prev, faceRetouch: change(base) } : prev;
@@ -674,8 +694,9 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           ? {
               ...before,
               faces: withParsedEyesTeeth(before.faces, parsedFaces),
-              // No parser eye was rendered before: the parser's disk.
-              ...(parse?.analysis?.irisDisk !== undefined && { irisDisk: parse.analysis.irisDisk })
+              // No parser eye or teeth were rendered before: the parser's
+              // disk and teeth.
+              ...parserMarks(parse?.analysis)
             }
           : before;
       return face
