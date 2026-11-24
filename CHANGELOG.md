@@ -24,6 +24,8 @@
 
 ### Fixes
 
+- Headless exports and CLI progress finish normally when a downstream command closes its output pipe.
+
 - RAW-only library filters keep matching photos visible when RAW+JPEG grouping prefers JPEG.
 
 - Capture One catalog and session import reports name the photos whose Color Editor settings were approximated or partly left out.

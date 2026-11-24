@@ -2989,7 +2989,7 @@ pub async fn run_headless_export(
     session: crate::launch_request::HeadlessExportSession,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    println!("Starting headless export...");
+    rawtonic_runtime::cli_println!("Starting headless export...");
 
     let source_path = std::path::Path::new(&session.source);
     if !source_path.exists() {
@@ -3034,7 +3034,7 @@ pub async fn run_headless_export(
         ensure_writable_folder(output_folder)?;
     }
 
-    println!("Found {} images to export. Processing...", paths.len());
+    rawtonic_runtime::cli_println!("Found {} images to export. Processing...", paths.len());
 
     let mut custom_adjustments = None;
     if let Some(adj_path) = &session.adjustments_override {
@@ -3043,7 +3043,7 @@ pub async fn run_headless_export(
         let json: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| format!("Failed to parse adjustments JSON: {}", e))?;
         custom_adjustments = Some(json);
-        println!(
+        rawtonic_runtime::cli_println!(
             "Loaded custom adjustments to override sidecars from: {}",
             adj_path
         );

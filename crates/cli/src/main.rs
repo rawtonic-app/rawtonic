@@ -1,3 +1,5 @@
+use rawtonic_runtime::{cli_eprintln, cli_println};
+
 // The app's allocator, so exports free memory as the app does (the export
 // crate returns freed pages through it, `allocator::release_freed_memory`).
 #[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
@@ -454,7 +456,7 @@ fn with_face_retouch(
     let analysis = rawtonic_faces::analyze(&image, models)?;
     let faces = rawtonic_faces::recipe::retouch_faces(&image, &analysis, portrait)
         .map_err(anyhow::Error::msg)?;
-    eprintln!("{source}: {} face(s)", faces.len());
+    cli_eprintln!("{source}: {} face(s)", faces.len());
     recipe["faceRetouch"] = serde_json::json!({
         "settings": settings,
         "faces": faces,
@@ -546,7 +548,7 @@ impl rawtonic_export::export_processing::Enlarger for SuperResolution {
         let started = std::time::Instant::now();
         let (width, height) = (image.width(), image.height());
         let enlarged = self.0.enlarge(image, cancelled)?;
-        eprintln!(
+        cli_eprintln!(
             "Super Resolution: {width}x{height} enlarged on {} in {:.2} s",
             self.0.backend_name(),
             started.elapsed().as_secs_f64()
@@ -655,7 +657,7 @@ impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
 }
 
 pub(crate) fn print(value: impl serde::Serialize) -> Result<()> {
-    println!("{}", serde_json::to_string_pretty(&value)?);
+    cli_println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
 }
 fn run() -> Result<()> {
@@ -715,7 +717,7 @@ fn run() -> Result<()> {
                     }
                     Err(e) => {
                         failed += 1;
-                        eprintln!("{}: {e:#}", path.display());
+                        cli_eprintln!("{}: {e:#}", path.display());
                     }
                 }
             }
@@ -748,7 +750,7 @@ fn run() -> Result<()> {
                     }))?,
                     Err(e) => {
                         failed += 1;
-                        eprintln!("{}: {e:#}", source.display());
+                        cli_eprintln!("{}: {e:#}", source.display());
                     }
                 }
             }
@@ -891,7 +893,7 @@ fn run() -> Result<()> {
             for a in l.assets(None)? {
                 if let Err(e) = l.sync_xmp(&a.id) {
                     failed += 1;
-                    eprintln!("{}: {e:#}", a.rel_path);
+                    cli_eprintln!("{}: {e:#}", a.rel_path);
                 }
             }
             print(l.summary()?)?;
@@ -973,7 +975,7 @@ fn ai_bench(args: AiBenchArgs) -> Result<()> {
         if !only.is_empty() && !only.iter().any(|o| name.starts_with(o.as_str())) {
             continue;
         }
-        eprintln!("{name}");
+        cli_eprintln!("{name}");
         let r = bench_file(&path, provider, args.runs, &dirs, &picture)?;
         reports.push(serde_json::json!({
             "file": r.file,
@@ -1005,7 +1007,7 @@ fn merge(args: MergeArgs) -> Result<()> {
     use rawtonic_merge::{dng, frame};
     let options = rawtonic_engine::image_loader::BaseImageOptions::default();
     let started = Instant::now();
-    let progress = |msg: &str| eprintln!("{msg}");
+    let progress = |msg: &str| cli_eprintln!("{msg}");
     let mut lens_applied = false;
     let (image, reference, color, metadata, report) = match args.kind.as_str() {
         "single" => {
@@ -1660,7 +1662,7 @@ fn export(args: ExportArgs) -> Result<()> {
                 _ => !output.exists(),
             },
             |_, wait| {
-                eprintln!(
+                cli_eprintln!(
                     "Rawtonic: the graphics card ran out of memory for {photo}; again in {wait:?}"
                 );
                 std::thread::sleep(wait);
@@ -1685,7 +1687,7 @@ fn export(args: ExportArgs) -> Result<()> {
                         )
                     });
                     if let Err(e) = recorded {
-                        eprintln!(
+                        cli_eprintln!(
                             "Rawtonic: recording {} in the export records failed: {e:#}",
                             output.display()
                         );
@@ -1910,7 +1912,7 @@ fn with_recipe_models(
     for model in ai_models {
         match ai_denoiser(models.clone(), model) {
             Ok(denoiser) => exporter = exporter.with_mosaic_denoiser(model, denoiser),
-            Err(e) => eprintln!("AI Denoise model {model} unavailable: {e:#}"),
+            Err(e) => cli_eprintln!("AI Denoise model {model} unavailable: {e:#}"),
         }
     }
     // Automatic selections a never-opened photo holds without their bitmap
@@ -1930,7 +1932,7 @@ fn with_recipe_models(
                 exporter = exporter
                     .with_selection_detector(std::sync::Arc::new(SelectionModels::new(dir)));
             }
-            Err(e) => eprintln!("AI selections unavailable: {e:#}"),
+            Err(e) => cli_eprintln!("AI selections unavailable: {e:#}"),
         }
     }
     exporter
@@ -2112,7 +2114,7 @@ fn main() {
     let code = match result {
         Ok(Ok(())) => 0,
         Ok(Err(e)) => {
-            eprintln!("Rawtonic: {e:#}");
+            cli_eprintln!("Rawtonic: {e:#}");
             1
         }
         // The panic message has already been printed by the panic hook.
