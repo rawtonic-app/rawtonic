@@ -299,9 +299,9 @@ it('does not switch cursor tools while the photograph is shown alone', () => {
   expect(useUIStore.getState().activePanel).toBe(Panel.Adjustments);
 });
 
-it("shows a virtual copy with its source's flag in the info overlay", () => {
+it('shows a virtual copy with its own flag in the info overlay', () => {
   useUIStore.setState({ activeView: 'editor', infoOverlay: true });
-  useLibraryStore.setState({ imageFlags: { '/qa/a.dng': 1 } });
+  useLibraryStore.setState({ imageFlags: { '/qa/a.dng': -1, '/qa/a.dng?vc=copy1': 1 } });
   useEditorStore.setState((s) => ({
     selectedImage: { ...s.selectedImage!, path: '/qa/a.dng?vc=copy1' }
   }));

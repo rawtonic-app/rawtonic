@@ -93,6 +93,14 @@ fn schema_at(version: usize) -> Connection {
             32 => conn
                 .execute_batch("ALTER TABLE assets ADD COLUMN lens_import TEXT;")
                 .unwrap(),
+            35 => conn
+                .execute_batch(
+                    "ALTER TABLE versions ADD COLUMN flag INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1);",
+                )
+                .unwrap(),
+            36 => conn
+                .execute_batch("ALTER TABLE collection_assets ADD COLUMN copy TEXT NOT NULL DEFAULT '';")
+                .unwrap(),
             _ => {}
         }
         conn.execute_batch(&script(step)).unwrap();
@@ -508,6 +516,8 @@ fn fill(conn: &Connection, version: usize) {
                 ("name", t(name)),
                 ("is_primary", i(0)),
                 ("legacy_state", t(&state.to_string())),
+                // A copy's own flag (schema 35).
+                ("flag", i(if *name == "beef01" { 1 } else { 0 })),
             ],
         );
     }
@@ -586,6 +596,18 @@ fn fill(conn: &Connection, version: usize) {
             &[
                 ("collection_id", t(album)),
                 ("asset_id", t(&asset_id(photo))),
+            ],
+        );
+    }
+    // A virtual copy as an album member of its own (schema 36).
+    if version >= 36 {
+        put(
+            conn,
+            "collection_assets",
+            &[
+                ("collection_id", t(ALBUM)),
+                ("asset_id", t(&asset_id(2))),
+                ("copy", t("beef01")),
             ],
         );
     }

@@ -2089,7 +2089,6 @@
       "hotFolderResumeFailed": "無法繼續監看資料夾：{{error}}",
       "importAiMasksOnOpen_other": "{{count}} 張相片的 AI 遮色片會在「顯影」中開啟或匯出時計算",
       "importCopies_other": "已匯入 {{count}} 個虛擬副本",
-      "importCopiesInAlbums": "相簿只包含照片，不包含虛擬複本——這些複本已作為其照片加入：{{n}}。",
       "importCopiesSkipped_other": "{{count}} 個虛擬副本未匯入",
       "importCropsClipped_other": "{{count}} 個裁切超出相機畫面，已收縮到畫面內",
       "imported_other": "已匯入 {{count}} 張照片（{{withSettings}} 張有調整，{{albums}} 個相簿）",
@@ -4549,7 +4548,8 @@
           "sourceType": "數位來源類型（檔案中）",
           "stacked": "在堆疊中",
           "suggestion": "篩選建議",
-          "text": "任何可搜尋的文字"
+          "text": "任何可搜尋的文字",
+          "virtualCopy": "虛擬副本"
         },
         "folderPlaceholder": "資料夾路徑",
         "fromFilter": "儲存為智慧型相簿…",

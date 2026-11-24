@@ -2274,7 +2274,6 @@
       "importCopies_one": "{{count}} copia virtuale importata",
       "importCopies_many": "{{count}} copie virtuali importate",
       "importCopies_other": "{{count}} copie virtuali importate",
-      "importCopiesInAlbums": "Gli album contengono foto, non copie virtuali: queste copie sono state aggiunte come le loro foto: {{n}}.",
       "importCopiesSkipped_one": "{{count}} copia virtuale non importata",
       "importCopiesSkipped_many": "{{count}} copie virtuali non importate",
       "importCopiesSkipped_other": "{{count}} copie virtuali non importate",
@@ -4878,7 +4877,8 @@
           "sourceType": "Origine digitale (nel file)",
           "stacked": "In una pila",
           "suggestion": "Suggerimento di selezione",
-          "text": "Qualsiasi testo ricercabile"
+          "text": "Qualsiasi testo ricercabile",
+          "virtualCopy": "È una copia virtuale"
         },
         "folderPlaceholder": "Percorso della cartella",
         "fromFilter": "Salva come album smart…",

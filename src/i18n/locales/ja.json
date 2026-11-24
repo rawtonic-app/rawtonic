@@ -2089,7 +2089,6 @@
       "hotFolderResumeFailed": "監視フォルダを再開できませんでした: {{error}}",
       "importAiMasksOnOpen_other": "{{count}} 件の写真の AI マスクは、現像で開いたとき、または書き出すときに計算されます",
       "importCopies_other": "仮想コピー {{count}} 件を読み込みました",
-      "importCopiesInAlbums": "アルバムには仮想コピーではなく写真が入ります。これらのコピーはその写真として追加されました: {{n}}。",
       "importCopiesSkipped_other": "仮想コピー {{count}} 件は読み込まれていません",
       "importCropsClipped_other": "切り抜き {{count}} 件がカメラの撮影範囲を超えていたため、その範囲に収めました",
       "imported_other": "{{count}} 枚の写真を読み込みました（補正あり {{withSettings}} 枚、アルバム {{albums}} 個）",
@@ -4549,7 +4548,8 @@
           "sourceType": "デジタルソースの種類（ファイル内）",
           "stacked": "スタック内",
           "suggestion": "選別の候補",
-          "text": "検索可能なすべてのテキスト"
+          "text": "検索可能なすべてのテキスト",
+          "virtualCopy": "仮想コピー"
         },
         "folderPlaceholder": "フォルダのパス",
         "fromFilter": "スマートアルバムとして保存…",

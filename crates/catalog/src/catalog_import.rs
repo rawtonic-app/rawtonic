@@ -1479,14 +1479,18 @@ fn replace(
             xmp_capture: None,
         });
     }
-    // Their virtual copies (state and snapshots); copies only here stay.
-    let copies: Vec<(String, String, Option<String>)> = other
+    // Their virtual copies (state, flag and snapshots); copies only here stay.
+    let copies: Vec<(String, String, Option<String>, i8)> = other
         .conn
-        .prepare("SELECT id,name,legacy_state FROM versions WHERE asset_id=? AND is_primary=0")?
-        .query_map([incoming], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .prepare(
+            "SELECT id,name,legacy_state,flag FROM versions WHERE asset_id=? AND is_primary=0",
+        )?
+        .query_map([incoming], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })?
         .collect::<rusqlite::Result<_>>()?;
     if changes.contains(&"copies") || changes.contains(&"snapshots") {
-        for (their_copy, name, state) in copies {
+        for (their_copy, name, state, flag) in copies {
             let existing: Option<String> = tx
                 .query_row(
                     "SELECT id FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
@@ -1497,16 +1501,16 @@ fn replace(
             let here = match existing {
                 Some(here) => {
                     tx.execute(
-                        "UPDATE versions SET legacy_state=? WHERE id=?",
-                        params![state, here],
+                        "UPDATE versions SET legacy_state=?,flag=? WHERE id=?",
+                        params![state, flag, here],
                     )?;
                     here
                 }
                 None => {
                     let here = uuid::Uuid::new_v4().to_string();
                     tx.execute(
-                        "INSERT INTO versions(id,asset_id,name,is_primary,legacy_state) VALUES(?,?,?,0,?)",
-                        params![here, target, name, state],
+                        "INSERT INTO versions(id,asset_id,name,is_primary,legacy_state,flag) VALUES(?,?,?,0,?,?)",
+                        params![here, target, name, state, flag],
                     )?;
                     here
                 }

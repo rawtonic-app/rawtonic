@@ -2274,7 +2274,6 @@
       "importCopies_one": "{{count}} còpia virtual importada",
       "importCopies_many": "{{count}} còpies virtuals importades",
       "importCopies_other": "{{count}} còpies virtuals importades",
-      "importCopiesInAlbums": "Els àlbums contenen fotos, no còpies virtuals: aquestes còpies s’han afegit com les seves fotos: {{n}}.",
       "importCopiesSkipped_one": "{{count}} còpia virtual no importada",
       "importCopiesSkipped_many": "{{count}} còpies virtuals no importades",
       "importCopiesSkipped_other": "{{count}} còpies virtuals no importades",
@@ -4878,7 +4877,8 @@
           "sourceType": "Origen digital (al fitxer)",
           "stacked": "En una pila",
           "suggestion": "Suggeriment de descart",
-          "text": "Qualsevol text cercable"
+          "text": "Qualsevol text cercable",
+          "virtualCopy": "És una còpia virtual"
         },
         "folderPlaceholder": "Camí de la carpeta",
         "fromFilter": "Desa com a àlbum intel·ligent…",

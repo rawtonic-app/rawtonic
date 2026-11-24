@@ -74,7 +74,8 @@ it('shows persisted flags and color labels in both browser modes, including virt
     exif: null,
     group_id: null
   };
-  useLibraryStore.setState({ imageFlags: { '/job/photo.arw': -1 } });
+  // The copy's own flag (its photograph's differs).
+  useLibraryStore.setState({ imageFlags: { '/job/photo.arw': 1, '/job/photo.arw?vc=1': -1 } });
   const props = {
     files: [file],
     onSelect: vi.fn(),
@@ -87,7 +88,7 @@ it('shows persisted flags and color labels in both browser modes, including virt
   expect(screen.getByRole('img', { name: 'Rejected' })).toBeTruthy();
   expect(screen.getByRole('img', { name: 'Blue label' })).toBeTruthy();
   expect(screen.getByRole('option').className).toContain('is-rejected');
-  useLibraryStore.setState({ imageFlags: { '/job/photo.arw': 1 } });
+  useLibraryStore.setState({ imageFlags: { '/job/photo.arw': -1, '/job/photo.arw?vc=1': 1 } });
   rerender(<StudioBrowser {...props} film />);
   expect(screen.getByRole('img', { name: 'Picked' })).toBeTruthy();
   expect(screen.queryByRole('img', { name: 'Rejected' })).toBeNull();

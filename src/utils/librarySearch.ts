@@ -39,7 +39,8 @@ export type Field =
   | 'sourceType'
   | 'eyes'
   | 'suggestion'
-  | 'stacked';
+  | 'stacked'
+  | 'virtualCopy';
 
 export type Op =
   | 'contains'
