@@ -65,7 +65,7 @@ fn register_functions(conn: &Connection) {
 }
 
 /// A database exactly as schema `version` created it: the scripts up to it
-/// (schema 22's, 23's, 27's, 28's, 32's and 35's columns were part of their scripts then).
+/// (schema 22's, 23's, 27's, 28's and 32's columns were part of their scripts then).
 fn schema_at(version: usize) -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     register_functions(&conn);
@@ -94,6 +94,14 @@ fn schema_at(version: usize) -> Connection {
                 .execute_batch("ALTER TABLE assets ADD COLUMN lens_import TEXT;")
                 .unwrap(),
             35 => conn
+                .execute_batch(
+                    "ALTER TABLE versions ADD COLUMN flag INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1);",
+                )
+                .unwrap(),
+            36 => conn
+                .execute_batch("ALTER TABLE collection_assets ADD COLUMN copy TEXT NOT NULL DEFAULT '';")
+                .unwrap(),
+            37 => conn
                 .execute_batch(
                     "ALTER TABLE assets ADD COLUMN generated_provenance INTEGER NOT NULL DEFAULT 0;",
                 )
@@ -513,6 +521,8 @@ fn fill(conn: &Connection, version: usize) {
                 ("name", t(name)),
                 ("is_primary", i(0)),
                 ("legacy_state", t(&state.to_string())),
+                // A copy's own flag (schema 35).
+                ("flag", i(if *name == "beef01" { 1 } else { 0 })),
             ],
         );
     }
@@ -591,6 +601,28 @@ fn fill(conn: &Connection, version: usize) {
             &[
                 ("collection_id", t(album)),
                 ("asset_id", t(&asset_id(photo))),
+            ],
+        );
+    }
+    // A copy the library forgot keeps its flag for its return (schema 35).
+    put(
+        conn,
+        "forgotten_copies",
+        &[
+            ("asset_id", t(&asset_id(3))),
+            ("copy", t("dead01")),
+            ("flag", i(-1)),
+        ],
+    );
+    // A virtual copy as an album member of its own (schema 36).
+    if version >= 36 {
+        put(
+            conn,
+            "collection_assets",
+            &[
+                ("collection_id", t(ALBUM)),
+                ("asset_id", t(&asset_id(2))),
+                ("copy", t("beef01")),
             ],
         );
     }

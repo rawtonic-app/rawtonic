@@ -74,6 +74,10 @@ export { CATALOG_CHANGED, catalogChanged } from './catalogEvents';
  * StudioAlbums, where it began). */
 export const SESSION_ALBUMS_CHANGED = 'rawtonic:session-albums-changed';
 
+/** `activeAlbumId` of a session album shown in the grid (re-exported by
+ * StudioAlbums, where it began). */
+export const SESSION_ALBUM_PREFIX = 'session-album:';
+
 /** What changes what the catalog finds: a write (`CATALOG_CHANGED`), an
  * import, tethered capture or synchronization (`IMPORTS_CHANGED`), a relink
  * or a check that found files gone (`OFFLINE_CHANGED`), album membership

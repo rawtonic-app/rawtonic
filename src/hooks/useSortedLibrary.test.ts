@@ -45,11 +45,14 @@ describe('live culling filters', () => {
     expect(result.displayList.map((f) => f.path)).toEqual(['/shoot/a.ARW', '/shoot/b.ARW']);
   });
 
-  it('uses the source flag for virtual copies and reflects a cleared flag immediately', () => {
-    const input = { ...state(), imageList: [file('/shoot/a.ARW?vc=copy')] };
+  it("uses a virtual copy's own flag, not its photograph's, and reflects a cleared flag immediately", () => {
+    const input = { ...state(), imageList: [file('/shoot/a.ARW'), file('/shoot/a.ARW?vc=copy')] };
     input.filterCriteria.flag = 'picked';
-    expect(computeSortedLibrary(input, {})).toHaveLength(1);
-    expect(computeSortedLibrary({ ...input, imageFlags: { '/shoot/a.ARW': 0 } }, {})).toHaveLength(0);
+    // The photograph is picked, its copy is not (Lightroom keeps a flag per copy).
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW']);
+    const copyPicked = { ...input, imageFlags: { '/shoot/a.ARW': 0, '/shoot/a.ARW?vc=copy': 1 } };
+    expect(computeSortedLibrary(copyPicked, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW?vc=copy']);
+    expect(computeSortedLibrary({ ...copyPicked, imageFlags: { '/shoot/a.ARW?vc=copy': 0 } }, {})).toHaveLength(0);
   });
 
   it('counts matches after search, returns zero counts for no matches and reuses grouping badges', () => {

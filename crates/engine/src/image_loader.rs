@@ -790,14 +790,38 @@ pub fn classify_raw_develop_error(path: &str, err: anyhow::Error) -> anyhow::Err
     err
 }
 
-pub fn tiff_jpeg_candidates(buf: &[u8]) -> Option<Vec<&[u8]>> {
-    let le = match buf.get(..4)? {
+/// Bytes of a file at an offset, for the container parsers below: the
+/// whole file in memory (a mapping), or a probe that reads only what is
+/// asked for from the file (`preview_ranges`: the byte ranges of a RAW's
+/// embedded preview, found with these same parsers before the file is
+/// read through its mapping).
+pub trait FileBytes {
+    /// The `len` bytes at `offset`, or `None` where the file has fewer.
+    fn at(&self, offset: usize, len: usize) -> Option<Cow<'_, [u8]>>;
+}
+
+impl FileBytes for [u8] {
+    fn at(&self, offset: usize, len: usize) -> Option<Cow<'_, [u8]>> {
+        self.get(offset..offset.checked_add(len)?)
+            .map(Cow::Borrowed)
+    }
+}
+
+/// `N` bytes of `file` at `offset`.
+fn bytes_at<const N: usize, B: FileBytes + ?Sized>(file: &B, offset: usize) -> Option<[u8; N]> {
+    file.at(offset, N)?.as_ref().try_into().ok()
+}
+
+/// Where [`tiff_jpeg_candidates`] lie in `buf`: (offset, length), largest
+/// first, including any that extend past the end of the file.
+pub fn tiff_jpeg_candidate_ranges<B: FileBytes + ?Sized>(buf: &B) -> Option<Vec<(u64, u64)>> {
+    let le = match bytes_at::<4, _>(buf, 0)? {
         [0x49, 0x49, 0x2A, 0x00] => true,
         [0x4D, 0x4D, 0x00, 0x2A] => false,
         _ => return None,
     };
     let rd16 = |o: usize| -> Option<u64> {
-        let b: [u8; 2] = buf.get(o..o + 2)?.try_into().ok()?;
+        let b: [u8; 2] = bytes_at(buf, o)?;
         Some(if le {
             u16::from_le_bytes(b)
         } else {
@@ -805,7 +829,7 @@ pub fn tiff_jpeg_candidates(buf: &[u8]) -> Option<Vec<&[u8]>> {
         } as u64)
     };
     let rd32 = |o: usize| -> Option<u64> {
-        let b: [u8; 4] = buf.get(o..o + 4)?.try_into().ok()?;
+        let b: [u8; 4] = bytes_at(buf, o)?;
         Some(if le {
             u32::from_le_bytes(b)
         } else {
@@ -871,9 +895,12 @@ pub fn tiff_jpeg_candidates(buf: &[u8]) -> Option<Vec<&[u8]>> {
     }
 
     candidates.sort_by_key(|&(_, len)| std::cmp::Reverse(len));
+    Some(candidates)
+}
 
+pub fn tiff_jpeg_candidates(buf: &[u8]) -> Option<Vec<&[u8]>> {
     Some(
-        candidates
+        tiff_jpeg_candidate_ranges(buf)?
             .into_iter()
             .filter_map(|(off, len)| buf.get(off as usize..off.checked_add(len)? as usize))
             .collect(),
@@ -904,22 +931,36 @@ pub fn largest_tiff_jpeg_preview(buf: &[u8]) -> Option<DynamicImage> {
 /// decode it, but copies all of it (megabytes of a cold file) before it
 /// fails. Reads only the marker segments up to that header.
 fn lossless_jpeg(data: &[u8]) -> bool {
-    if data.get(..2) != Some(&[0xFF, 0xD8]) {
+    lossless_jpeg_at(data, 0, data.len())
+}
+
+/// [`lossless_jpeg`] of the `len` bytes of `file` at `start`.
+pub fn lossless_jpeg_at<B: FileBytes + ?Sized>(file: &B, start: usize, len: usize) -> bool {
+    // `n` bytes at `at` within the data.
+    let get = |at: usize, n: usize| -> Option<Cow<'_, [u8]>> {
+        if at.checked_add(n)? > len {
+            return None;
+        }
+        file.at(start.checked_add(at)?, n)
+    };
+    if get(0, 2).as_deref() != Some(&[0xFF, 0xD8][..]) {
         return false;
     }
     let mut at = 2;
-    while let Some(&[0xFF, marker]) = data.get(at..at + 2) {
-        match marker {
+    while let Some(pair) = get(at, 2)
+        && pair[0] == 0xFF
+    {
+        match pair[1] {
             0xFF => at += 1,
             0xC3 | 0xC7 | 0xCB | 0xCF => return true,
-            0xC0..=0xCF if !matches!(marker, 0xC4 | 0xC8 | 0xCC) => return false,
+            marker @ 0xC0..=0xCF if !matches!(marker, 0xC4 | 0xC8 | 0xCC) => return false,
             0xD8 | 0x01 | 0xD0..=0xD7 => at += 2,
             0xD9 | 0xDA => return false,
             _ => {
-                let Some(len) = data.get(at + 2..at + 4) else {
+                let Some(segment) = get(at + 2, 2) else {
                     return false;
                 };
-                at += 2 + u16::from_be_bytes([len[0], len[1]]) as usize;
+                at += 2 + u16::from_be_bytes([segment[0], segment[1]]) as usize;
             }
         }
     }
@@ -995,14 +1036,21 @@ pub fn exif_orientation(bytes: &[u8]) -> Option<u16> {
 }
 
 pub fn raf_embedded_jpeg(bytes: &[u8]) -> Option<&[u8]> {
+    let (offset, length) = raf_jpeg_range(bytes)?;
+    bytes.get(offset..offset.checked_add(length)?)
+}
+
+/// Where a RAF's embedded JPEG ([`raf_embedded_jpeg`]) lies: (offset,
+/// length) from its header, which may point past the end of the file.
+pub fn raf_jpeg_range<B: FileBytes + ?Sized>(bytes: &B) -> Option<(usize, usize)> {
     // RAF is not a TIFF/EXIF container. Its camera orientation is in the
     // embedded JPEG, the same metadata source used by rawler's RAW decoder.
-    if !bytes.starts_with(b"FUJIFILMCCD-RAW ") {
+    if bytes.at(0, 16)?.as_ref() != b"FUJIFILMCCD-RAW " {
         return None;
     }
-    let offset = u32::from_be_bytes(bytes.get(84..88)?.try_into().ok()?) as usize;
-    let length = u32::from_be_bytes(bytes.get(88..92)?.try_into().ok()?) as usize;
-    bytes.get(offset..offset.checked_add(length)?)
+    let offset = u32::from_be_bytes(bytes_at(bytes, 84)?) as usize;
+    let length = u32::from_be_bytes(bytes_at(bytes, 88)?) as usize;
+    Some((offset, length))
 }
 
 /// The preview JPEG an Olympus / OM System RAW (ORF) keeps in its maker
@@ -1018,20 +1066,39 @@ pub fn raf_embedded_jpeg(bytes: &[u8]) -> Option<&[u8]> {
 /// data at about 4 times a camera JPEG tile's time (notes:
 /// benchmark-results/adf3-2026-11-23).
 fn orf_preview(bytes: &[u8]) -> Option<OrfPreview<'_>> {
-    let little = match bytes.get(..4)? {
+    let parts = orf_preview_parts(bytes)?;
+    let (offset, length) = parts.jpeg;
+    let jpeg = bytes.get(offset..offset.checked_add(length)?)?;
+    if !jpeg.starts_with(&[0xFF, 0xD8]) {
+        return None;
+    }
+    Some(OrfPreview {
+        jpeg,
+        orientation: parts.orientation,
+        area: parts.area,
+    })
+}
+
+/// [`orf_preview`]'s parts as read from the file's structure: where its
+/// JPEG lies (offset, length; not yet checked to be in the file or a JPEG),
+/// the orientation and the image area.
+pub fn orf_preview_parts<B: FileBytes + ?Sized>(bytes: &B) -> Option<OrfParts> {
+    let little = match bytes_at::<4, _>(bytes, 0)? {
         [0x49, 0x49, 0x52, 0x4F] | [0x49, 0x49, 0x53, 0x52] => true,
         [0x4D, 0x4D, 0x4F, 0x52] => false,
         _ => return None,
     };
-    // A reader of one byte order: entries of an IFD at `ifd` (offsets
-    // already absolute), as (tag, type, count, value or offset).
-    struct Tiff<'a> {
-        bytes: &'a [u8],
+    // A reader of one byte order of the file from `base` on: entries of an
+    // IFD at `ifd` (offsets from `base`), as (tag, type, count, value or
+    // offset).
+    struct Tiff<'a, B: ?Sized> {
+        bytes: &'a B,
+        base: usize,
         little: bool,
     }
-    impl Tiff<'_> {
+    impl<B: FileBytes + ?Sized> Tiff<'_, B> {
         fn u16(&self, at: usize) -> Option<u16> {
-            let b: [u8; 2] = self.bytes.get(at..at.checked_add(2)?)?.try_into().ok()?;
+            let b: [u8; 2] = bytes_at(self.bytes, self.base.checked_add(at)?)?;
             Some(if self.little {
                 u16::from_le_bytes(b)
             } else {
@@ -1039,7 +1106,7 @@ fn orf_preview(bytes: &[u8]) -> Option<OrfPreview<'_>> {
             })
         }
         fn u32(&self, at: usize) -> Option<usize> {
-            let b: [u8; 4] = self.bytes.get(at..at.checked_add(4)?)?.try_into().ok()?;
+            let b: [u8; 4] = bytes_at(self.bytes, self.base.checked_add(at)?)?;
             Some(if self.little {
                 u32::from_le_bytes(b)
             } else {
@@ -1065,7 +1132,11 @@ fn orf_preview(bytes: &[u8]) -> Option<OrfPreview<'_>> {
             }
         }
     }
-    let file = Tiff { bytes, little };
+    let file = Tiff {
+        bytes,
+        base: 0,
+        little,
+    };
     let ifd0 = file.u32(4)?;
     let orientation = file
         .value(ifd0, 0x0112)
@@ -1074,21 +1145,21 @@ fn orf_preview(bytes: &[u8]) -> Option<OrfPreview<'_>> {
     let exif = file.value(ifd0, 0x8769)?;
     let (_, _, at) = file.entry(exif, 0x927C)?;
     let note = file.u32(at)?;
-    let header = bytes.get(note..)?;
-    let start = if header.starts_with(b"OLYMPUS\0") {
+    let start = if bytes.at(note, 8).as_deref() == Some(&b"OLYMPUS\0"[..]) {
         8
-    } else if header.starts_with(b"OM SYSTEM\0") {
+    } else if bytes.at(note, 10).as_deref() == Some(&b"OM SYSTEM\0"[..]) {
         12
     } else {
         return None;
     };
-    let little = match header.get(start..start + 2)? {
+    let little = match bytes_at::<2, _>(bytes, note.checked_add(start)?)?.as_slice() {
         b"II" => true,
         b"MM" => false,
         _ => return None,
     };
     let note_bytes = Tiff {
-        bytes: header,
+        bytes,
+        base: note,
         little,
     };
     // A sub-IFD of the maker note: its offset as the value (written as an
@@ -1105,10 +1176,6 @@ fn orf_preview(bytes: &[u8]) -> Option<OrfPreview<'_>> {
     }
     let offset = note_bytes.value(settings, 0x0101)?;
     let length = note_bytes.value(settings, 0x0102)?;
-    let jpeg = header.get(offset..offset.checked_add(length)?)?;
-    if !jpeg.starts_with(&[0xFF, 0xD8]) {
-        return None;
-    }
     // ImageProcessing CropWidth / CropHeight: the image area the decoder
     // crops to, which an AspectFrame is relative to.
     let area = sub_ifd(0x2040).and_then(|processing| {
@@ -1117,11 +1184,21 @@ fn orf_preview(bytes: &[u8]) -> Option<OrfPreview<'_>> {
             note_bytes.value(processing, 0x0615)?,
         ))
     });
-    Some(OrfPreview {
-        jpeg,
+    Some(OrfParts {
+        jpeg: (note.checked_add(offset)?, length),
         orientation,
         area,
     })
+}
+
+/// [`orf_preview_parts`]: an ORF preview as its file's structure gives it.
+pub struct OrfParts {
+    /// Where the JPEG lies: (offset, length).
+    pub jpeg: (usize, usize),
+    /// The file's first IFD's orientation.
+    pub orientation: Option<u16>,
+    /// The decoder's image area (CropWidth, CropHeight), when recorded.
+    pub area: Option<(usize, usize)>,
 }
 
 /// An ORF's maker-note preview ([`orf_preview`]).
@@ -2039,7 +2116,7 @@ fn composite_ai_patches_at(
 }
 
 #[cfg(test)]
-mod private_preview_tests {
+pub(crate) mod private_preview_tests {
     use super::*;
     use crate::file_io::read_file_mapped;
     use std::fs;
@@ -2128,7 +2205,7 @@ mod private_preview_tests {
         bytes
     }
 
-    fn raf_with_jpeg(jpeg: &[u8]) -> Vec<u8> {
+    pub(crate) fn raf_with_jpeg(jpeg: &[u8]) -> Vec<u8> {
         let mut bytes = vec![0; 148];
         let magic = b"FUJIFILMCCD-RAW ";
         bytes[..magic.len()].copy_from_slice(magic);
@@ -2229,7 +2306,7 @@ mod private_preview_tests {
     /// (`settings_type`) with the preview's valid flag, start and length,
     /// and with `processing` an ImageProcessing IFD: AspectFrame (left, top,
     /// right, bottom) and the image area (CropWidth, CropHeight).
-    fn orf_with_jpeg(
+    pub(crate) fn orf_with_jpeg(
         jpeg: &[u8],
         header: &[u8],
         settings_type: u16,

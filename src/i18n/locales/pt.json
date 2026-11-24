@@ -1766,6 +1766,7 @@
         "albums": "álbuns",
         "captureTime": "hora da captura",
         "copies": "cópias virtuais",
+        "copyFlags": "sinalizadores das cópias virtuais",
         "edit": "edição",
         "eyes": "verificações de olhos",
         "metadata": "metadados",
@@ -2273,7 +2274,6 @@
       "importCopies_one": "{{count}} cópia virtual importada",
       "importCopies_many": "{{count}} cópias virtuais importadas",
       "importCopies_other": "{{count}} cópias virtuais importadas",
-      "importCopiesInAlbums": "Os álbuns contêm fotos, não cópias virtuais — estas cópias foram adicionadas como as suas fotos: {{n}}.",
       "importCopiesSkipped_one": "{{count}} cópia virtual não importada",
       "importCopiesSkipped_many": "{{count}} cópias virtuais não importadas",
       "importCopiesSkipped_other": "{{count}} cópias virtuais não importadas",
@@ -4877,7 +4877,8 @@
           "sourceType": "Origem digital (no arquivo)",
           "stacked": "Numa pilha",
           "suggestion": "Sugestão de triagem",
-          "text": "Qualquer texto pesquisável"
+          "text": "Qualquer texto pesquisável",
+          "virtualCopy": "É uma cópia virtual"
         },
         "folderPlaceholder": "Caminho da pasta",
         "fromFilter": "Salvar como álbum inteligente…",

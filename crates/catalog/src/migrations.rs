@@ -116,12 +116,29 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration::sql(33, include_str!("../migrations/0033.sql")),
     // The camera naming the photographs' make and model follow.
     Migration::sql(34, include_str!("../migrations/0034.sql")),
-    // Renders Rawtonic made with generated areas (Edit With), marked for good.
+    // A virtual copy's own flag.
     Migration::with_columns(
         35,
+        "versions",
+        &[(
+            "flag",
+            "INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1)",
+        )],
+        include_str!("../migrations/0035.sql"),
+    ),
+    // Virtual copies as album members of their own.
+    Migration::with_columns(
+        36,
+        "collection_assets",
+        &[("copy", "TEXT NOT NULL DEFAULT ''")],
+        include_str!("../migrations/0036.sql"),
+    ),
+    // Renders Rawtonic made with generated areas (Edit With), marked for good.
+    Migration::with_columns(
+        37,
         "assets",
         &[("generated_provenance", "INTEGER NOT NULL DEFAULT 0")],
-        include_str!("../migrations/0035.sql"),
+        include_str!("../migrations/0037.sql"),
     ),
 ];
 

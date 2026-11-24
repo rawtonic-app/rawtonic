@@ -1637,6 +1637,7 @@
         "albums": "앨범",
         "captureTime": "촬영 시간",
         "copies": "가상 복사본",
+        "copyFlags": "가상 복사본 플래그",
         "edit": "편집",
         "eyes": "눈 검사",
         "metadata": "메타데이터",
@@ -2088,7 +2089,6 @@
       "hotFolderResumeFailed": "감시 폴더를 다시 시작할 수 없습니다: {{error}}",
       "importAiMasksOnOpen_other": "사진 {{count}}개의 AI 마스크는 현상에서 열거나 내보낼 때 계산됩니다",
       "importCopies_other": "가상 복사본 {{count}}개를 가져옴",
-      "importCopiesInAlbums": "앨범에는 가상 복사본이 아니라 사진이 들어갑니다. 이 복사본은 해당 사진으로 추가되었습니다: {{n}}.",
       "importCopiesSkipped_other": "가상 복사본 {{count}}개는 가져오지 않음",
       "importCropsClipped_other": "자르기 {{count}}개가 카메라 프레임을 벗어나 프레임에 맞게 잘림",
       "imported_other": "사진 {{count}}장을 가져왔습니다(조정됨 {{withSettings}}장, 앨범 {{albums}}개)",
@@ -4548,7 +4548,8 @@
           "sourceType": "디지털 출처 유형(파일 내)",
           "stacked": "스택 안",
           "suggestion": "선별 제안",
-          "text": "검색 가능한 모든 텍스트"
+          "text": "검색 가능한 모든 텍스트",
+          "virtualCopy": "가상 사본"
         },
         "folderPlaceholder": "폴더 경로",
         "fromFilter": "스마트 앨범으로 저장…",

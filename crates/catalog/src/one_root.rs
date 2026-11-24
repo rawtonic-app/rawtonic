@@ -389,6 +389,13 @@ impl Library {
         if !merged.taken.is_empty() {
             write_metadata(tx, into, &meta)?;
         }
+        // Albums: both (a copy's membership with the copy, which keeps its id;
+        // before the versions merge, whose removed copies leave their albums).
+        tx.execute(
+            "INSERT OR IGNORE INTO collection_assets(collection_id,asset_id,copy)
+             SELECT collection_id,?,copy FROM collection_assets WHERE asset_id=?",
+            params![into, from],
+        )?;
         // Versions: the primary and copies of the same name pair up; the
         // others' copies move.
         let versions = |asset: &str| -> Result<BTreeMap<Option<String>, String>> {
@@ -415,12 +422,6 @@ impl Library {
                 }
             }
         }
-        // Albums: both.
-        tx.execute(
-            "INSERT OR IGNORE INTO collection_assets(collection_id,asset_id)
-             SELECT collection_id,? FROM collection_assets WHERE asset_id=?",
-            params![into, from],
-        )?;
         // An Edit With render's link.
         tx.execute(
             "UPDATE assets SET stack=? WHERE stack=?",

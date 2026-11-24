@@ -12,6 +12,7 @@ import { flushBeforeQuit } from '../utils/quit';
 import { viewerShown } from '../utils/viewerMode';
 import { fileNameOf } from '../utils/offline';
 import { isCopy, sourceOf } from '../entities/photo/photoRef';
+import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../utils/catalogWrites';
 
 /** The photo a virtual copy is made of: the one selected in the Library, or
  * the open one elsewhere; none with several selected. */
@@ -35,7 +36,9 @@ export async function createVirtualCopy(
   refreshImageList: () => Promise<void>,
   openPhoto?: (path: string, openInEditor?: boolean) => void
 ): Promise<string | null> {
-  const albumId = useLibraryStore.getState().activeAlbumId;
+  const { activeAlbumId: albumId, sessionDirectory } = useLibraryStore.getState();
+  const libraryAlbum =
+    albumId?.startsWith(SESSION_ALBUM_PREFIX) && sessionDirectory ? albumId.slice(SESSION_ALBUM_PREFIX.length) : null;
   try {
     // The copy takes the photo's recipe as saved: edits still waiting for
     // their save (300 ms) are written first.
@@ -44,10 +47,20 @@ export async function createVirtualCopy(
     await photoWritesSettled(source);
     const copy = await invoke<string>(Invokes.CreateVirtualCopy, {
       sourceVirtualPath: source,
-      targetAlbumId: albumId || null
+      targetAlbumId: libraryAlbum ? null : albumId || null
     });
-    // In an album the copy joins it: its membership first, then the list.
-    if (albumId) {
+    // In an album the copy joins it, as a member of its own: its
+    // membership first, then the list.
+    // An ordinary album only: a smart album shows the copy when its rules
+    // match it.
+    if (libraryAlbum && copy) {
+      const albums = await invoke<{ id: string; kind?: string }[]>(Invokes.SessionAlbums, {
+        directory: sessionDirectory
+      });
+      if (albums.find((album) => album.id === libraryAlbum)?.kind === 'album')
+        await invoke(Invokes.SessionAlbumAdd, { directory: sessionDirectory, id: libraryAlbum, paths: [copy] });
+      window.dispatchEvent(new CustomEvent(SESSION_ALBUMS_CHANGED));
+    } else if (albumId) {
       const albumTree = await invoke<AlbumItem[]>(Invokes.GetAlbums);
       useLibraryStore.getState().setLibrary({ albumTree });
     }

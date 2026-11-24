@@ -117,7 +117,10 @@ New Rust workspace crates isolate data and file safety.
 - `query`: the library search and smart albums (ADR 0014; rules over text, keywords, culling, file type, camera, lens,
   exposure, dates, albums, folders, compiled to one SQL query; value lists with counts; schema 17 adds `Field::Ai`
   (recipe facts across versions, maintained by SQLite triggers calling `rawtonic_ai_facts`) and `Field::SourceType` (the
-  file’s IPTC Digital Source Type); smart albums are `collections` of kind `smart` with their rules, schema 11);
+  file’s IPTC Digital Source Type); smart albums are `collections` of kind `smart` with their rules, schema 11;
+  virtual copies are items of their own (`search_items`, `COPY_ITEMS`: own rating, label, keywords, flag — schema 35
+  `versions.flag` — and album membership — schema 36 `collection_assets.copy`, '' for the photograph — plus
+  `Field::VirtualCopy`; value lists count them));
 - `facts`: capture facts per photograph (`CaptureFacts`, recorded by verified ingest, a background pass reads the rest:
   `src-tauri/src/library_search.rs`, which also holds the search commands; the camera's own rating becomes the
   photograph's while nobody set its metadata; schema 13 read again what the earlier reader missed, schema 14 the undated
