@@ -22,6 +22,7 @@
 
 ### Fixes
 
+- For a capture without an embedded date, a metadata preset gets its copyright year from the source file's verified modification time.
 - Linux Edit With follows applications-directory precedence when reading MIME associations, so a system removal leaves a higher-priority user desktop entry available.
 - When a hot folder retries registering a verified RAW copy, it adopts the copy's XMP and applies the metadata preset over it.
 - Start watching waits for the hot folder's metadata preset to finish saving so the watch keeps its saved preset ID.

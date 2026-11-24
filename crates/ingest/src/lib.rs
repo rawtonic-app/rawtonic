@@ -26,6 +26,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::atomic::AtomicBool,
+    time::SystemTime,
 };
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -1372,13 +1373,29 @@ pub(crate) fn import_pair(
         },
         _ => None,
     };
-    let (photo, hash) = match photo_plan {
+    let (photo, hash, preset) = match photo_plan {
         Plan::There(earlier) => {
             reused = reused.and(barrier.sync_existing(&earlier));
-            (earlier, None)
+            let preset = options
+                .preset
+                .map(|preset| {
+                    let modified =
+                        verified_copy_modified(source, &earlier, fs::metadata(&earlier)?.len())?
+                            .context("Source changed during ingest")?;
+                    Ok::<_, IngestError>((preset, modified))
+                })
+                .transpose()?;
+            (earlier, None, preset)
         }
         Plan::Copy(_) => match publish(&mut copied, &mut barrier) {
-            Ok(destination) => (destination, copied.as_ref().map(|copy| copy.sha256.clone())),
+            Ok(destination) => {
+                let verified = copied.as_ref().expect("published verified copy");
+                (
+                    destination,
+                    Some(verified.sha256.clone()),
+                    options.preset.map(|preset| (preset, verified.modified)),
+                )
+            }
             Err(error) => {
                 // The backup keeps its pair.
                 if let (Some(companion), Some(target)) = (companion, &backup_companion)
@@ -1449,7 +1466,7 @@ pub(crate) fn import_pair(
         backup_result,
         hash.as_deref(),
         contents,
-        options.preset,
+        preset,
         companion_name,
         copied_sidecar,
         warnings,
@@ -1503,7 +1520,7 @@ fn register_with_sidecar(
     backup: Option<PathBuf>,
     sha256: Option<&str>,
     contents: Option<&Contents>,
-    preset: Option<&ImportMetadata>,
+    preset: Option<(&ImportMetadata, SystemTime)>,
     companion: Option<&str>,
     copied_sidecar: Option<Result<PathBuf>>,
     mut warnings: Vec<String>,
@@ -1539,12 +1556,30 @@ fn register_with_sidecar(
         backup,
         sha256,
         merged.as_ref(),
-        preset.map(|preset| (preset, sidecar_metadata)),
+        preset.map(|(preset, modified)| (preset, modified, sidecar_metadata)),
         companion,
     );
     result.sidecar = sidecar;
     result.warning = (!warnings.is_empty()).then(|| warnings.join("; "));
     result
+}
+
+/// Verifies a published copy against the source and takes the modification
+/// time from the same source handle used for the hash.
+fn verified_copy_modified(
+    source: &Path,
+    copy: &Path,
+    copy_len: u64,
+) -> Result<Option<SystemTime>, IngestError> {
+    let mut input = fs::File::open(source)?;
+    let before = input.metadata()?;
+    if !before.is_file() || before.len() != copy_len {
+        return Ok(None);
+    }
+    let modified = before.modified()?;
+    let same = copy::sha256_of(&mut input)? == sha256(copy)?;
+    let after = input.metadata()?;
+    Ok((same && after.len() == copy_len && after.modified()? == modified).then_some(modified))
 }
 
 /// Records `copy`, which an earlier `import_one` of `source` copied and
@@ -1563,13 +1598,12 @@ pub fn record_earlier_copy(
     let Ok(meta) = fs::symlink_metadata(copy) else {
         return Ok(None);
     };
-    if !meta.is_file()
-        || meta.len() != fs::metadata(source)?.len()
-        || library.asset_at(copy)?.is_some()
-        || sha256(copy)? != sha256(source)?
-    {
+    if !meta.is_file() || library.asset_at(copy)?.is_some() {
         return Ok(None);
     }
+    let Some(modified) = verified_copy_modified(source, copy, meta.len())? else {
+        return Ok(None);
+    };
     // On permanent storage before it is recorded (its own run's flush may
     // not have happened).
     let mut barrier = Barrier::default();
@@ -1587,7 +1621,7 @@ pub fn record_earlier_copy(
         None,
         None,
         contents,
-        preset,
+        preset.map(|preset| (preset, modified)),
         None,
         copied_sidecar,
         facts.sidecar_error.into_iter().collect(),
@@ -1606,7 +1640,7 @@ fn register(
     backup: Option<PathBuf>,
     sha256: Option<&str>,
     contents: Option<&Contents>,
-    preset: Option<(&ImportMetadata, bool)>,
+    preset: Option<(&ImportMetadata, SystemTime, bool)>,
     companion: Option<&str>,
 ) -> ImportResult {
     // The copy's EXIF (its first megabyte; the copy was just verified) for
@@ -1617,19 +1651,21 @@ fn register(
     // pending for the XMP, which the sidecar's digest must not hide).
     let mut note = None;
     let embedded = match preset {
-        Some(_) => match ImportMetadata::embedded(&destination, source, header.clone()) {
-            Ok(embedded) => Some(embedded),
-            Err(error) => {
-                return ImportResult {
-                    source: source.into(),
-                    destination: Some(destination),
-                    backup,
-                    error: Some(format!("Import metadata could not be prepared: {error:#}")),
-                    header,
-                    ..Default::default()
-                };
+        Some((_, modified, _)) => {
+            match ImportMetadata::embedded(&destination, || Some(modified), header.clone()) {
+                Ok(embedded) => Some(embedded),
+                Err(error) => {
+                    return ImportResult {
+                        source: source.into(),
+                        destination: Some(destination),
+                        backup,
+                        error: Some(format!("Import metadata could not be prepared: {error:#}")),
+                        header,
+                        ..Default::default()
+                    };
+                }
             }
-        },
+        }
         None => None,
     };
     let registered = library
@@ -1643,7 +1679,7 @@ fn register(
             None => Ok(planned),
         })
         .and_then(|planned| match (preset, embedded) {
-            (Some((preset, adopted)), Some(embedded)) => planned.edit_metadata(|metadata, _| {
+            (Some((preset, _, adopted)), Some(embedded)) => planned.edit_metadata(|metadata, _| {
                 note = preset.merge_capture(source, embedded, metadata, adopted);
                 Ok(())
             }),
