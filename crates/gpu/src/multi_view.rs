@@ -610,6 +610,7 @@ impl MultiView {
         width: u32,
         height: u32,
         rgba: &[u8],
+        shown: impl FnOnce() -> Option<[f32; 2]>,
     ) -> bool {
         if self.cell(path).is_none()
             || self.primary() == Some(path)
@@ -620,7 +621,16 @@ impl MultiView {
         {
             return false;
         }
-        let texture = Self::uploaded_texture(device, queue, bindings, width, height, rgba);
+        let mut texture = Self::uploaded_texture(device, queue, bindings, width, height, rgba);
+        // A zoomed cell shows the stand-in enlarged where its photograph's
+        // size is known (a layout shown again after a lost device, DVL3),
+        // not to fit until its own render arrives.
+        if self.zoom_of(path).is_some() {
+            texture.extent = shown().map(|shown| CellExtent {
+                shown,
+                region: None,
+            });
+        }
         self.textures.insert(path.to_string(), texture);
         true
     }
@@ -1387,6 +1397,53 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires a native GPU; a zoomed cell's stand-in is enlarged, not at fit"]
+    fn a_stand_in_in_a_zoomed_cell_is_enlarged_where_its_size_is_known() {
+        let gpu = offscreen();
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        // Left half magenta, right half cyan; at fit the cell's left
+        // quarter shows magenta, zoomed to the right half it shows cyan.
+        let halves: Vec<u8> = (0..8)
+            .flat_map(|_| {
+                (0..10).flat_map(|x| {
+                    if x < 5 {
+                        [255, 0, 255, 255]
+                    } else {
+                        [0, 255, 255, 255]
+                    }
+                })
+            })
+            .collect();
+        for (shown, expected) in [(None, [255, 0, 255]), (Some([10.0, 8.0]), [0, 255, 255])] {
+            let mut multi = layout(&gpu);
+            multi.set_zoom(Some(CellZoom {
+                scale: 10.0,
+                center: [0.75, 0.5],
+            }));
+            assert!(multi.stand_in(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                "pending",
+                10,
+                8,
+                &halves,
+                || shown
+            ));
+            let pixels = present(&gpu, &multi, None);
+            assert!(
+                close(pixel(&pixels, 150, 75), expected),
+                "{shown:?}: {:?}",
+                pixel(&pixels, 150, 75)
+            );
+        }
+    }
+
+    #[test]
     #[ignore = "requires a native GPU; a cached image stands in until the cell's render"]
     fn a_cached_image_stands_in_for_a_cell_until_its_render() {
         let gpu = offscreen();
@@ -1398,7 +1455,16 @@ mod tests {
         };
         let magenta = solid(10, 8, [255, 0, 255]);
         let stand_in = |multi: &mut MultiView, path: &str| {
-            multi.stand_in(&gpu.device, &gpu.queue, &bindings, path, 10, 8, &magenta)
+            multi.stand_in(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                path,
+                10,
+                8,
+                &magenta,
+                || None,
+            )
         };
         assert!(stand_in(&mut multi, "pending"));
         assert_eq!(
@@ -1413,7 +1479,16 @@ mod tests {
         );
         assert!(!stand_in(&mut multi, "gone"), "not shown");
         assert!(
-            !multi.stand_in(&gpu.device, &gpu.queue, &bindings, "c", 10, 9, &magenta),
+            !multi.stand_in(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                "c",
+                10,
+                9,
+                &magenta,
+                || None
+            ),
             "a size its pixels do not have"
         );
         let pixels = present(&gpu, &multi, None);

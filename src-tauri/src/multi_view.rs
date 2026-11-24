@@ -360,6 +360,7 @@ fn show_cells(
                 width,
                 height,
                 still.image.as_raw(),
+                || shown_of(app_handle, path),
             )
         });
         drop(early);
@@ -711,6 +712,7 @@ fn show_stand_ins(
             width,
             height,
             still.image.as_raw(),
+            || shown_of(app_handle, path),
         ) {
             shown += 1;
         }
@@ -866,6 +868,20 @@ pub(crate) async fn render_browser_view(
     .map_err(|e| format!("Browser view task failed: {e}"))?;
     drop(permit);
     result
+}
+
+/// The size `path`'s photograph is shown at, when a cell of it was
+/// developed before (its facts are kept): for a zoomed stand-in.
+fn shown_of(app_handle: &tauri::AppHandle, path: &str) -> Option<[f32; 2]> {
+    let facts = worker(app_handle)
+        .memory
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .facts
+        .get(path)
+        .copied()?;
+    let (width, height) = shown_size(&saved_recipe_of(path), facts);
+    Some([width, height])
 }
 
 /// The size a photograph is shown at: its crop, else the whole frame turned
