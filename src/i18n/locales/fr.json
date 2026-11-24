@@ -4102,9 +4102,9 @@
         "queuedMany_many": "{{count}} exportations ajoutées à la file.",
         "queuedMany_other": "{{count}} exportations ajoutées à la file.",
         "queuedOne": "Ajouté à la file d'exportation.",
-        "unsavedEdits": "Les modifications de {{names}} n'ont pas pu être enregistrées : rien n'a été exporté. Exportez à nouveau une fois qu'elles sont enregistrées.",
+        "saveAsFormat": "{{name}} : Rawtonic n'exporte pas de fichiers .{{extension}}. Choisissez un nom se terminant par .jpg, .tif, .png, .webp, .jxl ou .avif.",
         "saveAsOriginal": "{{name}} est l'original de cette photo ou son fichier annexe. Enregistrer sous ne les remplace jamais : choisissez un autre nom.",
-        "saveAsFormat": "{{name}} : Rawtonic n'exporte pas de fichiers .{{extension}}. Choisissez un nom se terminant par .jpg, .tif, .png, .webp, .jxl ou .avif."
+        "unsavedEdits": "Les modifications de {{names}} n'ont pas pu être enregistrées : rien n'a été exporté. Exportez à nouveau une fois qu'elles sont enregistrées."
       },
       "watermark": {
         "add": "Ajouter un filigrane",

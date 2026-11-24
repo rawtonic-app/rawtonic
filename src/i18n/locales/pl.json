@@ -4271,9 +4271,9 @@
         "queuedMany_many": "Dodano {{count}} eksportów do kolejki.",
         "queuedMany_other": "Dodano {{count}} eksportu do kolejki.",
         "queuedOne": "Dodano do kolejki eksportu.",
-        "unsavedEdits": "Nie udało się zapisać edycji {{names}}, więc nic nie zostało wyeksportowane. Wyeksportuj ponownie po ich zapisaniu.",
+        "saveAsFormat": "{{name}}: Rawtonic nie eksportuje plików .{{extension}}. Wybierz nazwę kończącą się na .jpg, .tif, .png, .webp, .jxl lub .avif.",
         "saveAsOriginal": "{{name}} to oryginał tego zdjęcia lub jego plik towarzyszący. Zapisz jako nigdy ich nie nadpisuje: wybierz inną nazwę.",
-        "saveAsFormat": "{{name}}: Rawtonic nie eksportuje plików .{{extension}}. Wybierz nazwę kończącą się na .jpg, .tif, .png, .webp, .jxl lub .avif."
+        "unsavedEdits": "Nie udało się zapisać edycji {{names}}, więc nic nie zostało wyeksportowane. Wyeksportuj ponownie po ich zapisaniu."
       },
       "watermark": {
         "add": "Dodaj znak wodny",

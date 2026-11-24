@@ -4102,9 +4102,9 @@
         "queuedMany_many": "S'han afegit {{count}} exportacions a la cua.",
         "queuedMany_other": "S'han afegit {{count}} exportacions a la cua.",
         "queuedOne": "S'ha afegit a la cua d'exportació.",
-        "unsavedEdits": "No s'han pogut desar les edicions de {{names}}, així que no s'ha exportat res. Torneu a exportar quan estiguin desades.",
+        "saveAsFormat": "{{name}}: Rawtonic no exporta fitxers .{{extension}}. Trieu un nom acabat en .jpg, .tif, .png, .webp, .jxl o .avif.",
         "saveAsOriginal": "{{name}} és l'original d'aquesta foto o el seu fitxer auxiliar. Desa com a no els sobreescriu mai: trieu un altre nom.",
-        "saveAsFormat": "{{name}}: Rawtonic no exporta fitxers .{{extension}}. Trieu un nom acabat en .jpg, .tif, .png, .webp, .jxl o .avif."
+        "unsavedEdits": "No s'han pogut desar les edicions de {{names}}, així que no s'ha exportat res. Torneu a exportar quan estiguin desades."
       },
       "watermark": {
         "add": "Afegeix una marca d'aigua",

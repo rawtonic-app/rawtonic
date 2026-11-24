@@ -4102,9 +4102,9 @@
         "queuedMany_many": "{{count}} esportazioni aggiunte alla coda.",
         "queuedMany_other": "{{count}} esportazioni aggiunte alla coda.",
         "queuedOne": "Aggiunto alla coda di esportazione.",
-        "unsavedEdits": "Non è stato possibile salvare le modifiche di {{names}}, quindi non è stato esportato nulla. Esporta di nuovo quando sono salvate.",
+        "saveAsFormat": "{{name}}: Rawtonic non esporta file .{{extension}}. Scegli un nome che termini con .jpg, .tif, .png, .webp, .jxl o .avif.",
         "saveAsOriginal": "{{name}} è l'originale di questa foto o il suo file collaterale. Salva con nome non li sovrascrive mai: scegli un altro nome.",
-        "saveAsFormat": "{{name}}: Rawtonic non esporta file .{{extension}}. Scegli un nome che termini con .jpg, .tif, .png, .webp, .jxl o .avif."
+        "unsavedEdits": "Non è stato possibile salvare le modifiche di {{names}}, quindi non è stato esportato nulla. Esporta di nuovo quando sono salvate."
       },
       "watermark": {
         "add": "Aggiungi filigrana",
