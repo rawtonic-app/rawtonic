@@ -1742,8 +1742,9 @@ mod tests {
     /// small slot between its pipelines delayed the first frame by 6 s
     /// (WCC4). Here the test holds the small slot, so the variant cannot
     /// compile: nothing of the plan starts and no detail pass compiles
-    /// until the slot is free and the variant is ready; then, with no frame
-    /// shown, they compile.
+    /// until the slot is free and the variant is ready, neither with no
+    /// photo shown nor while a frame of the photo waits for that variant
+    /// (it must not rush the planned superset); then they compile.
     #[test]
     #[ignore = "GPU; sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn the_start_plan_waits_for_the_first_display_variant() {
@@ -1768,19 +1769,32 @@ mod tests {
         processor.compile_ahead_for_new_raw(None);
         let idle = &processor.idle_compiles.as_ref().unwrap().0;
         let detail = [0, sharpen_level(&photo)];
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while Instant::now() < deadline {
-            assert!(
-                idle.lock().running.is_none(),
-                "an idle compile started beside the first display variant"
-            );
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        assert!(processor.preview_pipelines[shown].get().is_none());
-        drop(small);
-        wait("the RAW default variant", &|| {
-            processor.preview_pipelines[shown].get().is_some()
+        let held = |what: &str| {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline {
+                assert!(
+                    idle.lock().running.is_none(),
+                    "an idle compile started beside the first display variant ({what})"
+                );
+                assert_eq!(
+                    super::super::DETAIL_COMPILES_STARTED.load(Ordering::SeqCst),
+                    0,
+                    "a detail pass started beside the first display variant ({what})"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+        held("no photo shown");
+        std::thread::scope(|scope| {
+            // The photo opened while its variant compiles: its frame waits
+            // for that one and rushes no planned superset beside it.
+            let frame = scope.spawn(|| processor.preview_pipeline(&photo, true).map(|_| ()));
+            held("its frame waits");
+            assert!(processor.preview_pipelines[shown].get().is_none());
+            drop(small);
+            frame.join().unwrap().unwrap();
         });
+        assert!(processor.preview_pipelines[shown].get().is_some());
         let (plan, _) = planned_jobs(shown, &photo);
         wait("the planned variants and the detail passes", &|| {
             plan.iter()

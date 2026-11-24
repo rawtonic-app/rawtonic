@@ -6685,6 +6685,12 @@ impl Drop for SmallVariant {
 /// The one small compile that may run (`CompileWeight::Small`).
 static SMALL_SLOT: Mutex<()> = Mutex::new(());
 
+/// Detail-cache passes whose compile thread went past its start wait
+/// (`GpuProcessor::detail_pipeline_after`).
+#[cfg(test)]
+static DETAIL_COMPILES_STARTED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 /// Heavy compiles waiting for a compile slot or running
 /// (`background_compile_slot`: an idle compile starts only without one).
 static HEAVY_PENDING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -10298,14 +10304,9 @@ impl GpuProcessor {
         if on_screen && let Some(idle) = idle {
             idle.frame();
         }
-        // Idle compiles wait while it does at the start (`StartWindow`).
+        // Idle compiles wait while it does at the start (`StartWindow`;
+        // `render_window` ends the window once the frame has every pipeline).
         let _waits = idle.filter(|_| on_screen).map(|idle| idle.frame_waits());
-        let serve = |result| {
-            if on_screen && let Some(idle) = idle {
-                idle.frame_served();
-            }
-            result
-        };
         #[cfg(test)]
         if self
             .force_legacy_curves
@@ -10390,6 +10391,11 @@ impl GpuProcessor {
                 // them (G76/WGT14: Blacks 220 s, with repeated memory
                 // pressure on a 15 GB Radeon 680M laptop).
                 Some(_) if served() => {}
+                // At the start its own variant compiles already (the RAW
+                // default one): the frame waits for that, and no planned
+                // superset is rushed beside it (`StartWindow`).
+                Some(idle)
+                    if !idle.started() && self.preview_compilation[features].get().is_some() => {}
                 // Glow on a never-edited photo too, although its own
                 // variant is small (9–12 s on a Radeon 680M): compiling it
                 // stops the helper, whose compile then starts over, so the
@@ -10435,7 +10441,6 @@ impl GpuProcessor {
                 .filter(|_| !general_display)
             {
                 if on_screen && let Some(idle) = idle {
-                    idle.frame_served();
                     idle.plan(features, adjustments, || self.idle_target());
                 }
                 return Ok((pipeline, true));
@@ -10451,13 +10456,12 @@ impl GpuProcessor {
                 continue;
             }
             if let Some(general) = self.compiled_general_pipeline(adjustments) {
-                return serve(general.map(|pipeline| (pipeline, false)));
+                return general.map(|pipeline| (pipeline, false));
             }
             if self.preview_failed[own].load(std::sync::atomic::Ordering::Acquire) {
-                return serve(
-                    self.general_pipeline(adjustments, MainOutput::EightBit)
-                        .map(|pipeline| (pipeline, false)),
-                );
+                return self
+                    .general_pipeline(adjustments, MainOutput::EightBit)
+                    .map(|pipeline| (pipeline, false));
             }
             // A newer request replaces this frame while it waits: the next
             // one renders as soon as its own variant is there, often at once
@@ -10710,6 +10714,8 @@ impl GpuProcessor {
                     {
                         return;
                     }
+                    #[cfg(test)]
+                    DETAIL_COMPILES_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let _ = pipeline.set(compile_detail_pipeline(&device, &shader, &layout, slot));
                 });
             });
@@ -11405,6 +11411,14 @@ impl GpuProcessor {
         streams: &mut [Option<RowStream<'_>>],
         readback_analytics: bool,
     ) -> Result<(Vec<RenderedPixels>, u32, u32, u32, u32), String> {
+        // A frame for the window holds idle compiles back at the start until
+        // it has every pipeline it needs, its effect passes' too
+        // (`StartWindow`).
+        let first_frame = self
+            .idle_compiles
+            .as_ref()
+            .filter(|_| output_to_display)
+            .map(|idle| (&idle.0, idle.0.frame_waits()));
         let mut request = request;
         if request.lut.is_none() {
             // A recipe whose LUT file did not load renders without it, not
@@ -12006,6 +12020,10 @@ impl GpuProcessor {
             )),
             _ => None,
         };
+        if let Some((idle, waits)) = first_frame {
+            idle.frame_served();
+            drop(waits);
+        }
         let blur_requirements = if force_full_preparation {
             [true; 5]
         } else {
