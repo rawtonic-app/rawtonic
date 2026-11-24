@@ -23,6 +23,7 @@ import {
   VIBRANCE_VERSION,
   SHADOWS_TRAVEL_TONE_VERSION,
   WHITES_EDGE_CAP_TONE_VERSION,
+  PIXEL_ANCHOR_TONE_VERSION,
   WHITES_TRAVEL_TONE_VERSION,
   isNewRecipe,
   shadowsAmountV21,
@@ -162,7 +163,8 @@ const KEYS: VersionKey[] = [
  * with: a new edit's `to`, unless a layer uses a tone slider whose response
  * differs between the two (versions 20 and 21 differ only in Shadows' travel,
  * which `layersInToneVersion` re-expresses exactly; version 22 changes
- * lowered Whites, which no value re-expresses): then the layers keep
+ * lowered Whites and version 23 raised Shadows and lowered Highlights,
+ * which no value re-expresses): then the layers keep
  * rendering as they did under the photo's own version `from`. */
 export function toneVersionAfterReset(masks: { adjustments?: object }[], from: number, to: number): number {
   if (from === to) return to;
@@ -175,9 +177,12 @@ export function toneVersionAfterReset(masks: { adjustments?: object }[], from: n
       );
     });
   if (Math.min(from, to) >= 20) {
-    const acrossWhitesCap =
-      Math.min(from, to) < WHITES_EDGE_CAP_TONE_VERSION && Math.max(from, to) >= WHITES_EDGE_CAP_TONE_VERSION;
-    return acrossWhitesCap && layerUses((slider, value) => slider === 'whites' && value < 0) ? from : to;
+    const across = (version: number) => Math.min(from, to) < version && Math.max(from, to) >= version;
+    const changed = (slider: string, value: number) =>
+      (across(WHITES_EDGE_CAP_TONE_VERSION) && slider === 'whites' && value < 0) ||
+      (across(PIXEL_ANCHOR_TONE_VERSION) &&
+        ((slider === 'shadows' && value > 0) || (slider === 'highlights' && value < 0)));
+    return layerUses(changed) ? from : to;
   }
   return layerUses(() => true) ? from : to;
 }

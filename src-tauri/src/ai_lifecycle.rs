@@ -508,8 +508,17 @@ pub async fn export_turn(app: &tauri::AppHandle) -> rawtonic_gpu::memory_turns::
 /// mask kept them beside every compile: the app held 3.8 GB beside a
 /// helper's 4.4 GB on a Radeon 680M (G76/WSMOKE20). No masking computation
 /// runs beside the helper there (`turn`); one that waits for it after an
-/// unload loads its model again (7–9 s there, G76/WAIW1).
+/// unload loads its model again (7–9 s there, G76/WAIW1). Also stops the
+/// runs made ahead when a compile a frame or an export waits for starts
+/// beside them (`rawtonic_gpu::memory_turns::on_awaited_compile`).
 pub fn release_for_cold_helper_compiles(app: &tauri::AppHandle) {
+    // A compile a frame or an export waits for does not wait for the runs
+    // made ahead (`rawtonic_gpu::memory_turns`): they stop, as for an
+    // export, so the two overlap as briefly as the runs allow.
+    let stopping = app.clone();
+    rawtonic_gpu::memory_turns::on_awaited_compile(move || {
+        cancel_background_runs(&stopping.state::<AiState>());
+    });
     let app = app.clone();
     rawtonic_gpu::gpu_processing::set_on_cold_helper_compile(Box::new(move |helper| {
         // What rebuilds on demand goes first: the models' decision is made

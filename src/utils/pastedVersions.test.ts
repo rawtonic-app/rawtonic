@@ -58,4 +58,12 @@ describe('toneVersionAfterReset', () => {
   it("keeps an older version a layer's tone sliders depend on", () => {
     expect(toneVersionAfterReset([layer({ shadows: 50 })], 19, 22)).toBe(19);
   });
+  it("keeps the photo's version where a layer raises Shadows or lowers Highlights across version 23", () => {
+    // Version 23's pixel anchor changes both, which no slider value re-expresses.
+    expect(toneVersionAfterReset([layer({ shadows: 50 })], 22, 23)).toBe(22);
+    expect(toneVersionAfterReset([layer({ highlights: -40 })], 21, 23)).toBe(21);
+    expect(toneVersionAfterReset([layer({ whites: -40 })], 22, 23)).toBe(23);
+    expect(toneVersionAfterReset([layer({ shadows: -50, highlights: 40 })], 22, 23)).toBe(23);
+    expect(toneVersionAfterReset([layer({ shadows: 50 })], 23, 23)).toBe(23);
+  });
 });

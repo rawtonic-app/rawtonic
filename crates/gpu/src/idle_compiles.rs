@@ -237,6 +237,10 @@ pub(super) fn basic_features(features: usize, adjustments: &AllAdjustments) -> u
         | bit(tone.shadows_light_gaps(), SHADOWS_V20_FEATURE)
         | bit(tone.whites_edge_cap(), WHITES_V22_FEATURE)
         | bit(
+            g.tonemapper_mode == 3 && tone.pixel_anchor(),
+            ANCHOR_V23_FEATURE,
+        )
+        | bit(
             ClarityVersion::from_uniform(g.clarity_version).get() >= 3
                 || StructureVersion::from_uniform(g.structure_version).edge_aware(),
             PRESENCE_V3_FEATURE,
@@ -263,6 +267,7 @@ pub(super) const BASIC_FEATURES: usize = TONE_PREVIEW_FEATURE
     | SHADOWS_V19_FEATURE
     | SHADOWS_V20_FEATURE
     | WHITES_V22_FEATURE
+    | ANCHOR_V23_FEATURE
     | PRESENCE_V3_FEATURE
     | DEHAZE_V3_FEATURE
     | DEHAZE_V2_FEATURE
@@ -389,15 +394,67 @@ pub(super) struct IdleCompiles {
     /// Milliseconds since `since_start`'s start when a frame last waited
     /// for the job that runs or runs next (`covering`; 0: never).
     awaited_ms: AtomicU64,
+    /// The start window (`IdleCompiles::started`).
+    start: StartWindow,
+}
+
+/// Until the first frame for the window has its pipeline, only what that
+/// frame needs compiles (G76/WCC5): idle compiles that no frame or export
+/// waits for, and the detail-cache passes the start compiles ahead
+/// (`GpuProcessor::compile_ahead_for_new_raw`), wait. On a Radeon 680M with
+/// cold caches the start's helper (28 s) compiled beside the RAW default
+/// variant, and the two ahead detail passes (3.6 s each) took the small
+/// compile slot between that variant's pipelines: its first frame came at
+/// 17 s instead of 11 s (WCC4). Without a photo shown the window ends when
+/// the first display variant settles (its gate opens) and no frame waits,
+/// so the Library's time still counts for the plan.
+struct StartWindow {
+    /// The processor's start gate (opened when the RAW default variant
+    /// settles); `None`: no window (queues of their own in tests).
+    first_variant: Option<Arc<StartGate>>,
+    /// The window ended (latched).
+    ended: std::sync::atomic::AtomicBool,
+    /// Frames for the window waiting for their pipeline now.
+    frames_waiting: std::sync::atomic::AtomicUsize,
+}
+
+/// A frame for the window waiting for its pipeline
+/// (`IdleCompiles::frame_waits`) while it lives.
+pub(super) struct FrameWaits<'a>(&'a IdleCompiles);
+
+impl Drop for FrameWaits<'_> {
+    fn drop(&mut self) {
+        self.0.start.frames_waiting.fetch_sub(1, Ordering::SeqCst);
+        self.0.changed.notify_all();
+    }
 }
 
 impl IdleCompiles {
+    /// A queue without a start window (tests of their own).
+    #[cfg(test)]
     pub(super) fn new() -> Arc<Self> {
+        Self::with_start_window(None)
+    }
+
+    /// A queue whose idle compiles wait for the start window to end
+    /// (`started`): until `first_variant` opens and no frame waits, or a
+    /// frame for the window has its pipeline.
+    pub(super) fn after_first_frame(first_variant: Arc<StartGate>) -> Arc<Self> {
+        Self::with_start_window(Some(first_variant))
+    }
+
+    fn with_start_window(first_variant: Option<Arc<StartGate>>) -> Arc<Self> {
+        let ended = first_variant.is_none();
         let this = Arc::new(Self {
             queue: Mutex::new(Queue::default()),
             changed: Condvar::new(),
             last_frame_ms: AtomicU64::new(0),
             awaited_ms: AtomicU64::new(0),
+            start: StartWindow {
+                first_variant,
+                ended: std::sync::atomic::AtomicBool::new(ended),
+                frames_waiting: std::sync::atomic::AtomicUsize::new(0),
+            },
         });
         let mut live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
         live.retain(|idle| idle.strong_count() > 0);
@@ -407,6 +464,67 @@ impl IdleCompiles {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Queue> {
         self.queue.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Whether the start window ended (`StartWindow`): a frame for the
+    /// window had its pipeline, or the first display variant settled and
+    /// no frame waits for one.
+    pub(super) fn started(&self) -> bool {
+        let window = &self.start;
+        if window.ended.load(Ordering::SeqCst) {
+            return true;
+        }
+        let settled = window
+            .first_variant
+            .as_ref()
+            .is_none_or(|gate| gate.is_open());
+        if settled && window.frames_waiting.load(Ordering::SeqCst) == 0 {
+            self.end_start_window("the first display variant settled");
+            return true;
+        }
+        false
+    }
+
+    fn end_start_window(&self, why: &str) {
+        if !self.start.ended.swap(true, Ordering::SeqCst) {
+            log::info!(
+                "GPU idle compiles may start: {why} (+{:.2} s since start)",
+                since_start()
+            );
+            self.changed.notify_all();
+        }
+    }
+
+    /// A frame for the window waits for its pipeline until the guard drops.
+    pub(super) fn frame_waits(&self) -> FrameWaits<'_> {
+        self.start.frames_waiting.fetch_add(1, Ordering::SeqCst);
+        FrameWaits(self)
+    }
+
+    /// A frame for the window has its pipeline: the start window ends.
+    pub(super) fn frame_served(&self) {
+        if !self.start.ended.load(Ordering::Relaxed) {
+            self.end_start_window("the first frame has its pipeline");
+        }
+    }
+
+    /// Waits until the start window ended (`started`); `false` if the queue
+    /// was cancelled first (its processor was dropped).
+    pub(super) fn wait_started(&self) -> bool {
+        let mut queue = self.lock();
+        loop {
+            if queue.cancelled {
+                return false;
+            }
+            if self.started() {
+                return true;
+            }
+            queue = self
+                .changed
+                .wait_timeout(queue, IDLE_POLL)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
     }
 
     /// A frame for the window is rendering: idle compiles wait `IDLE_QUIET`
@@ -544,12 +662,17 @@ impl IdleCompiles {
         true
     }
 
+    /// Whether a frame asked `covering` for the job that runs or runs next
+    /// within `within`, i.e. still waits for it.
+    fn frame_asked_within(&self, within: Duration) -> bool {
+        let last = self.awaited_ms.load(Ordering::Relaxed);
+        last != 0 && now_ms().saturating_sub(last) < within.as_millis() as u64
+    }
+
     /// Whether a frame or an export waits for `job` now: a frame asks
     /// `covering` every few milliseconds while it waits.
     fn awaited(&self, job: IdleJob) -> bool {
-        let last = self.awaited_ms.load(Ordering::Relaxed);
-        (last != 0 && now_ms().saturating_sub(last) < AWAITED.as_millis() as u64)
-            || self.lock().export_job == Some(job)
+        self.frame_asked_within(AWAITED) || self.lock().export_job == Some(job)
     }
 
     /// Ends the worker after the compile it runs (if any); nothing new
@@ -645,7 +768,9 @@ impl IdleCompiles {
                 let awaited = queue.export_job.is_some() || !queue.frame_jobs.is_empty();
                 let urgent = awaited || queue.rush;
                 drop(queue);
-                if !urgent && !self.idle() {
+                // Not before the first frame has what it needs (`StartWindow`);
+                // a job a frame or an export waits for goes all the same.
+                if !urgent && (!self.started() || !self.idle()) {
                     let queue = self.lock();
                     let _ = self
                         .changed
@@ -690,8 +815,17 @@ impl IdleCompiles {
                 }
                 // Not beside an AI network run on the CPU where the two
                 // take turns (`memory_turns`): asked again after the poll,
-                // without the slot, which a frame's compile may need.
-                let Some(turn) = crate::memory_turns::compile() else {
+                // without the slot, which a frame's compile may need. One a
+                // frame or an export waits for goes beside a run made ahead
+                // (WMV8/DVL5: after a lost device the shown photograph's
+                // variant waited 35 s and more for a Subject mask computed
+                // ahead). A rush whose frame moved on does not count
+                // (DVL5 review r1): a waiting frame asks `covering` every
+                // 2 ms, so 100 ms without a call means it went on (a frame
+                // that still waits is seen at the next poll).
+                let waited_for =
+                    awaited || (urgent && self.frame_asked_within(Duration::from_millis(100)));
+                let Some(turn) = crate::memory_turns::compile(waited_for) else {
                     drop(slot);
                     let queue = self.lock();
                     let _ = self
@@ -1218,7 +1352,8 @@ mod tests {
     /// 680M (G76/WHCF, WSMOKE18: 7335999, 5238847; since tone version 19
     /// with raised Shadows' level, `SHADOWS_V19_FEATURE`, since version 20
     /// with its bounds, `SHADOWS_V20_FEATURE`, since version 22 with
-    /// lowered Whites' offset cap, `WHITES_V22_FEATURE`).
+    /// lowered Whites' offset cap, `WHITES_V22_FEATURE`, since version 23
+    /// with the pixel anchor, `ANCHOR_V23_FEATURE`).
     #[test]
     fn the_start_plans_what_a_new_raw_edit_plans() {
         // The plan with one main pass (display variants without the effect
@@ -1231,7 +1366,11 @@ mod tests {
         assert_eq!(features, RAW_DEFAULT_PREVIEW_FEATURES);
         let (plan, exact) = planned_jobs(features, &at_start);
         assert_eq!(exact, features);
-        let basic = 5238847 | SHADOWS_V19_FEATURE | SHADOWS_V20_FEATURE | WHITES_V22_FEATURE;
+        let basic = 5238847
+            | SHADOWS_V19_FEATURE
+            | SHADOWS_V20_FEATURE
+            | WHITES_V22_FEATURE
+            | ANCHOR_V23_FEATURE;
         assert_eq!(plan, vec![basic | GLOW_FEATURE, basic, features]);
         // Response 8's detail-cache pass.
         assert_eq!(sharpen_level(&at_start), 2);
@@ -1252,6 +1391,7 @@ mod tests {
             | SHADOWS_V19_FEATURE
             | SHADOWS_V20_FEATURE
             | WHITES_V22_FEATURE
+            | ANCHOR_V23_FEATURE
             | GLOW_FEATURE
             | HALATION_FEATURE;
         assert_eq!(
@@ -1300,6 +1440,7 @@ mod tests {
             | SHADOWS_V19_FEATURE
             | SHADOWS_V20_FEATURE
             | WHITES_V22_FEATURE
+            | ANCHOR_V23_FEATURE
             | PRESENCE_V3_FEATURE
             | DEHAZE_V3_FEATURE
             | VIBRANCE_V2_FEATURE
@@ -1573,6 +1714,137 @@ mod tests {
         set_compile_limit(None);
     }
 
+    /// The start window (G76/WCC5): idle compiles wait while the first
+    /// display variant compiles and while a frame for the window waits for
+    /// its pipeline; it ends when a frame has one, or when the variant
+    /// settled with no frame waiting (no photo shown: the Library's time
+    /// counts), and stays ended.
+    #[test]
+    fn idle_compiles_wait_for_the_first_frame() {
+        // No photo shown.
+        let gate = Arc::new(StartGate::default());
+        let idle = IdleCompiles::after_first_frame(Arc::clone(&gate));
+        assert!(!idle.started(), "the first display variant compiles");
+        gate.open();
+        assert!(idle.started());
+        // A photo shown while the first variant compiles.
+        let gate = Arc::new(StartGate::default());
+        let idle = IdleCompiles::after_first_frame(Arc::clone(&gate));
+        let waits = idle.frame_waits();
+        gate.open();
+        assert!(!idle.started(), "the first frame waits for its pipeline");
+        idle.frame_served();
+        drop(waits);
+        assert!(idle.started());
+        // Ended stays ended: a later frame's wait holds nothing back here.
+        let _later = idle.frame_waits();
+        assert!(idle.started());
+        // A photo whose first frame is served before the RAW default
+        // variant settles (another variant).
+        let gate = Arc::new(StartGate::default());
+        let idle = IdleCompiles::after_first_frame(gate);
+        {
+            let _waits = idle.frame_waits();
+            idle.frame_served();
+        }
+        assert!(idle.started());
+        // A frame given up (superseded) ends nothing by itself.
+        let gate = Arc::new(StartGate::default());
+        let idle = IdleCompiles::after_first_frame(Arc::clone(&gate));
+        drop(idle.frame_waits());
+        assert!(!idle.started());
+        // Queues without a window (tests of their own) start at once.
+        assert!(IdleCompiles::new().started());
+        // A wait ends when the queue is cancelled.
+        let gate = Arc::new(StartGate::default());
+        let idle = IdleCompiles::after_first_frame(gate);
+        idle.cancel();
+        assert!(!idle.wait_started());
+    }
+
+    /// Under a compile limit the start's plan and its detail-cache passes
+    /// wait until the RAW default variant settled (G76/WCC5): a helper
+    /// beside it (28 s on a cold Radeon 680M) and the detail passes in the
+    /// small slot between its pipelines delayed the first frame by 6 s
+    /// (WCC4). Here the test holds the small slot, so the variant cannot
+    /// compile: nothing of the plan starts and no detail pass compiles
+    /// until the slot is free and the variant is ready, neither with no
+    /// photo shown nor while a frame of the photo waits for that variant
+    /// (it must not rush the planned superset); then they compile.
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
+    fn the_start_plan_waits_for_the_first_display_variant() {
+        if !alone("the_start_plan_waits_for_the_first_display_variant") {
+            return;
+        }
+        use super::super::preview_tests::context;
+        use std::time::Instant;
+        set_compile_limit(Some(1));
+        let wait = |what: &str, done: &dyn Fn() -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(300);
+            while !done() {
+                assert!(Instant::now() < deadline, "{what} did not compile");
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        };
+        let small = SMALL_SLOT.lock().unwrap();
+        let processor = GpuProcessor::new(context(), 256, 256).unwrap();
+        let photo = super::super::new_raw_edit(None);
+        let shown = preview_features(&photo);
+        assert_eq!(shown, RAW_DEFAULT_PREVIEW_FEATURES);
+        processor.compile_ahead_for_new_raw(None);
+        let idle = &processor.idle_compiles.as_ref().unwrap().0;
+        let detail = [0, sharpen_level(&photo)];
+        let held = |what: &str| {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < deadline {
+                assert!(
+                    idle.lock().running.is_none(),
+                    "an idle compile started beside the first display variant ({what})"
+                );
+                assert_eq!(
+                    super::super::DETAIL_COMPILES_STARTED.load(Ordering::SeqCst),
+                    0,
+                    "a detail pass started beside the first display variant ({what})"
+                );
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+        held("no photo shown");
+        std::thread::scope(|scope| {
+            // The photo opened while its variant compiles: its frame waits
+            // for that one and rushes no planned superset beside it.
+            let frame = scope.spawn(|| processor.preview_pipeline(&photo, true).map(|_| ()));
+            // A photo within the RAW default variant (here without colour
+            // noise reduction) waits for that one too.
+            let within = new_raw_edit(serde_json::json!({ "colorNoiseReduction": 0 }));
+            let within_features = preview_features(&within);
+            assert_ne!(within_features, RAW_DEFAULT_PREVIEW_FEATURES);
+            assert!(small_display_variant(within_features));
+            let processor = &processor;
+            let other = scope.spawn(move || processor.preview_pipeline(&within, true).map(|_| ()));
+            held("its frame waits");
+            assert!(processor.preview_pipelines[shown].get().is_none());
+            drop(small);
+            frame.join().unwrap().unwrap();
+            other.join().unwrap().unwrap();
+        });
+        assert!(processor.preview_pipelines[shown].get().is_some());
+        // The photo shown last plans: the RAW's again.
+        processor.preview_pipeline(&photo, true).unwrap();
+        let (plan, _) = planned_jobs(shown, &photo);
+        wait("the planned variants and the detail passes", &|| {
+            plan.iter()
+                .all(|&f| processor.preview_pipelines[f].get().is_some())
+                && detail
+                    .iter()
+                    .all(|&slot| processor.detail_pipeline[slot].get().is_some())
+        });
+        drop(processor);
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
+    }
+
     /// An export that starts while an idle helper runs stops it (it waits
     /// for the compiles to end), unless the idle worker has the export's own
     /// variant to compile: then the export waits for that (G76/WSMOKE19).
@@ -1798,6 +2070,63 @@ mod tests {
             "the frame did not render with the planned variant"
         );
         assert!(processor.preview_pipelines[features].get().is_none());
+        drop(processor);
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
+    }
+
+    /// Where idle compiles and AI runs take turns, a frame that waits for
+    /// the planned variant gets it although a run made ahead holds its turn
+    /// the whole time, and the app is told to stop that run. WMV8/DVL5:
+    /// after a lost device the shown photograph's variant had to compile
+    /// again while a Subject mask computed ahead held its turn with a model
+    /// load that did not end; the multi view stayed soft for 35 s and more.
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit and turns, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
+    fn a_frame_does_not_wait_for_a_run_made_ahead() {
+        if !alone("a_frame_does_not_wait_for_a_run_made_ahead") {
+            return;
+        }
+        use super::super::preview_tests::context;
+        use crate::memory_turns::{AiRun, ai_run, on_awaited_compile};
+        use std::sync::atomic::AtomicUsize;
+        use std::time::Instant;
+        static TOLD_TO_STOP: AtomicUsize = AtomicUsize::new(0);
+        on_awaited_compile(|| {
+            TOLD_TO_STOP.fetch_add(1, Ordering::SeqCst);
+        });
+        set_compile_limit(Some(1));
+        crate::memory_turns::enable();
+        let processor = Arc::new(GpuProcessor::new(context(), 256, 256).unwrap());
+        let photo = super::super::new_raw_edit(None);
+        processor.preview_pipeline(&photo, true).unwrap();
+        let (plan, _) = planned_jobs(preview_features(&photo), &photo);
+        let mut contrast = photo;
+        contrast.global.contrast = 0.2;
+        assert!(processor.preview_pipelines[plan[0]].get().is_none());
+        // A mask computed ahead takes its turn and keeps it.
+        let ahead = ai_run(AiRun::Ahead);
+        let (sender, rendered) = std::sync::mpsc::channel();
+        let rendering = Arc::clone(&processor);
+        let started = Instant::now();
+        std::thread::spawn(move || {
+            let ok = rendering.preview_pipeline(&contrast, true).is_ok();
+            let _ = sender.send(ok);
+        });
+        let result = rendered.recv_timeout(Duration::from_secs(120));
+        let waited = started.elapsed();
+        // Let a frame that still waits end before the asserts.
+        drop(ahead);
+        assert_eq!(
+            result,
+            Ok(true),
+            "the frame waited {waited:?} for the run made ahead"
+        );
+        assert!(processor.preview_pipelines[plan[0]].get().is_some());
+        assert!(
+            TOLD_TO_STOP.load(Ordering::SeqCst) > 0,
+            "the run was not told to stop"
+        );
         drop(processor);
         std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
         set_compile_limit(None);

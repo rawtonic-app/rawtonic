@@ -235,6 +235,10 @@ pub const SHADOWS_TRAVEL_TONE_VERSION: u64 = 21;
 /// above its base, so strong edges keep less of a light rim (`toneVersion`
 /// 22).
 pub const WHITES_EDGE_CAP_TONE_VERSION: u64 = 22;
+/// The tone-slider response from which raised Shadows and lowered
+/// Highlights add a per-pixel anchor term to their gain, so deep shadows and
+/// bright texture keep more local contrast (`toneVersion` 23).
+pub const PIXEL_ANCHOR_TONE_VERSION: u64 = 23;
 
 /// `toneVersion` (`image_processing::TONE_VERSION`): 1 when missing, never
 /// newer than this renderer knows.
@@ -305,6 +309,12 @@ impl ToneVersion {
     /// strong edges).
     pub fn whites_edge_cap(self) -> bool {
         self.0 >= WHITES_EDGE_CAP_TONE_VERSION
+    }
+
+    /// Raised Shadows and lowered Highlights add a per-pixel anchor term to
+    /// their gain (deep-shadow and bright local contrast).
+    pub fn pixel_anchor(self) -> bool {
+        self.0 >= PIXEL_ANCHOR_TONE_VERSION
     }
 
     /// The Whites amount (recipe units) the renderer applies for the slider
