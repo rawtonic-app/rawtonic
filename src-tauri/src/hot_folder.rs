@@ -1109,16 +1109,38 @@ mod tests {
         // What the failed try left behind under sequence 1.
         let earlier = capture.join("Job_0001.ARW");
         fs::write(&earlier, b"capture").unwrap();
-        let preset = NextCapture::Preset {
-            name: "Studio".into(),
-            adjustments: json!({"contrast": 12}),
+        let card = rawtonic_metadata::Metadata {
+            creator: "Card photographer".into(),
+            keywords: vec!["card".into()],
+            ..Default::default()
+        };
+        for photo in [&source, &earlier] {
+            rawtonic_metadata::write_xmp(&photo.with_extension("xmp"), &card, None, None).unwrap();
+        }
+        let settings = CaptureSettings {
+            next_capture: NextCapture::Preset {
+                name: "Studio".into(),
+                adjustments: json!({"contrast": 12}),
+            },
+            metadata: NextCaptureMetadata {
+                import: Some(rawtonic_ingest::metadata::MetadataPreset {
+                    id: "rights".into(),
+                    name: "Rights".into(),
+                    metadata: rawtonic_ingest::metadata::ImportMetadata {
+                        creator: "Preset photographer".into(),
+                        keywords: vec!["preset".into()],
+                        ..Default::default()
+                    },
+                }),
+                ..Default::default()
+            },
         };
         let (result, asset) = ingest_capture(
             &lib,
             &source,
             "{job}_{seq:4}.{ext}",
             2,
-            &preset.clone().into(),
+            &settings,
             None,
             Some(&earlier),
             &AtomicBool::new(false),
@@ -1131,6 +1153,11 @@ mod tests {
             lib.editor_state(&asset).unwrap().unwrap()["adjustments"]["contrast"],
             12
         );
+        let metadata = lib.metadata(&asset).unwrap();
+        assert_eq!(metadata.creator, "Card photographer");
+        assert_eq!(metadata.keywords, ["card", "preset"]);
+        let persisted = fs::read_to_string(earlier.with_extension("xmp")).unwrap();
+        assert_eq!(rawtonic_metadata::read_xmp(&persisted).unwrap().0, metadata);
         let files: Vec<_> = fs::read_dir(&capture)
             .unwrap()
             .flatten()

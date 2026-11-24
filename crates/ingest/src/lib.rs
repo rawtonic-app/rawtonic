@@ -1552,7 +1552,7 @@ fn register_with_sidecar(
 /// it is still a file with the bytes of `source` and no record. `None`
 /// otherwise: then import `source` as usual. For callers that retry (the
 /// hot folder) when a template's name changed meanwhile (`{seq}`); the
-/// photograph is stored with `contents` as by `import_capture`.
+/// photograph is stored with `contents` and its XMP as by `import_capture`.
 pub fn record_earlier_copy(
     library: &Library,
     source: &Path,
@@ -1574,16 +1574,23 @@ pub fn record_earlier_copy(
     // not have happened).
     let mut barrier = Barrier::default();
     barrier.sync_existing(copy)?;
+    let facts = source_facts(source);
+    let copied_sidecar = facts
+        .sidecar
+        .as_ref()
+        .map(|sidecar| copy_sidecar(sidecar, copy, &mut barrier));
     barrier.flush()?;
-    Ok(Some(register(
+    Ok(Some(register_with_sidecar(
         library,
         source,
         copy.to_path_buf(),
         None,
         None,
         contents,
-        preset.map(|preset| (preset, false)),
+        preset,
         None,
+        copied_sidecar,
+        facts.sidecar_error.into_iter().collect(),
     )))
 }
 
