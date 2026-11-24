@@ -126,15 +126,36 @@ fn an_exif_item_over_64_kib_is_read_in_both_storage_methods() {
 }
 
 #[test]
-fn a_damaged_extent_length_is_refused_not_read() {
-    // The item claims 100 MB; the file does not hold them, and the cap
-    // (16 MiB) refuses it before any read.
+fn an_item_over_the_cap_is_refused_by_the_cap() {
+    // The data is really there (17 MiB, in bounds), so only the 16 MiB cap
+    // can refuse it, with an exact length, with a length of zero (the rest
+    // of the file or of the idat box) and in both storage methods.
+    let big = item(&tiff(17 << 20));
+    for in_idat in [false, true] {
+        for claimed in [None, Some(0)] {
+            let bytes = heif(&big, in_idat, claimed);
+            assert_eq!(make(&bytes), None, "idat {in_idat}, length {claimed:?}");
+        }
+    }
+    // Just under the cap still reads (the same builder, same paths).
+    let fits = item(&tiff(15 << 20));
+    for in_idat in [false, true] {
+        let bytes = heif(&fits, in_idat, None);
+        assert_eq!(
+            make(&bytes).as_deref(),
+            Some("\"Rawtonic Test\""),
+            "idat {in_idat}"
+        );
+    }
+}
+
+#[test]
+fn a_damaged_extent_length_beyond_the_file_is_refused() {
     let small = item(&tiff(10));
     for in_idat in [false, true] {
         let bytes = heif(&small, in_idat, Some(100_000_000));
         assert_eq!(make(&bytes), None, "idat {in_idat}");
     }
-    // A normal small item still works.
     assert_eq!(
         make(&heif(&small, false, None)).as_deref(),
         Some("\"Rawtonic Test\"")
