@@ -421,7 +421,16 @@ impl Library {
             capture: self
                 .capture_override(asset)?
                 .map(serde_json::to_value)
-                .transpose()?,
+                .transpose()?
+                .or(self
+                    .conn
+                    .query_row(
+                        "SELECT wall_time FROM pending_capture_times WHERE asset_id=?",
+                        [asset],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()?
+                    .map(|wall_time| serde_json::json!({ "pendingWallTime": wall_time }))),
             eyes,
             snapshots,
         })
@@ -1380,6 +1389,7 @@ fn add_new(tx: &Connection, lib: &Library, plan: &Plan) -> Result<()> {
     copy_rows(tx, "masks", new_version, &[])?;
     for table in [
         "capture_overrides",
+        "pending_capture_times",
         "eye_reads",
         "face_eyes",
         "image_hashes",
@@ -1512,13 +1522,11 @@ fn replace(
     let set_target = format!("'{}'", target.replace('\'', "''"));
     let theirs_only = format!("WHERE o.asset_id='{}'", incoming.replace('\'', "''"));
     if changes.contains(&"captureTime") {
-        tx.execute("DELETE FROM capture_overrides WHERE asset_id=?", [target])?;
-        copy_rows(
-            tx,
-            "capture_overrides",
-            &theirs_only,
-            &[("asset_id", &set_target)],
-        )?;
+        for table in ["capture_overrides", "pending_capture_times"] {
+            tx.execute(&format!("DELETE FROM {table} WHERE asset_id=?"), [target])?;
+            copy_rows(tx, table, &theirs_only, &[("asset_id", &set_target)])?;
+        }
+        crate::capture_time::apply_imported_capture_time(tx, target)?;
     }
     if changes.contains(&"eyes") {
         tx.execute("DELETE FROM face_eyes WHERE asset_id=?", [target])?;

@@ -55,7 +55,7 @@ import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
 import { RotateCcw } from 'lucide-react';
 import { useUIStore } from '../../store/useUIStore';
-import { relaunchAfterSettingsSaves } from '../../store/useSettingsStore';
+import { useSettingsStore, relaunchAfterSettingsSaves } from '../../store/useSettingsStore';
 import {
   DEFAULT_PROOF_MARGIN_PERCENT,
   PROOF_MARGIN_PERCENTS,
@@ -94,6 +94,7 @@ interface KeybindRowProps {
   recordingAction: string | null;
   onStartRecording: (action: string) => void;
   isConflicting: boolean;
+  reassignedFrom?: string[];
 }
 
 interface SettingsPanelProps {
@@ -193,7 +194,8 @@ const KeybindRow = ({
   onSave,
   recordingAction,
   onStartRecording,
-  isConflicting
+  isConflicting,
+  reassignedFrom
 }: KeybindRowProps) => {
   const { t } = useTranslation();
   const recording = recordingAction === def.action;
@@ -235,6 +237,18 @@ const KeybindRow = ({
         )}
       </Text>
       <div className="flex items-center gap-1">
+        {!!reassignedFrom?.length && (
+          <span role="status" className="text-xs text-yellow-400">
+            {t('settings.controls.reassignedFrom', {
+              commands: reassignedFrom
+                .flatMap((action) => {
+                  const definition = KEYBIND_DEFINITIONS.find((d) => d.action === action);
+                  return definition ? [t(definition.description as ParseKeys)] : [];
+                })
+                .join(', ')
+            })}
+          </span>
+        )}
         {isConflicting && <span className="text-yellow-400 text-xs">⚠</span>}
         <button
           id={`${id}-key`}
@@ -783,10 +797,10 @@ export default function SettingsPanel({
   };
 
   const handleKeybindSave = (action: string, combo: string[]) => {
-    const newKeybinds = { ...(appSettings?.keybinds || {}), [action]: combo };
-    onSettingsChange({ ...appSettings, keybinds: newKeybinds });
+    void useSettingsStore.getState().assignKeybind(action, combo);
   };
 
+  const reassignedKeys = useSettingsStore((state) => state.keybindReassigned);
   const conflictingKeys = useMemo(() => conflictingActions(appSettings?.keybinds), [appSettings?.keybinds]);
 
   return (
@@ -2009,6 +2023,7 @@ export default function SettingsPanel({
                                   recordingAction={recordingAction}
                                   onStartRecording={setRecordingAction}
                                   isConflicting={conflictingKeys.has(def.action)}
+                                  reassignedFrom={reassignedKeys[def.action]}
                                 />
                               ))}
                             </div>

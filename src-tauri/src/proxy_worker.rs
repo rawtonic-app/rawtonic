@@ -1153,21 +1153,25 @@ pub async fn discard_previews(
 ) -> Result<usize, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
-        let mut removed = 0;
         let mut seen = std::collections::HashSet::new();
-        for path in paths {
-            let source = source_of(&path);
-            if !seen.insert(source.clone()) {
-                continue;
-            }
-            removed += preview_proxy::discard_source(Path::new(&source), kinds(full_only));
-            if !full_only {
-                state
-                    .source
-                    .proxy_memory
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .forget_source(&source);
+        let sources: Vec<String> = paths
+            .iter()
+            .map(|path| source_of(path))
+            .filter(|source| seen.insert(source.clone()))
+            .collect();
+        // One listing of each previews folder for all of them.
+        let removed = preview_proxy::discard_sources(
+            sources.iter().map(|source| Path::new(source.as_str())),
+            kinds(full_only),
+        );
+        if !full_only {
+            let mut memory = state
+                .source
+                .proxy_memory
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            for source in &sources {
+                memory.forget_source(source);
             }
         }
         removed

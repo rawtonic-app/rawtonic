@@ -2454,6 +2454,7 @@
         "EasyPortrait face parsing (FPN + ResNet-50)": "Ouvertures des yeux et dents pour la retouche du visage (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Modifié : converti en ONNX et Core ML, publié sous CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Correspondance entre les noms de fuseaux horaires Windows et les identifiants IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
+        "kamadak-exif": "Lecture EXIF, avec une correction Rawtonic qui accepte les blocs EXIF HEIF de plus de 64 Kio.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2513,6 +2514,7 @@
       "optimization": "Optimisation du périphérique d'entrée",
       "optimizationDesc": "Choisissez le périphérique d'entrée principal que vous utilisez pour le panoramique et le zoom de la toile.",
       "pressKey": "Appuyez sur une touche... (Échap pour effacer)",
+      "reassignedFrom": "Réattribué depuis {{commands}}",
       "resetDefaults": "Réinitialiser aux valeurs par défaut",
       "speed": "Vitesse",
       "title": "Contrôles de la souris",
@@ -3761,7 +3763,10 @@
         "export": "Exporter",
         "exportWithRecipes_one": "Exporter avec {{count}} recette",
         "exportWithRecipes_many": "Exporter avec {{count}} recettes",
-        "exportWithRecipes_other": "Exporter avec {{count}} recettes"
+        "exportWithRecipes_other": "Exporter avec {{count}} recettes",
+        "saveAs": "Enregistrer sous…",
+        "saveAsHint": "Exporter cette photo dans un fichier que vous nommez, dans le dossier de votre choix",
+        "saveAsOneRecipe": "Enregistrer sous crée un seul fichier : cochez une recette ou aucune"
       },
       "border": {
         "add": "Ajouter une bordure",
@@ -4099,6 +4104,8 @@
         "queuedMany_many": "{{count}} exportations ajoutées à la file.",
         "queuedMany_other": "{{count}} exportations ajoutées à la file.",
         "queuedOne": "Ajouté à la file d'exportation.",
+        "saveAsFormat": "{{name}} : Rawtonic n'exporte pas de fichiers .{{extension}}. Choisissez un nom se terminant par .jpg, .tif, .png, .webp, .jxl ou .avif.",
+        "saveAsOriginal": "{{name}} est l'original de cette photo ou son fichier annexe. Enregistrer sous ne les remplace jamais : choisissez un autre nom.",
         "unsavedEdits": "Les modifications de {{names}} n'ont pas pu être enregistrées : rien n'a été exporté. Exportez à nouveau une fois qu'elles sont enregistrées."
       },
       "watermark": {

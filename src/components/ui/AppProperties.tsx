@@ -141,6 +141,7 @@ export enum Invokes {
   PrepareSuperResolution = 'prepare_super_resolution',
   ExportImages = 'export_images',
   ExportImagesBatch = 'export_images_batch',
+  SaveAsTargetStamp = 'save_as_target_stamp',
   PlanExportCollisions = 'plan_export_collisions',
   ExportNamingPreview = 'export_naming_preview',
   ExportProvenancePreview = 'export_provenance_preview',

@@ -113,6 +113,9 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         &[("lens_import", "TEXT")],
         include_str!("../migrations/0032.sql"),
     ),
+    Migration::sql(33, include_str!("../migrations/0033.sql")),
+    // The camera naming the photographs' make and model follow.
+    Migration::sql(34, include_str!("../migrations/0034.sql")),
 ];
 
 /// The newest schema: the last migration's.

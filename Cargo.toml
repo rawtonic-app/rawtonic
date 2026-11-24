@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["src-tauri", "crates/*", "third_party/rawler"]
-exclude = ["vendor/libsqlite3-sys", "vendor/little_exif", "vendor/paste", "vendor/glib-macros", "vendor/gtk3-macros"]
+exclude = ["vendor/kamadak-exif", "vendor/libsqlite3-sys", "vendor/little_exif", "vendor/paste", "vendor/glib-macros", "vendor/gtk3-macros"]
 default-members = [
     "crates/catalog",
     "crates/naming",
@@ -105,6 +105,8 @@ libsqlite3-sys = { path = "vendor/libsqlite3-sys" }
 # (vendor/jxl-modular/RAWTONIC_PATCH.md).
 jxl-modular = { path = "vendor/jxl-modular" }
 little_exif = { path = "vendor/little_exif" }
+# HEIF EXIF items over 64 KiB (vendor/kamadak-exif/RAWTONIC_PATCH.md).
+kamadak-exif = { path = "vendor/kamadak-exif" }
 # No unmaintained macro crates (ADR 0005): `paste` (used by pulp, via
 # image -> exr) is served by its maintained successor pastey; glib-macros and
 # gtk3-macros 0.18 (Linux, via Tauri's gtk 0.18) without proc-macro-error.

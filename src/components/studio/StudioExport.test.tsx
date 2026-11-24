@@ -1079,3 +1079,52 @@ it("reviews a ticked recipe's manifest and queues it with the certificate shown"
     signer: 'f1'
   });
 });
+
+it('offers Save As beside Export for one photo only, and exports the named file with the form', async () => {
+  const { save } = await import('@tauri-apps/plugin-dialog');
+  // Several photos: a folder export only.
+  const { unmount } = render(<StudioExport />);
+  expect(screen.queryByRole('button', { name: 'Save As…' })).toBeNull();
+  unmount();
+  useLibraryStore.setState({ multiSelectedPaths: ['/p/a.RAF'], sessionDirectory: '/job' });
+  render(<StudioExport />);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Export destination' }), { target: { value: 'original' } });
+  vi.mocked(save).mockResolvedValueOnce('/Delivery/a print.jpg');
+  fireEvent.click(screen.getByRole('button', { name: 'Save As…' }));
+  await vi.waitFor(() =>
+    expect(exported()).toEqual([
+      expect.objectContaining({
+        paths: ['/p/a.RAF'],
+        outputFolderOrFile: '/Delivery/a print.jpg',
+        isExplicitFilePath: true,
+        exportSettings: expect.objectContaining({ destinationType: 'customFolder' })
+      })
+    ])
+  );
+  // The form's Export still exports beside the original, without a dialog.
+  vi.mocked(save).mockClear();
+  fireEvent.click(document.querySelector('.studio-export-submit') as HTMLButtonElement);
+  await vi.waitFor(() => expect(exported()).toHaveLength(2));
+  expect(exported()[1]).toMatchObject({ isExplicitFilePath: false });
+  expect(save).not.toHaveBeenCalled();
+});
+
+it('keeps Save As available when only the subfolder, which it does not use, is invalid', async () => {
+  const { save } = await import('@tauri-apps/plugin-dialog');
+  useLibraryStore.setState({ multiSelectedPaths: ['/p/a.RAF'], sessionDirectory: '/job' });
+  render(<StudioExport />);
+  fireEvent.change(screen.getByLabelText('Put in subfolder'), { target: { value: '../Delivery' } });
+  expect((document.querySelector('.studio-export-submit') as HTMLButtonElement).disabled).toBe(true);
+  const saveAs = screen.getByRole('button', { name: 'Save As…' }) as HTMLButtonElement;
+  expect(saveAs.disabled).toBe(false);
+  vi.mocked(save).mockResolvedValueOnce('/Delivery/a.jpg');
+  fireEvent.click(saveAs);
+  await vi.waitFor(() =>
+    expect(exported()).toEqual([
+      expect.objectContaining({
+        outputFolderOrFile: '/Delivery/a.jpg',
+        exportSettings: expect.objectContaining({ subfolder: '' })
+      })
+    ])
+  );
+});

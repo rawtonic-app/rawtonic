@@ -882,6 +882,14 @@ fn fill(conn: &Connection, version: usize) {
             ("stored", t(&"3c".repeat(32))),
         ],
     );
+    put(
+        conn,
+        "pending_capture_times",
+        &[
+            ("asset_id", t(&asset_id(2))),
+            ("wall_time", t("2026-10-31T12:00:00.05")),
+        ],
+    );
     // A stack of photograph 1, its copy and photograph 2 (schema 22).
     put(conn, "stacks", &[("id", t("stack-1")), ("collapsed", i(1))]);
     for (photo, copy, position) in [(1, "", 0), (1, "a1b2c3", 1), (2, "", 2)] {
@@ -1178,6 +1186,12 @@ fn report(lib: &Library, db: &Path) -> String {
             .map(|row| row.iter().map(render).collect::<Vec<_>>().join(" | "))
             .collect();
         lines.sort();
+        // The camera naming is the decoder catalogue's of the build, not
+        // the fixture's: recorded as that, so a decoder update keeps it.
+        let naming = rawtonic_raw_format::camera_names::naming_fingerprint();
+        for line in &mut lines {
+            *line = line.replace(naming, "<decoder naming>");
+        }
         writeln!(
             out,
             "# table {name} ({} rows): {}",

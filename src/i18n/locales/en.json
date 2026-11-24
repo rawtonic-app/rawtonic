@@ -2317,6 +2317,7 @@
         "EasyPortrait face parsing (FPN + ResNet-50)": "Eye openings and teeth for the face retouch (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Changed: converted to ONNX and Core ML, published under CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Windows time zone names mapped to IANA identifiers.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
+        "kamadak-exif": "EXIF reading, with a Rawtonic correction that accepts HEIF EXIF items over 64 KiB.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2376,6 +2377,7 @@
       "optimization": "Input Device Optimization",
       "optimizationDesc": "Choose the primary input device you use to pan and zoom the canvas.",
       "pressKey": "Press a key... (Esc to clear)",
+      "reassignedFrom": "Reassigned from {{commands}}",
       "resetDefaults": "Reset All to Defaults",
       "speed": "Speed",
       "title": "Mouse Controls",
@@ -3600,7 +3602,10 @@
         "choosing": "Choose destination…",
         "export": "Export",
         "exportWithRecipes_one": "Export with {{count}} recipe",
-        "exportWithRecipes_other": "Export with {{count}} recipes"
+        "exportWithRecipes_other": "Export with {{count}} recipes",
+        "saveAs": "Save As…",
+        "saveAsHint": "Export this photo to a file you name, in a folder you choose",
+        "saveAsOneRecipe": "Save As names one file: tick one recipe or none"
       },
       "border": {
         "add": "Add a border",
@@ -3929,6 +3934,8 @@
         "queuedMany_one": "{{count}} export added to the queue.",
         "queuedMany_other": "{{count}} exports added to the queue.",
         "queuedOne": "Added to the export queue.",
+        "saveAsFormat": "{{name}}: Rawtonic does not export .{{extension}} files. Choose a name ending in .jpg, .tif, .png, .webp, .jxl or .avif.",
+        "saveAsOriginal": "{{name}} is this photo's original or its sidecar. Save As never writes over them: choose another name.",
         "unsavedEdits": "The edits of {{names}} could not be saved, so nothing was exported. Export again once they are saved."
       },
       "watermark": {

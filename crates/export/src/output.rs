@@ -1,4 +1,6 @@
-//! Writing export files: never over an existing file.
+//! Writing export files: never over an existing file, except the previous
+//! export a Replace if changed replaces and the file a user confirmed
+//! replacing in Save As.
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -68,14 +70,54 @@ pub fn replace_previous_output_with(
         .map_err(io::Error::other)
 }
 
-/// How an export file is published: as a new file, or over the previous
-/// export of the same photo (Replace if changed).
+/// Replaces the file at `path` the user confirmed replacing (Save As, the
+/// save panel's Replace; `confirmed` the file as it was then) with the content
+/// `fill` writes into a synced temporary file beside it, in one atomic
+/// rename (`rawtonic_fs::replace_confirmed`). A `protected` path (a photo,
+/// its sidecar), a file changed since it was confirmed, a failing `fill`
+/// or an export `cancelled` before the swap leave `path` as it was,
+/// without a temporary file.
+pub fn replace_confirmed_output_with(
+    path: &Path,
+    confirmed: &rawtonic_fs::ConfirmedFile,
+    protected: &dyn Fn(&Path) -> bool,
+    cancelled: &dyn Fn() -> bool,
+    fill: impl FnOnce(&mut fs::File) -> io::Result<()>,
+) -> io::Result<()> {
+    let parent = output_folder(path).ok_or_else(|| io::Error::other("Missing output folder"))?;
+    if path.symlink_metadata().is_ok() && protected(path) {
+        return Err(io::Error::other(format!(
+            "{} is a photo or one of its files; it is not replaced",
+            path.display()
+        )));
+    }
+    // Owner-only while it is written: the replaced file's permissions are
+    // given to it right before it is swapped in.
+    let mut temp = tempfile::Builder::new()
+        .prefix(&rawtonic_fs::temp::prefix_for(path))
+        .tempfile_in(parent)?;
+    fill(temp.as_file_mut())?;
+    temp.as_file().sync_all()?;
+    rawtonic_fs::replace_confirmed(temp, path, confirmed, protected, cancelled)
+        .map_err(io::Error::other)
+}
+
+/// How an export file is published: as a new file, over the previous
+/// export of the same photo (Replace if changed), or over the file the
+/// user confirmed replacing (Save As).
 #[derive(Clone, Copy)]
 pub enum Publish<'a> {
     New,
     Replace {
         previous: &'a crate::existing_files::Recorded,
         source: &'a str,
+    },
+    /// `cancelled`: asked right before the swap (a cancelled export
+    /// replaces nothing).
+    Confirmed {
+        confirmed: &'a rawtonic_fs::ConfirmedFile,
+        protected: &'a dyn Fn(&Path) -> bool,
+        cancelled: &'a dyn Fn() -> bool,
     },
 }
 
@@ -119,6 +161,11 @@ impl Publish<'_> {
             Publish::Replace { previous, source } => {
                 replace_previous_output_with(path, previous, source, fill)?
             }
+            Publish::Confirmed {
+                confirmed,
+                protected,
+                cancelled,
+            } => replace_confirmed_output_with(path, confirmed, protected, cancelled, fill)?,
         }
         written.ok_or_else(|| io::Error::other("Nothing was written"))
     }
@@ -219,6 +266,49 @@ mod tests {
             .filter(|name| rawtonic_fs::temp::is_temp_name(name))
             .collect();
         assert!(names.is_empty(), "{names:?}");
+    }
+
+    #[test]
+    fn a_confirmed_file_is_replaced_and_kept_when_writing_fails() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("print.jpg");
+        let original = dir.path().join("DSC_0001.NEF");
+        fs::write(&path, b"another program's print").unwrap();
+        fs::write(&original, b"raw").unwrap();
+        let protected = |p: &Path| p == original;
+        let print = rawtonic_fs::ConfirmedFile::read(&path).unwrap();
+        let raw = rawtonic_fs::ConfirmedFile::read(&original).unwrap();
+        let confirmed = |p: &Path| Publish::Confirmed {
+            confirmed: if p == path { &print } else { &raw },
+            protected: &protected,
+            cancelled: &|| false,
+        };
+        // The encoder fails: the confirmed file stays, no temporary file.
+        let failed = confirmed(&path).write_with(&path, |file| {
+            file.write_all(b"half")?;
+            Err(io::Error::other("encoder failed"))
+        });
+        assert!(failed.is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"another program's print");
+        // The photo itself is never replaced, even confirmed.
+        assert!(
+            confirmed(&original)
+                .write_with(&original, |f| f.write_all(b"jpeg"))
+                .is_err()
+        );
+        assert_eq!(fs::read(&original).unwrap(), b"raw");
+        let written = confirmed(&path)
+            .write_with(&path, |file| file.write_all(b"the export"))
+            .unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"the export");
+        assert_eq!(written.size, 10);
+        let mut names: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["DSC_0001.NEF", "print.jpg"]);
     }
 
     #[test]
