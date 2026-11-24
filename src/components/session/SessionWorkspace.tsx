@@ -563,6 +563,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
   const [hotFolder, setHotFolder] = useState<HotFolderStatus | null>(null);
   const [hotPath, setHotPath] = useState('');
   const [nextCaptureForm, setNextCaptureForm] = useState<NextCaptureForm>(DEFAULT_NEXT_CAPTURE);
+  const [savingCaptureMetadata, setSavingCaptureMetadata] = useState(false);
   const [tetherOpen, setTetherOpen] = useState(false);
   const [tether, setTether] = useState<TetherStatus | null>(null);
   const [includeSubfolders, setIncludeSubfolders] = useState(false);
@@ -1144,7 +1145,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
 
   const startHotFolder = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!session) return;
+    if (!session || savingCaptureMetadata) return;
     const { nextCapture, metadata } = nextCaptureOf(nextCaptureForm, presets);
     try {
       const status = await hotFolderCommand<HotFolderStatus>(Invokes.HotFolderStart, {
@@ -2665,7 +2666,12 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
               job={session?.manifest.name}
             />
 
-            <NextCaptureFields value={nextCaptureForm} onChange={setNextCaptureForm} presets={presets} />
+            <NextCaptureFields
+              value={nextCaptureForm}
+              onChange={(patch) => setNextCaptureForm((current) => ({ ...current, ...patch }))}
+              presets={presets}
+              onMetadataSavingChange={setSavingCaptureMetadata}
+            />
             <div className="session-copy-note">
               <Check size={16} />
               <span>
@@ -2692,7 +2698,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
               <button
                 type="submit"
                 className="session-action session-primary"
-                disabled={!hotPath.trim() || !validNamingTemplate(template, 'ingest')}
+                disabled={savingCaptureMetadata || !hotPath.trim() || !validNamingTemplate(template, 'ingest')}
               >
                 <FolderSync size={16} />
                 {hotFolder ? t('session.hotFolder.switch') : t('session.hotFolder.start')}

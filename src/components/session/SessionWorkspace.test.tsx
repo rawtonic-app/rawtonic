@@ -789,6 +789,53 @@ it('starts a hot folder with a saved import metadata preset', async () => {
   );
 });
 
+it('starts watching with the new metadata preset ID after its save finishes', async () => {
+  const user = userEvent.setup();
+  useSettingsStore.setState({ appSettings: { importMetadataPresets: [] } as unknown as AppSettings });
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  let finishSave!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finishSave = resolve;
+  });
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === 'save_settings') return pending;
+    if (command === 'hot_folder_start')
+      return { folder: '/tether', session: '/jobs/Acme', imported: 0, nextCapture: { mode: 'defaults' } };
+    return base(command, args);
+  });
+  render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+  await user.click(screen.getByRole('button', { name: 'Create a session' }));
+  await user.type(screen.getByLabelText('Session name'), 'Acme');
+  await user.click(screen.getByRole('button', { name: 'Location' }));
+  await user.click(screen.getByRole('button', { name: 'Create session' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: /Hot folder/ })).toHaveProperty('disabled', false));
+  await user.click(screen.getByRole('button', { name: /Hot folder/ }));
+  await user.type(screen.getByLabelText('Watched folder'), '/tether');
+  const presetPicker = screen.getByLabelText('Metadata preset');
+  await user.selectOptions(presetPicker, 'new');
+  const metadata = within(presetPicker.closest('section')!);
+  await user.type(metadata.getByLabelText('Preset name'), 'Rights');
+  await user.type(metadata.getByLabelText('Creator'), 'Ada Photo');
+  await user.click(metadata.getByRole('button', { name: 'Save preset' }));
+  try {
+    await user.selectOptions(screen.getByLabelText('Next capture rating'), '3');
+    const start = screen.getByRole('button', { name: 'Start watching' });
+    await user.click(start);
+    expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'hot_folder_start')).toBe(false);
+    expect(start).toHaveProperty('disabled', true);
+  } finally {
+    await act(async () => finishSave());
+  }
+  const [saved] = useSettingsStore.getState().appSettings!.importMetadataPresets!;
+  expect(saved.id).toEqual(expect.any(String));
+  expect(saved.id).not.toBe('');
+  await user.click(screen.getByRole('button', { name: 'Start watching' }));
+  expect(invoke).toHaveBeenCalledWith(
+    'hot_folder_start',
+    expect.objectContaining({ metadata: { rating: 3, keywords: [], import: saved } })
+  );
+});
+
 it('resumes the hot folder a library keeps when it opens, and shows a missing folder', async () => {
   const user = userEvent.setup();
   const base = vi.mocked(invoke).getMockImplementation()!;

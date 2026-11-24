@@ -552,7 +552,11 @@ export default function TetherPanel({
             label={t('session.fields.filenameTemplate')}
             job={jobName}
           />
-          <NextCaptureFields value={nextCapture} onChange={(form) => void changeNextCapture(form)} presets={presets} />
+          <NextCaptureFields
+            value={nextCapture}
+            onChange={(patch) => void changeNextCapture({ ...nextCapture, ...patch })}
+            presets={presets}
+          />
           <p className="tether-note">
             <Trans
               i18nKey="session.tether.copyNote"
@@ -670,7 +674,7 @@ export default function TetherPanel({
             <summary>{t('session.tether.nextCapture')}</summary>
             <NextCaptureFields
               value={nextCapture}
-              onChange={(form) => void changeNextCapture(form)}
+              onChange={(patch) => void changeNextCapture({ ...nextCapture, ...patch })}
               presets={presets}
             />
           </details>
