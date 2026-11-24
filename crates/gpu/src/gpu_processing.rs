@@ -3696,6 +3696,7 @@ impl WgpuDisplay {
         width: u32,
         height: u32,
         rgba: &[u8],
+        with_primary: bool,
         shown: impl FnOnce() -> Option<[f32; 2]>,
     ) -> bool {
         let mut multi = std::mem::take(&mut self.multi);
@@ -3707,6 +3708,7 @@ impl WgpuDisplay {
             width,
             height,
             rgba,
+            with_primary,
             shown,
         );
         self.multi = multi;

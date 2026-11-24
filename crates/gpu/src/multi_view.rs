@@ -599,7 +599,8 @@ impl MultiView {
     /// photograph as shown) as `path`'s stand-in (key 0, shown to fit) until
     /// its cell's own render replaces it: a cached image, so that a cell
     /// shows its photograph at once rather than the background. Never over a
-    /// texture the cell already has. Whether it was kept.
+    /// texture the cell already has, and not for the primary unless
+    /// `with_primary`. Whether it was kept.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn stand_in(
         &mut self,
@@ -610,10 +611,18 @@ impl MultiView {
         width: u32,
         height: u32,
         rgba: &[u8],
+        with_primary: bool,
         shown: impl FnOnce() -> Option<[f32; 2]>,
     ) -> bool {
+        // The primary is drawn live; `with_primary` lets a new display (a
+        // lost device, G74 DVL4) give it a stand-in while its live frame is
+        // not placed, but only where its zoom is known (the lock's shared
+        // zoom) or nothing is zoomed: a guessed fit would flash.
+        let primary_waits = with_primary
+            && self.primary() == Some(path)
+            && (self.zoom_of(path).is_some() || !self.is_zoomed());
         if self.cell(path).is_none()
-            || self.primary() == Some(path)
+            || (self.primary() == Some(path) && !primary_waits)
             || self.textures.contains_key(path)
             || width == 0
             || height == 0
@@ -1432,6 +1441,7 @@ mod tests {
                 10,
                 8,
                 &halves,
+                false,
                 || shown
             ));
             let pixels = present(&gpu, &multi, None);
@@ -1463,6 +1473,7 @@ mod tests {
                 10,
                 8,
                 &magenta,
+                false,
                 || None,
             )
         };
@@ -1487,6 +1498,7 @@ mod tests {
                 10,
                 9,
                 &magenta,
+                false,
                 || None
             ),
             "a size its pixels do not have"
@@ -1517,6 +1529,88 @@ mod tests {
         assert!(!stand_in(&mut multi, "pending"), "never over its render");
         let pixels = present(&gpu, &multi, None);
         assert!(close(pixel(&pixels, 170, 75), [0, 255, 255]));
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; a primary without a live frame after a lost device"]
+    fn a_primary_without_a_live_frame_takes_a_stand_in_at_its_zoom() {
+        let gpu = offscreen();
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        let magenta = solid(10, 8, [255, 0, 255]);
+        let cells = || {
+            vec![
+                MultiViewCell {
+                    path: "primary".into(),
+                    area: [0.0, 0.0, 100.0, 100.0],
+                },
+                MultiViewCell {
+                    path: "b".into(),
+                    area: [110.0, 0.0, 100.0, 100.0],
+                },
+            ]
+        };
+        let take = |multi: &mut MultiView, with_primary: bool| {
+            multi.stand_in(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                "primary",
+                10,
+                8,
+                &magenta,
+                with_primary,
+                || Some([1000.0, 800.0]),
+            )
+        };
+        // At fit: drawn while no live frame shows the primary's cell.
+        let mut multi = MultiView::default();
+        multi.set_layout(Some("primary".into()), cells());
+        assert!(!take(&mut multi, false), "not unless asked for");
+        assert!(take(&mut multi, true));
+        assert_eq!(multi.texture_key("primary"), Some(0));
+        assert!(!take(&mut multi, true), "never over a texture");
+        let pixels = present(&gpu, &multi, None);
+        assert!(
+            close(pixel(&pixels, 50, 50), [255, 0, 255]),
+            "{:?}",
+            pixel(&pixels, 50, 50)
+        );
+        // The live frame takes over.
+        let live = live_frame(&gpu, [0.0, 0.0, 100.0, 100.0], [0.0, 0.0, 100.0, 100.0]);
+        let pixels = present(
+            &gpu,
+            &multi,
+            Some(PrimaryDraw {
+                bind_group: &live,
+                before: &gpu.empty_before,
+                clip: [0.0, 0.0, 100.0, 100.0],
+            }),
+        );
+        assert!(close(pixel(&pixels, 50, 50), [0, 0, 255]));
+
+        // Zoomed with the lock: enlarged, not to fit (the whole 1000 x 800
+        // photograph at 1:1 in a 100 x 100 cell shows its centre).
+        let zoom = CellZoom {
+            scale: 1.0,
+            center: [0.5, 0.5],
+        };
+        let mut multi = MultiView::default();
+        multi.set_layout(Some("primary".into()), cells());
+        multi.set_zooms(Some(zoom), HashMap::new());
+        assert!(take(&mut multi, true));
+        let extent = multi.textures["primary"].extent.expect("an extent");
+        assert_eq!(extent.shown, [1000.0, 800.0]);
+
+        // Zoomed without the lock and no zoom of its own known: its zoom is
+        // not guessed (it would flash at fit).
+        let mut multi = MultiView::default();
+        multi.set_layout(Some("primary".into()), cells());
+        multi.set_zooms(None, HashMap::from([("b".to_string(), zoom)]));
+        assert!(!take(&mut multi, true));
     }
 
     #[test]

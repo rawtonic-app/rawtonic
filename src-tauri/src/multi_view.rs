@@ -241,9 +241,11 @@ pub(crate) async fn set_multi_view(
             ZOOM_SEQ.fetch_add(1, Ordering::SeqCst) + 1,
         )
     });
-    tauri::async_runtime::spawn_blocking(move || show_cells(&app_handle, primary, cells, zooms))
-        .await
-        .map_err(|e| format!("Multi view task failed: {e}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        show_cells(&app_handle, primary, cells, zooms, false)
+    })
+    .await
+    .map_err(|e| format!("Multi view task failed: {e}"))
 }
 
 /// Numbers the zooms in the order they are received, with a layout
@@ -380,7 +382,13 @@ pub(crate) fn show_again(app_handle: &tauri::AppHandle, shown: Shown) {
         cells: shown.cell_zooms,
     };
     let seq = ZOOM_SEQ.fetch_add(1, Ordering::SeqCst) + 1;
-    show_cells(app_handle, shown.primary, shown.cells, Some((zooms, seq)));
+    show_cells(
+        app_handle,
+        shown.primary,
+        shown.cells,
+        Some((zooms, seq)),
+        true,
+    );
 }
 
 fn show_cells(
@@ -388,6 +396,7 @@ fn show_cells(
     primary: Option<String>,
     cells: Vec<CellPayload>,
     zooms: Option<(CellZooms, u64)>,
+    after_loss: bool,
 ) -> bool {
     let Ok(context) = gpu_processing::get_or_init_gpu_context(
         &app_handle.state::<crate::state::gpu::GpuState>(),
@@ -400,7 +409,11 @@ fn show_cells(
     // The thumbnails the filmstrip shows, decoded before the layout is
     // presented so that its first frame has every cell (as Lightroom's
     // Survey shows its stored previews in one frame).
-    let mut early = early_stand_ins(&context, &primary, &cells);
+    // After a lost device the primary's live frame is gone with it: its
+    // cached thumbnail stands in until the editor places the new one
+    // (G74 DVL4; its cell was blank ~1.5 s).
+    let drawn_live = if after_loss { None } else { primary.clone() };
+    let mut early = early_stand_ins(&context, &drawn_live, &cells);
     let (zoomed, bare) = {
         let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
         let Some(display) = display.as_mut() else {
@@ -448,6 +461,7 @@ fn show_cells(
                 width,
                 height,
                 still.image.as_raw(),
+                after_loss,
                 || shown_of(app_handle, path),
             )
         });
@@ -460,7 +474,7 @@ fn show_cells(
         }
         let bare: Vec<(String, (u32, u32))> = cells
             .iter()
-            .filter(|cell| primary.as_deref() != Some(cell.path.as_str()))
+            .filter(|cell| drawn_live.as_deref() != Some(cell.path.as_str()))
             .filter(|cell| multi.texture_key(&cell.path).is_none())
             .map(|cell| {
                 let [_, _, width, height] = cell.area;
@@ -514,7 +528,7 @@ fn show_cells(
         refresh_regions(&region_worker(app_handle), file_changed, zoomed.is_some());
     }
     // Before the cells' renders start: theirs would slow these reads.
-    show_stand_ins(app_handle, &context, bare);
+    show_stand_ins(app_handle, &context, bare, after_loss);
     // A newer request may have come in during the reads: this one's job
     // never replaces it (it would be dropped as stale and leave its cells
     // without renders).
@@ -748,6 +762,7 @@ fn show_stand_ins(
     app_handle: &tauri::AppHandle,
     context: &GpuContext,
     paths: Vec<(String, (u32, u32))>,
+    with_primary: bool,
 ) {
     if paths.is_empty() {
         return;
@@ -800,6 +815,7 @@ fn show_stand_ins(
             width,
             height,
             still.image.as_raw(),
+            with_primary,
             || shown_of(app_handle, path),
         ) {
             shown += 1;
