@@ -175,3 +175,134 @@ fn a_library_of_schema_18_opens_with_no_corrections_and_takes_them() {
     );
     assert_eq!(names(lib.search(&on_day("2026-10-29")).unwrap()), ["A.ARW"]);
 }
+
+#[test]
+fn imported_wall_times_wait_for_camera_facts_and_keep_its_zone() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, _) = session(d.path(), &["shift.ARW", "equal.ARW"]);
+    let value = rawtonic_metadata::XmpDateTime::parse("2016-09-11T18:16:08.7").unwrap();
+    for id in &ids {
+        lib.import_wall_capture_time(id, &value).unwrap();
+        assert!(lib.capture_override(id).unwrap().is_none());
+    }
+    let directory = lib.directory.clone();
+    drop(lib);
+    let lib = Library::open(&directory).unwrap();
+    for (id, day) in ids.iter().zip(["10", "11"]) {
+        lib.record_facts(
+            id,
+            &CaptureFacts {
+                captured: Some(format!("2016-09-{day} 18:16:08")),
+                captured_subsec: Some("70".into()),
+                captured_offset: Some("+02:00".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    let correction = lib.capture_override(&ids[0]).unwrap().unwrap();
+    assert_eq!(correction.local, "2016-09-11 18:16:08");
+    assert_eq!(correction.offset.as_deref(), Some("+02:00"));
+    assert_eq!(correction.subsec.as_deref(), Some("7"));
+    assert!(lib.capture_override(&ids[1]).unwrap().is_none());
+    assert_eq!(
+        lib.facts(&ids[1])
+            .unwrap()
+            .unwrap()
+            .0
+            .captured_offset
+            .as_deref(),
+        Some("+02:00")
+    );
+    assert_eq!(
+        lib.facts(&ids[0]).unwrap().unwrap().0.captured.as_deref(),
+        Some("2016-09-10 18:16:08")
+    );
+}
+
+#[test]
+fn known_facts_apply_an_import_immediately_and_a_user_correction_wins() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, _) = session(d.path(), &["A.ARW"]);
+    let id = &ids[0];
+    lib.record_facts(
+        id,
+        &CaptureFacts {
+            captured: Some("2016-09-10 18:16:08".into()),
+            captured_offset: Some("-06:00".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let value = rawtonic_metadata::XmpDateTime::parse("2016-09-11T18:16:08").unwrap();
+    lib.import_wall_capture_time(id, &value).unwrap();
+    assert_eq!(
+        lib.capture_override(id).unwrap().unwrap().offset.as_deref(),
+        Some("-06:00")
+    );
+    let current = lib.capture_override(id).unwrap();
+    let own = time("2016-09-12 18:16:08", None, Some("-06:00")).unwrap();
+    lib.set_capture_times(&[CaptureChange {
+        asset_id: id.clone(),
+        expected: current,
+        new: Some(own.clone()),
+    }])
+    .unwrap();
+    lib.import_wall_capture_time(id, &value).unwrap();
+    assert_eq!(lib.capture_override(id).unwrap(), Some(own));
+}
+
+#[test]
+fn the_background_facts_pass_applies_a_pending_import_but_an_explicit_reset_cancels_it() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, _) = session(d.path(), &["A.ARW", "B.ARW"]);
+    let value = rawtonic_metadata::XmpDateTime::parse("2016-09-11T18:16:08").unwrap();
+    for id in &ids {
+        lib.import_wall_capture_time(id, &value).unwrap();
+    }
+    lib.set_capture_times(&[CaptureChange {
+        asset_id: ids[1].clone(),
+        expected: None,
+        new: None,
+    }])
+    .unwrap();
+    lib.fill_all_facts(&std::sync::atomic::AtomicBool::new(false), &|_| {
+        Some(CaptureFacts {
+            captured: Some("2016-09-10 18:16:08".into()),
+            captured_offset: Some("-06:00".into()),
+            ..Default::default()
+        })
+    })
+    .unwrap();
+    assert_eq!(
+        lib.capture_override(&ids[0])
+            .unwrap()
+            .unwrap()
+            .offset
+            .as_deref(),
+        Some("-06:00")
+    );
+    assert!(lib.capture_override(&ids[1]).unwrap().is_none());
+}
+
+#[test]
+fn an_import_compares_fraction_only_shifts_and_missing_or_zero_fractions() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, _) = session(d.path(), &["A.ARW", "B.ARW"]);
+    for (id, fraction) in ids.iter().zip(["7", "0"]) {
+        lib.record_facts(id, &facts("2016-09-10 18:16:08")).unwrap();
+        let value =
+            rawtonic_metadata::XmpDateTime::parse(&format!("2016-09-10T18:16:08.{fraction}"))
+                .unwrap();
+        lib.import_wall_capture_time(id, &value).unwrap();
+    }
+    assert_eq!(
+        lib.capture_override(&ids[0])
+            .unwrap()
+            .unwrap()
+            .subsec
+            .as_deref(),
+        Some("7")
+    );
+    assert!(lib.capture_override(&ids[1]).unwrap().is_none());
+}

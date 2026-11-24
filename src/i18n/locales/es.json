@@ -2514,6 +2514,7 @@
       "optimization": "Optimización del dispositivo de entrada",
       "optimizationDesc": "Elige el dispositivo de entrada principal que usas para desplazar y hacer zoom en el lienzo.",
       "pressKey": "Presiona una tecla... (Esc para borrar)",
+      "reassignedFrom": "Reasignado de {{commands}}",
       "resetDefaults": "Restablecer todo a los valores predeterminados",
       "speed": "Velocidad",
       "title": "Controles del ratón",

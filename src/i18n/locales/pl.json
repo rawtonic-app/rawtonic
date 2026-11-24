@@ -2650,6 +2650,7 @@
       "optimization": "Optymalizacja urządzenia wejściowego",
       "optimizationDesc": "Wybierz główne urządzenie wejściowe do przesuwania i przybliżania obszaru roboczego.",
       "pressKey": "Naciśnij klawisz... (Esc by anulować)",
+      "reassignedFrom": "Przypisano ponownie z {{commands}}",
       "resetDefaults": "Przywróć wszystkie domyślne",
       "speed": "Prędkość",
       "title": "Sterowanie myszą",

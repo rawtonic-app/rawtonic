@@ -2514,6 +2514,7 @@
       "optimization": "Otimização de Dispositivo de Entrada",
       "optimizationDesc": "Escolha o dispositivo de entrada principal que você usa para mover e dar zoom na tela.",
       "pressKey": "Pressione uma tecla... (Esc para limpar)",
+      "reassignedFrom": "Reatribuído de {{commands}}",
       "resetDefaults": "Redefinir Tudo para Padrões",
       "speed": "Velocidade",
       "title": "Controles do Mouse",

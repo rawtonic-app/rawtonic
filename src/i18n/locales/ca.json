@@ -2514,6 +2514,7 @@
       "optimization": "Optimització del dispositiu d'entrada",
       "optimizationDesc": "Trieu el dispositiu d'entrada principal que utilitzeu per desplaçar-vos i fer zoom al llenç.",
       "pressKey": "Premeu una tecla... (Esc per esborrar)",
+      "reassignedFrom": "Reassignat de {{commands}}",
       "resetDefaults": "Restablir-ho tot als valors per defecte",
       "speed": "Velocitat",
       "title": "Controls del ratolí",

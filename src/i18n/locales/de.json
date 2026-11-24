@@ -2377,6 +2377,7 @@
       "optimization": "Eingabegeräte-Optimierung",
       "optimizationDesc": "Wähle das primäre Eingabegerät zum Schwenken und Zoomen.",
       "pressKey": "Taste drücken... (Esc zum Löschen)",
+      "reassignedFrom": "Neu zugewiesen von {{commands}}",
       "resetDefaults": "Alles auf Standard zurücksetzen",
       "speed": "Geschwindigkeit",
       "title": "Maussteuerung",

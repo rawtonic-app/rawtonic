@@ -2383,6 +2383,12 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
     if let Some(lens) = &photo.lens {
         catalog.set_imported_lens(&id, lens)?;
     }
+    if let rawtonic_metadata::CaptureWrite::Set(value) = &photo.metadata.capture {
+        if let Some(facts) = rawtonic_ingest::capture::capture_facts(&photo.path) {
+            catalog.record_facts(&id, &facts)?;
+        }
+        catalog.import_wall_capture_time(&id, value)?;
+    }
     let version = catalog.version_for(&id, None)?;
     if matches!(rule, Reimport::Apply | Reimport::Same)
         && let Some(version) = &version
@@ -3938,6 +3944,59 @@ mod tests {
             uid: None,
             capture_one_layers: Vec::new(),
         }
+    }
+
+    #[test]
+    fn imported_capture_date_is_an_override_and_camera_facts_survive() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = Library::create(
+            &dir.path().join("Library"),
+            "Library",
+            rawtonic_catalog::Mode::Catalog,
+        )
+        .unwrap();
+        let path = dir.path().join("photo.NEF");
+        std::fs::write(&path, b"synthetic raw").unwrap();
+        let mut source = photo("1", path, Develop::None, None);
+        source.metadata.capture = rawtonic_metadata::CaptureWrite::Set(
+            rawtonic_metadata::XmpDateTime::parse("2016-09-11T18:16:08.7").unwrap(),
+        );
+        let (id, _) = import_photo(&lib, &source).unwrap();
+        assert!(lib.capture_override(&id).unwrap().is_none());
+        lib.record_facts(
+            &id,
+            &rawtonic_catalog::CaptureFacts {
+                captured: Some("2016-09-10 18:16:08".into()),
+                captured_subsec: Some("7".into()),
+                captured_offset: Some("+02:00".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            lib.capture_override(&id).unwrap().unwrap().local,
+            "2016-09-11 18:16:08"
+        );
+        assert_eq!(
+            lib.capture_override(&id)
+                .unwrap()
+                .unwrap()
+                .offset
+                .as_deref(),
+            Some("+02:00")
+        );
+        let current = lib.capture_override(&id).unwrap();
+        lib.set_capture_times(&[rawtonic_catalog::capture_time::CaptureChange {
+            asset_id: id.clone(),
+            expected: current,
+            new: None,
+        }])
+        .unwrap();
+        assert!(lib.capture_override(&id).unwrap().is_none());
+        assert_eq!(
+            lib.facts(&id).unwrap().unwrap().0.captured.as_deref(),
+            Some("2016-09-10 18:16:08")
+        );
     }
 
     /// A Capture One session named `<folder>/<name>` (its `.cosessiondb` is

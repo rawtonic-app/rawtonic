@@ -2377,6 +2377,7 @@
       "optimization": "Input Device Optimization",
       "optimizationDesc": "Choose the primary input device you use to pan and zoom the canvas.",
       "pressKey": "Press a key... (Esc to clear)",
+      "reassignedFrom": "Reassigned from {{commands}}",
       "resetDefaults": "Reset All to Defaults",
       "speed": "Speed",
       "title": "Mouse Controls",

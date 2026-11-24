@@ -532,6 +532,56 @@ pub(crate) fn adopt_sidecar(
     Ok(())
 }
 
+/// Applies a deferred catalog wall time inside the caller's transaction.
+/// The camera facts stay untouched; imported values never replace a correction.
+pub(crate) fn apply_imported_capture_time(conn: &Connection, id: &str) -> Result<()> {
+    let pending: Option<String> = conn
+        .query_row(
+            "SELECT wall_time FROM pending_capture_times WHERE asset_id=?",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(pending) = pending else {
+        return Ok(());
+    };
+    if override_of(conn, id)?.is_some() {
+        conn.execute("DELETE FROM pending_capture_times WHERE asset_id=?", [id])?;
+        return Ok(());
+    }
+    let camera: Option<(String, Option<String>, Option<String>)> = conn.query_row(
+        "SELECT capture_time,capture_subsec,capture_offset FROM assets WHERE id=? AND facts_read=1 AND capture_time IS NOT NULL AND capture_time<>''",
+        [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    ).optional()?;
+    let Some((local, subsec, offset)) = camera else {
+        return Ok(());
+    };
+    let camera = CaptureTime::new(&local, subsec.as_deref(), offset.as_deref())?;
+    let mut value = XmpDateTime::parse(&pending)
+        .ok_or_else(|| anyhow::anyhow!("Invalid imported capture time"))?;
+    value.offset = camera.to_xmp().offset;
+    let corrected = CaptureTime::from_xmp(&value)?;
+    let fraction = |time: &CaptureTime| {
+        time.subsec
+            .as_deref()
+            .unwrap_or("")
+            .trim_end_matches('0')
+            .to_owned()
+    };
+    if camera.local != corrected.local || fraction(&camera) != fraction(&corrected) {
+        conn.execute(
+            "INSERT INTO capture_overrides(asset_id,captured,subsec,offset) VALUES(?,?,?,?)",
+            params![id, corrected.local, corrected.subsec, corrected.offset],
+        )?;
+        conn.execute(
+            "UPDATE metadata SET xmp_status='pending' WHERE asset_id=? AND xmp_status='synced'",
+            [id],
+        )?;
+    }
+    conn.execute("DELETE FROM pending_capture_times WHERE asset_id=?", [id])?;
+    Ok(())
+}
+
 /// Drops the library's IPTC Date Created of asset `id` when it holds the
 /// correction being replaced or removed (`removed`): read from a sidecar
 /// the correction came from (Lightroom writes it beside its edited capture
@@ -568,6 +618,28 @@ fn forget_mirrored_date(conn: &Connection, id: &str, removed: &CaptureTime) -> R
 }
 
 impl Library {
+    /// Takes a foreign catalog's local capture time, keeping the camera's
+    /// offset for a real shift. Equal wall times are not corrections. Unknown
+    /// facts defer the comparison durably; an existing correction always wins.
+    pub fn import_wall_capture_time(
+        &self,
+        id: &str,
+        value: &XmpDateTime,
+    ) -> Result<(), CatalogError> {
+        let mut value = value.clone();
+        value.offset = None;
+        CaptureTime::from_xmp(&value)?;
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        tx.execute(
+            "INSERT INTO pending_capture_times(asset_id,wall_time) VALUES(?,?)
+             ON CONFLICT(asset_id) DO UPDATE SET wall_time=excluded.wall_time",
+            params![id, value.to_xmp()],
+        )?;
+        apply_imported_capture_time(&tx, id)?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Asset `id`'s corrected capture time, if it has one.
     pub fn capture_override(&self, id: &str) -> Result<Option<CaptureTime>, CatalogError> {
         Ok(override_of(&self.conn, id)?)
@@ -675,6 +747,11 @@ impl Library {
             return Ok(conflicts);
         }
         for (change, new) in checked {
+            // An explicit correction/reset supersedes a deferred import too.
+            tx.execute(
+                "DELETE FROM pending_capture_times WHERE asset_id=?",
+                [&change.asset_id],
+            )?;
             // The correction being replaced or removed: an IPTC Date
             // Created mirroring it is no date of its own.
             if let Some(replaced) = &change.expected {

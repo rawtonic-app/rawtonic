@@ -2281,6 +2281,7 @@
       "optimization": "入力デバイスの最適化",
       "optimizationDesc": "キャンバスのパンとズームに使用するメインの入力デバイスを選択します。",
       "pressKey": "キーを押してください... (Escでクリア)",
+      "reassignedFrom": "{{commands}} から再割り当て",
       "resetDefaults": "すべてデフォルトに戻す",
       "speed": "速度",
       "title": "マウス操作設定",

@@ -2514,6 +2514,7 @@
       "optimization": "Ottimizzazione Dispositivo di Input",
       "optimizationDesc": "Scegli il dispositivo di input principale che utilizzi per la panoramica e lo zoom dell'area di lavoro.",
       "pressKey": "Premi un tasto... (Esc per cancellare)",
+      "reassignedFrom": "Riassegnato da {{commands}}",
       "resetDefaults": "Ripristina Tutto ai Valori Predefiniti",
       "speed": "Velocità",
       "title": "Controlli Mouse",

@@ -1,4 +1,4 @@
-# user_version 32
+# user_version 33
 # schema
 'index' | 'asset_imports_batch' | 'asset_imports' | 'CREATE INDEX asset_imports_batch ON asset_imports(batch_id)'
 'index' | 'asset_keywords_keyword' | 'asset_keywords' | 'CREATE INDEX asset_keywords_keyword ON asset_keywords(keyword)'
@@ -33,6 +33,7 @@
 'index' | 'sqlite_autoindex_masks_1' | 'masks' | NULL
 'index' | 'sqlite_autoindex_metadata_1' | 'metadata' | NULL
 'index' | 'sqlite_autoindex_naming_templates_1' | 'naming_templates' | NULL
+'index' | 'sqlite_autoindex_pending_capture_times_1' | 'pending_capture_times' | NULL
 'index' | 'sqlite_autoindex_presets_1' | 'presets' | NULL
 'index' | 'sqlite_autoindex_recipe_blob_refs_1' | 'recipe_blob_refs' | NULL
 'index' | 'sqlite_autoindex_recipe_blobs_1' | 'recipe_blobs' | NULL
@@ -180,6 +181,9 @@
  flag INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1), data TEXT NOT NULL DEFAULT ''{}'',
  xmp_hash TEXT, xmp_status TEXT NOT NULL DEFAULT ''pending'', from_camera INTEGER NOT NULL DEFAULT 0, xmp_publishing TEXT, xmp_capture TEXT)'
 'table' | 'naming_templates' | 'naming_templates' | 'CREATE TABLE naming_templates(id TEXT PRIMARY KEY, name TEXT NOT NULL, template TEXT NOT NULL)'
+'table' | 'pending_capture_times' | 'pending_capture_times' | 'CREATE TABLE pending_capture_times(
+ asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+ wall_time TEXT NOT NULL)'
 'table' | 'presets' | 'presets' | 'CREATE TABLE presets(id TEXT PRIMARY KEY, name TEXT NOT NULL, recipe_json TEXT NOT NULL)'
 'table' | 'recipe_blob_refs' | 'recipe_blob_refs' | 'CREATE TABLE recipe_blob_refs(
  recipe_id INTEGER NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
@@ -414,6 +418,7 @@ END'
 # table cull_dismissed (1 rows): asset_id, criterion
 '00000000-0000-4000-8000-000000000009' | 'misfire'
 # table imported_recipes (0 rows): version_id, source, translated, stored
+# table pending_capture_times (0 rows): asset_id, wall_time
 # foreign_key_check
 # searches
 text contains 0123: ["00000000-0000-4000-8000-000000000001"]

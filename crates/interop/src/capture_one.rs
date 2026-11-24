@@ -195,10 +195,15 @@ pub fn read(session_db: &Path) -> Result<Library> {
             }
         })
         .collect();
+    let has_capture_date: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('ZIMAGE') WHERE name='ZEXP_DATE')",
+        [],
+        |r| r.get(0),
+    )?;
     let sql = format!(
         "SELECT v.Z_PK, i.Z_PK, i.ZIMAGELOCATION, i.ZIMAGEFILENAME, coalesce(i.ZISTRASHED, 0) || ',' || coalesce(v.ZISMODIFIED, 0),
                 m.ZBASIC_RATING, m.ZCOLOR_TAG_INDEX, m.ZCONTENT_KEYWORDS, m.ZSTATUS_TITLE,
-                m.ZCONTENT_DESCRIPTION, m.ZCONTACT_CREATOR, m.ZSTATUS_COPYRIGHTNOTICE, {}, {}
+                m.ZCONTENT_DESCRIPTION, m.ZCONTACT_CREATOR, m.ZSTATUS_COPYRIGHTNOTICE, {}, {}, {}
          FROM ZVARIANT v
          JOIN ZIMAGE i ON i.Z_PK = v.ZIMAGE
          LEFT JOIN ZVARIANTLAYER l ON l.Z_PK = v.ZCOMBINEDSETTINGS
@@ -209,7 +214,8 @@ pub fn read(session_db: &Path) -> Result<Library> {
             .iter()
             .map(|(c, _)| format!("m.{c}"))
             .collect::<Vec<_>>()
-            .join(", ")
+            .join(", "),
+        if has_capture_date { "i.ZEXP_DATE" } else { "NULL" }
     );
     let mut photos = Vec::new();
     let mut unlocated = 0;
@@ -253,6 +259,33 @@ pub fn read(session_db: &Path) -> Result<Library> {
             capture: Default::default(),
         };
         let mut metadata = metadata;
+        if let Some(stamp) = r
+            .get::<_, Option<f64>>(12 + SETTINGS.len() + IPTC_COLUMNS.len())?
+            .filter(|s| s.is_finite())
+        {
+            // Capture One stores local wall time as Unix seconds, without a zone.
+            let whole = stamp.floor();
+            let date: Option<String> = conn.query_row(
+                "SELECT strftime('%Y-%m-%dT%H:%M:%S', ?, 'unixepoch')",
+                [whole],
+                |r| r.get(0),
+            )?;
+            if let Some(mut date) = date {
+                let fraction = if stamp >= 0.0 {
+                    stamp.to_string()
+                } else {
+                    format!("{:.6}", stamp - whole)
+                };
+                let fraction = fraction.trim_end_matches('0').trim_end_matches('.');
+                if let Some(digits) = fraction.split_once('.').map(|(_, digits)| digits) {
+                    date.push('.');
+                    date.push_str(digits);
+                }
+                if let Some(value) = rawtonic_metadata::XmpDateTime::parse(&date) {
+                    metadata.capture = rawtonic_metadata::CaptureWrite::Set(value);
+                }
+            }
+        }
         for (index, (_, key)) in IPTC_COLUMNS.iter().enumerate() {
             let value: Option<String> = r.get(12 + SETTINGS.len() + index)?;
             metadata.set_iptc(key, value.as_deref().unwrap_or(""));
