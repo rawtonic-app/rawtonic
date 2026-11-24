@@ -1970,18 +1970,26 @@ pub(crate) fn plan_output_path<'a>(
         &target.output_format,
         capture,
     );
-    let new_stem = rawtonic_export::sidecars::export_stem(
-        &export_settings.naming_template(),
-        &naming,
-        item.appearance_count,
-        item.explicit_vc,
-    )?;
+    let beside_original = export_settings.destination_type.as_deref() == Some("originalFolder");
+    let explicit = target.is_explicit_file_path && total_paths == 1;
+    // A file named in Save As is used as named: the template is not
+    // expanded for it (one that cannot name this photo, e.g. a title
+    // ending in a period, must not stop a valid chosen name).
+    let named_file = !beside_original && explicit;
+    let new_stem = if named_file {
+        String::new()
+    } else {
+        rawtonic_export::sidecars::export_stem(
+            &export_settings.naming_template(),
+            &naming,
+            item.appearance_count,
+            item.explicit_vc,
+        )?
+    };
 
     let new_filename = format!("{}.{}", new_stem, target.output_format);
 
-    let beside_original = export_settings.destination_type.as_deref() == Some("originalFolder");
-    let explicit = target.is_explicit_file_path && total_paths == 1;
-    let slot = if !beside_original && explicit {
+    let slot = if named_file {
         output_folder_path.to_path_buf()
     } else {
         let dir = export_directory(
@@ -2017,13 +2025,16 @@ pub(crate) fn plan_output_path<'a>(
             .collect::<Vec<_>>()
     };
 
+    // Any directory entry, a dangling link included, which no-clobber
+    // publication would refuse after the render.
+    let occupied = |path: &Path| path.symlink_metadata().is_ok();
     let mut used = used_paths.lock().unwrap();
     let taken = |path: &Path| family(path).iter().any(|path| used.contains(path));
     // Save As checks the file the user named and, with separate mask files,
     // their names beside it, as a folder export does: a mask image of
     // another export there numbers the whole family before anything is
     // written, instead of failing after the main file was published.
-    let exists = family(&slot).iter().any(|path| path.exists());
+    let exists = family(&slot).iter().any(|path| occupied(path));
     let (mut output_path, decision) = history.decide(
         policy,
         &slot,
@@ -2059,7 +2070,7 @@ pub(crate) fn plan_output_path<'a>(
             let mut counter = 1;
             while family(&output_path)
                 .iter()
-                .any(|path| path.exists() || used.contains(path))
+                .any(|path| occupied(path) || used.contains(path))
             {
                 output_path = slot.with_file_name(format!("{stem}_{counter}.{extension}"));
                 counter += 1;
@@ -4694,6 +4705,37 @@ mod tests {
             std::fs::read(&foreign_alpha).unwrap(),
             b"other export's mask"
         );
+        // A dangling link at a mask name is taken too (publication would
+        // refuse it after the render).
+        #[cfg(unix)]
+        {
+            let link = delivery.join("client c_mask_0_alpha.png");
+            std::os::unix::fs::symlink(delivery.join("gone.png"), &link).unwrap();
+            masked.output_folder_or_file =
+                delivery.join("client c.jpg").to_string_lossy().into_owned();
+            let used = std::sync::Mutex::new(std::collections::HashSet::new());
+            let output = plan_output_path(&masked, &item, &raw, &date, None, 1, &used).unwrap();
+            assert_eq!(output, delivery.join("client c_1.jpg"));
+        }
+        // The template only proposes the name: one that cannot name this
+        // photo does not stop the file named in the dialog.
+        let mut untitled = save_as.clone();
+        untitled.export_settings.name_template = Some("still life.".into());
+        untitled.output_folder_or_file =
+            delivery.join("client d.jpg").to_string_lossy().into_owned();
+        assert!(
+            rawtonic_export::sidecars::export_stem(
+                &untitled.export_settings.naming_template(),
+                &untitled
+                    .export_settings
+                    .naming_context(&raw, 1, 1, &date, "jpg", None),
+                1,
+                None
+            )
+            .is_err(),
+            "the template cannot name the photo"
+        );
+        assert_eq!(plan(&untitled), delivery.join("client d.jpg"));
         assert_eq!(std::fs::read(&raw).unwrap(), b"original RAW");
     }
 

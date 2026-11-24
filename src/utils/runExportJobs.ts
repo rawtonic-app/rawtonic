@@ -144,12 +144,14 @@ export async function runExportJobs(
       defaultPath: named?.name ?? `${stem}.${extension}`,
       // The recipe's format first; where the dialog offers a choice of
       // type (Windows, Linux) another image format can be picked.
-      filters: [extension, ...SAVE_AS_IMAGE_FORMATS.filter((f) => f !== extension && extension !== 'cube')].map(
-        (format) => ({
-          name: format.toUpperCase(),
-          extensions: format === 'jpg' ? ['jpg', 'jpeg'] : format === 'tiff' ? ['tiff', 'tif'] : [format]
-        })
-      )
+      // Export's own one-photo dialog keeps to the recipe's format.
+      filters: [
+        extension,
+        ...(saveAs ? SAVE_AS_IMAGE_FORMATS.filter((f) => f !== extension && extension !== 'cube') : [])
+      ].map((format) => ({
+        name: format.toUpperCase(),
+        extensions: format === 'jpg' ? ['jpg', 'jpeg'] : format === 'tiff' ? ['tiff', 'tif'] : [format]
+      }))
     });
     if (typeof file !== 'string') return null;
     // Save As refuses the photo's own files; the older one-photo dialog of

@@ -253,6 +253,15 @@ describe('Save As (one photo, a file the photographer names)', () => {
     vi.mocked(save).mockResolvedValueOnce('/Delivery/a.TIF');
     expect(await runExportJobs([planFor({ format: 'jpg' })], ['/p/a.NEF'], { saveAs: true })).toBe(1);
     expect(requests()[0]).toMatchObject({ outputFormat: 'tiff', outputFolderOrFile: '/Delivery/a.TIF' });
+    // The recipe's format first, the other image formats where the dialog offers a type.
+    expect(vi.mocked(save).mock.calls[0][0]?.filters?.map((f) => f.name)).toEqual([
+      'JPG',
+      'TIFF',
+      'PNG',
+      'WEBP',
+      'JXL',
+      'AVIF'
+    ]);
   });
 
   it.each(['/p/a.NEF', '/p/A.nef', '/p/a.NEF.xmp', '/p/a.xmp', '/p/a.NEF.rrdata', '/p/a.cr3'])(
@@ -304,6 +313,7 @@ describe('Save As (one photo, a file the photographer names)', () => {
       isExplicitFilePath: true,
       outputFormat: 'jpg'
     });
+    expect(vi.mocked(save).mock.calls[0][0]?.filters).toEqual([{ name: 'JPG', extensions: ['jpg', 'jpeg'] }]);
   });
 
   it('does nothing when the save dialog is cancelled', async () => {
