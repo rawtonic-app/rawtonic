@@ -1720,11 +1720,13 @@ fn keep_tile_of_unavailable_original(
     // A proxy of another variant or frame cannot show this recipe, and none
     // is developed for an evicted cloud original (`get_or_generate`
     // develops nothing without downloading it): its old tile stays.
-    if crate::preview_proxy::source_available(source)
+    // The cached tile first: it is local, and asking whether the original
+    // is available opens it (GRD1: 7–8 ms per tile on a Wi-Fi share).
+    if thumbnail_files_exist(directory, &new)
+        || crate::preview_proxy::source_available(source)
         || (!is_cloud_placeholder(source)
             && !proxy_lacks_camera_defaults(&rawtonic_engine::develop_defaults::current(), recipe)
             && crate::preview_proxy::stands_for_by_recipe(source, recipe) == Some(true))
-        || thumbnail_files_exist(directory, &new)
     {
         return new;
     }
@@ -2611,6 +2613,97 @@ mod kept_sidecar_tests {
         });
         // Outside a job, the file as it is.
         assert!(super::thumbnail_metadata(&source, &sidecar).is_none());
+    }
+}
+
+#[cfg(test)]
+mod share_lookup_tests {
+
+    fn set_mtime(path: &std::path::Path, time: std::time::SystemTime) {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+    }
+    /// A cached developed tile is found without opening its original (GRD1:
+    /// an open is a server round trip on a share, 7–25 ms per tile on
+    /// Wi-Fi); the folder listing reads the sidecar from its file and the
+    /// lookup after it takes that read while the sidecar is unchanged; an
+    /// edit made meanwhile is read and asks for a new tile.
+    #[test]
+    fn a_cached_tile_is_looked_up_without_opening_its_original_or_reading_its_sidecar_again() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.NEF");
+        std::fs::write(&source, b"raw").unwrap();
+        let sidecar = temp.path().join("photo.NEF.rrdata");
+        std::fs::write(
+            &sidecar,
+            br#"{"version":1,"rating":3,"adjustments":{"exposure":0.5}}"#,
+        )
+        .unwrap();
+        let listed = std::fs::metadata(&sidecar).unwrap().modified().unwrap();
+        let path = source.to_str().unwrap();
+        let cache = temp.path().join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        let settings = crate::AppSettings::default();
+        let lookup = || {
+            rawtonic_export::sidecars::with_sidecars_kept(|| {
+                super::ThumbnailCacheEntry::lookup(path, &cache, &settings, |_, _| {
+                    panic!("no cloud sidecar")
+                })
+                .unwrap()
+            })
+        };
+        let list = || {
+            crate::file_management::listing::resolve_image_metadata(
+                &source, &sidecar, false, &settings,
+            )
+            .rating
+        };
+        let rewrite_unchanged = |rating: u8| {
+            std::fs::write(
+                &sidecar,
+                format!(r#"{{"version":1,"rating":{rating},"adjustments":{{"exposure":0.5}}}}"#),
+            )
+            .unwrap();
+            set_mtime(&sidecar, listed);
+        };
+        let entry = lookup();
+        assert_eq!(entry.rating, Some(3));
+        for tile in [&entry.small, &entry.medium] {
+            std::fs::write(tile, b"cached tile").unwrap();
+        }
+
+        // Same size, same file, time put back: nothing tells it changed.
+        // Opening the folder again reads the file all the same.
+        rewrite_unchanged(6);
+        assert_eq!(list(), 6, "the listing took an earlier read");
+
+        // The lookup after it takes the listing's read, and finds the
+        // cached tile without opening the original.
+        rewrite_unchanged(4);
+        crate::preview_proxy::SOURCE_OPENS.with(|opens| opens.set(0));
+        let cached = lookup();
+        assert_eq!(cached.rating, Some(6), "the sidecar was read again");
+        assert!(cached.cached().is_some());
+        assert_eq!(
+            crate::preview_proxy::SOURCE_OPENS.with(std::cell::Cell::get),
+            0,
+            "the original was opened"
+        );
+
+        // Edited meanwhile (a new time): read, and a new tile is asked for.
+        std::fs::write(
+            &sidecar,
+            br#"{"version":1,"rating":4,"adjustments":{"exposure":0.7}}"#,
+        )
+        .unwrap();
+        set_mtime(&sidecar, listed + std::time::Duration::from_secs(2));
+        let edited = lookup();
+        assert_eq!(edited.rating, Some(4));
+        assert!(edited.cached().is_none());
     }
 }
 

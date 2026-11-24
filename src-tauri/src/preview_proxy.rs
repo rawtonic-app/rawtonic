@@ -369,7 +369,15 @@ pub fn source_available(source: &Path) -> bool {
 /// Whether the RAW exists and can be opened (a cloud file not downloaded
 /// yet can: reading it downloads it).
 pub fn source_readable(source: &Path) -> bool {
+    #[cfg(test)]
+    SOURCE_OPENS.with(|opens| opens.set(opens.get() + 1));
     source.is_file() && fs::File::open(source).is_ok()
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How often this thread asked `source_readable` (it opens the file).
+    pub(crate) static SOURCE_OPENS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// A hash of the size and the first and last 256 KiB of `source`.
