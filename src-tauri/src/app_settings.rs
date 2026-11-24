@@ -391,6 +391,10 @@ pub struct ExportPreset {
     /// keep both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub existing_files: Option<String>,
+    /// JPEG only: limit the whole file to this many kilobytes (1000 bytes);
+    /// absent: the quality decides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_file_kb: Option<u32>,
     /// The Studio's output sharpening (mode, amount, radius, threshold,
     /// print distance and resolution), kept as the form wrote it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -450,6 +454,7 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             tiff_bit_depth: None,
             preserve_timestamps: None,
             existing_files: None,
+            max_file_kb: None,
             output_sharpening: None,
             color_space: None,
             watermark_kind: None,
@@ -500,6 +505,7 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             tiff_bit_depth: None,
             preserve_timestamps: None,
             existing_files: None,
+            max_file_kb: None,
             output_sharpening: None,
             color_space: None,
             watermark_kind: None,
@@ -2192,6 +2198,23 @@ mod decoder_preferences_tests {
         let older: rawtonic_export::export_processing::ExportSettings =
             serde_json::from_value(older).unwrap();
         assert_eq!(older.existing_files, ExistingFiles::KeepBoth);
+    }
+
+    /// The JPEG file size limit survives a save of the recipe; a recipe
+    /// without it (every one saved before) stays without it.
+    #[test]
+    fn export_preset_keeps_the_jpeg_size_limit() {
+        let payloads: Value =
+            serde_json::from_str(include_str!("../../src/contracts/exportExistingFiles.json"))
+                .unwrap();
+        let mut value = payloads["preset"].clone();
+        assert!(value.get("maxFileKb").is_none());
+        let plain: ExportPreset = serde_json::from_value(value.clone()).unwrap();
+        assert!(serde_json::to_value(&plain).unwrap().get("maxFileKb").is_none());
+        value["maxFileKb"] = 500.into();
+        let preset: ExportPreset = serde_json::from_value(value).unwrap();
+        assert_eq!(preset.max_file_kb, Some(500));
+        assert_eq!(serde_json::to_value(&preset).unwrap()["maxFileKb"], 500);
     }
 
     #[test]

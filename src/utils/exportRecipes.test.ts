@@ -387,3 +387,18 @@ it('keeps the "If a file exists" choice in a recipe, saved only when not the def
   const back = presetFromDraft({ ...draftFromPreset(skip), existingFiles: 'keepBoth' }, 'r3', 'Skip', skip);
   expect(back.existingFiles).toBeUndefined();
 });
+
+it('a JPEG size limit is saved, loaded and sent only for a JPEG', () => {
+  const limited: RecipeDraft = { ...DEFAULT_RECIPE_DRAFT, format: 'jpg', maxFileKb: 500 };
+  const preset = presetFromDraft(limited, 'p', 'Web');
+  expect(preset.maxFileKb).toBe(500);
+  expect(draftFromPreset(preset).maxFileKb).toBe(500);
+  expect(exportSettingsFromDraft(limited).settings.maxFileKb).toBe(500);
+  expect(exportSettingsFromPreset(preset).settings.maxFileKb).toBe(500);
+  // Another format ignores it, and a recipe saved before has none.
+  const png = { ...limited, format: 'png' };
+  expect(presetFromDraft(png, 'p', 'Web').maxFileKb).toBeUndefined();
+  expect(exportSettingsFromDraft(png).settings.maxFileKb).toBeUndefined();
+  expect(draftFromPreset(presetFromDraft(DEFAULT_RECIPE_DRAFT, 'p', 'x')).maxFileKb).toBeNull();
+  expect(draftFromPreset({ ...preset, maxFileKb: 0 }).maxFileKb).toBeNull();
+});

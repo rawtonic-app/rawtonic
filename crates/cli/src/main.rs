@@ -316,6 +316,12 @@ struct ExportArgs {
     adjustments: Option<PathBuf>,
     #[arg(long, default_value_t = 90, value_parser = clap::value_parser!(u8).range(1..=100))]
     quality: u8,
+    /// JPEG only: limit the whole file (metadata and ICC profile included)
+    /// to this many kilobytes (1000 bytes). The quality is then the highest
+    /// that fits and --quality is not used; a limit even the lowest quality
+    /// cannot meet writes the smallest file and says so.
+    #[arg(long, value_name = "KB", value_parser = clap::value_parser!(u32).range(1..))]
+    max_file_kb: Option<u32>,
     #[arg(long, default_value_t = 16, value_parser = clap::value_parser!(u8).range(8..=16))]
     tiff_bit_depth: u8,
     /// Copy all source EXIF and session metadata. Creator, copyright
@@ -1211,6 +1217,7 @@ fn export(args: ExportArgs) -> Result<()> {
         adjustments,
         format,
         quality,
+        max_file_kb,
         tiff_bit_depth,
         keep_metadata,
         strip_gps,
@@ -1286,6 +1293,7 @@ fn export(args: ExportArgs) -> Result<()> {
             }
         }),
         existing_files: Default::default(),
+        max_file_kb,
     };
 
     // (photo path, output) pairs. A folder exports every supported image below
@@ -1591,6 +1599,8 @@ fn export(args: ExportArgs) -> Result<()> {
         || {},
     );
     let exporter = &exporter;
+    // Files that stayed above --max-file-kb at the lowest JPEG quality.
+    let size_limit_missed = std::sync::Mutex::new(Vec::new());
     let outcomes = rawtonic_export::workers::run_in_lanes(&pools, jobs.len(), |i| {
         let (photo, output, replace, _, named_index) = &jobs[i];
         let named_index = *named_index;
@@ -1691,6 +1701,22 @@ fn export(args: ExportArgs) -> Result<()> {
                         );
                     }
                 }
+                if let (Some(limit), Some(file)) = (
+                    rawtonic_export::size_limit::limit_bytes(settings.max_file_kb),
+                    &written_file,
+                ) && file.size > limit
+                    && matches!(format.to_lowercase().as_str(), "jpg" | "jpeg")
+                {
+                    let miss = rawtonic_export::size_limit::SizeLimitMiss {
+                        limit_bytes: limit,
+                        bytes: file.size,
+                    };
+                    eprintln!("Rawtonic: {}: {}", output.display(), miss.describe());
+                    size_limit_missed
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(serde_json::json!({"output": output, "limitBytes": limit, "bytes": file.size}));
+                }
                 Ok(output.clone())
             }
             Err(error) => Err(serde_json::json!({"source": photo, "error": error})),
@@ -1723,7 +1749,8 @@ fn export(args: ExportArgs) -> Result<()> {
             .with_context(|| format!("Write {}", path.display()))?;
         written.push(path.clone());
     }
-    print(serde_json::json!({
+    let size_limit_missed = size_limit_missed.into_inner().unwrap_or_else(|e| e.into_inner());
+    let mut result = serde_json::json!({
         "written": written,
         "skipped": skipped,
         "replaced": replaced,
@@ -1732,7 +1759,13 @@ fn export(args: ExportArgs) -> Result<()> {
         "failed": failed,
         "seconds": started.elapsed().as_secs_f64(),
         "metadata": if keep_metadata { "source EXIF and session catalog metadata" } else if keep_creator_contact { "creator, copyright, creator contact details and usage terms" } else { "creator, copyright and usage terms" },
-    }))?;
+    });
+    // Only an export that missed a --max-file-kb names them: other runs
+    // print what they always did.
+    if !size_limit_missed.is_empty() {
+        result["sizeLimitMissed"] = size_limit_missed.into();
+    }
+    print(result)?;
     anyhow::ensure!(
         failed.is_empty(),
         "{} of {} exports failed",

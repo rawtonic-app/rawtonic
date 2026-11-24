@@ -3601,9 +3601,13 @@
         "format": "형식",
         "jxlLossless": "품질 100은 무손실입니다.",
         "legend": "파일 설정",
+        "limitSize": "파일 크기 제한",
+        "limitSizeAria": "파일 크기 제한(KB)",
+        "limitSizeHint": "메타데이터를 포함한 전체 파일이 제한에 맞는 가장 높은 품질을 사용합니다. 가장 낮은 품질도 너무 크면 가장 작은 파일을 저장하고 내보내기 결과에 알립니다. 이미지는 절대 축소되지 않습니다.",
         "proPhotoWarning": "ProPhoto RGB에는 16비트 TIFF가 필요합니다. 채널당 8비트에서는 밴딩이 생길 수 있습니다.",
         "quality": "품질",
         "qualityAria": "{{format}} 품질",
+        "qualityAuto": "자동",
         "template": "파일 이름 템플릿",
         "templateHelp": "{{original}}, {{sequence}} 및 촬영 날짜 {{date}}을(를) 사용할 수 있습니다."
       },
@@ -3630,7 +3634,8 @@
       "plan": {
         "fullSize": "전체 크기",
         "legend": "이번 내보내기",
-        "quality": "품질 {{quality}}"
+        "quality": "품질 {{quality}}",
+        "sizeLimit": "≤ {{kb}} KB"
       },
       "progress": {
         "cancelling": "취소 중…",
@@ -3723,6 +3728,7 @@
           "rendering": "렌더링 및 쓰는 중…",
           "replaced": "이전 내보내기를 바꿨습니다",
           "selecting": "AI 선택 영역 계산 중…",
+          "sizeLimitMissed": "가장 작은 파일을 저장함: {{size}} KB, 제한 {{limit}} KB 초과",
           "skippedExists": "건너뜀: 같은 이름의 파일이 있습니다",
           "skippedUnchanged": "건너뜀: 마지막 내보내기 이후 변경 없음",
           "waiting": "대기 중"

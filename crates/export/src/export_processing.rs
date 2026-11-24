@@ -190,6 +190,12 @@ pub struct ExportSettings {
     /// `crate::existing_files`); Keep both by default.
     #[serde(default)]
     pub existing_files: crate::existing_files::ExistingFiles,
+    /// JPEG only: the file (metadata and ICC profile included) may be at most
+    /// this many kilobytes (1000 bytes); the quality is then the highest
+    /// that fits (`crate::size_limit`) and `jpeg_quality` is not used. None
+    /// (or 0): the quality alone decides, as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_file_kb: Option<u32>,
 }
 
 /// What an export's provenance manifest holds besides its fixed content
@@ -1212,7 +1218,7 @@ pub type WriteExport<'a> = dyn Fn(&Path, &str, EncodedExport<'_>) -> Result<(), 
 /// is its render unchanged is even rendered as it is written
 /// ([`EncodedExport::streamed_tiff`]). Its bytes are those of
 /// [`encode_with_metadata`].
-pub struct EncodedExport<'a>(Encoded<'a>);
+pub struct EncodedExport<'a>(Encoded<'a>, Option<crate::size_limit::SizeLimitMiss>);
 
 /// Renders a photo into the stream it is given ([`RowStream`]).
 pub type StreamedRender<'a> = Box<dyn FnOnce(RowStream<'_>) -> Result<(), String> + 'a>;
@@ -1253,13 +1259,22 @@ impl<'a> EncodedExport<'a> {
         color_space: OutputColorSpace,
         metadata: Option<crate::exif_processing::ExportMetadata>,
     ) -> Self {
-        Self(Encoded::Streamed {
-            size,
-            render,
-            bit_depth,
-            color_space,
-            metadata,
-        })
+        Self(
+            Encoded::Streamed {
+                size,
+                render,
+                bit_depth,
+                color_space,
+                metadata,
+            },
+            None,
+        )
+    }
+
+    /// The file size limit of a JPEG export was not reachable: the smallest
+    /// file was written (`ExportSettings::max_file_kb`).
+    pub fn size_limit_miss(&self) -> Option<crate::size_limit::SizeLimitMiss> {
+        self.1
     }
 
     /// Writes the file into `file`, which starts empty at position 0.
@@ -1329,7 +1344,7 @@ impl<'a> EncodedExport<'a> {
                     Some((&plan, identity)),
                 ),
                 tiff => {
-                    EncodedExport(tiff).write_to(file)?;
+                    EncodedExport(tiff, None).write_to(file)?;
                     #[cfg(feature = "performance-profiling")]
                     let _stage = crate::performance::PerformanceStage::new("export_provenance");
                     crate::c2pa::sign_tiff(file, &plan, identity)
@@ -1344,7 +1359,7 @@ impl<'a> EncodedExport<'a> {
             Encoded::Bytes(bytes) => Ok(bytes),
             tiff => {
                 let mut file = Cursor::new(Vec::new());
-                EncodedExport(tiff).write_to(&mut file)?;
+                EncodedExport(tiff, None).write_to(&mut file)?;
                 Ok(file.into_inner())
             }
         }
@@ -1762,16 +1777,38 @@ pub fn save_rendered_export(
         output,
         final_image.dimensions(),
     );
-    let encoded = encode_export(final_image, &extension, export_settings, metadata)?;
-    let encoded = with_provenance(
-        encoded,
-        &extension,
-        source_path_str,
-        js_adjustments,
-        export_settings,
-        output,
-        changes,
-    )?;
+    // A JPEG with a size limit is measured with its signature in: the
+    // manifest is part of the file that must fit.
+    let limited_jpeg = crate::size_limit::limit_bytes(export_settings.max_file_kb).is_some()
+        && matches!(extension.as_str(), "jpg" | "jpeg");
+    let signer = if limited_jpeg {
+        provenance_signer(export_settings, output, &extension)?
+    } else {
+        None
+    };
+    let encoded = if let Some(identity) = signer {
+        let plan = provenance_plan(
+            source_path_str,
+            js_adjustments,
+            export_settings,
+            output.exif_sidecar,
+            output.catalog,
+            changes,
+        );
+        let sign = |bytes: Vec<u8>| crate::c2pa::sign_jpeg(&bytes, &plan, identity);
+        encode_export_signing(final_image, &extension, export_settings, metadata, Some(&sign))?
+    } else {
+        let encoded = encode_export(final_image, &extension, export_settings, metadata)?;
+        with_provenance(
+            encoded,
+            &extension,
+            source_path_str,
+            js_adjustments,
+            export_settings,
+            output,
+            changes,
+        )?
+    };
     #[cfg(feature = "performance-profiling")]
     let _write_stage = crate::performance::PerformanceStage::new("export_write");
     (output.write)(output.path, &extension, encoded)
@@ -1874,6 +1911,7 @@ fn with_provenance<'a>(
         output.catalog,
         changes,
     );
+    let miss = encoded.1;
     Ok(EncodedExport(match encoded.0 {
         Encoded::Bytes(bytes) if is_tiff(extension) => {
             let mut file = Cursor::new(bytes);
@@ -1896,7 +1934,7 @@ fn with_provenance<'a>(
             plan,
             identity,
         },
-    }))
+    }, miss))
 }
 
 /// Full-resolution pixels an export renders from. Rendering takes ownership,
@@ -2702,18 +2740,36 @@ pub fn encode_export(
     export_settings: &ExportSettings,
     metadata: Option<crate::exif_processing::ExportMetadata>,
 ) -> Result<EncodedExport<'static>, String> {
+    encode_export_signing(image, extension, export_settings, metadata, None)
+}
+
+/// A JPEG's final step inside the size search: the provenance manifest.
+type FinishJpeg<'a> = dyn Fn(Vec<u8>) -> Result<Vec<u8>, String> + 'a;
+
+/// [`encode_export`] where a JPEG with a size limit measures its final
+/// file: `finish` (the provenance signature) runs on every candidate.
+fn encode_export_signing(
+    image: DynamicImage,
+    extension: &str,
+    export_settings: &ExportSettings,
+    metadata: Option<crate::exif_processing::ExportMetadata>,
+    finish: Option<&FinishJpeg<'_>>,
+) -> Result<EncodedExport<'static>, String> {
     if is_tiff(extension) {
         // TIFF stores RGB (`write_tiff` leaves alpha out); the 8- or 16-bit
         // render matches the chosen depth.
-        return Ok(EncodedExport(Encoded::Tiff {
-            image,
-            bit_depth: export_settings.tiff_bit_depth,
-            color_space: export_settings.color_space,
-            metadata,
-        }));
+        return Ok(EncodedExport(
+            Encoded::Tiff {
+                image,
+                bit_depth: export_settings.tiff_bit_depth,
+                color_space: export_settings.color_space,
+                metadata,
+            },
+            None,
+        ));
     }
-    encode_with_metadata(image, extension, export_settings, metadata.as_ref())
-        .map(|bytes| EncodedExport(Encoded::Bytes(bytes)))
+    encode_limited(image, extension, export_settings, metadata.as_ref(), finish)
+        .map(|(bytes, miss)| EncodedExport(Encoded::Bytes(bytes), miss))
 }
 
 /// Encodes an export render for `extension` and embeds `metadata` (EXIF and
@@ -2768,28 +2824,74 @@ pub fn encode_with_metadata(
     let metadata_stage = crate::performance::PerformanceStage::new("export_metadata");
 
     if let Some(metadata) = metadata {
-        // A photo with generated areas is never written without its AI
-        // marking: on a failure the marking alone, else no export.
-        let encoded = metadata.generated.then(|| image_bytes.clone());
-        if let Err(e) =
-            crate::exif_processing::embed_export_metadata(&mut image_bytes, extension, metadata)
-        {
-            log::warn!("Failed to write metadata: {}", e);
-            if let Some(mut bytes) = encoded {
-                crate::exif_processing::ExportMetadata::marking_only()
-                    .and_then(|marking| {
-                        crate::exif_processing::embed_export_metadata(
-                            &mut bytes, extension, &marking,
-                        )
-                    })
-                    .map_err(|e| format!("The AI marking could not be written: {e}"))?;
-                image_bytes = bytes;
-            }
-        }
+        embed_with_marking_fallback(&mut image_bytes, extension, metadata)?;
     }
     #[cfg(feature = "performance-profiling")]
     drop(metadata_stage);
     Ok(image_bytes)
+}
+
+/// Embeds `metadata` in an encoded file. A photo with generated areas is
+/// never written without its AI marking: on a failure the marking alone,
+/// else no export.
+fn embed_with_marking_fallback(
+    image_bytes: &mut Vec<u8>,
+    extension: &str,
+    metadata: &crate::exif_processing::ExportMetadata,
+) -> Result<(), String> {
+    let encoded = metadata.generated.then(|| image_bytes.clone());
+    if let Err(e) =
+        crate::exif_processing::embed_export_metadata(image_bytes, extension, metadata)
+    {
+        log::warn!("Failed to write metadata: {}", e);
+        if let Some(mut bytes) = encoded {
+            crate::exif_processing::ExportMetadata::marking_only()
+                .and_then(|marking| {
+                    crate::exif_processing::embed_export_metadata(&mut bytes, extension, &marking)
+                })
+                .map_err(|e| format!("The AI marking could not be written: {e}"))?;
+            *image_bytes = bytes;
+        }
+    }
+    Ok(())
+}
+
+/// [`encode_with_metadata`] with the file size limit of a JPEG
+/// (`ExportSettings::max_file_kb`) applied: the highest quality whose whole
+/// file fits, and the notice when even the lowest quality does not. Without
+/// a limit, or for another format, the bytes of `encode_with_metadata`.
+fn encode_limited(
+    image: DynamicImage,
+    extension: &str,
+    export_settings: &ExportSettings,
+    metadata: Option<&crate::exif_processing::ExportMetadata>,
+    finish: Option<&FinishJpeg<'_>>,
+) -> Result<(Vec<u8>, Option<crate::size_limit::SizeLimitMiss>), String> {
+    let jpeg = extension.eq_ignore_ascii_case("jpg") || extension.eq_ignore_ascii_case("jpeg");
+    let Some(limit) = crate::size_limit::limit_bytes(export_settings.max_file_kb).filter(|_| jpeg)
+    else {
+        return encode_with_metadata(image, extension, export_settings, metadata)
+            .map(|bytes| (bytes, None));
+    };
+    let fit = crate::size_limit::fit_to_limit(limit, |quality| {
+        let mut bytes = encode_image_to_bytes(
+            &image,
+            extension,
+            quality,
+            export_settings.tiff_bit_depth,
+            export_settings.color_space,
+            None,
+        )?;
+        if let Some(metadata) = metadata {
+            embed_with_marking_fallback(&mut bytes, extension, metadata)?;
+        }
+        match finish {
+            Some(finish) => finish(bytes),
+            None => Ok(bytes),
+        }
+    })?;
+    let miss = fit.miss(limit);
+    Ok((fit.bytes, miss))
 }
 
 /// Sets an export file's access and modification times to the capture time;
@@ -5451,5 +5553,116 @@ mod tiff_rows_tests {
 
         let lost = group_renders_after_write(0, None, Err("gpu".into()), || Err("gpu".into()));
         assert!(lost.is_err(), "a render that fails again fails the group");
+    }
+}
+
+#[cfg(test)]
+mod size_limit_tests {
+    use super::*;
+
+    /// A photo-like test image: a gradient with deterministic noise.
+    fn image() -> DynamicImage {
+        let mut state = 0x2545_f491_u32;
+        let rgb = image::RgbImage::from_fn(1200, 800, |x, y| {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let noise = (state >> 28) as u8;
+            image::Rgb([
+                (x / 5) as u8 ^ noise,
+                (y / 4) as u8 ^ noise,
+                ((x + y) / 9) as u8 ^ noise,
+            ])
+        });
+        DynamicImage::ImageRgb8(rgb)
+    }
+
+    fn with_limit(kb: Option<u32>) -> ExportSettings {
+        let mut settings = export_settings(None);
+        settings.max_file_kb = kb;
+        settings
+    }
+
+    fn encode(
+        settings: &ExportSettings,
+        metadata: Option<&crate::exif_processing::ExportMetadata>,
+    ) -> (Vec<u8>, Option<crate::size_limit::SizeLimitMiss>) {
+        encode_limited(image(), "jpg", settings, metadata, None).unwrap()
+    }
+
+    #[test]
+    fn a_limit_is_met_with_the_highest_quality_that_fits() {
+        let settings = with_limit(Some(300));
+        let (bytes, miss) = encode(&settings, None);
+        assert!(miss.is_none());
+        assert!(bytes.len() <= 300_000, "{} bytes", bytes.len());
+        // One quality step higher would not fit: the file is the highest.
+        let quality_of = |q: u8| {
+            let mut s = export_settings(None);
+            s.jpeg_quality = q;
+            encode_with_metadata(image(), "jpg", &s, None).unwrap().len()
+        };
+        let fitting = (1..=100u8).rev().find(|&q| quality_of(q) <= 300_000).unwrap();
+        assert!(fitting < 100);
+        assert_eq!(bytes.len(), quality_of(fitting));
+        assert!(quality_of(fitting + 1) > 300_000);
+    }
+
+    #[test]
+    fn an_impossible_limit_writes_the_smallest_file_and_reports_it() {
+        let (bytes, miss) = encode(&with_limit(Some(1)), None);
+        let mut lowest = export_settings(None);
+        lowest.jpeg_quality = 1;
+        let smallest = encode_with_metadata(image(), "jpg", &lowest, None).unwrap();
+        assert_eq!(bytes, smallest);
+        let miss = miss.expect("the limit is missed");
+        assert_eq!(miss.limit_bytes, 1000);
+        assert_eq!(miss.bytes, smallest.len() as u64);
+        // The picture keeps its size: nothing is resized silently.
+        let decoded = image::load_from_memory(&bytes).unwrap();
+        assert_eq!(decoded.dimensions(), (1200, 800));
+    }
+
+    #[test]
+    fn the_metadata_counts_towards_the_limit() {
+        let note = "x".repeat(20_000);
+        let metadata = crate::exif_processing::ExportMetadata::software_note_only(&note).unwrap();
+        let settings = with_limit(Some(300));
+        let (without, _) = encode(&settings, None);
+        let (with, miss) = encode(&settings, Some(&metadata));
+        assert!(miss.is_none());
+        assert!(with.len() <= 300_000, "{} bytes", with.len());
+        assert!(
+            with.windows(note.len()).any(|w| w == note.as_bytes()),
+            "the note is in the file"
+        );
+        // 20 kB of note leaves less room for the picture.
+        assert!(with.len() <= 300_000 && without.len() <= 300_000);
+        let (plain, _) = encode(&with_limit(Some(300)), None);
+        assert_eq!(plain, without);
+    }
+
+    #[test]
+    fn no_limit_and_other_formats_are_unchanged() {
+        let settings = with_limit(None);
+        let (bytes, miss) = encode(&settings, None);
+        assert!(miss.is_none());
+        assert_eq!(bytes, encode_with_metadata(image(), "jpg", &settings, None).unwrap());
+        // 0 is off; a PNG ignores the limit.
+        let zero = with_limit(Some(0));
+        assert_eq!(encode(&zero, None).0, bytes);
+        let png = |s: &ExportSettings| encode_limited(image(), "png", s, None, None).unwrap();
+        assert_eq!(png(&with_limit(Some(10))), png(&with_limit(None)));
+    }
+
+    #[test]
+    fn the_limit_is_stored_only_when_set() {
+        let mut settings = export_settings(None);
+        assert!(serde_json::to_value(&settings).unwrap().get("maxFileKb").is_none());
+        settings.max_file_kb = Some(500);
+        assert_eq!(serde_json::to_value(&settings).unwrap()["maxFileKb"], 500);
+        let old: ExportSettings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 90, "keepMetadata": true, "stripGps": false
+        }))
+        .unwrap();
+        assert_eq!(old.max_file_kb, None);
     }
 }

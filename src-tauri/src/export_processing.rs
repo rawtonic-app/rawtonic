@@ -2701,8 +2701,15 @@ fn export_photo(
             |path: &Path,
              _extension: &str,
              encoded: rawtonic_export::export_processing::EncodedExport| {
+                let miss = encoded.size_limit_miss();
                 let file = publish_with(previous.as_ref(), photo).write_export(path, encoded)?;
                 *lock_recover(&written) = Some(file);
+                if let Some(miss) = miss {
+                    match &targets[target].tracking {
+                        Some(tracking) => tracking.size_limit_miss(item.global_index, miss),
+                        None => log::warn!("{}: {}", path.display(), miss.describe()),
+                    }
+                }
                 Ok(())
             };
         {

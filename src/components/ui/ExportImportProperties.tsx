@@ -73,6 +73,8 @@ export interface ExportSettings {
   preserveTimestamps: boolean;
   /** What happens when a file of the name exists (absent: keep both). */
   existingFiles?: ExistingFiles;
+  /** JPEG only: the whole file (metadata included) may be at most this many KB (1000 bytes); the quality is then automatic. */
+  maxFileKb?: number;
   resize: {
     mode: string;
     value: number;
@@ -208,6 +210,8 @@ export interface ExportPreset {
   preserveFolders?: boolean;
   /** "If a file exists" (absent: keep both). */
   existingFiles?: ExistingFiles;
+  /** JPEG only: the whole file (metadata included) may be at most this many KB (1000 bytes); the quality is then automatic. */
+  maxFileKb?: number;
   /** The first export tokens; recipes saved since hold `nameTemplate`. */
   filenameTemplate: string;
   nameTemplate?: string;

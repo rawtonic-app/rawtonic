@@ -4028,9 +4028,13 @@
         "format": "Format",
         "jxlLossless": "Jakość 100 oznacza kompresję bezstratną.",
         "legend": "Ustawienia pliku",
+        "limitSize": "Ogranicz rozmiar pliku do",
+        "limitSizeAria": "Limit rozmiaru pliku w KB",
+        "limitSizeHint": "Najwyższa jakość, przy której cały plik z metadanymi mieści się w limicie. Jeśli nawet najniższa jakość jest za duża, zapisywany jest najmniejszy plik, a wynik eksportu o tym informuje; obraz nigdy nie jest zmniejszany.",
         "proPhotoWarning": "ProPhoto RGB wymaga 16-bitowego TIFF; przy 8 bitach na kanał mogą pojawić się pasma.",
         "quality": "Jakość",
         "qualityAria": "Jakość {{format}}",
+        "qualityAuto": "auto",
         "template": "Szablon nazwy pliku",
         "templateHelp": "Użyj {{original}}, {{sequence}} i daty wykonania {{date}}."
       },
@@ -4057,7 +4061,8 @@
       "plan": {
         "fullSize": "pełny rozmiar",
         "legend": "Ten eksport",
-        "quality": "jakość {{quality}}"
+        "quality": "jakość {{quality}}",
+        "sizeLimit": "≤ {{kb}} KB"
       },
       "progress": {
         "cancelling": "Anulowanie…",
@@ -4165,6 +4170,7 @@
           "rendering": "Renderowanie i zapis…",
           "replaced": "Zastąpiono wcześniejszy eksport",
           "selecting": "Obliczanie zaznaczeń AI…",
+          "sizeLimitMissed": "Zapisano najmniejszy plik: {{size}} KB, powyżej limitu {{limit}} KB",
           "skippedExists": "Pominięte: istnieje plik o tej nazwie",
           "skippedUnchanged": "Pominięte: bez zmian od ostatniego eksportu",
           "waiting": "Oczekuje"

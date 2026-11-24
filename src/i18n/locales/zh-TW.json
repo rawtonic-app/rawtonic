@@ -3601,9 +3601,13 @@
         "format": "格式",
         "jxlLossless": "品質 100 為無損。",
         "legend": "檔案設定",
+        "limitSize": "限制檔案大小為",
+        "limitSizeAria": "檔案大小上限（KB）",
+        "limitSizeHint": "使用整個檔案（含中繼資料）不超過上限的最高品質。若連最低品質也過大，則寫入最小的檔案，並在匯出結果中提示；影像絕不會被縮小。",
         "proPhotoWarning": "ProPhoto RGB 需要 16 位元 TIFF；每色版 8 位元可能出現色階斷層。",
         "quality": "品質",
         "qualityAria": "{{format}} 品質",
+        "qualityAuto": "自動",
         "template": "檔名範本",
         "templateHelp": "可使用 {{original}}、{{sequence}} 及拍攝日期 {{date}}。"
       },
@@ -3630,7 +3634,8 @@
       "plan": {
         "fullSize": "原始尺寸",
         "legend": "本次輸出",
-        "quality": "品質 {{quality}}"
+        "quality": "品質 {{quality}}",
+        "sizeLimit": "≤ {{kb}} KB"
       },
       "progress": {
         "cancelling": "正在取消…",
@@ -3723,6 +3728,7 @@
           "rendering": "正在算繪並寫入…",
           "replaced": "已取代先前的匯出",
           "selecting": "正在計算 AI 選取範圍…",
+          "sizeLimitMissed": "已寫入最小檔案：{{size}} KB，超過 {{limit}} KB 的上限",
           "skippedExists": "已略過：已有同名檔案",
           "skippedUnchanged": "已略過：自上次匯出後未變更",
           "waiting": "等待中"

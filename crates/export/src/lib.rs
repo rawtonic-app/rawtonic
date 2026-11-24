@@ -16,6 +16,7 @@ pub mod proof_sheet;
 pub mod queue;
 pub mod render_inputs;
 pub mod sidecars;
+pub mod size_limit;
 mod signed_tiff;
 pub mod text_watermark;
 pub mod tiff_exif;

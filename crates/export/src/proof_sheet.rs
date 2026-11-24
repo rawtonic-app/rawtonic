@@ -992,6 +992,7 @@ pub fn cell_settings(
         super_resolution: false,
         provenance: None,
         existing_files: Default::default(),
+        max_file_kb: None,
     }
 }
 
