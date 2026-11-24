@@ -686,17 +686,22 @@ fn resample_display_image_via_float(
 /// A linear-light float image encoded as 8-bit sRGB (clamped to 0..=1).
 fn srgb8_of_linear(reduced: &image::Rgb32FImage) -> DynamicImage {
     let mut out = image::RgbImage::new(reduced.width(), reduced.height());
-    for (o, p) in out.pixels_mut().zip(reduced.pixels()) {
-        *o = image::Rgb(p.0.map(|v| {
-            let v = v.clamp(0.0, 1.0);
-            let e = if v <= 0.003_130_8 {
-                v * 12.92
-            } else {
-                1.055 * v.powf(1.0 / 2.4) - 0.055
-            };
-            (e * 255.0).round() as u8
-        }));
-    }
+    // Rows in parallel: a tile's encode was a tenth of its CPU time, on the
+    // tile's own thread (notes: benchmark-results/adf3-2026-11-23).
+    let row = reduced.width() as usize * 3;
+    out.par_chunks_mut(row.max(1))
+        .zip(reduced.as_raw().par_chunks(row.max(1)))
+        .for_each(|(out, line)| {
+            for (o, &v) in out.iter_mut().zip(line) {
+                let v = v.clamp(0.0, 1.0);
+                let e = if v <= 0.003_130_8 {
+                    v * 12.92
+                } else {
+                    1.055 * v.powf(1.0 / 2.4) - 0.055
+                };
+                *o = (e * 255.0).round() as u8;
+            }
+        });
     DynamicImage::ImageRgb8(out)
 }
 

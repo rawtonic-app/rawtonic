@@ -952,9 +952,98 @@ pub fn raf_embedded_jpeg(bytes: &[u8]) -> Option<&[u8]> {
     bytes.get(offset..offset.checked_add(length)?)
 }
 
+/// The preview JPEG an Olympus / OM System RAW (ORF) keeps in its maker
+/// note (CameraSettings, PreviewImageStart/Length: 3200 x 2400 on bodies
+/// from the E-30 to the OM-3), with the orientation of the file's first IFD.
+/// ORF is TIFF-like with its own magic ("IIRO", "IIRS", "MMOR"); the maker
+/// notes this reads start with "OLYMPUS" or "OM SYSTEM" and give offsets
+/// from their own start. Older "OLYMP" notes (offsets from the file's
+/// start, no CameraSettings preview) give `None`, as does any value that
+/// does not point at a JPEG. Without it these RAWs' grid tiles were
+/// developed from the sensor data at about 4 times a camera JPEG tile's
+/// time (notes: benchmark-results/adf3-2026-11-23).
+pub fn orf_embedded_jpeg(bytes: &[u8]) -> Option<(&[u8], Option<u16>)> {
+    let little = match bytes.get(..4)? {
+        [0x49, 0x49, 0x52, 0x4F] | [0x49, 0x49, 0x53, 0x52] => true,
+        [0x4D, 0x4D, 0x4F, 0x52] => false,
+        _ => return None,
+    };
+    // A reader of one byte order: entries of an IFD at `ifd` (offsets
+    // already absolute), as (tag, type, count, value or offset).
+    struct Tiff<'a> {
+        bytes: &'a [u8],
+        little: bool,
+    }
+    impl Tiff<'_> {
+        fn u16(&self, at: usize) -> Option<u16> {
+            let b: [u8; 2] = self.bytes.get(at..at.checked_add(2)?)?.try_into().ok()?;
+            Some(if self.little { u16::from_le_bytes(b) } else { u16::from_be_bytes(b) })
+        }
+        fn u32(&self, at: usize) -> Option<usize> {
+            let b: [u8; 4] = self.bytes.get(at..at.checked_add(4)?)?.try_into().ok()?;
+            Some(if self.little { u32::from_le_bytes(b) } else { u32::from_be_bytes(b) } as usize)
+        }
+        fn entry(&self, ifd: usize, wanted: u16) -> Option<(u16, usize, usize)> {
+            let count = usize::from(self.u16(ifd)?).min(512);
+            (0..count).find_map(|i| {
+                let at = ifd + 2 + i * 12;
+                (self.u16(at)? == wanted)
+                    .then(|| Some((self.u16(at + 2)?, self.u32(at + 4)?, at + 8)))
+                    .flatten()
+            })
+        }
+        /// A SHORT or LONG value of `tag` that fits in the entry.
+        fn value(&self, ifd: usize, tag: u16) -> Option<usize> {
+            let (kind, _, at) = self.entry(ifd, tag)?;
+            match kind {
+                3 => self.u16(at).map(usize::from),
+                4 | 13 => self.u32(at),
+                _ => None,
+            }
+        }
+    }
+    let file = Tiff { bytes, little };
+    let ifd0 = file.u32(4)?;
+    let orientation = file
+        .value(ifd0, 0x0112)
+        .filter(|value| (1..=8).contains(value))
+        .map(|value| value as u16);
+    let exif = file.value(ifd0, 0x8769)?;
+    let (_, length, at) = file.entry(exif, 0x927C)?;
+    let note = file.u32(at)?;
+    let header = bytes.get(note..note.checked_add(length)?)?;
+    let start = if header.starts_with(b"OLYMPUS\0") {
+        8
+    } else if header.starts_with(b"OM SYSTEM\0") {
+        12
+    } else {
+        return None;
+    };
+    let little = match header.get(start..start + 2)? {
+        b"II" => true,
+        b"MM" => false,
+        _ => return None,
+    };
+    let note_bytes = Tiff { bytes: header, little };
+    let settings = note_bytes.value(start + 4, 0x2020).or_else(|| {
+        // Written as UNDEFINED with the sub-IFD's offset as its value.
+        let (kind, _, at) = note_bytes.entry(start + 4, 0x2020)?;
+        (kind == 7).then(|| note_bytes.u32(at)).flatten()
+    })?;
+    if note_bytes.value(settings, 0x0100) == Some(0) {
+        return None;
+    }
+    let offset = note_bytes.value(settings, 0x0101)?;
+    let length = note_bytes.value(settings, 0x0102)?;
+    let jpeg = header.get(offset..offset.checked_add(length)?)?;
+    jpeg.starts_with(&[0xFF, 0xD8]).then_some((jpeg, orientation))
+}
+
 pub fn priority_embedded_jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
     let (jpeg, orientation) = if let Some(jpeg) = raf_embedded_jpeg(bytes) {
         (jpeg, exif_orientation(jpeg).unwrap_or(1))
+    } else if let Some((jpeg, orientation)) = orf_embedded_jpeg(bytes) {
+        (jpeg, orientation.unwrap_or(1))
     } else {
         let jpeg = tiff_jpeg_previews(bytes)?.find(|jpeg| {
             ImageReader::with_format(Cursor::new(*jpeg), image::ImageFormat::Jpeg)
@@ -1016,6 +1105,9 @@ fn embedded_preview_with(
         (image, exif_orientation(jpeg))
     } else if let Some(image) = largest_tiff_jpeg_preview(bytes) {
         (image, exif_orientation(bytes))
+    } else if let Some((jpeg, orientation)) = orf_embedded_jpeg(bytes) {
+        let image = image::load_from_memory_with_format(jpeg, image::ImageFormat::Jpeg).ok()?;
+        (image, orientation)
     } else {
         // Other RAW containers (for example CR3) also need the decoder's
         // metadata instead of assuming that the container is TIFF or JPEG.
@@ -1967,6 +2059,75 @@ mod private_preview_tests {
             image::load_from_memory(&jpeg).unwrap().to_rgb8()
         );
         assert_eq!(raf_embedded_jpeg(&raw), Some(jpeg.as_slice()));
+    }
+
+    /// A little-endian ORF: IFD0 (orientation, EXIF pointer), the EXIF IFD
+    /// with a maker note of `header` whose IFD holds CameraSettings
+    /// (`settings_type`) with the preview's valid flag, start and length.
+    fn orf_with_jpeg(jpeg: &[u8], header: &[u8], settings_type: u16, valid: u32) -> Vec<u8> {
+        fn ifd(entries: &[(u16, u16, u32, u32)]) -> Vec<u8> {
+            let mut out = (entries.len() as u16).to_le_bytes().to_vec();
+            for &(tag, kind, count, value) in entries {
+                out.extend(tag.to_le_bytes());
+                out.extend(kind.to_le_bytes());
+                out.extend(count.to_le_bytes());
+                out.extend(value.to_le_bytes());
+            }
+            out.extend(0u32.to_le_bytes());
+            out
+        }
+        // The maker note, offsets from its own start.
+        let note_ifd = header.len() + 4;
+        let settings = note_ifd + 18;
+        let preview = settings + 2 + 3 * 12 + 4;
+        let mut note = header.to_vec();
+        note.extend([b'I', b'I', 3, 0]);
+        note.extend(ifd(&[(0x2020, settings_type, 1, settings as u32)]));
+        note.extend(ifd(&[
+            (0x0100, 4, 1, valid),
+            (0x0101, 4, 1, preview as u32),
+            (0x0102, 4, 1, jpeg.len() as u32),
+        ]));
+        note.extend(jpeg);
+        let ifd0 = 8;
+        let exif = ifd0 + 2 + 2 * 12 + 4;
+        let note_at = exif + 2 + 12 + 4;
+        let mut raw = b"IIRO".to_vec();
+        raw.extend((ifd0 as u32).to_le_bytes());
+        raw.extend(ifd(&[(0x0112, 3, 1, 8), (0x8769, 4, 1, exif as u32)]));
+        raw.extend(ifd(&[(0x927C, 7, note.len() as u32, note_at as u32)]));
+        raw.extend(note);
+        raw
+    }
+
+    #[test]
+    fn orf_maker_note_preview_is_found_with_the_files_orientation() {
+        let image = DynamicImage::new_rgb8(8, 6);
+        let mut jpeg = Cursor::new(Vec::new());
+        image.write_to(&mut jpeg, image::ImageFormat::Jpeg).unwrap();
+        let jpeg = jpeg.into_inner();
+        for (header, kind) in [
+            (&b"OLYMPUS\0"[..], 13),
+            (&b"OLYMPUS\0"[..], 7),
+            (&b"OM SYSTEM\0\0\0"[..], 4),
+        ] {
+            let orf = orf_with_jpeg(&jpeg, header, kind, 1);
+            assert_eq!(orf_embedded_jpeg(&orf), Some((jpeg.as_slice(), Some(8))));
+            // Rotated by the file's orientation (8: 90 degrees).
+            let preview = embedded_preview_fallback(&orf, "synthetic.orf").unwrap();
+            assert_eq!(preview.dimensions(), (6, 8));
+        }
+        // Marked invalid, an older maker note, a value beyond the file, not a
+        // JPEG, a TIFF: none.
+        assert!(orf_embedded_jpeg(&orf_with_jpeg(&jpeg, b"OLYMPUS\0", 13, 0)).is_none());
+        assert!(orf_embedded_jpeg(&orf_with_jpeg(&jpeg, b"OLYMP\0\0\0", 13, 1)).is_none());
+        let mut cut = orf_with_jpeg(&jpeg, b"OLYMPUS\0", 13, 1);
+        cut.truncate(cut.len() - 1);
+        assert!(orf_embedded_jpeg(&cut).is_none());
+        assert!(orf_embedded_jpeg(&orf_with_jpeg(b"not a jpeg", b"OLYMPUS\0", 13, 1)).is_none());
+        let mut tiff = orf_with_jpeg(&jpeg, b"OLYMPUS\0", 13, 1);
+        tiff[2..4].copy_from_slice(&[0x2A, 0]);
+        assert!(orf_embedded_jpeg(&tiff).is_none());
     }
 
     #[test]
