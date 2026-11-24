@@ -1692,3 +1692,18 @@ describe('Copy from the Library selection', () => {
     expect(useEditorStore.getState().copiedAdjustments).toBe(clipboard);
   });
 });
+
+it('counts every zoom command, also Fit at the fit already shown', () => {
+  const { result } = renderHook(useEditorActions);
+  useEditorStore.setState({
+    zoom: 1,
+    originalSize: { width: 6000, height: 4000 },
+    baseRenderSize: { width: 600, height: 400, offsetX: 0, offsetY: 0, containerWidth: 600, containerHeight: 400 }
+  });
+  const before = useEditorStore.getState().zoomRequests;
+  act(() => result.current.handleZoomChange(0, true));
+  // The zoom stays 1 (the viewer applies nothing), the command is counted:
+  // the multi view's zoom lock reads it (useMultiViewZoom).
+  expect(useEditorStore.getState().zoom).toBe(1);
+  expect(useEditorStore.getState().zoomRequests).toBe(before + 1);
+});

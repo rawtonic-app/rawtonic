@@ -2105,14 +2105,10 @@ mod tests {
                     None,
                 );
             };
-            // Re-fitted (here: another fit size in the cell) it still holds;
-            // a live frame that moves elsewhere (the editor applied another
+            // A live frame that moves elsewhere (the editor applied another
             // zoom, or a pan) takes over.
             hold_again(&mut multi);
             assert!(multi.holds_primary(Some(at_fit), now), "{label}");
-            let refit = fit_rect(area, 16.0, 16.0);
-            let refit = [refit[0] + 0.25, refit[1] - 0.25, refit[2], refit[3]];
-            assert!(multi.holds_primary(Some(refit), now), "{label}");
             let twice = [
                 at_zoom[0] + 8.0,
                 at_zoom[1],
@@ -2120,11 +2116,26 @@ mod tests {
                 at_zoom[3] / 2.0,
             ];
             assert!(!multi.holds_primary(Some(twice), now), "{label}");
-            // The rendered sequence: two fit placements show the cell's own
-            // zoomed frames, the placement at the zoom shows the live frame.
+            // The rendered sequence: at fit, re-fitted 5 px higher in its
+            // resized cell (the window resized while it loads), the cell
+            // shows its own zoomed frames; placed at the zoom, the live frame.
             hold_again(&mut multi);
-            let live = live_frame(&gpu, at_zoom, area);
-            for (rect, held) in [(at_fit, true), (refit, true), (at_zoom, false)] {
+            let resized = [5.0, 10.0, 60.0, 70.0];
+            let refit = fit_rect(resized, 32.0, 32.0);
+            assert!((refit[1] - at_fit[1]).abs() >= 5.0);
+            let resized_zoom = zoomed_rect(resized, whole(32, 32), zoom);
+            let live = live_frame(&gpu, resized_zoom, resized);
+            for (rect, cell, held) in [
+                (at_fit, area, true),
+                (refit, resized, true),
+                (resized_zoom, resized, false),
+            ] {
+                let mut shown = multi.cells().to_vec();
+                shown
+                    .iter_mut()
+                    .filter(|c| c.path == "a")
+                    .for_each(|c| c.area = cell);
+                multi.set_layout(Some("a".into()), shown);
                 let hold = multi.holds_primary(Some(rect), now);
                 assert_eq!(hold, held, "{label}: {rect:?}");
                 let pixels = present(
@@ -2133,14 +2144,16 @@ mod tests {
                     (!hold).then_some(PrimaryDraw {
                         bind_group: &live,
                         before: &gpu.empty_before,
-                        clip: area,
+                        clip: cell,
                     }),
                 );
+                // Held: the cyan centre enlarged (at fit it spans 27.5–42.5);
+                // live: the live frame's blue.
                 let expected = if held { [0, 255, 255] } else { [0, 0, 255] };
                 assert!(
-                    close(pixel(&pixels, 22, 50), expected),
+                    close(pixel(&pixels, 22, 48), expected),
                     "{label}: {rect:?} {:?}",
-                    pixel(&pixels, 22, 50)
+                    pixel(&pixels, 22, 48)
                 );
             }
             // And after the limit, wherever it is; or when it is not placed

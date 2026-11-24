@@ -137,11 +137,14 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
   /** The fit (primary, fit box, shown size, device px ratio) the primary's
    * zoom was last read or placed against. */
   const readFit = useRef('');
-  /** The editor's count of applied transforms right after it was placed at
-   * the primary's zoom: until it applies another (a zoom, pan or Fit), the
-   * zoom is kept, so a placement the editor clamps (a crop whose fit is
-   * above the zoom) does not become every cell's zoom. */
-  const placed = useRef<number | null>(null);
+  /** The editor's counts of applied transforms and of zoom commands right
+   * after it was placed at the primary's zoom: until it applies another (a
+   * zoom, pan) or a zoom command comes (Fit, also at the fit it already
+   * shows), the zoom is kept, so a placement the editor clamps (a crop
+   * whose fit is above the zoom) does not become every cell's zoom. */
+  const placed = useRef<string | null>(null);
+  const editorMoves = () =>
+    `${transformWrapperRef?.current?.instance.applied ?? 0}|${useEditorStore.getState().zoomRequests}`;
   /** The secondary under the pointer and where (CSS px, window). */
   const hover = useRef<{ path: string; x: number; y: number } | null>(null);
 
@@ -257,12 +260,12 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
           const target = transformOfZoom(zoomed, editor.baseRenderSize, shownSize, dprNow());
           if (target) {
             transformWrapperRef?.current?.setTransform(target.positionX, target.positionY, target.scale, 0);
-            placed.current = transformWrapperRef?.current?.instance.applied ?? null;
+            placed.current = editorMoves();
             return;
           }
         }
         readFit.current = fitNow;
-        if (placed.current === null || placed.current !== transformWrapperRef?.current?.instance.applied) {
+        if (placed.current !== editorMoves()) {
           placed.current = null;
           const zoom = sharedZoomOf(transform!, editor.baseRenderSize, shownSize, dprNow());
           if (!sameZoom(primaryZoomRef.current, zoom)) {

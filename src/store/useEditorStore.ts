@@ -58,6 +58,9 @@ interface EditorState {
   finalRegion: FinalRegion | null;
   /** Counts the viewer's settled zooms and pans (100 ms after the last move). */
   viewSettled: number;
+  /** Counts the zoom commands (Fit, 100 %, zoom in/out, from the keys or the
+   * toolbar), also one that asks for the zoom the viewer already shows. */
+  zoomRequests: number;
   /** Linux preview target at one device pixel per photo pixel or closer. */
   browserFullZoom: boolean;
   /** Counts finished (not dragged) preview frames, native or JPEG. */
@@ -322,6 +325,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   finalPreview: null,
   finalRegion: null,
   viewSettled: 0,
+  zoomRequests: 0,
   browserFullZoom: false,
   previewFrames: 0,
   uncroppedAdjustedPreviewUrl: null,

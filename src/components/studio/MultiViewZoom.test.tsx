@@ -418,8 +418,14 @@ describe("the zoom lock and the editor's bounds", () => {
     // The other cells keep the shared zoom (not fit).
     for (const call of zoomCalls().slice(before)) expect(call.zoom!.scale).toBeCloseTo(shared.scale);
     expect(badge(container, '/s/c.CR3')).not.toBeNull();
-    // Fit chosen there (the editor stays where it is): every cell to fit.
-    act(() => editorHandle.current.resetTransform());
+    // Fit chosen there (the editor, already at fit, applies nothing): every
+    // cell to fit.
+    const applied = editorState.applied;
+    act(() => {
+      const { zoomRequests } = useEditorStore.getState();
+      useEditorStore.setState({ zoom: 1, zoomRequests: zoomRequests + 1 });
+    });
+    expect(editorState.applied).toBe(applied);
     runFrame();
     expect(zoomCalls().at(-1)!.zoom).toBeNull();
     // The editor's own zoom from there is read again.
