@@ -33,7 +33,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -59,17 +59,19 @@ const STATE_EVENT: &str = "second-window-state";
 const STATE_FILE: &str = "second_window.json";
 /// The smallest window kept or restored (logical px).
 const MIN_SIZE: (f64, f64) = (320.0, 240.0);
-/// How long the edit must rest before the window develops its own frame.
+/// How long the edits must rest before the window develops its own frame
+/// when settled frames follow each other closely (a key held, values
+/// typed); after a single edit it develops at once: the wait alone
+/// exceeded the 107 ms settle bar (notes: benchmark-results/swc5-2026-11-24).
 const SETTLE: Duration = Duration::from_millis(120);
-/// The part of the visible size a zoomed region reaches past each side.
-/// Linux: none, as the main window's region frame (VPR1): the page's
-/// lossless frame costs encode, bytes and decode by its pixels (a margin of
-/// a quarter each side is 2.25× of them on every settled edit), and a pan
-/// past the edge cuts the new region from the kept base in milliseconds.
-#[cfg(target_os = "linux")]
+/// The part of the visible size a zoomed region reaches past each side:
+/// none, as the main window's region frame on Linux (VPR1). Each settled
+/// edit develops what is shown (a margin of a quarter each side is 2.25×
+/// its pixels: on Metal ~20 ms of the second window's settle, SWC5; on
+/// Linux the page's lossless frame costs encode, bytes and decode by its
+/// pixels), and a pan past the edge cuts the new region from the kept base
+/// in milliseconds.
 const REGION_MARGIN: f32 = 0.0;
-#[cfg(not(target_os = "linux"))]
-const REGION_MARGIN: f32 = multi_view::REGION_MARGIN;
 
 /// The window as kept for the next start. Bounds are logical px (points),
 /// which mean the same on displays of different scale: the outer top left
@@ -588,6 +590,17 @@ enum Want {
 
 struct Job {
     generation: usize,
+    /// Wait [`SETTLE`] first: it follows another job closely.
+    rest: bool,
+}
+
+/// When the worker was last asked ([`schedule`]).
+static LAST_SCHEDULED: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// Whether a job asked at `now` waits for the edits to rest: one asked for
+/// within [`SETTLE`] before it.
+fn rests(last: Option<Instant>, now: Instant) -> bool {
+    last.is_some_and(|last| now.saturating_duration_since(last) < SETTLE)
 }
 
 fn worker(app_handle: &tauri::AppHandle) -> &'static LatestJobSender<Job> {
@@ -602,7 +615,9 @@ fn worker(app_handle: &tauri::AppHandle) -> &'static LatestJobSender<Job> {
 /// edit rests.
 fn schedule(app_handle: &tauri::AppHandle) {
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-    worker(app_handle).send(Job { generation });
+    let now = Instant::now();
+    let rest = rests(lock_recover(&LAST_SCHEDULED).replace(now), now);
+    worker(app_handle).send(Job { generation, rest });
 }
 
 /// Whether a whole frame of `pixels` holds what a fit in `area` shows of a
@@ -682,7 +697,9 @@ fn want(inner: &Inner) -> Option<Want> {
 }
 
 fn run(app_handle: &tauri::AppHandle, job: Job) {
-    std::thread::sleep(SETTLE);
+    if job.rest {
+        std::thread::sleep(SETTLE);
+    }
     if GENERATION.load(Ordering::SeqCst) != job.generation || !is_open() {
         return;
     }
@@ -781,7 +798,7 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                 REGION_MARGIN,
                 (*recipe).clone(),
                 tag,
-                multi_view::CELL_RENDER,
+                gpu_processing::SECOND_WINDOW_CALLER,
             ) {
                 Ok(region) => {
                     let frame = prepare(&region.rgba);
@@ -1701,6 +1718,16 @@ mod tests {
         let gone = placement(Some(kept), &[main], Some(main)).unwrap();
         assert_eq!((gone.x, gone.width), (605, 1814));
         assert_eq!(placement(None, &[], None), None);
+    }
+
+    #[test]
+    fn only_an_edit_close_after_another_waits_for_the_edits_to_rest() {
+        let now = Instant::now();
+        assert!(!rests(None, now));
+        assert!(!rests(Some(now - SETTLE), now));
+        assert!(!rests(Some(now - Duration::from_secs(2)), now));
+        assert!(rests(Some(now - SETTLE / 2), now));
+        assert!(rests(Some(now), now));
     }
 
     #[test]
