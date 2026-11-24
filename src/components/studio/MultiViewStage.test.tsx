@@ -386,7 +386,7 @@ describe('reference and locked zoom', () => {
 
   it('leaves the other cells at fit with the lock off', () => {
     const calls = zoomed(false);
-    expect(calls.at(-1)![1]).toEqual({ zoom: null, cells: {} });
+    expect(calls.at(-1)![1]).toEqual({ zoom: null, cells: {}, primary: '/s/b.CR3' });
     useMultiViewStore.setState({ zoomLock: true });
   });
 });

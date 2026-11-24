@@ -62,7 +62,16 @@ const zoomCalls = () =>
   vi
     .mocked(invoke)
     .mock.calls.filter(([command]) => command === Invokes.SetMultiViewZoom)
-    .map(([, args]) => args as { zoom: SharedZoom | null; cells: Record<string, SharedZoom> | null });
+    .map(([, args]) => {
+      const { zoom, cells } = args as { zoom: SharedZoom | null; cells: Record<string, SharedZoom> | null };
+      return { zoom, cells };
+    });
+/** The primary each zoom was computed for. */
+const zoomPrimaries = () =>
+  vi
+    .mocked(invoke)
+    .mock.calls.filter(([command]) => command === Invokes.SetMultiViewZoom)
+    .map(([, args]) => (args as { primary: string | null }).primary);
 
 function stage() {
   const view = render(
@@ -269,6 +278,11 @@ describe('individual zoom (zoom lock off)', () => {
     runFrame();
     expect(zoomCalls().at(-1)!.cells!['/s/b.CR3'].scale).toBeCloseTo(1);
     expect(zoomCalls().at(-1)!.cells!['/s/a.CR3']).toBeUndefined();
+    // Each names the primary it leaves out: zooms that reach the native side
+    // before their layout wait for it, so a's zoom is not taken away while
+    // it is still a secondary (WMV5: its cell at fit for 0.5-0.8 s).
+    expect(zoomPrimaries().at(-1)).toBe('/s/a.CR3');
+    expect(zoomPrimaries()[0]).toBe('/s/b.CR3');
     // A photograph without a zoom of its own opens at fit.
     act(() => open('/s/c.CR3'));
     rerender(
