@@ -105,6 +105,17 @@ it('shows a missed file size limit on the job without opening it, and on its pho
   ]);
 });
 
+it('lists every file above its size limit on the job, also when the job was cancelled', () => {
+  const misses = Array.from({ length: 7 }, (_, i) => ({ file: `/out/${i}.jpg`, limitBytes: 20_000, bytes: 88_000 }));
+  useProcessStore
+    .getState()
+    .setExportQueue({ jobs: [job({ state: 'cancelled', total: 9, done: 7, sizeLimitMisses: misses })], held: false });
+  render(<ExportQueuePanel onClose={() => {}} />);
+  const notices = screen.getByRole('list', { name: 'Files above their size limit' });
+  expect(within(notices).getAllByRole('listitem')).toHaveLength(7);
+  expect(within(notices).getByText('6.jpg: could not reach 20 KB; saved the smallest file (88 KB)')).toBeTruthy();
+});
+
 it('says what "If a file exists" skipped, replaced or kept, per job and per photo', () => {
   expect(describeExportJob(job({ state: 'done', done: 4 }))).toBe('Done · 4 written');
   expect(describeExportJob(job({ state: 'done', total: 6, done: 6, skipped: 2, replaced: 1 }))).toBe(

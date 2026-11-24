@@ -3747,7 +3747,6 @@
         "running": "正在匯出（已匯出 {{done}}/{{total}}）",
         "show": "顯示",
         "sizeLimitMissed": "{{file}}：無法達到 {{limit}} KB；已儲存最小的檔案（{{size}} KB）",
-        "sizeLimitMore": "另有 {{n}} 個",
         "sizeLimitNotices": "超過大小上限的檔案",
         "start": "開始",
         "startQueue": "啟動佇列",

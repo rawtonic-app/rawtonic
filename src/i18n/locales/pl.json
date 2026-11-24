@@ -4192,7 +4192,6 @@
         "running": "Eksportowanie (wyeksportowano {{done}} z {{total}})",
         "show": "Pokaż",
         "sizeLimitMissed": "{{file}}: nie udało się osiągnąć {{limit}} KB; zapisano najmniejszy plik ({{size}} KB)",
-        "sizeLimitMore": "+{{n}} więcej",
         "sizeLimitNotices": "Pliki powyżej limitu rozmiaru",
         "start": "Rozpocznij",
         "startQueue": "Uruchom kolejkę",

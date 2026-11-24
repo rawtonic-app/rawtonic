@@ -3747,7 +3747,6 @@
         "running": "書き出し中（{{total}} 枚中 {{done}} 枚書き出し済み）",
         "show": "表示",
         "sizeLimitMissed": "{{file}}：{{limit}} KB に届きませんでした。最小のファイルを保存しました（{{size}} KB）",
-        "sizeLimitMore": "ほか {{n}} 件",
         "sizeLimitNotices": "上限を超えたファイル",
         "start": "開始",
         "startQueue": "キューを開始",

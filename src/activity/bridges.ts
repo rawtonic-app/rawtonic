@@ -44,6 +44,34 @@ const act = (command: Invokes, args: Record<string, unknown>) =>
     useActivityStore.getState().report('failure', { source: 'export', title: String(error) })
   );
 
+const SIZE_NOTICES_SEEN = 'rawtonic.export.sizeLimitNoticesSeen';
+const SIZE_NOTICES_KEPT = 100;
+let sizeNoticesSeen: string[] | null = null;
+
+/** The export jobs whose files above their size limit the user dismissed in
+ * Activity: kept across restarts, so a finished job in the queue does not
+ * raise the same warning again. */
+function seenSizeNotices(): string[] {
+  if (!sizeNoticesSeen) {
+    try {
+      const stored = JSON.parse(localStorage.getItem(SIZE_NOTICES_SEEN) ?? '[]');
+      sizeNoticesSeen = Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : [];
+    } catch {
+      sizeNoticesSeen = [];
+    }
+  }
+  return sizeNoticesSeen;
+}
+
+function markSizeNoticesSeen(job: string) {
+  sizeNoticesSeen = [...seenSizeNotices().filter((id) => id !== job), job].slice(-SIZE_NOTICES_KEPT);
+  try {
+    localStorage.setItem(SIZE_NOTICES_SEEN, JSON.stringify(sizeNoticesSeen));
+  } catch {
+    // Not remembered: the warning may return after a restart.
+  }
+}
+
 /** What each export job last reported, so a snapshot repeating it (or one
  * after the user dismissed its failure) reports nothing new. */
 const exportReported = new Map<string, string>();
@@ -93,6 +121,21 @@ export function modelName(model: string): string {
   return key ? i18n.t(`activity.download.names.${key}`) : model;
 }
 
+const needsSizeNotice = (job: ExportJob) => !!job.sizeLimitMisses?.length && !seenSizeNotices().includes(job.id);
+const sizeNoticeTitle = (job: ExportJob) => i18n.t('activity.export.sizeLimitMissed', { label: job.label });
+
+/** A file above the size limit the photographer asked for needs a look (an
+ * upload may refuse it): the warning stays until dismissed, and stays dismissed. */
+function sizeNotice(job: ExportJob, title: string) {
+  return {
+    id: `export:${job.id}`,
+    source: 'export' as const,
+    title,
+    detail: describeSizeLimitMisses(job.sizeLimitMisses ?? []).join('\n'),
+    onDismiss: () => markSizeNoticesSeen(job.id)
+  };
+}
+
 export function syncExportJobs(jobs: ExportJob[], held: boolean) {
   const activity = useActivityStore.getState();
   const ids = new Set(jobs.map((job) => job.id));
@@ -129,10 +172,10 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
         source: 'export',
         title: completed ? `${title} · ${completed}` : title,
         detail:
-          failures
-            .slice(0, 3)
-            .map((failure) => `${fileName(failure.path)}: ${renderErrorMessage(failure.error)}`)
-            .join('\n') || undefined,
+          [
+            ...failures.slice(0, 3).map((failure) => `${fileName(failure.path)}: ${renderErrorMessage(failure.error)}`),
+            ...describeSizeLimitMisses(job.sizeLimitMisses ?? [])
+          ].join('\n') || undefined,
         paths: failures.map((failure) => failure.path),
         // An Edit With render is not resumed: nothing would hand it over.
         actions: job.editWith
@@ -165,17 +208,11 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
         job.skipped === job.total
           ? i18n.t('activity.export.nothingExported', { label: job.label, existing: completed })
           : `${job.label} · ${completed}`;
-      const misses = job.sizeLimitMisses ?? [];
-      if (misses.length)
-        // A file above the size limit the photographer asked for needs a look
-        // (an upload may refuse it): it stays until dismissed.
-        activity.report('warning', {
-          id,
-          source: 'export',
-          title: `${i18n.t('activity.export.sizeLimitMissed', { label: job.label })} · ${completed}`,
-          detail: describeSizeLimitMisses(misses).join('\n')
-        });
+      if (needsSizeNotice(job)) activity.report('warning', sizeNotice(job, `${sizeNoticeTitle(job)} · ${completed}`));
       else activity.finish(id, { source: 'export', title });
+    } else if (job.state === 'cancelled' && needsSizeNotice(job)) {
+      // Files already written stay above their limit.
+      activity.report('warning', sizeNotice(job, sizeNoticeTitle(job)));
     } else {
       // Cancelled or paused by the user, or waiting while the queue is held.
       activity.resolve(id);
@@ -324,6 +361,7 @@ function showUnsavedWrites(fresh: boolean) {
 /** Test helper. */
 export function resetActivityBridges() {
   exportReported.clear();
+  sizeNoticesSeen = null;
   unsavedWrites.clear();
   lastFailedKind.clear();
   lastWriteError = null;

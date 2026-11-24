@@ -3857,7 +3857,6 @@
         "running": "Wird exportiert ({{done}} von {{total}} exportiert)",
         "show": "Zeigen",
         "sizeLimitMissed": "{{file}}: {{limit}} KB nicht erreichbar; kleinste Datei gespeichert ({{size}} KB)",
-        "sizeLimitMore": "+{{n}} weitere",
         "sizeLimitNotices": "Dateien über ihrem Größenlimit",
         "start": "Starten",
         "startQueue": "Warteschlange starten",

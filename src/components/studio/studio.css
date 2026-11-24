@@ -3487,7 +3487,9 @@
   overflow-wrap: anywhere;
 }
 .studio-export-queue .studio-export-notices {
+  max-height: 160px;
   margin-top: 4px;
+  overflow-y: auto;
 }
 .studio-export-queue .studio-export-notices li {
   display: block;

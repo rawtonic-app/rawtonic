@@ -280,10 +280,10 @@ function ExportJobRow({ job, held, full }: { job: ExportJob; held: boolean; full
           })}
         />
       )}
-      {job.state === 'done' && !!job.sizeLimitMisses?.length && (
+      {!!job.sizeLimitMisses?.length && (
         <ul className="studio-export-notices" aria-label={t('studio.export.queue.sizeLimitNotices')}>
-          {describeSizeLimitMisses(job.sizeLimitMisses).map((line) => (
-            <li key={line}>{line}</li>
+          {describeSizeLimitMisses(job.sizeLimitMisses).map((line, index) => (
+            <li key={index}>{line}</li>
           ))}
         </ul>
       )}

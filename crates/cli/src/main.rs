@@ -1730,7 +1730,7 @@ fn export(args: ExportArgs) -> Result<()> {
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .push(serde_json::json!({
-                            "file": notice.file,
+                            "output": notice.file,
                             "limitBytes": notice.limit_bytes,
                             "bytes": notice.bytes,
                             "message": message,

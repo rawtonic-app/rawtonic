@@ -3747,7 +3747,6 @@
         "running": "내보내는 중 ({{total}}장 중 {{done}}장 내보냄)",
         "show": "보기",
         "sizeLimitMissed": "{{file}}: {{limit}} KB에 도달하지 못해 가장 작은 파일을 저장했습니다({{size}} KB)",
-        "sizeLimitMore": "외 {{n}}개",
         "sizeLimitNotices": "크기 제한을 넘은 파일",
         "start": "시작",
         "startQueue": "대기열 시작",

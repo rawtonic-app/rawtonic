@@ -3747,7 +3747,6 @@
         "running": "正在导出（已导出 {{done}}/{{total}}）",
         "show": "显示",
         "sizeLimitMissed": "{{file}}：无法达到 {{limit}} KB；已保存最小的文件（{{size}} KB）",
-        "sizeLimitMore": "另有 {{n}} 个",
         "sizeLimitNotices": "超过大小上限的文件",
         "start": "开始",
         "startQueue": "启动队列",

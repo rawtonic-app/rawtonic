@@ -3857,7 +3857,6 @@
         "running": "Exporting ({{done}} of {{total}} exported)",
         "show": "Show",
         "sizeLimitMissed": "{{file}}: could not reach {{limit}} KB; saved the smallest file ({{size}} KB)",
-        "sizeLimitMore": "+{{n}} more",
         "sizeLimitNotices": "Files above their size limit",
         "start": "Start",
         "startQueue": "Start queue",

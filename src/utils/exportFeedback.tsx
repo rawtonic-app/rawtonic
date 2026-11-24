@@ -62,11 +62,9 @@ export function describeSizeLimitMiss(miss: SizeLimitMiss): string {
   });
 }
 
-/** One line per missed file, at most `shown`, then "+N more". */
-export function describeSizeLimitMisses(misses: SizeLimitMiss[], shown = 5): string[] {
-  const lines = misses.slice(0, shown).map(describeSizeLimitMiss);
-  if (misses.length > shown) lines.push(i18n.t('studio.export.queue.sizeLimitMore', { n: misses.length - shown }));
-  return lines;
+/** One line per missed file. */
+export function describeSizeLimitMisses(misses: SizeLimitMiss[]): string[] {
+  return misses.map(describeSizeLimitMiss);
 }
 
 /** The containing folder, accepting both native path separators. */

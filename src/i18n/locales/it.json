@@ -4025,7 +4025,6 @@
         "running": "Esportazione ({{done}} di {{total}} esportate)",
         "show": "Mostra",
         "sizeLimitMissed": "{{file}}: impossibile raggiungere {{limit}} KB; salvato il file più piccolo ({{size}} KB)",
-        "sizeLimitMore": "+{{n}} altri",
         "sizeLimitNotices": "File sopra il loro limite di dimensione",
         "start": "Avvia",
         "startQueue": "Avvia la coda",

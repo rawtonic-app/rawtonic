@@ -4025,7 +4025,6 @@
         "running": "S'està exportant ({{done}} de {{total}} exportades)",
         "show": "Mostra",
         "sizeLimitMissed": "{{file}}: no s'ha pogut assolir {{limit}} KB; s'ha desat el fitxer més petit ({{size}} KB)",
-        "sizeLimitMore": "+{{n}} més",
         "sizeLimitNotices": "Fitxers per sobre del seu límit de mida",
         "start": "Inicia",
         "startQueue": "Inicia la cua",

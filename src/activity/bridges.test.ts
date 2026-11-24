@@ -32,6 +32,7 @@ const job = (part: Partial<ExportJob>): ExportJob => ({
 let stop: () => void;
 
 beforeEach(() => {
+  localStorage.clear();
   resetActivityStore();
   resetActivityBridges();
   handlers.clear();
@@ -73,6 +74,30 @@ it('keeps a finished export that missed its file size limit under attention, nam
   // An export that met its limit still just finishes.
   useProcessStore.getState().setExportQueue({ jobs: [job({ id: 'j2', state: 'done', done: 3 })], held: false });
   expect(entry('export:j2')?.status).toBe('done');
+});
+
+it('lists every file above its size limit, also of a cancelled or failed export, and stays dismissed', async () => {
+  const misses = Array.from({ length: 7 }, (_, i) => ({ file: `/out/${i}.jpg`, limitBytes: 500_000, bytes: 600_000 }));
+  const sync = (part: Partial<ExportJob>) =>
+    useProcessStore.getState().setExportQueue({ jobs: [job({ sizeLimitMisses: misses, ...part })], held: false });
+  sync({ state: 'cancelled', done: 7, total: 9 });
+  expect(entry('export:j1')?.status).toBe('warning');
+  expect(entry('export:j1')?.detail?.split('\n')).toHaveLength(7);
+  sync({ state: 'failed', done: 7, failed: 1, total: 8, failures: [{ path: '/p/8.RAF', error: 'Decoder said no' }] });
+  expect(entry('export:j1')).toMatchObject({ status: 'failure' });
+  expect(entry('export:j1')?.detail?.split('\n')).toHaveLength(8);
+
+  sync({ state: 'done', done: 7, total: 7 });
+  expect(entry('export:j1')?.status).toBe('warning');
+  useActivityStore.getState().dismiss('export:j1');
+  await Promise.resolve();
+  // The queue snapshot after a restart repeats the finished job: not again.
+  stop();
+  resetActivityBridges();
+  resetActivityStore();
+  stop = startActivityBridges();
+  sync({ state: 'done', done: 7, total: 7 });
+  expect(entry('export:j1')?.status).toBe('done');
 });
 
 it('shows a running export with its progress and Cancel', async () => {

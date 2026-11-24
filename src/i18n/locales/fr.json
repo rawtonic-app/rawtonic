@@ -4025,7 +4025,6 @@
         "running": "Exportation ({{done}} sur {{total}} exportées)",
         "show": "Afficher",
         "sizeLimitMissed": "{{file}} : {{limit}} Ko inatteignable ; le plus petit fichier a été enregistré ({{size}} Ko)",
-        "sizeLimitMore": "+{{n}} de plus",
         "sizeLimitNotices": "Fichiers au-dessus de leur limite de taille",
         "start": "Démarrer",
         "startQueue": "Lancer la file",

@@ -4025,7 +4025,6 @@
         "running": "Exportando ({{done}} de {{total}} exportadas)",
         "show": "Mostrar",
         "sizeLimitMissed": "{{file}}: no se pudo alcanzar {{limit}} KB; se guardó el archivo más pequeño ({{size}} KB)",
-        "sizeLimitMore": "+{{n}} más",
         "sizeLimitNotices": "Archivos por encima de su límite de tamaño",
         "start": "Iniciar",
         "startQueue": "Iniciar la cola",
