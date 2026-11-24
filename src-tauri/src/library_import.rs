@@ -1203,8 +1203,10 @@ fn settle_rule(
 ) -> Settled {
     let (current, earlier) = current_record(record.clone(), photo);
     let rule = reimport_here(current.as_ref(), own, sidecar, photo, incoming);
-    let unread_straightening =
-        earlier && rule == Reimport::Keep && straightening_differs(own, incoming);
+    let unread_straightening = earlier
+        && rule == Reimport::Keep
+        && straightens(incoming)
+        && straightening_differs(own, incoming);
     let upgrade = current.filter(|c| !unread_straightening && record.as_ref() != Some(c));
     Settled {
         rule,
@@ -1213,20 +1215,31 @@ fn settle_rule(
     }
 }
 
-/// Whether two recipes straighten or turn the photo differently.
+/// Half the Crop tool's straightening step (0.1°): an angle typed there to
+/// match an imported one counts as matching it.
+const STRAIGHTENING_MATCH: f64 = 0.05;
+
+fn geometry_value(recipe: Option<&Value>, key: &str) -> f64 {
+    recipe
+        .and_then(|r| r.get(key))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0)
+}
+
+/// Whether a recipe straightens or turns the photo (an import's: what the
+/// other editor does to it).
+fn straightens(recipe: Option<&Value>) -> bool {
+    geometry_value(recipe, geometry::ROTATION.name()).abs() > STRAIGHTENING_MATCH
+        || geometry_value(recipe, geometry::ORIENTATION_STEPS.name()) != 0.0
+}
+
+/// Whether two recipes straighten or turn the photo differently (angles
+/// within `STRAIGHTENING_MATCH` match).
 fn straightening_differs(a: Option<&Value>, b: Option<&Value>) -> bool {
-    let value = |recipe: Option<&Value>, key: &str| {
-        recipe
-            .and_then(|r| r.get(key))
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0)
-    };
-    [
-        geometry::ROTATION.name(),
-        geometry::ORIENTATION_STEPS.name(),
-    ]
-    .iter()
-    .any(|key| (value(a, key) - value(b, key)).abs() > 1e-6)
+    let rotation = geometry::ROTATION.name();
+    let steps = geometry::ORIENTATION_STEPS.name();
+    (geometry_value(a, rotation) - geometry_value(b, rotation)).abs() > STRAIGHTENING_MATCH
+        || geometry_value(a, steps) != geometry_value(b, steps)
 }
 
 /// The import summary's line for `Settled::unread_straightening`.
@@ -3125,6 +3138,32 @@ mod tests {
             &straightened,
             Some(&incoming),
         );
+        assert!(!settled.unread_straightening);
+        assert!(settled.upgrade.is_some());
+        // Matched by hand in the Crop tool (0.1° steps) to a fractional
+        // angle: settled.
+        let fractional = json!({"exposure": 0.3, "rotation": 5.13});
+        let typed = json!({"exposure": 0.3, "rotation": 5.1});
+        let settled = settle_rule(
+            Some(record.clone()),
+            Some(&typed),
+            None,
+            &straightened,
+            Some(&fractional),
+        );
+        assert!(!settled.unread_straightening);
+        assert!(settled.upgrade.is_some());
+        // Straightened only here, Capture One's photo level: nothing to name,
+        // the record upgraded.
+        let local = json!({"exposure": 0.9, "rotation": 3.0});
+        let settled = settle_rule(
+            Some(record.clone()),
+            Some(&local),
+            None,
+            &level,
+            Some(&imported),
+        );
+        assert_eq!(settled.rule, Reimport::Keep);
         assert!(!settled.unread_straightening);
         assert!(settled.upgrade.is_some());
         // A record of today's reader is left alone.
