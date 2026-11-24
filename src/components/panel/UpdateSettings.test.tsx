@@ -1,6 +1,7 @@
 import '../../i18n';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import { invoke } from '@tauri-apps/api/core';
 import UpdateSettings from './UpdateSettings';
 import CrashReportSettings from './CrashReportSettings';
 import type { AppSettings } from '../ui/AppProperties';
@@ -10,6 +11,13 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) 
 afterEach(cleanup);
 
 describe('update and crash report preferences', () => {
+  it('says Flatpak delivers the updates, with no switches, inside a Flatpak', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(true);
+    render(<UpdateSettings appSettings={{} as AppSettings} onSettingsChange={vi.fn()} />);
+    expect(await screen.findByText(/flatpak update cc\.rawtonic\.editor/)).toBeTruthy();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
   it('puts each preference on its own row, its name left and its control right', () => {
     render(
       <>

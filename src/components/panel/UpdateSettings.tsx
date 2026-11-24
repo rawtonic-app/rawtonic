@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useState, type ReactNode } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
+import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 import Switch from '../ui/Switch';
-import { type AppSettings } from '../ui/AppProperties';
+import { Invokes, type AppSettings } from '../ui/AppProperties';
 import { useUpdateStore } from '../../store/useUpdateStore';
 
 export default function UpdateSettings({
@@ -20,6 +21,13 @@ export default function UpdateSettings({
       .then((version) => setPrereleasesDefault(version.split('+')[0].includes('-')))
       .catch(console.debug);
   }, []);
+  // Inside Flatpak the updates come from Flatpak: no switches, no request.
+  const [flatpak, setFlatpak] = useState(false);
+  useEffect(() => {
+    void Promise.resolve(invoke<boolean>(Invokes.UpdatesManagedByFlatpak))
+      .then((managed) => setFlatpak(managed === true))
+      .catch(console.debug);
+  }, []);
   const checking = useUpdateStore((s) => s.checking);
   const checked = useUpdateStore((s) => s.checked);
   const failed = useUpdateStore((s) => s.failed);
@@ -34,6 +42,9 @@ export default function UpdateSettings({
       <div className="pref-control">{control}</div>
     </div>
   );
+  if (flatpak) {
+    return row(t('updates.manual'), null, <p className="pref-description">{t('updates.flatpak')}</p>);
+  }
   return (
     <>
       {row(

@@ -25,6 +25,20 @@ pub(crate) fn source(app: &AppHandle) -> core::Source {
     core::Source::github()
 }
 
+fn running_in_flatpak() -> bool {
+    core::in_flatpak(
+        std::env::var("FLATPAK_ID").ok().as_deref(),
+        cfg!(target_os = "linux") && std::path::Path::new("/.flatpak-info").exists(),
+    )
+}
+
+/// Preferences shows where updates come from instead of the update switches
+/// when Flatpak delivers them.
+#[tauri::command]
+pub fn updates_managed_by_flatpak() -> bool {
+    running_in_flatpak()
+}
+
 #[tauri::command]
 pub async fn check_updates(app_handle: AppHandle, manual: bool) -> Result<Option<UpdateInfo>, ()> {
     match check(app_handle, manual).await {
@@ -39,10 +53,7 @@ pub async fn check_updates(app_handle: AppHandle, manual: bool) -> Result<Option
 async fn check(app: AppHandle, manual: bool) -> Result<Option<UpdateInfo>, String> {
     // Inside Flatpak the updates come from Flatpak (`flatpak update
     // cc.rawtonic.editor`): no request goes to GitHub, not even on "Check now".
-    if core::in_flatpak(
-        std::env::var("FLATPAK_ID").ok().as_deref(),
-        cfg!(target_os = "linux") && std::path::Path::new("/.flatpak-info").exists(),
-    ) {
+    if running_in_flatpak() {
         return if manual {
             Err("Updates come from Flatpak".into())
         } else {

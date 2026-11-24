@@ -1,4 +1,5 @@
 # Maintainer: Rawtonic contributors <https://github.com/rawtonic-app/rawtonic>
+# NOT TO BE PUBLISHED with the alpha.19 pin: that release lacks the AppDir path fix (release gate in packaging/linux/README.md).
 #
 # rawtonic-bin: repackages the release AppImage for pacman. See
 # packaging/linux/README.md for why a -bin package, how it was checked, and

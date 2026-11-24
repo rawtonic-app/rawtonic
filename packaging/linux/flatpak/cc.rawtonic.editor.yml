@@ -1,4 +1,5 @@
 # Flatpak manifest for Rawtonic: repackages the release AppImage (see
+# NOT TO BE PUBLISHED with the alpha.19 pin: that release sends an update request inside a Flatpak (release gate in packaging/linux/README.md).
 # packaging/linux/README.md for why, how it was checked, and what Flathub
 # would additionally need). Build and run:
 #   flatpak-builder --user --install-deps-from=flathub --force-clean --install build-dir cc.rawtonic.editor.yml

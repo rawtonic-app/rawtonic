@@ -52,7 +52,10 @@ log "export exit $code, $size bytes, magic $magic"
 cp /home/tester/out.jpg /out/ 2>/dev/null
 log "headless export with relative paths from the home folder (informational for releases up to alpha.19)"
 cp "$photo" /home/tester/rel.raw; chown tester /home/tester/rel.raw
-(cd /home/tester && sudo -u tester env HOME=/home/tester timeout 600 xvfb-run -a rawtonic export rel.raw --output rel-out.jpg --format jpeg >/out/export-relative.log 2>&1; echo "exit $?, $(stat -c %s rel-out.jpg 2>/dev/null || echo 0) bytes") | tee -a /out/summary.txt
+(cd /home/tester && sudo -u tester env HOME=/home/tester timeout 600 xvfb-run -a rawtonic export rel.raw --output rel-out.jpg --format jpeg >/out/export-relative.log 2>&1; echo "exit $?, $(stat -c %s rel-out.jpg 2>/dev/null || echo 0) bytes") | tee /out/relative.txt | tee -a /out/summary.txt
+# Releases up to alpha.19 ignore OWD without APPIMAGE: a known failure there.
+# Set RELATIVE_EXPORT=required (docker -e) for a release that has the fix.
+if [ "${RELATIVE_EXPORT:-known-gap}" = required ]; then grep -q "^exit 0," /out/relative.txt || fail "relative-path export"; else log "relative-path export not asserted (known gap before the release with the AppDir fix)"; fi
 (cd /in && sha256sum -c --quiet /out/in.sha256) && log "original unchanged" || fail "original changed"
 tail -5 /out/export.log | tee -a /out/summary.txt
 log "GUI start (30 s under Xvfb, then screenshot, then close)"
@@ -67,7 +70,10 @@ xwd -root -silent -out /home/tester/gui.xwd
 kill $app 2>/dev/null; wait $app 2>/dev/null
 echo "exit $?"
 GUI
-sudo -u tester env HOME=/home/tester xvfb-run -a -s "-screen 0 1440x900x24" bash /home/tester/gui.sh 2>&1 | tee -a /out/summary.txt
+sudo -u tester env HOME=/home/tester xvfb-run -a -s "-screen 0 1440x900x24" bash /home/tester/gui.sh > /out/gui-observations.txt 2>&1
+cat /out/gui-observations.txt | tee -a /out/summary.txt
+grep -q "^app alive: yes" /out/gui-observations.txt || fail "GUI did not start"
+grep -q "^webkit helper processes: [1-9]" /out/gui-observations.txt || fail "no WebKit process"
 cp /home/tester/gui.log /home/tester/gui.xwd /out/ 2>/dev/null
 log "remove the package"
 pacman -Rns --noconfirm rawtonic-bin >/out/remove.log 2>&1 || log "FAIL remove"

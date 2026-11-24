@@ -45,11 +45,15 @@ flatpak kill cc.rawtonic.editor
 sleep 3
 echo "instances after kill: $(flatpak ps --columns=application | grep -c cc.rawtonic.editor)"
 GUI
-as xvfb-run -a bash /home/tester/gui.sh 2>&1 | tee -a /out/summary.txt
+as xvfb-run -a bash /home/tester/gui.sh > /out/gui-observations.txt 2>&1
+cat /out/gui-observations.txt | tee -a /out/summary.txt
+grep -q "^flatpak instances: 1" /out/gui-observations.txt || fail "GUI did not start"
+grep -q "^webkit web processes: [1-9]" /out/gui-observations.txt || fail "no WebKit process"
+grep -q "^instances after kill: 0" /out/gui-observations.txt || fail "app still running"
 cp /home/tester/gui.log /out/ 2>/dev/null
 log "uninstall"
 as flatpak uninstall --user -y cc.rawtonic.editor >/out/uninstall.log 2>&1 || log "FAIL uninstall"
 as flatpak list --user --app | tee -a /out/summary.txt
-grep -q "^FAIL\|^== FAIL\|instances: 0\|instances after kill: [1-9]" /out/summary.txt && failed=1
+grep -q "^== FAIL" /out/summary.txt && failed=1
 log "result: $([ $failed -eq 0 ] && echo PASS || echo FAILED)"
 exit $failed
