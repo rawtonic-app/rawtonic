@@ -3,6 +3,8 @@
 set -uo pipefail
 log() { echo "== $*" | tee -a /out/summary.txt; }
 : > /out/summary.txt
+failed=0
+fail() { log "FAIL $*"; failed=1; }
 pacman -Syu --noconfirm --needed base-devel sudo namcap >/out/pacman-base.log 2>&1 || { log "FAIL base packages"; exit 1; }
 useradd -m builder
 echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
@@ -46,11 +48,12 @@ code=$?
 size=$(stat -c %s /home/tester/out.jpg 2>/dev/null || echo 0)
 magic=$(head -c 2 /home/tester/out.jpg 2>/dev/null | od -An -tx1 | tr -d ' ')
 log "export exit $code, $size bytes, magic $magic"
+[ "$code" -eq 0 ] && [ "$size" -gt 100000 ] && [ "$magic" = ffd8 ] || fail "export"
 cp /home/tester/out.jpg /out/ 2>/dev/null
 log "headless export with relative paths from the home folder (informational for releases up to alpha.19)"
 cp "$photo" /home/tester/rel.raw; chown tester /home/tester/rel.raw
 (cd /home/tester && sudo -u tester env HOME=/home/tester timeout 600 xvfb-run -a rawtonic export rel.raw --output rel-out.jpg --format jpeg >/out/export-relative.log 2>&1; echo "exit $?, $(stat -c %s rel-out.jpg 2>/dev/null || echo 0) bytes") | tee -a /out/summary.txt
-(cd /in && sha256sum -c --quiet /out/in.sha256) && log "original unchanged"
+(cd /in && sha256sum -c --quiet /out/in.sha256) && log "original unchanged" || fail "original changed"
 tail -5 /out/export.log | tee -a /out/summary.txt
 log "GUI start (30 s under Xvfb, then screenshot, then close)"
 cat > /home/tester/gui.sh <<'GUI'
@@ -58,7 +61,7 @@ cat > /home/tester/gui.sh <<'GUI'
 WEBKIT_DISABLE_COMPOSITING_MODE=1 rawtonic >/home/tester/gui.log 2>&1 &
 app=$!
 sleep 30
-echo "app alive: $(kill -0 $app 2>/dev/null && echo yes || echo no)"
+kill -0 $app 2>/dev/null && echo "app alive: yes" || echo "FAIL app alive: no"
 ps -eo args | grep -c -E '[W]ebKit(Web|Network)Process' | sed 's/^/webkit helper processes: /'
 xwd -root -silent -out /home/tester/gui.xwd
 kill $app 2>/dev/null; wait $app 2>/dev/null
@@ -70,4 +73,8 @@ log "remove the package"
 pacman -Rns --noconfirm rawtonic-bin >/out/remove.log 2>&1 || log "FAIL remove"
 left=$(find /opt/rawtonic /usr/bin/rawtonic /usr/share/applications/rawtonic.desktop /usr/share/licenses/rawtonic-bin 2>/dev/null | wc -l)
 log "files left from the package after removal: $left"
-pacman -Q rawtonic-bin 2>&1 | tee -a /out/summary.txt
+[ "$left" -eq 0 ] || fail "files left"
+if pacman -Q rawtonic-bin >/dev/null 2>&1; then fail "package still installed"; fi
+grep -q "^FAIL\|^== FAIL" /out/summary.txt && failed=1
+log "result: $([ $failed -eq 0 ] && echo PASS || echo FAILED)"
+exit $failed

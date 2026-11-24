@@ -9,6 +9,8 @@
 set -euo pipefail
 photos=$(realpath "$1"); out=$(realpath -m "$2"); cache=$(realpath -m "${3:-$out/cache}")
 mkdir -p "$out" "$cache"
+# A fresh folder per run: nothing an earlier run left is replaced.
+out=$(mktemp -d "$out/run-$(date +%Y%m%d-%H%M%S)-XXXX")
 here=$(cd "$(dirname "$0")" && pwd)
 exec docker run --rm --network host \
   -v "$here":/pkg:ro -v "$photos":/in:ro -v "$out":/out -v "$cache":/cache \

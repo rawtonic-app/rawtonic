@@ -2,6 +2,10 @@
 
 Both packages repackage the release AppImage (`Rawtonic_<version>_amd64.AppImage` from the GitHub release, pinned by SHA-256). They add no build of their own, so what they ship is exactly the tested release (built by `build-appimage.sh`, glibc ≤ 2.35, with ONNX Runtime, the WebGPU plugin and the tether helper bundled). Neither is published: Flathub and the AUR need the maintainer's accounts (below).
 
+## Release gate (read before publishing)
+
+Both recipes pin `v0.1.0-alpha.19`, which predates two changes they rely on: the Flatpak guard (no update request inside a Flatpak) and the AppDir `OWD` rule (relative paths in `rawtonic export photo.nef --output photo.jpg`). **Do not publish either package before bumping the pin to the first release that contains PKG1's code**, and then check: the Flatpak makes no request to GitHub (start with a network log or `--unshare=network` and "Check now"), and the relative-path export in the Arch test succeeds. With alpha.19 the relative-path export fails (checked, exit 1) and the Flatpak would send the usual update request.
+
 ## Arch Linux — `arch/PKGBUILD` (`rawtonic-bin`)
 
 A `-bin` package from the AppImage, not a source package: a source build needs Rust 1.98, Node 24, the pinned libgphoto2/libusb build of the tether helper and the pinned ONNX Runtime download, none of which pacman can provide, and it would produce a different binary than the one the release tests qualify. AUR users know `-bin` packages for this case. The AppImage's squashfs is unpacked at build time (no FUSE, nothing of the app runs) and installed as an AppDir in `/opt/rawtonic`; `/usr/bin/rawtonic` starts its `AppRun` (bundled WebKitGTK 2.50, GTK 3, GStreamer) and hands it the folder the command ran in as `OWD`. Only what linuxdeploy leaves out of every AppImage and the GPU stack are dependencies. Because the AppDir carries its own WebKitGTK, the NVIDIA DMA-BUF handling of PR #99 applies unchanged.
@@ -12,13 +16,13 @@ Check (needs Docker): `packaging/linux/arch/test-in-container.sh PHOTOS OUT [CAC
 
 ## Flatpak — `flatpak/cc.rawtonic.editor.yml`
 
-`org.freedesktop.Platform` 24.08 with the AppImage's AppDir in `/app/rawtonic` (the same launcher as the Arch package). The AppDir brings its own WebKitGTK, so the runtime supplies glibc, Mesa/Vulkan and the NVIDIA GL extension mechanism only. Build and run: `flatpak-builder --user --install-deps-from=flathub --force-clean --install build-dir cc.rawtonic.editor.yml`, `flatpak run cc.rawtonic.editor`. Check (needs Docker and network for Flathub): `packaging/linux/flatpak/test-in-container.sh PHOTOS OUT [CACHE]` — builds and installs it with `flatpak-builder` in an Arch container, exports one RAW headless through the sandbox, starts the GUI for 30 s under Xvfb and uninstalls.
+`org.freedesktop.Platform` 25.08 (24.08 ended 2026-10-01) with the AppImage's AppDir in `/app/rawtonic` (the same launcher as the Arch package). The AppDir brings its own WebKitGTK, so the runtime supplies glibc, Mesa/Vulkan and the NVIDIA GL extension mechanism only. Build and run: `flatpak-builder --user --install-deps-from=flathub --force-clean --install build-dir cc.rawtonic.editor.yml`, `flatpak run cc.rawtonic.editor`. Check (needs Docker and network for Flathub): `packaging/linux/flatpak/test-in-container.sh PHOTOS OUT [CACHE]` — builds and installs it with `flatpak-builder` in an Arch container, exports one RAW headless through the sandbox, starts the GUI for 30 s under Xvfb and uninstalls.
 
 Permissions: Wayland, X11 fallback, shared IPC, DRI (GPU); `xdg-pictures` and `/run/media` (cards) beside the file chooser portal, which grants any other folder the user picks; network for what the user starts (AI model downloads, problem reports through the relay, links in the browser — nothing else, PRIVACY.md).
 
 What does not work or differs inside the Flatpak:
 
-- **Updates:** the app never contacts GitHub inside a Flatpak (it recognises `FLATPAK_ID`, `/.flatpak-info`): no startup check, and "Check now" reports a failed check. Updates come from `flatpak update cc.rawtonic.editor`. A Preferences text saying so is open.
+- **Updates:** the app never contacts GitHub inside a Flatpak (it recognises `FLATPAK_ID`, `/.flatpak-info`): no startup check, and "Check now" reports a failed check. Updates come from `flatpak update cc.rawtonic.editor`. A Preferences text saying so is open (should_fix): "Check now" shows the generic failure message.
 - **Tethering over USB:** the manifest grants no USB access, so `rawtonic-tether` cannot reach a camera. Not tried with `--device=all`.
 - **NVIDIA:** needs the `org.freedesktop.Platform.GL.nvidia-*` extension matching the host driver; not tried (the check ran with software Vulkan).
 - Folders outside Pictures and the portal's grants (for example an external disk mounted elsewhere) must be granted with `flatpak override --user --filesystem=PATH cc.rawtonic.editor`.
