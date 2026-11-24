@@ -2752,10 +2752,8 @@ pub fn apply_source_geometry(
                     Err(_) => copy.is_some(),
                     Ok(true) => false,
                 };
-                if back {
-                    if let Err(e) = put_back(catalog, &asset.id, copy.as_deref(), &change) {
-                        applied.errors.push(format!("{path}: {e:#}"));
-                    }
+                if back && let Err(e) = put_back(catalog, &asset.id, copy.as_deref(), &change) {
+                    applied.errors.push(format!("{path}: {e:#}"));
                 }
                 match followed {
                     Ok(true) => {
