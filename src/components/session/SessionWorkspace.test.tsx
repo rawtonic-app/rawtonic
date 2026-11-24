@@ -1007,8 +1007,13 @@ it('offers "Apply Capture One straightening and crop" for photos an earlier impo
   localStorage.clear();
   useGeometryOffers.setState({ offers: [] });
   const catalog = { ...summary, manifest: { ...summary.manifest, mode: 'catalog' } };
-  const offers = ['/photos/A.NEF', '/photos/B.NEF'];
-  const warnings = offers.map((path) => `${path}: kept as imported earlier; Capture One shows it straightened by 5°`);
+  const offers = [
+    { path: '/photos/A.NEF', rotation: 5, orientationSteps: 0 },
+    { path: '/photos/B.NEF', rotation: -2.5, orientationSteps: 1 }
+  ];
+  const warnings = offers.map(
+    ({ path }) => `${path}: kept as imported earlier; Capture One shows it straightened by 5°`
+  );
   const base = vi.mocked(invoke).getMockImplementation()!;
   vi.mocked(invoke).mockImplementation(async (command, args) =>
     command === 'session_create' || command === 'session_summary'
@@ -1036,7 +1041,11 @@ it('offers "Apply Capture One straightening and crop" for photos an earlier impo
               geometryOffers: offers
             }
           : command === 'library_apply_source_geometry'
-            ? { recipeChanges: [], unchanged: (args as { paths: string[] }).paths, errors: [] }
+            ? {
+                recipeChanges: [],
+                unchanged: (args as { offers: { path: string }[] }).offers.map((o) => o.path),
+                errors: []
+              }
             : base(command, args)
   );
   render(
@@ -1065,12 +1074,12 @@ it('offers "Apply Capture One straightening and crop" for photos an earlier impo
     'Apply Capture One straightening and crop to B.NEF',
     'Apply Capture One straightening and crop to all listed photos (2)'
   ]);
-  expect(useGeometryOffers.getState().offers[0].paths).toEqual(offers);
+  expect(useGeometryOffers.getState().offers[0].photos).toEqual(offers);
   // Another library is open: the offers wait, nothing is written there.
   useLibraryStore.setState({ sessionDirectory: '/jobs/Other' });
   await options.actions[0].run();
   expect(invoke).not.toHaveBeenCalledWith('library_apply_source_geometry', expect.anything());
-  expect(useGeometryOffers.getState().offers[0].paths).toEqual(offers);
+  expect(useGeometryOffers.getState().offers[0].photos).toEqual(offers);
   useLibraryStore.setState({ sessionDirectory: '/jobs/Acme' });
   // One photo, then the rest ("for all listed photos").
   await options.actions[0].run();
@@ -1078,13 +1087,13 @@ it('offers "Apply Capture One straightening and crop" for photos an earlier impo
     source: '/C1/Trip.cosessiondb',
     directory: '/jobs/Acme',
     relinks: [],
-    paths: ['/photos/A.NEF']
+    offers: [offers[0]]
   });
-  expect(useGeometryOffers.getState().offers[0].paths).toEqual(['/photos/B.NEF']);
+  expect(useGeometryOffers.getState().offers[0].photos).toEqual([offers[1]]);
   await options.actions[2].run();
   expect(invoke).toHaveBeenCalledWith(
     'library_apply_source_geometry',
-    expect.objectContaining({ paths: ['/photos/B.NEF'] })
+    expect.objectContaining({ offers: [offers[1]] })
   );
   expect(useGeometryOffers.getState().offers).toEqual([]);
 });

@@ -305,6 +305,8 @@ export default function StudioCropControls({
           >
             {t('studio.crop.sourceGeometry')}
           </button>
+          {/* What the import report showed, and what is applied. */}
+          <span aria-label={`${sourceGeometry.rotation}°`}>{sourceGeometry.rotation}°</span>
         </div>
       )}
       <div className="studio-inline studio-inline-wrap">

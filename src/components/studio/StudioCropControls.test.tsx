@@ -91,7 +91,14 @@ it('offers Capture One straightening and crop only for a photo the import named,
   const { rerender } = render(<StudioCropControls />);
   expect(screen.queryByRole('button', { name: 'Apply Capture One straightening and crop' })).toBeNull();
   useGeometryOffers.setState({
-    offers: [{ directory: '/jobs/Acme', source: '/C1/Trip.cosessiondb', relinks: [], paths: ['/s/a.NEF'] }]
+    offers: [
+      {
+        directory: '/jobs/Acme',
+        source: '/C1/Trip.cosessiondb',
+        relinks: [],
+        photos: [{ path: '/s/a.NEF', rotation: 5, orientationSteps: 0 }]
+      }
+    ]
   });
   rerender(<StudioCropControls />);
   const button = await screen.findByRole('button', { name: 'Apply Capture One straightening and crop' });
@@ -100,13 +107,15 @@ it('offers Capture One straightening and crop only for a photo the import named,
   vi.mocked(invoke).mockImplementation(async (command) =>
     command === 'library_apply_source_geometry' ? { recipeChanges: [], unchanged: ['/s/a.NEF'], errors: [] } : undefined
   );
+  // The angle the report showed is on the entry.
+  expect(screen.getByLabelText('5°')).toBeTruthy();
   fireEvent.click(button);
   await vi.waitFor(() =>
     expect(invoke).toHaveBeenCalledWith('library_apply_source_geometry', {
       source: '/C1/Trip.cosessiondb',
       directory: '/jobs/Acme',
       relinks: [],
-      paths: ['/s/a.NEF']
+      offers: [{ path: '/s/a.NEF', rotation: 5, orientationSteps: 0 }]
     })
   );
   await vi.waitFor(() => expect(useGeometryOffers.getState().offers).toEqual([]));

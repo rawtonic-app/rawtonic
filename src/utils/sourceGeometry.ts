@@ -18,14 +18,22 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { importedRecipesAction, type RecipeSnapshot } from './appUndo';
 
+/** What the report shows for an offered photo (`GeometryOffer` in library_import.rs). */
+export interface GeometryOffer {
+  path: string;
+  rotation: number;
+  orientationSteps: number;
+}
+
 export interface GeometryOffers {
   /** The library the offers are in. */
   directory: string;
   /** The Capture One session or catalog they were read from, as imported. */
   source: string;
   relinks: { from: string; to: string }[];
-  /** The photographs' and virtual copies' paths, as the import report names them. */
-  paths: string[];
+  /** The photographs and virtual copies as the import report names them, with
+   * the geometry it shows: that is what is applied. */
+  photos: GeometryOffer[];
 }
 
 export interface GeometryApplied {
@@ -59,7 +67,7 @@ export const useGeometryOffers = create<{ offers: GeometryOffers[] }>(() => ({ o
  * authoritative: an import that names none clears the earlier ones). */
 export function rememberGeometryOffers(offers: GeometryOffers) {
   const others = useGeometryOffers.getState().offers.filter((o) => o.directory !== offers.directory);
-  const next = offers.paths.length ? [...others, offers] : others;
+  const next = offers.photos.length ? [...others, offers] : others;
   save(next);
   useGeometryOffers.setState({ offers: next });
 }
@@ -67,17 +75,20 @@ export function rememberGeometryOffers(offers: GeometryOffers) {
 function settle(directory: string, paths: string[]) {
   const next = useGeometryOffers
     .getState()
-    .offers.map((o) => (o.directory === directory ? { ...o, paths: o.paths.filter((p) => !paths.includes(p)) } : o))
-    .filter((o) => o.paths.length);
+    .offers.map((o) =>
+      o.directory === directory ? { ...o, photos: o.photos.filter((p) => !paths.includes(p.path)) } : o
+    )
+    .filter((o) => o.photos.length);
   save(next);
   useGeometryOffers.setState({ offers: next });
 }
 
-/** Whether `path` has an offer in the open library `directory`. */
-export function useGeometryOffer(directory: string | null | undefined, path: string | null | undefined): boolean {
-  return useGeometryOffers(
-    (s) => Boolean(path) && s.offers.some((o) => o.directory === directory && o.paths.includes(path as string))
-  );
+/** The offer (what the report shows) for `path` in the open library `directory`. */
+export function useGeometryOffer(
+  directory: string | null | undefined,
+  path: string | null | undefined
+): GeometryOffer | undefined {
+  return useGeometryOffers((s) => s.offers.find((o) => o.directory === directory)?.photos.find((p) => p.path === path));
 }
 
 /** Applies the offered geometry to `paths` of the library `directory`
@@ -91,14 +102,15 @@ export async function applySourceGeometry(directory: string, paths: string[]): P
     return false;
   }
   const offers = useGeometryOffers.getState().offers.find((o) => o.directory === directory);
-  const wanted = paths.filter((p) => offers?.paths.includes(p));
+  const wanted = offers?.photos.filter((p) => paths.includes(p.path)) ?? [];
   if (!offers || !wanted.length) return false;
+  const wantedPaths = wanted.map((p) => p.path);
   // A photo opened while the flush waited is closed and saved again before
   // the write registers (nothing waits between that and `recipeWrite`).
   let unsaved = await closeOpenPhotoForLibraryWrite();
   for (let again = 0; !unsaved && again < 3; again++) {
     const open = useEditorStore.getState().selectedImage?.path;
-    if (!open || !wanted.includes(open)) break;
+    if (!open || !wantedPaths.includes(open)) break;
     unsaved = await closeOpenPhotoForLibraryWrite();
   }
   if (unsaved) {
@@ -110,18 +122,18 @@ export async function applySourceGeometry(directory: string, paths: string[]): P
     // Through the photos' write queue: a photo opened meanwhile loads (and
     // saves) after the geometry is written.
     applied = await recipeWrite(
-      wanted,
+      wantedPaths,
       () =>
         invoke<GeometryApplied>(Invokes.LibraryApplySourceGeometry, {
           source: offers.source,
           directory,
           relinks: offers.relinks,
-          paths: wanted
+          offers: wanted
         }),
       {
         kind: 'sourceGeometry',
         failedOf: (result) =>
-          wanted.filter(
+          wantedPaths.filter(
             (path) => !result.recipeChanges.some((c) => c.path === path) && !result.unchanged.includes(path)
           )
       }

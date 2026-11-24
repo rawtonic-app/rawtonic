@@ -101,7 +101,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import i18n from 'i18next';
 import { invokeInOrder } from '../../utils/catalogWrites';
 import { closeOpenPhotoForLibraryWrite, recipesChangedOutside } from '../../hooks/useEditorActions';
-import { applySourceGeometry, rememberGeometryOffers } from '../../utils/sourceGeometry';
+import { applySourceGeometry, rememberGeometryOffers, type GeometryOffer } from '../../utils/sourceGeometry';
 import {
   catalogAction,
   followLibraryMove,
@@ -426,7 +426,7 @@ interface ImportReport {
   recipeChanges?: RecipeSnapshot[];
   /** Photos kept as imported earlier whose Capture One straightening an
    * earlier import did not read: "Apply Capture One straightening and crop". */
-  geometryOffers?: string[];
+  geometryOffers?: GeometryOffer[];
   /** Edits changed here and in the other editor: kept, the other editor's
    * settings came in as new virtual copies (one line each). */
   editsKept?: string[];
@@ -1266,7 +1266,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
         directory: session.directory,
         source: importSource.trim(),
         relinks: relinkList(),
-        paths: offers
+        photos: offers
       });
       if (report.warnings?.length)
         notify.warning(t('session.toasts.importUnconvertedSettings', { n: report.warnings.length }), {
@@ -1277,13 +1277,17 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                 // The photographer's explicit choice, never automatic: the
                 // straightening, quarter turns and crop only, one Undo step.
                 actions: [
-                  ...offers.slice(0, SOURCE_GEOMETRY_PHOTO_ACTIONS).map((path) => ({
+                  ...offers.slice(0, SOURCE_GEOMETRY_PHOTO_ACTIONS).map(({ path }) => ({
                     label: t('session.toasts.sourceGeometryPhoto', { name: path.split(/[\\/]/).pop() }),
                     run: () => applySourceGeometry(session.directory, [path])
                   })),
                   {
                     label: t('session.toasts.sourceGeometryAll', { n: offers.length }),
-                    run: () => applySourceGeometry(session.directory, offers)
+                    run: () =>
+                      applySourceGeometry(
+                        session.directory,
+                        offers.map((o) => o.path)
+                      )
                   }
                 ]
               }

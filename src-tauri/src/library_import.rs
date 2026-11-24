@@ -133,7 +133,7 @@ pub struct ImportReport {
     /// (`Settled::unread_straightening`): their paths as in the warning's
     /// line, for "Apply Capture One straightening and crop"
     /// (`library_apply_source_geometry`).
-    pub geometry_offers: Vec<String>,
+    pub geometry_offers: Vec<GeometryOffer>,
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
 }
@@ -983,7 +983,36 @@ struct Imported {
     /// A line for the summary's warnings (`Settled::unread_straightening`).
     warning: Option<String>,
     /// The path of that line (`ImportReport::geometry_offers`).
-    geometry_offer: Option<String>,
+    geometry_offer: Option<GeometryOffer>,
+}
+
+/// What the import report shows for a photo it offers "Apply Capture One
+/// straightening and crop" for: the action applies exactly this, and writes
+/// nothing if Capture One shows another geometry by then.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeometryOffer {
+    pub path: String,
+    /// Straightening angle in degrees.
+    pub rotation: f64,
+    pub orientation_steps: f64,
+}
+
+impl GeometryOffer {
+    fn of(path: String, incoming: Option<&Value>) -> Self {
+        Self {
+            path,
+            rotation: geometry_value(incoming, geometry::ROTATION.name()),
+            orientation_steps: geometry_value(incoming, geometry::ORIENTATION_STEPS.name()),
+        }
+    }
+
+    fn as_recipe(&self) -> Value {
+        json!({
+            geometry::ROTATION.name(): self.rotation,
+            geometry::ORIENTATION_STEPS.name(): self.orientation_steps,
+        })
+    }
 }
 
 /// What a repeated import does with an edit already here (decision C1RI1
@@ -2317,7 +2346,7 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
             if settled.unread_straightening {
                 let path = asset.path.to_string_lossy().into_owned();
                 imported.warning = Some(unread_straightening_line(&path, adjustments.as_ref()));
-                imported.geometry_offer = Some(path);
+                imported.geometry_offer = Some(GeometryOffer::of(path, adjustments.as_ref()));
             }
             let rule = settled.rule;
             if rule != Reimport::Apply {
@@ -2530,7 +2559,7 @@ fn reimport_copy(
     if settled.unread_straightening {
         let path = photo_ref::PhotoRef::of_path(&catalog.asset(asset)?.path, Some(copy)).format();
         imported.warning = Some(unread_straightening_line(&path, incoming.as_ref()));
-        imported.geometry_offer = Some(path);
+        imported.geometry_offer = Some(GeometryOffer::of(path, incoming.as_ref()));
     }
     let rule = settled.rule;
     match rule {
@@ -2706,7 +2735,7 @@ const SOURCE_GEOMETRY_KEYS: [&str; 3] = [
 pub fn apply_source_geometry(
     catalog: &Library,
     source: &Source,
-    paths: &[String],
+    offers: &[GeometryOffer],
 ) -> GeometryApplied {
     let mut applied = GeometryApplied::default();
     for photo in &source.photos {
@@ -2735,10 +2764,10 @@ pub fn apply_source_geometry(
             Some(id) => photo_ref::PhotoRef::of_path(&asset.path, Some(id)).format(),
             None => asset.path.to_string_lossy().into_owned(),
         };
-        if !paths.contains(&path) {
+        let Some(offer) = offers.iter().find(|o| o.path == path) else {
             continue;
-        }
-        match apply_geometry_to(catalog, &asset.id, copy.as_deref(), &path, photo) {
+        };
+        match apply_geometry_to(catalog, &asset.id, copy.as_deref(), &path, photo, offer) {
             Ok(Some(change)) => {
                 let followed = follow_sidecar(catalog, &asset.id, &change);
                 // Not written beside the photo (changed there since, or the
@@ -2822,6 +2851,7 @@ fn apply_geometry_to(
     copy: Option<&str>,
     path: &str,
     photo: &Photo,
+    offer: &GeometryOffer,
 ) -> anyhow::Result<Option<RecipeChange>> {
     let state = match copy {
         Some(id) => catalog.copy_state(asset, id)?,
@@ -2846,6 +2876,19 @@ fn apply_geometry_to(
     // more (reset there since), the saved geometry is not replaced.
     if !straightens(Some(&incoming)) {
         anyhow::bail!("Capture One no longer straightens or turns this photo; nothing was changed");
+    }
+    // What the person read is what is applied: Capture One's session changed
+    // since (the report's angle is no longer its angle) writes nothing and
+    // names the new value.
+    if straightening_differs(Some(&offer.as_recipe()), Some(&incoming)) {
+        let now = GeometryOffer::of(path.to_string(), Some(&incoming));
+        anyhow::bail!(
+            "Capture One now shows {}° (turned {} quarter turn(s)), not {}° (turned {}) as shown; nothing was changed. Import again to see the current value",
+            now.rotation,
+            now.orientation_steps,
+            offer.rotation,
+            offer.orientation_steps
+        );
     }
     let before = state.get("adjustments").cloned().unwrap_or(Value::Null);
     // The crop is made on the file's newest frame: an edit that develops an
@@ -2906,7 +2949,7 @@ pub async fn library_apply_source_geometry(
     source: String,
     directory: String,
     relinks: Vec<Relink>,
-    paths: Vec<String>,
+    offers: Vec<GeometryOffer>,
     app_handle: tauri::AppHandle,
 ) -> Result<GeometryApplied, String> {
     let applied = tauri::async_runtime::spawn_blocking(move || {
@@ -2915,7 +2958,7 @@ pub async fn library_apply_source_geometry(
             lib.relink(&relink.from, &relink.to);
         }
         let catalog = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
-        Ok::<_, String>(apply_source_geometry(&catalog, &lib, &paths))
+        Ok::<_, String>(apply_source_geometry(&catalog, &lib, &offers))
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -3349,13 +3392,33 @@ mod tests {
         let report = import_into(&catalog, &level).unwrap();
         let path = asset.path.to_string_lossy().into_owned();
         assert_eq!(
-            report.geometry_offers,
-            std::slice::from_ref(&path),
+            report
+                .geometry_offers
+                .iter()
+                .map(|o| &o.path)
+                .collect::<Vec<_>>(),
+            [&path],
             "{report:?}"
         );
         assert_eq!(report.warnings.len(), 1, "{report:?}");
         assert!(report.recipe_changes.is_empty());
 
+        // The report shows what is applied.
+        let offer = report.geometry_offers.clone();
+        assert_eq!(report.geometry_offers[0].rotation, 5.0);
+        // Capture One's session changed since the report (10° now): nothing
+        // is written, the new value is named.
+        let tenfold = source(&[("Exposure", "0.3"), ("Rotation", "10"), ("Crop", "0;0;0;0")]);
+        let stale = apply_source_geometry(&catalog, &tenfold, &report.geometry_offers);
+        assert!(stale.recipe_changes.is_empty(), "{stale:?}");
+        assert!(
+            stale.errors[0].contains("now shows 10°") && stale.errors[0].contains("not 5°"),
+            "{stale:?}"
+        );
+        assert_eq!(
+            catalog.editor_state(&asset.id).unwrap().unwrap()["adjustments"],
+            own
+        );
         let applied = apply_source_geometry(&catalog, &level, &report.geometry_offers);
         assert!(applied.errors.is_empty(), "{applied:?}");
         assert_eq!(applied.recipe_changes.len(), 1, "{applied:?}");
@@ -3403,7 +3466,7 @@ mod tests {
         // Reset in Capture One since the offer: the saved straightening is not
         // cleared by the action.
         let reset = source(&[("Exposure", "0.3"), ("Rotation", "0"), ("Crop", "0;0;0;0")]);
-        let cleared = apply_source_geometry(&catalog, &reset, std::slice::from_ref(&path));
+        let cleared = apply_source_geometry(&catalog, &reset, &offer);
         assert!(cleared.recipe_changes.is_empty(), "{cleared:?}");
         assert_eq!(cleared.errors.len(), 1, "{cleared:?}");
         assert_eq!(
@@ -3411,14 +3474,18 @@ mod tests {
             now
         );
         // Applying again changes nothing.
-        let twice = apply_source_geometry(&catalog, &level, std::slice::from_ref(&path));
+        let twice = apply_source_geometry(&catalog, &level, &offer);
         assert!(
             twice.recipe_changes.is_empty() && twice.errors.is_empty(),
             "{twice:?}"
         );
         assert_eq!(twice.unchanged, [path]);
         // A path that was not offered is left alone.
-        let other = apply_source_geometry(&catalog, &level, &["elsewhere.NEF".into()]);
+        let other = apply_source_geometry(
+            &catalog,
+            &level,
+            &[GeometryOffer::of("elsewhere.NEF".into(), None)],
+        );
         assert!(other.recipe_changes.is_empty() && other.unchanged.is_empty());
     }
 
@@ -3458,7 +3525,11 @@ mod tests {
         let level = source(&[("Exposure", "0.3"), ("Rotation", "5"), ("Crop", "0;0;0;0")]);
         let path = asset.path.to_string_lossy().into_owned();
         fs::remove_file(&file).unwrap();
-        let applied = apply_source_geometry(&catalog, &level, std::slice::from_ref(&path));
+        let offer = [GeometryOffer::of(
+            path.clone(),
+            Some(&json!({"rotation": 5.0})),
+        )];
+        let applied = apply_source_geometry(&catalog, &level, &offer);
         assert!(applied.recipe_changes.is_empty() && applied.unchanged.is_empty());
         assert_eq!(applied.errors.len(), 1, "{applied:?}");
         assert_eq!(
@@ -3472,11 +3543,18 @@ mod tests {
     #[test]
     fn geometry_action_ipc_shapes() {
         let report = serde_json::to_value(ImportReport {
-            geometry_offers: vec!["a.NEF".into()],
+            geometry_offers: vec![GeometryOffer {
+                path: "a.NEF".into(),
+                rotation: 5.0,
+                orientation_steps: 0.0,
+            }],
             ..Default::default()
         })
         .unwrap();
-        assert_eq!(report["geometryOffers"], json!(["a.NEF"]));
+        assert_eq!(
+            report["geometryOffers"],
+            json!([{"path": "a.NEF", "rotation": 5.0, "orientationSteps": 0.0}])
+        );
         let applied = serde_json::to_value(GeometryApplied::default()).unwrap();
         for key in ["recipeChanges", "unchanged", "errors"] {
             assert!(applied[key].is_array(), "{key}");
