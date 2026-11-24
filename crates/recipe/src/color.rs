@@ -130,6 +130,114 @@ impl KeyValue for GrayMixer {
         )
     }
 }
+/// B&W Toning (`blackAndWhiteToning`): the tint the black-and-white
+/// conversion's grey takes by its lightness (the engine's `bw_toning`).
+pub const BW_TONING: Key<BwToning> = Key::new("blackAndWhiteToning", BwToning::DEFAULT, 1);
+pub const BW_TONING_BANDS: [Key<ToneBand>; 2] = [
+    Key::new("shadows", ToneBand::DEFAULT, 1),
+    Key::new("highlights", ToneBand::DEFAULT, 1),
+];
+pub const TONE_DENSITY: Key<f64> = Key::new("density", 0.0, 1);
+pub const TONE_PAPER: Key<f64> = Key::new("paper", 0.0, 1);
+
+/// One tone of B&W Toning: hue 0–359 (the hue of a fully saturated sRGB
+/// colour; 40, a warm tone, when missing), saturation 0–100, density 0–100
+/// (how much the tint darkens).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ToneBand {
+    pub hue: f64,
+    pub saturation: f64,
+    pub density: f64,
+}
+impl ToneBand {
+    pub const DEFAULT_HUE: f64 = 40.0;
+    const DEFAULT: Self = Self {
+        hue: Self::DEFAULT_HUE,
+        saturation: 0.0,
+        density: 0.0,
+    };
+}
+impl Default for ToneBand {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+impl KeyValue for ToneBand {
+    fn from_json(value: &Value) -> Option<Self> {
+        let read = |key: &Key<f64>, default: f64| {
+            value
+                .get(key.name())
+                .and_then(Value::as_f64)
+                .unwrap_or(default)
+        };
+        Some(Self {
+            hue: read(&HUE, Self::DEFAULT_HUE),
+            saturation: read(&SATURATION, 0.0),
+            density: read(&TONE_DENSITY, 0.0),
+        })
+    }
+    fn to_json(&self) -> Value {
+        serde_json::json!({HUE.name(): self.hue, SATURATION.name(): self.saturation, TONE_DENSITY.name(): self.density})
+    }
+}
+
+/// B&W Toning as stored: shadows and highlights tones, Balance −100–100
+/// (where the highlights tone starts) and Paper 0–100 (how far the
+/// highlights tone reaches into white).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BwToning {
+    pub shadows: ToneBand,
+    pub highlights: ToneBand,
+    pub balance: f64,
+    pub paper: f64,
+}
+impl BwToning {
+    pub const HUE_MAX: f64 = 359.0;
+    pub const AMOUNT_MAX: f64 = 100.0;
+    pub const BALANCE_MIN: f64 = -100.0;
+    pub const BALANCE_MAX: f64 = 100.0;
+    const DEFAULT: Self = Self {
+        shadows: ToneBand::DEFAULT,
+        highlights: ToneBand::DEFAULT,
+        balance: 0.0,
+        paper: 0.0,
+    };
+}
+impl Default for BwToning {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+impl KeyValue for BwToning {
+    fn from_json(value: &Value) -> Option<Self> {
+        if value.is_null() {
+            return Some(Self::DEFAULT);
+        }
+        let band = |key: &Key<ToneBand>| {
+            ToneBand::from_json(value.get(key.name()).unwrap_or(&Value::Null)).unwrap_or_default()
+        };
+        let read = |key: &Key<f64>| {
+            value
+                .get(key.name())
+                .and_then(Value::as_f64)
+                .unwrap_or(key.default())
+        };
+        Some(Self {
+            shadows: band(&BW_TONING_BANDS[0]),
+            highlights: band(&BW_TONING_BANDS[1]),
+            balance: read(&BALANCE),
+            paper: read(&TONE_PAPER),
+        })
+    }
+    fn to_json(&self) -> Value {
+        serde_json::json!({
+            BW_TONING_BANDS[0].name(): self.shadows.to_json(),
+            BW_TONING_BANDS[1].name(): self.highlights.to_json(),
+            BALANCE.name(): self.balance,
+            TONE_PAPER.name(): self.paper,
+        })
+    }
+}
 pub const HSL: Key<Hsl> = Key::new(
     "hsl",
     Hsl {
@@ -414,6 +522,11 @@ pub const TS: TsSection = TsSection {
             "Black & white conversion (Lightroom's Treatment, Capture One's B&W).",
         ),
         TsField::new(GRAY_MIXER, ""),
+        TsField::new(
+            BW_TONING,
+            "B&W Toning: the tint the black-and-white grey takes by its lightness (shadows and highlights \
+             tones, Balance, Paper); only while `blackAndWhite` is on.",
+        ),
         TsField::new(COLOR_RANGES, "Colour editor ranges, applied in order."),
         TsField::new(HSL, ""),
         TsField::new(COLOR_GRADING, ""),
@@ -436,6 +549,10 @@ impl TsType for StoredColorRanges {
 impl TsType for GrayMixer {
     const TS: &'static str = "GrayMixer";
     const IMPORT: Option<&'static str> = Some("GrayMixer");
+}
+impl TsType for BwToning {
+    const TS: &'static str = "BwToning";
+    const IMPORT: Option<&'static str> = Some("BwToning");
 }
 impl TsType for Hsl {
     const TS: &'static str = "Hsl";
@@ -526,6 +643,8 @@ pub struct Color {
     pub calibration_visible: bool,
     pub black_and_white: bool,
     pub gray_mixer: GrayMixer,
+    /// Stored values; consumers apply it only with `black_and_white`.
+    pub bw_toning: BwToning,
     pub color_ranges: ColorRanges,
 }
 
@@ -603,6 +722,7 @@ impl Color {
             black_and_white: stored.section_visible(Section::COLOR)
                 && stored.get_or_default(&BLACK_AND_WHITE),
             gray_mixer: stored.get_or_default(&GRAY_MIXER),
+            bw_toning: stored.get_or_default(&BW_TONING),
             color_ranges,
         }
     }

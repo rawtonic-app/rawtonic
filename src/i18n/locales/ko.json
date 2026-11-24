@@ -2112,7 +2112,7 @@
       "ingestWaiting": "중단된 가져오기의 사진 {{n}}장이 카드나 드라이브를 기다립니다. 연결된 상태로 라이브러리를 열면 가져오기가 계속됩니다.",
       "showImported": "보기",
       "sidecarsCopied_other": "XMP 사이드카 {{count}}개 복사됨",
-      "sourceGeometryAll": "Capture One의 수평 보정과 자르기를 목록의 모든 사진에 적용({{n}}장)",
+      "sourceGeometryAll": "Capture One의 수평 보정을 적용하고 각 이미지의 종횡비로 자르기를 대체 ({{n}}장)",
       "sourceGeometryApplied": "Capture One의 수평 보정과 자르기를 {{n}}장에 적용했습니다(실행 취소로 되돌릴 수 있음)",
       "sourceGeometryErrors": "일부 사진에 Capture One의 수평 보정과 자르기를 적용하지 못했습니다: {{n}}장.",
       "sourceGeometryFailed": "Capture One의 수평 보정과 자르기를 적용하지 못했습니다",
@@ -2879,7 +2879,18 @@
           "yellow": "노랑"
         },
         "convert": "흑백으로 변환",
-        "title": "흑백"
+        "title": "흑백",
+        "toning": {
+          "balance": "균형",
+          "density": "농도",
+          "densityAria": "{{tone}} 농도",
+          "highlights": "하이라이트 톤",
+          "hueAria": "{{tone}} 색조",
+          "paper": "인화지",
+          "saturationAria": "{{tone}} 채도",
+          "shadows": "섀도 톤",
+          "title": "흑백 토닝"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3368,6 +3379,7 @@
       "params": {
         "blackAndWhite": "흑백",
         "bwMix": "흑백 혼합",
+        "bwToning": "흑백 토닝",
         "calibration": "보정",
         "colorDetail": "색상 디테일",
         "colorGrading": "컬러 그레이딩",

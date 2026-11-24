@@ -2112,7 +2112,7 @@
       "ingestWaiting": "中断された読み込みの {{n}} 枚がカードまたはドライブを待っています。接続した状態でライブラリを開くと読み込みが再開されます。",
       "showImported": "表示",
       "sidecarsCopied_other": "XMP サイドカー {{count}} 件をコピー",
-      "sourceGeometryAll": "Capture One の水平補正とクロップを一覧のすべての写真に適用（{{n}} 件）",
+      "sourceGeometryAll": "Capture One の水平補正を適用し、各画像の縦横比でクロップを置き換える（{{n}} 枚）",
       "sourceGeometryApplied": "Capture One の水平補正とクロップを {{n}} 件に適用しました（元に戻すで戻せます）",
       "sourceGeometryErrors": "一部の写真に Capture One の水平補正とクロップを適用できませんでした: {{n}} 件。",
       "sourceGeometryFailed": "Capture One の水平補正とクロップを適用できませんでした",
@@ -2879,7 +2879,18 @@
           "yellow": "イエロー"
         },
         "convert": "白黒に変換",
-        "title": "白黒"
+        "title": "白黒",
+        "toning": {
+          "balance": "バランス",
+          "density": "濃度",
+          "densityAria": "{{tone}}の濃度",
+          "highlights": "ハイライトの色調",
+          "hueAria": "{{tone}}の色相",
+          "paper": "ペーパー",
+          "saturationAria": "{{tone}}の彩度",
+          "shadows": "シャドウの色調",
+          "title": "モノクロ調色"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3368,6 +3379,7 @@
       "params": {
         "blackAndWhite": "白黒",
         "bwMix": "白黒ミックス",
+        "bwToning": "モノクロ調色",
         "calibration": "キャリブレーション",
         "colorDetail": "カラーのディテール",
         "colorGrading": "カラーグレーディング",

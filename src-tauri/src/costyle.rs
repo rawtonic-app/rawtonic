@@ -663,6 +663,114 @@ fn entries(content: &str) -> HashMap<String, String> {
         .collect()
 }
 
+/// Capture One's B&W split toning (`BwLight*` highlights, `BwDark*`
+/// shadows: hue 0–360, saturation 0–100) as B&W Toning settings that render
+/// like it. Fitted on Capture One 16.9.1 renders of a grey ramp at its 12
+/// hues every 30° × saturation 20/40/60 per tone and 6 splits (notes:
+/// benchmark-results/spt1-2026-11-24; fitted on 8 hues, the 4 others held
+/// out: ΔE00 median 1.9 highlights, 1.3 shadows; these tables use all 12).
+/// Per hue: our hue's offset from Capture One's (its hue wheel is not the
+/// sRGB one), our saturation per unit of its saturation, and for the
+/// highlights the density (Capture One darkens its toned end by 0.2–1.5
+/// times the tint's chroma, by hue). Shadows keep their lightness; Paper
+/// 85 (its highlights tone tints white); Balance moves with the shadows'
+/// saturation, which in Capture One changes where the tones meet. Rows:
+/// Capture One hues 0°, 30° … 330°.
+const C1_TONE_HIGHLIGHTS: [[f64; 3]; 12] = [
+    [-16.5, 1.488, 1.156],
+    [2.5, 0.990, 1.036],
+    [-1.9, 1.260, 0.178],
+    [0.9, 1.531, 0.479],
+    [29.0, 1.949, 0.569],
+    [15.2, 1.578, 0.638],
+    [-0.3, 1.416, 0.611],
+    [-11.1, 1.118, 1.5],
+    [21.6, 1.667, 1.479],
+    [13.5, 1.512, 1.352],
+    [4.9, 1.853, 0.756],
+    [-6.5, 1.575, 1.007],
+];
+const C1_TONE_SHADOWS: [[f64; 2]; 12] = [
+    [-18.3, 0.592],
+    [0.7, 0.393],
+    [-3.5, 0.566],
+    [-3.2, 0.661],
+    [26.5, 1.115],
+    [14.0, 0.783],
+    [-1.0, 0.609],
+    [-11.5, 0.416],
+    [20.9, 0.582],
+    [11.8, 0.610],
+    [3.6, 0.756],
+    [-7.4, 0.625],
+];
+
+/// Linear in hue between the table's hues, around the circle.
+fn at_c1_hue<const N: usize>(table: &[[f64; N]; 12], hue: f64, k: usize) -> f64 {
+    let x = hue.rem_euclid(360.0) / 30.0;
+    let i = (x as usize).min(11);
+    let f = x - i as f64;
+    table[i][k] * (1.0 - f) + table[(i + 1) % 12][k] * f
+}
+
+fn bw_toning(num: &impl Fn(&str) -> Option<f64>) -> Option<Value> {
+    let tone = |hue: &str, sat: &str| {
+        let saturation = num(sat).unwrap_or(0.0).clamp(0.0, 100.0);
+        (saturation > 0.0).then(|| (num(hue).unwrap_or(0.0).rem_euclid(360.0), saturation))
+    };
+    let (light, dark) = (
+        tone("BwLightHue", "BwLightSaturation"),
+        tone("BwDarkHue", "BwDarkSaturation"),
+    );
+    if light.is_none() && dark.is_none() {
+        return None;
+    }
+    let round = |v: f64| (v * 10.0).round() / 10.0;
+    let band = |hue: f64, saturation: f64, density: f64| {
+        json!({
+            // Whole degrees 0–359, as the slider holds them.
+            recipe_color::HUE.name(): hue.rem_euclid(360.0).round() % 360.0,
+            recipe_color::SATURATION.name(): round(saturation.clamp(0.0, 100.0)),
+            recipe_color::TONE_DENSITY.name(): round((density * 50.0).clamp(0.0, 100.0)),
+        })
+    };
+    let off = || band(rawtonic_recipe::color::ToneBand::DEFAULT_HUE, 0.0, 0.0);
+    let highlights = light.map_or_else(off, |(h, s)| {
+        band(
+            h + at_c1_hue(&C1_TONE_HIGHLIGHTS, h, 0),
+            s * at_c1_hue(&C1_TONE_HIGHLIGHTS, h, 1),
+            at_c1_hue(&C1_TONE_HIGHLIGHTS, h, 2),
+        )
+    });
+    let shadows = dark.map_or_else(off, |(h, s)| {
+        band(
+            h + at_c1_hue(&C1_TONE_SHADOWS, h, 0),
+            s * at_c1_hue(&C1_TONE_SHADOWS, h, 1),
+            0.0,
+        )
+    });
+    let balance = match (light, dark) {
+        (Some(_), Some((_, s))) => -12.9 - 10.0 * s / 60.0,
+        (Some(_), None) => -12.9,
+        // Shadows alone: 61 at saturation 20, 22 at 40, −6 at 60.
+        (None, Some((_, s))) => {
+            let s = s.clamp(20.0, 60.0);
+            if s <= 40.0 {
+                60.7 + (21.8 - 60.7) * (s - 20.0) / 20.0
+            } else {
+                21.8 + (-6.1 - 21.8) * (s - 40.0) / 20.0
+            }
+        }
+        (None, None) => 0.0,
+    };
+    Some(json!({
+        recipe_color::BW_TONING_BANDS[0].name(): shadows,
+        recipe_color::BW_TONING_BANDS[1].name(): highlights,
+        recipe_color::BALANCE.name(): round(balance),
+        recipe_color::TONE_PAPER.name(): 85.0,
+    }))
+}
+
 pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<Preset, String> {
     if !content.contains("<SL") && !content.contains("<DL") {
         return Err("Not a Capture One style".to_string());
@@ -921,8 +1029,8 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     }
 
     // Black & White: six sensitivities onto the eight-channel mix (orange
-    // and purple between their neighbours); split toning onto the grading's
-    // shadow and highlight wheels (hue 1:1, saturation 1:1, unmeasured).
+    // and purple between their neighbours); split toning onto B&W Toning
+    // (`bw_toning`).
     if num("BwEnabled").is_some_and(|v| v != 0.0) {
         adjustments.insert(recipe_color::BLACK_AND_WHITE.name().into(), json!(true));
         let bw = |key: &str| num(key).unwrap_or(0.0).clamp(-100.0, 100.0);
@@ -951,33 +1059,8 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
                 .collect();
             adjustments.insert(recipe_color::GRAY_MIXER.name().into(), Value::Object(mix));
         }
-        for (hue, sat, region) in [
-            (
-                "BwDarkHue",
-                "BwDarkSaturation",
-                recipe_color::GRADING_WHEELS[0].name(),
-            ),
-            (
-                "BwLightHue",
-                "BwLightSaturation",
-                recipe_color::GRADING_WHEELS[2].name(),
-            ),
-        ] {
-            let saturation = num(sat).unwrap_or(0.0);
-            if saturation > 0.0 {
-                let luminance = grading
-                    .get(region)
-                    .and_then(|w| w[recipe_color::LUMINANCE.name()].as_f64())
-                    .unwrap_or(0.0);
-                grading.insert(
-                    region.to_string(),
-                    json!({
-                        recipe_color::HUE.name(): num(hue).unwrap_or(0.0).rem_euclid(360.0).round(),
-                        recipe_color::SATURATION.name(): saturation.clamp(0.0, 100.0).round(),
-                        recipe_color::LUMINANCE.name(): luminance,
-                    }),
-                );
-            }
+        if let Some(toning) = bw_toning(&num) {
+            adjustments.insert(recipe_color::BW_TONING.name().into(), toning);
         }
     }
     if !grading.is_empty() {
@@ -1077,6 +1160,12 @@ fn default_curves() -> Value {
     })
 }
 
+/// Whether a Capture One Color Editor entry contains a range that was
+/// approximated or left out.
+pub(crate) fn color_editor_is_partial(value: &str) -> bool {
+    color_editor_ranges(value).1
+}
+
 /// Settings in a style that `convert_costyle_to_preset` cannot fully translate
 /// (see the module comment), as codes the import report names: `profile`,
 /// `filmCurve`, `colorEditor`, `whiteBalance`, `noiseReduction`, `lens`,
@@ -1114,7 +1203,7 @@ pub fn untranslated_settings(content: &str) -> Vec<&'static str> {
     // Approximate skin ranges and unsupported, clipped, malformed, unknown
     // or excess colour ranges (see color_editor_ranges).
     if s.get("ColorCorrections")
-        .is_some_and(|v| color_editor_ranges(v).1)
+        .is_some_and(|v| color_editor_is_partial(v))
     {
         out.push("colorEditor");
     }
@@ -1661,8 +1750,22 @@ mod tests {
         assert_eq!(a["blackAndWhite"], json!(true));
         assert_eq!(a["grayMixer"]["orange"], json!(-10.0));
         assert_eq!(a["grayMixer"]["purple"], json!(10.0));
-        assert_eq!(a["colorGrading"]["highlights"]["hue"], json!(40.0));
+        // Split toning goes to B&W Toning, not Color Grading.
+        assert!(a.get("colorGrading").is_none());
+        let toning = &a["blackAndWhiteToning"];
+        // 40° lies between the table's 30° and 60°: offset 2.5 → −1.9.
+        assert_eq!(toning["highlights"]["hue"], json!(41.0));
+        assert_eq!(toning["highlights"]["saturation"], json!(27.0));
+        assert_eq!(toning["highlights"]["density"], json!(37.5));
+        assert_eq!(toning["shadows"]["saturation"], json!(0.0));
+        assert_eq!(toning["balance"], json!(-12.9));
+        assert_eq!(toning["paper"], json!(85.0));
         assert_eq!(convert_costyle_to_preset(style, "bw").unwrap().name, "bw");
+        // A hue that lands just below 360° comes in as 0°, as the slider holds it.
+        let red = r#"<SL><E K="BwEnabled" V="1"/><E K="BwLightHue" V="10"/>
+            <E K="BwLightSaturation" V="30"/></SL>"#;
+        let a = convert_costyle_to_preset(red, "red").unwrap().adjustments;
+        assert_eq!(a["blackAndWhiteToning"]["highlights"]["hue"], json!(0.0));
     }
 
     #[test]

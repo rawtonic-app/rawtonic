@@ -1547,6 +1547,13 @@ mod tests {
         fs::create_dir(&hot).unwrap();
         let source = hot.join("A.ARW");
         fs::write(&source, b"capture").unwrap();
+        // No embedded date. Use a year that differs from the test run's date.
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&source)
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_600_000_000))
+            .unwrap();
         let mut import = rawtonic_ingest::metadata::ImportMetadata {
             creator: "Ada Photo".into(),
             copyright: "(c) {year} Ada".into(),
@@ -1587,14 +1594,19 @@ mod tests {
         let meta = lib.metadata(&asset).unwrap();
         assert_eq!(meta.rating, 2);
         assert_eq!(meta.creator, "Ada Photo");
-        assert!(meta.copyright.starts_with("(c) 20") && meta.copyright.ends_with(" Ada"));
-        assert!(!meta.copyright.contains("{year}"));
+        assert_eq!(meta.copyright, "(c) 2020 Ada");
         assert_eq!(meta.iptc["usageTerms"], "Editorial");
         assert_eq!(meta.iptc["creatorEmail"], "ada@example.org");
         assert_eq!(meta.keywords, ["studio", "wedding"]);
         let copy = shown.destination.unwrap();
         let xmp = fs::read_to_string(rawtonic_metadata::sidecar_path(&copy).unwrap()).unwrap();
-        for needle in ["Ada Photo", "Editorial", "ada@example.org", "wedding"] {
+        for needle in [
+            "Ada Photo",
+            "(c) 2020 Ada",
+            "Editorial",
+            "ada@example.org",
+            "wedding",
+        ] {
             assert!(xmp.contains(needle), "{needle} missing in the sidecar");
         }
         assert_eq!(fs::read(&source).unwrap(), b"capture");

@@ -2317,7 +2317,7 @@
       "sidecarsCopied_one": "{{count}} fitxer XMP complementari copiat",
       "sidecarsCopied_many": "{{count}} fitxers XMP complementaris copiats",
       "sidecarsCopied_other": "{{count}} fitxers XMP complementaris copiats",
-      "sourceGeometryAll": "Aplica l'adreçament i la retallada de Capture One a totes les fotos llistades ({{n}})",
+      "sourceGeometryAll": "Aplica l’adreçament de Capture One i substitueix els retalls amb la relació d’aspecte de cada imatge ({{n}} fotos)",
       "sourceGeometryApplied": "Adreçament i retallada de Capture One aplicats a {{n}} foto(s) (Desfés els restitueix)",
       "sourceGeometryErrors": "Adreçament i retallada de Capture One no aplicats a algunes fotos: {{n}}.",
       "sourceGeometryFailed": "No s'han pogut aplicar l'adreçament i la retallada de Capture One",
@@ -3131,7 +3131,18 @@
           "yellow": "Groc"
         },
         "convert": "Converteix a blanc i negre",
-        "title": "Blanc i negre"
+        "title": "Blanc i negre",
+        "toning": {
+          "balance": "Equilibri",
+          "density": "Densitat",
+          "densityAria": "{{tone}}: densitat",
+          "highlights": "To de llums",
+          "hueAria": "{{tone}}: to",
+          "paper": "Paper",
+          "saturationAria": "{{tone}}: saturació",
+          "shadows": "To d'ombres",
+          "title": "Virat B/N"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3630,6 +3641,7 @@
       "params": {
         "blackAndWhite": "Blanc i negre",
         "bwMix": "Mescla B/N",
+        "bwToning": "Virat B/N",
         "calibration": "Calibratge",
         "colorDetail": "Detall de color",
         "colorGrading": "Gradació de color",

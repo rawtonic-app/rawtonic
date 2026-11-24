@@ -2194,7 +2194,7 @@
       "showImported": "Anzeigen",
       "sidecarsCopied_one": "{{count}} XMP-Sidecar-Datei kopiert",
       "sidecarsCopied_other": "{{count}} XMP-Sidecar-Dateien kopiert",
-      "sourceGeometryAll": "Capture-One-Geradestellung und -Beschnitt auf alle aufgeführten Fotos anwenden ({{n}})",
+      "sourceGeometryAll": "Capture-One-Geradestellung anwenden und Beschnitte im Seitenverhältnis des jeweiligen Bildes ersetzen ({{n}} Fotos)",
       "sourceGeometryApplied": "Capture-One-Geradestellung und -Beschnitt auf {{n}} Foto(s) angewendet (Rückgängig stellt sie wieder her)",
       "sourceGeometryErrors": "Capture-One-Geradestellung und -Beschnitt bei manchen Fotos nicht angewendet: {{n}}.",
       "sourceGeometryFailed": "Capture-One-Geradestellung und -Beschnitt konnten nicht angewendet werden",
@@ -2976,7 +2976,18 @@
           "yellow": "Gelb"
         },
         "convert": "In Schwarzweiß umwandeln",
-        "title": "Schwarzweiß"
+        "title": "Schwarzweiß",
+        "toning": {
+          "balance": "Balance",
+          "density": "Dichte",
+          "densityAria": "{{tone}}: Dichte",
+          "highlights": "Lichterton",
+          "hueAria": "{{tone}}: Farbton",
+          "paper": "Papier",
+          "saturationAria": "{{tone}}: Sättigung",
+          "shadows": "Schattenton",
+          "title": "S/W-Tonung"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3470,6 +3481,7 @@
       "params": {
         "blackAndWhite": "Schwarzweiß",
         "bwMix": "S/W-Mischung",
+        "bwToning": "S/W-Tonung",
         "calibration": "Kalibrierung",
         "colorDetail": "Farbdetails",
         "colorGrading": "Color Grading",

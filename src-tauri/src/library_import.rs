@@ -556,6 +556,7 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
             .into_iter()
             .chain(capture_one_lens_report(entries, &photo.path))
             .chain(capture_one_rotation_report(entries, &photo.path))
+            .chain(capture_one_color_editor_report(entries))
             .collect(),
         _ => Vec::new(),
     };
@@ -2085,6 +2086,16 @@ fn capture_one_entry<'a>(entries: &'a [(String, String)], key: &str) -> Option<&
         .iter()
         .find(|(k, _)| k == key)
         .map(|(_, v)| v.trim())
+}
+
+fn capture_one_color_editor_report(entries: &[(String, String)]) -> Option<String> {
+    // As in the style converter, the last entry takes precedence.
+    let (_, value) = entries
+        .iter()
+        .rev()
+        .find(|(key, _)| key == "ColorCorrections")?;
+    crate::costyle::color_editor_is_partial(value)
+        .then(|| "Capture One's Color Editor settings could not be fully translated".into())
 }
 
 /// The import report's line for a Capture One Shadow that lifts (or
@@ -5592,6 +5603,24 @@ mod tests {
         assert!(crate::image_loader::has_base_retouch(adjustments));
         // Nothing was written beside the photograph.
         assert_eq!(fs::read(&path).unwrap(), jpeg);
+    }
+
+    #[test]
+    fn capture_one_import_reports_a_partially_translated_photo_color_editor() {
+        let path = PathBuf::from("portrait.jpg");
+        let develop =
+            |entry: &str| Develop::CaptureOne(vec![("ColorCorrections".into(), entry.into())]);
+        // This Skin Tone range translates, but its amount is approximate.
+        let skin = "1,1,2,3,-10,1,180,120,90,-30,30,-100,100,15,0,0,0,0";
+        let partial = photo("1", path.clone(), develop(skin), None);
+        assert!(translate(&partial.develop).unwrap()["colorRanges"].is_array());
+        assert_eq!(
+            import_warnings(&partial),
+            ["portrait.jpg: Capture One's Color Editor settings could not be fully translated"]
+        );
+        let advanced = skin.replacen("1,1,2,", "1,1,1,", 1);
+        let full = photo("2", path, develop(&advanced), None);
+        assert!(import_warnings(&full).is_empty());
     }
 
     #[test]

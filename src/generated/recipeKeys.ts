@@ -2,6 +2,7 @@
 // `cargo run -p rawtonic-recipe --example ts_type`; do not edit. scripts/check.sh
 // fails when this file is stale.
 import type {
+  BwToning,
   ColorCalibration,
   ColorGradingProps,
   ColorRange,
@@ -61,6 +62,11 @@ export interface RecipeKeys {
   /** Black & white conversion (Lightroom's Treatment, Capture One's B&W). */
   blackAndWhite?: boolean;
   grayMixer?: GrayMixer;
+  /**
+   * B&W Toning: the tint the black-and-white grey takes by its lightness (shadows and highlights tones, Balance,
+   * Paper); only while `blackAndWhite` is on.
+   */
+  blackAndWhiteToning?: BwToning;
   /** Colour editor ranges, applied in order. */
   colorRanges?: ColorRange[];
   hsl?: Hsl;

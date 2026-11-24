@@ -2317,7 +2317,7 @@
       "sidecarsCopied_one": "{{count}} arquivo XMP associado copiado",
       "sidecarsCopied_many": "{{count}} arquivos XMP associados copiados",
       "sidecarsCopied_other": "{{count}} arquivos XMP associados copiados",
-      "sourceGeometryAll": "Aplicar o endireitamento e o recorte do Capture One a todas as fotos listadas ({{n}})",
+      "sourceGeometryAll": "Aplicar o endireitamento do Capture One e substituir os recortes com a proporção de cada imagem ({{n}} fotos)",
       "sourceGeometryApplied": "Endireitamento e recorte do Capture One aplicados a {{n}} foto(s) (Desfazer repõe-nos)",
       "sourceGeometryErrors": "Endireitamento e recorte do Capture One não aplicados a algumas fotos: {{n}}.",
       "sourceGeometryFailed": "Não foi possível aplicar o endireitamento e o recorte do Capture One",
@@ -3131,7 +3131,18 @@
           "yellow": "Amarelo"
         },
         "convert": "Converter para preto e branco",
-        "title": "Preto e branco"
+        "title": "Preto e branco",
+        "toning": {
+          "balance": "Equilíbrio",
+          "density": "Densidade",
+          "densityAria": "{{tone}}: densidade",
+          "highlights": "Tom das altas luzes",
+          "hueAria": "{{tone}}: matiz",
+          "paper": "Papel",
+          "saturationAria": "{{tone}}: saturação",
+          "shadows": "Tom das sombras",
+          "title": "Viragem P&B"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3630,6 +3641,7 @@
       "params": {
         "blackAndWhite": "Preto e branco",
         "bwMix": "Mistura P&B",
+        "bwToning": "Viragem P&B",
         "calibration": "Calibração",
         "colorDetail": "Detalhe de cor",
         "colorGrading": "Gradação de cores",

@@ -10,10 +10,13 @@ import {
   COLOR_GRADING_VERSION,
   GRAY_MIXER_CHANNELS,
   INITIAL_ADJUSTMENTS,
+  INITIAL_BW_TONING,
   INITIAL_GRAY_MIXER,
   type Adjustments,
+  type BwToning,
   type GrayMixer,
-  type HueSatLum
+  type HueSatLum,
+  type ToneBand
 } from '../../utils/adjustments';
 import AdjustmentControl from './AdjustmentControl';
 import StudioColorWheel from './StudioColorWheel';
@@ -22,7 +25,7 @@ import { ToolGroup } from './StudioDevelop';
 import type { ToolParams } from './StudioToolCopy';
 
 type Values = Pick<Adjustments, 'colorGrading' | 'sectionVisibility'> &
-  Partial<Pick<Adjustments, 'blackAndWhite' | 'grayMixer'>>;
+  Partial<Pick<Adjustments, 'blackAndWhite' | 'grayMixer' | 'blackAndWhiteToning'>>;
 
 interface ToolProps {
   values: Values;
@@ -346,10 +349,111 @@ const MIXER_SWATCH: Record<(typeof GRAY_MIXER_CHANNELS)[number], string> = {
   magenta: '#ca83b0'
 };
 
+/** The B&W Toning value with every field present. */
+export function fullToning(toning: Partial<BwToning> | undefined): BwToning {
+  return {
+    ...INITIAL_BW_TONING,
+    ...toning,
+    shadows: { ...INITIAL_BW_TONING.shadows, ...toning?.shadows },
+    highlights: { ...INITIAL_BW_TONING.highlights, ...toning?.highlights }
+  };
+}
+
+/**
+ * B&W Toning: a highlights and a shadows tone (hue, saturation, density),
+ * Balance and Paper — the one place that tones a black & white photo
+ * (crates/engine/src/bw_toning.rs). Density 0 keeps the grey's lightness,
+ * Paper 0 keeps white white.
+ */
+function BwToningControls({
+  toning,
+  disabled,
+  change,
+  onInteraction
+}: {
+  toning: BwToning;
+  disabled: boolean;
+  change(patch: Partial<Adjustments>): void;
+  onInteraction(active: boolean): void;
+}) {
+  const { t } = useTranslation();
+  const set = (patch: Partial<BwToning>) => change({ blackAndWhiteToning: { ...toning, ...patch } });
+  const band = (key: 'highlights' | 'shadows') => {
+    const tone: ToneBand = toning[key];
+    const name = t(`studio.color.bw.toning.${key}`);
+    const setTone = (patch: Partial<ToneBand>) => set({ [key]: { ...tone, ...patch } });
+    return (
+      <div key={key}>
+        <div className="studio-subheading">{name}</div>
+        <AdjustmentControl
+          label={t('adjustments.color.hue')}
+          ariaLabel={t('studio.color.bw.toning.hueAria', { tone: name })}
+          value={tone.hue}
+          min={0}
+          max={359}
+          defaultValue={INITIAL_BW_TONING[key].hue}
+          track="hue"
+          disabled={disabled}
+          onInteraction={onInteraction}
+          onChange={(hue) => setTone({ hue })}
+        />
+        <AdjustmentControl
+          label={t('adjustments.color.saturation')}
+          ariaLabel={t('studio.color.bw.toning.saturationAria', { tone: name })}
+          value={tone.saturation}
+          min={0}
+          max={100}
+          defaultValue={0}
+          disabled={disabled}
+          onInteraction={onInteraction}
+          onChange={(saturation) => setTone({ saturation })}
+        />
+        <AdjustmentControl
+          label={t('studio.color.bw.toning.density')}
+          ariaLabel={t('studio.color.bw.toning.densityAria', { tone: name })}
+          value={tone.density}
+          min={0}
+          max={100}
+          defaultValue={0}
+          disabled={disabled}
+          onInteraction={onInteraction}
+          onChange={(density) => setTone({ density })}
+        />
+      </div>
+    );
+  };
+  return (
+    <div role="group" aria-label={t('studio.color.bw.toning.title')}>
+      {band('highlights')}
+      {band('shadows')}
+      <AdjustmentControl
+        label={t('studio.color.bw.toning.balance')}
+        value={toning.balance}
+        min={-100}
+        max={100}
+        defaultValue={0}
+        disabled={disabled}
+        onInteraction={onInteraction}
+        onChange={(balance) => set({ balance })}
+      />
+      <AdjustmentControl
+        label={t('studio.color.bw.toning.paper')}
+        value={toning.paper}
+        min={0}
+        max={100}
+        defaultValue={0}
+        disabled={disabled}
+        onInteraction={onInteraction}
+        onChange={(paper) => set({ paper })}
+      />
+    </div>
+  );
+}
+
 /**
  * Black & white conversion with Lightroom's eight-channel B&W mix: each
- * slider lightens or darkens the grey of one colour range. The tool's eye
- * switches the conversion; Color grading tones the result.
+ * slider lightens or darkens the grey of one colour range, and B&W Toning
+ * tones the result. The tool's eye switches the conversion.
  */
 export function StudioBlackAndWhite({
   values,
@@ -419,7 +523,11 @@ export function StudioBlackAndWhite({
       onReset={() =>
         // All sliders at 0 render alike in every response: the reset takes
         // a new edit's.
-        change({ grayMixer: { ...INITIAL_GRAY_MIXER }, bwVersion: BW_VERSION })
+        change({
+          grayMixer: { ...INITIAL_GRAY_MIXER },
+          bwVersion: BW_VERSION,
+          blackAndWhiteToning: structuredClone(INITIAL_BW_TONING)
+        })
       }
     >
       {!enabled && (
@@ -447,6 +555,12 @@ export function StudioBlackAndWhite({
           />
         </div>
       ))}
+      <BwToningControls
+        toning={fullToning(values.blackAndWhiteToning)}
+        disabled={disabled || !enabled}
+        change={change}
+        onInteraction={onInteraction}
+      />
     </ToolGroup>
   );
 }

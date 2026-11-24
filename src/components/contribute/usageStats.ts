@@ -66,7 +66,7 @@ keysOf('basic', [
   'vibrance'
 ]);
 keysOf('curves', ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'levels', 'regionCurve']);
-keysOf('color', ['hue', 'hsl', 'colorRanges', 'colorCalibration', 'blackAndWhite', 'grayMixer']);
+keysOf('color', ['hue', 'hsl', 'colorRanges', 'colorCalibration', 'blackAndWhite', 'grayMixer', 'blackAndWhiteToning']);
 keysOf('colorGrading', ['colorGrading']);
 keysOf('sharpen', [
   'sharpness',

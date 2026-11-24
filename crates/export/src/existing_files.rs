@@ -628,6 +628,9 @@ impl ExportRecords {
         while let Some(row) = rows.next()? {
             let output: String = row.get(0)?;
             let output = Path::new(&output);
+            // Validate the recorded directory before rebuilding the path
+            // with the caller's directory spelling and the recorded name.
+            // A record for another canonical directory is not a sibling.
             if output.parent() != Path::new(&slot_key).parent() {
                 continue;
             }

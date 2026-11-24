@@ -2439,7 +2439,7 @@
       "sidecarsCopied_few": "skopiowano {{count}} pliki XMP",
       "sidecarsCopied_many": "skopiowano {{count}} plików XMP",
       "sidecarsCopied_other": "skopiowano {{count}} pliku XMP",
-      "sourceGeometryAll": "Zastosuj prostowanie i kadrowanie z Capture One do wszystkich wymienionych zdjęć ({{n}})",
+      "sourceGeometryAll": "Zastosuj prostowanie z Capture One i zastąp kadry z zachowaniem proporcji każdego obrazu ({{n}} zdjęć)",
       "sourceGeometryApplied": "Zastosowano prostowanie i kadrowanie z Capture One do {{n}} zdjęć (Cofnij je przywraca)",
       "sourceGeometryErrors": "Nie zastosowano prostowania i kadrowania z Capture One do części zdjęć: {{n}}.",
       "sourceGeometryFailed": "Nie udało się zastosować prostowania i kadrowania z Capture One",
@@ -3285,7 +3285,18 @@
           "yellow": "Żółty"
         },
         "convert": "Konwertuj na czerń i biel",
-        "title": "Czerń i biel"
+        "title": "Czerń i biel",
+        "toning": {
+          "balance": "Balans",
+          "density": "Gęstość",
+          "densityAria": "{{tone}}: gęstość",
+          "highlights": "Ton świateł",
+          "hueAria": "{{tone}}: odcień",
+          "paper": "Papier",
+          "saturationAria": "{{tone}}: nasycenie",
+          "shadows": "Ton cieni",
+          "title": "Tonowanie cz.-b."
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3789,6 +3800,7 @@
       "params": {
         "blackAndWhite": "Czerń i biel",
         "bwMix": "Mieszanie cz.-b.",
+        "bwToning": "Tonowanie cz.-b.",
         "calibration": "Kalibracja",
         "colorDetail": "Szczegóły koloru",
         "colorGrading": "Gradacja kolorów",
