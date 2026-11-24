@@ -2879,7 +2879,18 @@
           "yellow": "イエロー"
         },
         "convert": "白黒に変換",
-        "title": "白黒"
+        "title": "白黒",
+        "toning": {
+          "balance": "バランス",
+          "density": "濃度",
+          "densityAria": "{{tone}}の濃度",
+          "highlights": "ハイライトの色調",
+          "hueAria": "{{tone}}の色相",
+          "paper": "ペーパー",
+          "saturationAria": "{{tone}}の彩度",
+          "shadows": "シャドウの色調",
+          "title": "モノクロ調色"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3368,6 +3379,7 @@
       "params": {
         "blackAndWhite": "白黒",
         "bwMix": "白黒ミックス",
+        "bwToning": "モノクロ調色",
         "calibration": "キャリブレーション",
         "colorDetail": "カラーのディテール",
         "colorGrading": "カラーグレーディング",

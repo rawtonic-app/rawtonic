@@ -5,6 +5,7 @@ import type { RelightDepth, RelightLight } from './relight';
 import type {
   Adjustments,
   AiPatch,
+  BwToning,
   ColorCalibration,
   ColorGradingProps,
   ColorRange,
@@ -37,6 +38,7 @@ interface OldAdjustments {
   aspectRatio: number | null;
   blackAndWhite?: boolean;
   grayMixer?: GrayMixer;
+  blackAndWhiteToning?: BwToning;
   levels?: Levels;
   regionCurve?: RegionCurve;
   colorRanges?: ColorRange[];

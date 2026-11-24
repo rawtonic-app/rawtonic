@@ -3131,7 +3131,18 @@
           "yellow": "Jaune"
         },
         "convert": "Convertir en noir et blanc",
-        "title": "Noir et blanc"
+        "title": "Noir et blanc",
+        "toning": {
+          "balance": "Équilibre",
+          "density": "Densité",
+          "densityAria": "{{tone}} : densité",
+          "highlights": "Ton des hautes lumières",
+          "hueAria": "{{tone}} : teinte",
+          "paper": "Papier",
+          "saturationAria": "{{tone}} : saturation",
+          "shadows": "Ton des ombres",
+          "title": "Virage N&B"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3630,6 +3641,7 @@
       "params": {
         "blackAndWhite": "Noir et blanc",
         "bwMix": "Mélange N&B",
+        "bwToning": "Virage N&B",
         "calibration": "Étalonnage des couleurs",
         "colorDetail": "Détail de couleur",
         "colorGrading": "Étalonnage",

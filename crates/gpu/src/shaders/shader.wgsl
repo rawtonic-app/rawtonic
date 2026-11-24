@@ -386,9 +386,12 @@ struct GlobalAdjustments {
     // The decode's airlight (airlight.rs, linear, before exposure and
     // baseline); 0 = unknown.
     airlight: f32,
-    _pad_airlight0: u32,
+    // 1: bw_toning_lut holds the B&W Toning of a black-and-white photo
+    // (apply_bw_toning, bw_toning.rs).
+    bw_toning_active: u32,
     _pad_airlight1: u32,
     _pad_airlight2: u32,
+    bw_toning_lut: array<vec4<f32>, 32>,
 }
 
 struct MaskAdjustments {
@@ -5379,6 +5382,18 @@ fn grading_shift(layer: u32, lightness: f32) -> vec3<f32> {
         b = adjustments.mask_adjustments[layer - 1u].grading_lut[i + 1u];
     }
     return mix(a.xyz, b.xyz, f);
+}
+
+// B&W Toning (`blackAndWhiteToning`, bw_toning.rs): the tint of the grey's
+// Oklab lightness after the curves, (dL, da, db) from a 32-entry table the CPU
+// builds per recipe and fits into the sRGB cube.
+fn apply_bw_toning(display: vec3<f32>) -> vec3<f32> {
+    let lab = linear_srgb_to_oklab(display_to_linear(display));
+    let x = clamp(lab.x, 0.0, 1.0) * 31.0;
+    let i = min(u32(x), 30u);
+    let f = x - f32(i);
+    let shift = mix(adjustments.global.bw_toning_lut[i].xyz, adjustments.global.bw_toning_lut[i + 1u].xyz, f);
+    return linear_to_display(oklab_to_linear_srgb(lab + shift));
 }
 
 // `grading_active` 1 (colorGradingVersion 1 and 2): the table's shift; the
@@ -12205,6 +12220,10 @@ fn main(
             }
             final_rgb = mix(final_rgb, mask_curved_srgb, influence);
         }
+    }
+
+    if (adjustments.global.bw_toning_active != 0u) {
+        final_rgb = apply_bw_toning(final_rgb);
     }
 
     if (adjustments.global.has_lut == 1u && adjustments.global.lut_is_scene_referred == 0u) {

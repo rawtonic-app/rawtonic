@@ -10,6 +10,7 @@ pub mod auto_adjust;
 pub mod auto_straighten;
 pub mod avif;
 pub mod baseline_exposure;
+pub mod bw_toning;
 pub mod cache_utils;
 pub mod calibration;
 pub mod camera_crop;

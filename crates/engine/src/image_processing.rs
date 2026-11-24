@@ -4872,8 +4872,13 @@ pub struct GlobalAdjustments {
     /// linear, before exposure and baseline); 0 = unknown. Dehaze version 3
     /// adapts to it.
     pub airlight: f32,
-    /// Keeps the struct a multiple of 16 bytes, as the shader's.
-    pub _pad_airlight: [u32; 3],
+    /// 1 when `bw_toning_lut` holds the B&W Toning (`blackAndWhiteToning`,
+    /// bw_toning.rs) of a black-and-white photo, else 0.
+    pub bw_toning_active: u32,
+    pub _pad_airlight: [u32; 2],
+    /// B&W Toning as Oklab (dL, da, db) shifts by the grey's Oklab L at
+    /// i / (BW_TONING_LUT_SIZE − 1), added after the curves.
+    pub bw_toning_lut: [[f32; 4]; crate::bw_toning::BW_TONING_LUT_SIZE],
 }
 
 // The shader's struct is a multiple of 16 bytes; a different length here
@@ -5977,7 +5982,9 @@ fn get_global_adjustments_resolved(
         structure_version: versions.structure.uniform(),
         dehaze_version: versions.dehaze.uniform(),
         airlight: 0.0,
-        _pad_airlight: [0; 3],
+        bw_toning_active: 0,
+        _pad_airlight: [0; 2],
+        bw_toning_lut: [[0.0; 4]; crate::bw_toning::BW_TONING_LUT_SIZE],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -6040,6 +6047,11 @@ fn get_global_adjustments_resolved(
     global.apply_color_ranges(&color.color_ranges);
     if is_visible(masks::CURVES.name()) && tool_on("levels") {
         global.apply_levels(&js_adjustments["levels"]);
+    }
+    // B&W Toning tones only the black-and-white conversion's grey.
+    if color.black_and_white && crate::bw_toning::is_active(&color.bw_toning) {
+        global.bw_toning_lut = crate::bw_toning::lut(&color.bw_toning);
+        global.bw_toning_active = 1;
     }
     if modern_grading(global.tonemapper_mode) && is_visible("color") {
         let grading = if color.grading_visible {
@@ -9033,18 +9045,25 @@ mod vibrance_version_tests {
     use serde_json::json;
 
     /// The shader's `GlobalAdjustments` ends with `vibrance_version`,
-    /// `structure_version`, `dehaze_version` and `airlight` with its padding
-    /// and is rounded up to 16 bytes
+    /// `structure_version`, `dehaze_version`, `airlight`,
+    /// `bw_toning_active` with its padding and the B&W Toning table, and is
+    /// rounded up to 16 bytes
     /// (it holds vec4s); the Rust struct must be exactly as long, or every
     /// field of `AllAdjustments` after it moves.
     #[test]
     fn global_adjustments_match_the_shader_layout() {
         use super::GlobalAdjustments;
-        let shader_end = std::mem::offset_of!(GlobalAdjustments, _pad_airlight) + 12;
+        let shader_end = std::mem::offset_of!(GlobalAdjustments, bw_toning_lut)
+            + 16 * crate::bw_toning::BW_TONING_LUT_SIZE;
         assert_eq!(
             std::mem::offset_of!(GlobalAdjustments, airlight),
             std::mem::offset_of!(GlobalAdjustments, dehaze_version) + 4
         );
+        assert_eq!(
+            std::mem::offset_of!(GlobalAdjustments, bw_toning_active),
+            std::mem::offset_of!(GlobalAdjustments, airlight) + 4
+        );
+        assert!(std::mem::offset_of!(GlobalAdjustments, bw_toning_lut).is_multiple_of(16));
         assert_eq!(
             std::mem::offset_of!(GlobalAdjustments, structure_version),
             std::mem::offset_of!(GlobalAdjustments, vibrance_version) + 4

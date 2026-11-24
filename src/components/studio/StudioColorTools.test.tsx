@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 
-import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
+import { INITIAL_ADJUSTMENTS, INITIAL_BW_TONING } from '../../utils/adjustments';
 import { useEditorStore } from '../../store/useEditorStore';
 import { StudioBlackAndWhite, StudioColorGrading, linkedGrades } from './StudioColorTools';
 
@@ -272,6 +272,46 @@ describe('black & white Auto', () => {
       ).toBe(false)
     );
     expect(change).not.toHaveBeenCalled();
+  });
+});
+
+describe('B&W toning', () => {
+  const values = {
+    colorGrading: INITIAL_ADJUSTMENTS.colorGrading,
+    sectionVisibility: INITIAL_ADJUSTMENTS.sectionVisibility
+  };
+
+  it('writes the whole toning when one control moves, keeping the stored tone', () => {
+    const change = vi.fn();
+    render(
+      <StudioBlackAndWhite
+        values={{
+          ...values,
+          blackAndWhite: true,
+          blackAndWhiteToning: { ...INITIAL_BW_TONING, shadows: { hue: 220, saturation: 20, density: 0 } }
+        }}
+        disabled={false}
+        change={change}
+        onInteraction={() => {}}
+      />
+    );
+    fireEvent.change(screen.getByRole('slider', { name: 'Highlights tone saturation' }), {
+      target: { value: '30' }
+    });
+    expect(change).toHaveBeenLastCalledWith({
+      blackAndWhiteToning: {
+        ...INITIAL_BW_TONING,
+        shadows: { hue: 220, saturation: 20, density: 0 },
+        highlights: { ...INITIAL_BW_TONING.highlights, saturation: 30 }
+      }
+    });
+    fireEvent.change(screen.getByRole('slider', { name: 'Paper' }), { target: { value: '60' } });
+    expect(change.mock.lastCall?.[0].blackAndWhiteToning.paper).toBe(60);
+  });
+
+  it('is off until the photo is black & white', () => {
+    render(<StudioBlackAndWhite values={values} disabled={false} change={vi.fn()} onInteraction={() => {}} />);
+    expect((screen.getByRole('slider', { name: 'Shadows tone density' }) as HTMLInputElement).disabled).toBe(true);
   });
 });
 

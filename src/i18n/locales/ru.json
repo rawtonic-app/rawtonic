@@ -3285,7 +3285,18 @@
           "yellow": "Желтый"
         },
         "convert": "Преобразовать в черно-белое",
-        "title": "Черно-белое"
+        "title": "Черно-белое",
+        "toning": {
+          "balance": "Баланс",
+          "density": "Плотность",
+          "densityAria": "{{tone}}: плотность",
+          "highlights": "Тон светов",
+          "hueAria": "{{tone}}: оттенок",
+          "paper": "Бумага",
+          "saturationAria": "{{tone}}: насыщенность",
+          "shadows": "Тон теней",
+          "title": "Тонирование Ч/Б"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3789,6 +3800,7 @@
       "params": {
         "blackAndWhite": "Чёрно-белое",
         "bwMix": "Ч/б микс",
+        "bwToning": "Тонирование Ч/Б",
         "calibration": "Калибровка",
         "colorDetail": "Детали цвета",
         "colorGrading": "Цветокоррекция",

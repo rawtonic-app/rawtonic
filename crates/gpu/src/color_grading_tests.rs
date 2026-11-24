@@ -13,7 +13,7 @@ use super::*;
 use rawtonic_engine::color_grading::{GRADING_CHANNEL_WEIGHT, GRADING_LUT_SIZE, Grading, lut};
 use rawtonic_engine::recipe_versions::ColorGradingVersion;
 
-fn to_oklab(c: [f64; 3]) -> [f64; 3] {
+pub(super) fn to_oklab(c: [f64; 3]) -> [f64; 3] {
     let l = (0.4122214708 * c[0] + 0.5363325363 * c[1] + 0.0514459929 * c[2]).cbrt();
     let m = (0.2119034982 * c[0] + 0.6806995451 * c[1] + 0.1073969566 * c[2]).cbrt();
     let s = (0.0883024619 * c[0] + 0.2817188376 * c[1] + 0.6299787005 * c[2]).cbrt();
@@ -24,7 +24,7 @@ fn to_oklab(c: [f64; 3]) -> [f64; 3] {
     ]
 }
 
-fn from_oklab(lab: [f64; 3]) -> [f64; 3] {
+pub(super) fn from_oklab(lab: [f64; 3]) -> [f64; 3] {
     let l = (lab[0] + 0.3963377774 * lab[1] + 0.2158037573 * lab[2]).powi(3);
     let m = (lab[0] - 0.1055613458 * lab[1] - 0.0638541728 * lab[2]).powi(3);
     let s = (lab[0] - 0.0894841775 * lab[1] - 1.2914855480 * lab[2]).powi(3);
@@ -35,7 +35,7 @@ fn from_oklab(lab: [f64; 3]) -> [f64; 3] {
     ]
 }
 
-fn decode(e: f64) -> f64 {
+pub(super) fn decode(e: f64) -> f64 {
     if e <= 0.04045 {
         e / 12.92
     } else {
@@ -43,7 +43,7 @@ fn decode(e: f64) -> f64 {
     }
 }
 
-fn encode(c: f64) -> f64 {
+pub(super) fn encode(c: f64) -> f64 {
     let a = c.abs();
     c.signum()
         * if a <= 0.0031308 {

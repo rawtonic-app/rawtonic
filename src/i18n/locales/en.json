@@ -2976,7 +2976,18 @@
           "yellow": "Yellow"
         },
         "convert": "Convert to black & white",
-        "title": "Black & white"
+        "title": "Black & white",
+        "toning": {
+          "balance": "Balance",
+          "density": "Density",
+          "densityAria": "{{tone}} density",
+          "highlights": "Highlights tone",
+          "hueAria": "{{tone}} hue",
+          "paper": "Paper",
+          "saturationAria": "{{tone}} saturation",
+          "shadows": "Shadows tone",
+          "title": "B&W toning"
+        }
       },
       "calibration": {
         "hueAria": {
@@ -3470,6 +3481,7 @@
       "params": {
         "blackAndWhite": "Black & white",
         "bwMix": "B&W mix",
+        "bwToning": "B&W toning",
         "calibration": "Calibration",
         "colorDetail": "Color detail",
         "colorGrading": "Color grading",
