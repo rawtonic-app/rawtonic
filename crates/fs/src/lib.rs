@@ -450,9 +450,10 @@ fn replace_matching(
 /// `temp` is removed. Refused: a `path` that `protected` names (a photo,
 /// its sidecar), a symlink or non-file, on Windows a read-only file, and a
 /// file changed or put in its place since it was confirmed (checked right
-/// before each rename attempt, as [`replace_existing`] does). A confirmed
-/// file gone meanwhile is not recreated by a replace: the new file is
-/// published under the name only if it is still free (no-clobber).
+/// before each rename attempt, as [`replace_existing`] does), and a
+/// confirmed file gone meanwhile (nothing is created in its place: the
+/// temporary file's owner-only permissions are for a replace, which gives
+/// the new file the old one's).
 pub fn replace_confirmed(
     temp: tempfile::NamedTempFile,
     path: &Path,
@@ -464,16 +465,11 @@ pub fn replace_confirmed(
         "{} is a photo or one of its files; it is not replaced",
         path.display()
     );
-    if matches!(fs::symlink_metadata(path), Err(e) if e.kind() == io::ErrorKind::NotFound) {
-        let parent = path
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-            .unwrap_or(Path::new("."));
-        no_clobber::persist(temp, path)
-            .with_context(|| format!("{} could not be written", path.display()))?;
-        sync_dir(parent)?;
-        return Ok(());
-    }
+    ensure!(
+        fs::symlink_metadata(path).is_ok(),
+        "{} is gone since you chose to replace it; nothing is written",
+        path.display()
+    );
     ensure!(
         replace_matching(temp, path, |path| {
             Ok(FileStamp::of_file(path).is_ok_and(|now| now == confirmed))
@@ -482,6 +478,29 @@ pub fn replace_confirmed(
         path.display()
     );
     Ok(())
+}
+
+/// Whether `a` and `b` name the same file (one directory entry reached
+/// through a symlink, a junction or another spelling, or a hard link of
+/// it), told by its identity: device and inode on Unix, volume serial
+/// number and file index on Windows. False when either cannot be read.
+pub fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        matches!((fs::metadata(a), fs::metadata(b)),
+            (Ok(a), Ok(b)) if (a.dev(), a.ino()) == (b.dev(), b.ino()))
+    }
+    #[cfg(windows)]
+    {
+        matches!((file_id(a), file_id(b)), (Some(a), Some(b)) if a == b)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        canonicalize(a)
+            .ok()
+            .is_some_and(|a| canonicalize(b).ok() == Some(a))
+    }
 }
 
 /// What tells a file at a path from one put there in its place: its size,
@@ -744,11 +763,30 @@ mod tests {
             assert_eq!(fs::read(&path).unwrap(), b"a synced copy, longer");
             fs::remove_file(&link).unwrap();
         }
-        // Gone since it was confirmed: published only under a free name.
+        // Gone since it was confirmed: nothing is created in its place.
         fs::remove_file(&path).unwrap();
-        replace_confirmed(temp_with(b"new"), &path, confirmed, |_| false).unwrap();
-        assert_eq!(fs::read(&path).unwrap(), b"new");
-        only_print();
+        assert!(replace_confirmed(temp_with(b"new"), &path, confirmed, |_| false).is_err());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn same_file_sees_through_links_and_spellings() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = dir.path().join("photo.jpg");
+        let other = dir.path().join("other.jpg");
+        fs::write(&photo, b"a").unwrap();
+        fs::write(&other, b"a").unwrap();
+        assert!(same_file(&photo, &dir.path().join(".").join("photo.jpg")));
+        assert!(!same_file(&photo, &other));
+        assert!(!same_file(&photo, &dir.path().join("missing.jpg")));
+        fs::hard_link(&photo, dir.path().join("linked.jpg")).unwrap();
+        assert!(same_file(&photo, &dir.path().join("linked.jpg")));
+        #[cfg(unix)]
+        {
+            let folder = dir.path().join("folder link");
+            std::os::unix::fs::symlink(dir.path(), &folder).unwrap();
+            assert!(same_file(&photo, &folder.join("photo.jpg")));
+        }
     }
 
     #[test]

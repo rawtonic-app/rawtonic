@@ -827,6 +827,7 @@ fn plan_edits(
             is_explicit_file_path: true,
             replace_confirmed: false,
             confirmed_file: None,
+            panel_stamp: None,
             pinned: None,
             ..recipe.clone()
         })

@@ -89,17 +89,11 @@ pub fn replace_confirmed_output_with(
             path.display()
         )));
     }
-    let prefix = rawtonic_fs::temp::prefix_for(path);
-    let mut builder = tempfile::Builder::new();
-    builder.prefix(&prefix);
-    #[cfg(unix)]
-    {
-        // A file the user named but that is gone meanwhile is published as
-        // a new one, with a new file's permissions.
-        use std::os::unix::fs::PermissionsExt;
-        builder.permissions(fs::Permissions::from_mode(0o666));
-    }
-    let mut temp = builder.tempfile_in(parent)?;
+    // Owner-only while it is written: the replaced file's permissions are
+    // given to it right before it is swapped in.
+    let mut temp = tempfile::Builder::new()
+        .prefix(&rawtonic_fs::temp::prefix_for(path))
+        .tempfile_in(parent)?;
     fill(temp.as_file_mut())?;
     temp.as_file().sync_all()?;
     rawtonic_fs::replace_confirmed(temp, path, confirmed, protected).map_err(io::Error::other)

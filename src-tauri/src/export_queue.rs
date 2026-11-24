@@ -80,11 +80,18 @@ pub struct ExportRequest {
     /// be replaced (`confirmed_file`).
     #[serde(default)]
     pub replace_confirmed: bool,
-    /// The file at `output_folder_or_file` as it was when the export was
-    /// submitted with `replace_confirmed`: only that file is replaced
-    /// (`export_images_batch` sets it, never the interface).
+    /// The file at `output_folder_or_file` the user confirmed replacing,
+    /// as it was when the save panel returned and still when the export was
+    /// submitted: only that file is replaced (`export_images_batch` sets
+    /// it, never the interface).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confirmed_file: Option<rawtonic_fs::FileStamp>,
+    /// The file's stamp as the interface read it the moment the save panel
+    /// returned (`save_as_target_stamp`); None when the name was free then.
+    /// Only a stamp that still matches the file confirms it
+    /// (`confirm_replace`); never stored.
+    #[serde(default, skip_serializing)]
+    pub panel_stamp: Option<String>,
     pub base_origin_folders: Vec<String>,
     pub export_settings: ExportSettings,
     pub output_format: String,
@@ -1805,6 +1812,7 @@ mod tests {
                 is_explicit_file_path: true,
                 replace_confirmed: false,
                 confirmed_file: None,
+                panel_stamp: None,
                 ..request(std::slice::from_ref(path), Some(&catalog))
             };
             let (_dir, queue) = test_queue();

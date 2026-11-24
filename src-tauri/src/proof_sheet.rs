@@ -225,6 +225,7 @@ pub async fn queue_proof_sheet(
         is_explicit_file_path: false,
         replace_confirmed: false,
         confirmed_file: None,
+        panel_stamp: None,
         base_origin_folders: Vec::new(),
         export_settings: cell_settings(&layout, request.watermark, request.output_sharpening),
         output_format: "jpg".into(),

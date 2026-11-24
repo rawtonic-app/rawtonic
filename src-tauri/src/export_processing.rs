@@ -776,20 +776,28 @@ fn publish_with<'a>(
 }
 
 /// Whether Save As must not replace `path` even when the user confirmed it:
-/// the photo `source` itself, a file beside it named after it that no
+/// the photo `source` itself (by name without case, as on macOS and Windows
+/// volumes, and by file identity, so a symlinked folder, a junction or a
+/// hard link does not hide it), a file beside it named after it that no
 /// export format names (a sidecar: `DSC_0001.xmp`, `DSC_0001.NEF.rrdata`),
+/// a camera RAW (also one a camera wrote as `.TIF`, told by its content)
 /// or a photo of a library (`is_original`: listed by one, or edited with a
-/// sidecar). Names compare without case, as on macOS and Windows volumes.
+/// sidecar).
 pub(crate) fn save_as_protected(
     path: &Path,
     source: &Path,
     is_original: &dyn Fn(&Path) -> bool,
 ) -> bool {
     let lower = |p: &Path| p.to_string_lossy().to_lowercase();
-    if lower(path) == lower(source) {
+    if lower(path) == lower(source) || rawtonic_fs::same_file(path, source) {
         return true;
     }
-    let same_folder = path.parent().map(lower) == source.parent().map(lower);
+    let folder = |p: &Path| {
+        p.parent().map(|parent| {
+            lower(&rawtonic_fs::canonicalize(parent).unwrap_or_else(|_| parent.into()))
+        })
+    };
+    let same_folder = folder(path) == folder(source);
     let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase());
     let source_name = source
         .file_name()
@@ -808,7 +816,7 @@ pub(crate) fn save_as_protected(
             ]
             .contains(&e.as_str())
         });
-    (same_folder && named_after && !image) || is_original(path)
+    (same_folder && named_after && !image) || crate::formats::is_raw_file(path) || is_original(path)
 }
 
 /// The app's record of the files its exports wrote (for Replace if
@@ -3009,6 +3017,7 @@ pub async fn export_images(
             is_explicit_file_path,
             replace_confirmed: false,
             confirmed_file: None,
+            panel_stamp: None,
             base_origin_folders,
             export_settings,
             output_format,
@@ -3115,17 +3124,37 @@ pub async fn export_images_batch(
     crate::export_queue::enqueue_all(&app_handle, requests).await
 }
 
-/// Save As: stamps the file the user confirmed replacing in the system's
-/// save panel as it is now (`ExportRequest::confirmed_file`), so the export
-/// replaces only that file. A name that is free confirms nothing (a file
-/// put there later is not replaced). The photo, its sidecar or a library's
-/// photo is refused with a message before anything is queued. Any other
-/// request, and a stamp the interface sent, confirms nothing.
+/// Save As: the file the save panel named, stamped the moment the panel
+/// returned (`ExportRequest::panel_stamp`), when the system's panel had
+/// asked whether to replace it. None for a free name or anything else; an
+/// opaque token the interface hands back with the export.
+#[tauri::command]
+pub async fn save_as_target_stamp(path: String) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || stamp_save_target(path))
+        .await
+        .ok()
+        .flatten()
+}
+
+pub(crate) fn stamp_save_target(path: String) -> Option<String> {
+    let stamp = rawtonic_fs::FileStamp::of_file(Path::new(&path)).ok()?;
+    serde_json::to_string(&stamp).ok()
+}
+
+/// Save As: confirms replacing the file the user confirmed in the system's
+/// save panel (`ExportRequest::confirmed_file`) only while it is still the
+/// file stamped when the panel returned (`panel_stamp`), so the export
+/// replaces only that file. A name that was free then confirms nothing, nor
+/// a file changed or put there since (a sync client's): the recipe's "If a
+/// file exists" decides for it. The photo, its sidecar, a camera RAW or a
+/// library's photo is refused with a message before anything is queued.
+/// Any other request confirms nothing.
 pub(crate) fn confirm_replace(
     request: &mut crate::export_queue::ExportRequest,
     is_original: &dyn Fn(&Path) -> bool,
 ) -> Result<(), String> {
     request.confirmed_file = None;
+    let panel_stamp = request.panel_stamp.take();
     if !(request.replace_confirmed && request.is_explicit_file_path && request.paths.len() == 1) {
         return Ok(());
     }
@@ -3143,7 +3172,10 @@ pub(crate) fn confirm_replace(
     }
     let stamp = rawtonic_fs::FileStamp::of_file(path)
         .map_err(|e| format!("{} cannot be replaced: {e}", path.display()))?;
-    request.confirmed_file = Some(stamp);
+    let confirmed = panel_stamp
+        .and_then(|token| serde_json::from_str::<rawtonic_fs::FileStamp>(&token).ok())
+        .is_some_and(|then| then == stamp);
+    request.confirmed_file = confirmed.then_some(stamp);
     Ok(())
 }
 
@@ -4759,9 +4791,18 @@ mod tests {
             }))
             .unwrap()
         };
-        let stamp_of = |file: &std::path::Path| {
+        // Submitted with the stamp the panel's return gave (the interface
+        // asks `save_as_target_stamp` right then).
+        let submit = |file: &std::path::Path, panel: Option<String>| {
             let mut asked = request(file, true);
+            asked.panel_stamp = panel;
             confirm_replace(&mut asked, &is_original).map(|()| asked.confirmed_file)
+        };
+        let stamp_of = |file: &std::path::Path| {
+            submit(
+                file,
+                super::stamp_save_target(file.to_string_lossy().into_owned()),
+            )
         };
         let settings = |choice: &str| {
             serde_json::from_value(serde_json::json!({
@@ -4826,9 +4867,18 @@ mod tests {
         // confirmed; a stamp the interface sends is dropped.
         let mut unconfirmed = request(&print, false);
         unconfirmed.confirmed_file = Some(rawtonic_fs::FileStamp::of_file(&print).unwrap());
+        unconfirmed.panel_stamp = super::stamp_save_target(print.to_string_lossy().into_owned());
         confirm_replace(&mut unconfirmed, &is_original).unwrap();
         assert_eq!(unconfirmed.confirmed_file, None);
         assert_eq!(stamp_of(&delivery.join("free.jpg")).unwrap(), None);
+        // A free name when the panel returned, taken before submission (a
+        // sync client): the panel asked about nothing, nothing is confirmed.
+        assert_eq!(submit(&print, None).unwrap(), None);
+        // Changed between the panel's return and submission: not confirmed.
+        let panel = super::stamp_save_target(print.to_string_lossy().into_owned());
+        std::fs::write(&print, b"another program's print, synced").unwrap();
+        assert_eq!(submit(&print, panel).unwrap(), None);
+        assert_eq!(submit(&print, Some("not a stamp".into())).unwrap(), None);
 
         // Confirmed: replaced whatever the recipe's choice, reported so.
         let confirmed = stamp_of(&print).unwrap();
@@ -4924,9 +4974,43 @@ mod tests {
             delivery.join("print_1.jpg")
         );
 
-        // The photo, its sidecar and a library's photo: refused, confirmed
-        // or not, at submission and when planned.
-        for own in [&raw, &sidecar, &library_photo] {
+        // The photo (also through a symlinked folder or a hard link), its
+        // sidecar, a camera RAW written as `.TIF` and a library's photo:
+        // refused at submission, when planned and when published.
+        let camera_tif = delivery.join("CF000123.TIF");
+        let mut iiq = b"II*\0\x08\0\0\0IIII".to_vec();
+        iiq.resize(512, 0);
+        std::fs::write(&camera_tif, &iiq).unwrap();
+        assert!(crate::formats::is_raw_file(&camera_tif));
+        let hard_link = delivery.join("a copy.jpg");
+        let unmanaged = dir.path().join("scan.jpg");
+        std::fs::write(&unmanaged, b"an unmanaged JPEG").unwrap();
+        std::fs::hard_link(&raw, &hard_link).unwrap();
+        let mut own_files = vec![
+            raw.clone(),
+            sidecar.clone(),
+            library_photo.clone(),
+            camera_tif.clone(),
+            hard_link.clone(),
+        ];
+        #[cfg(unix)]
+        {
+            let folder_link = dir.path().join("linked folder");
+            std::os::unix::fs::symlink(dir.path(), &folder_link).unwrap();
+            own_files.push(folder_link.join("a.CR3"));
+            // An unmanaged JPEG opened directly and named through the link.
+            assert!(super::save_as_protected(
+                &folder_link.join("scan.jpg"),
+                &unmanaged,
+                &|_| false
+            ));
+            assert!(super::save_as_protected(
+                &folder_link.join("scan.xmp"),
+                &unmanaged,
+                &|_| false
+            ));
+        }
+        for own in &own_files {
             let error = stamp_of(own).unwrap_err();
             assert!(error.contains("does not replace"), "{error}");
             let stamp = rawtonic_fs::FileStamp::of_file(own).unwrap();
@@ -4938,6 +5022,7 @@ mod tests {
             );
         }
         assert_eq!(std::fs::read(&raw).unwrap(), b"original RAW");
+        assert_eq!(std::fs::read(&camera_tif).unwrap(), iiq);
         assert_eq!(std::fs::read(&sidecar).unwrap(), b"<xmp/>");
         assert_eq!(std::fs::read(&library_photo).unwrap(), b"a library's JPEG");
     }
