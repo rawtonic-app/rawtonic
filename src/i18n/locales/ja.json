@@ -2221,6 +2221,7 @@
         "EasyPortrait face parsing (FPN + ResNet-50)": "顔のレタッチ用の目の開口部と歯（SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin）。変更: ONNX と Core ML に変換し、CC BY-SA 4.0 で公開。",
         "Jiff / Unicode CLDR": "Windows のタイムゾーン名と IANA 識別子の対応表。",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
+        "kamadak-exif": "EXIF の読み取り。64 KiB を超える HEIF の EXIF 項目を受け付ける Rawtonic 独自の修正を適用しています。",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
