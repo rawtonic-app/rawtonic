@@ -724,7 +724,7 @@ fn save_image_with_metadata(
     export_settings: &ExportSettings,
     generated: bool,
     pinned: &PinnedPhoto,
-    size_limit_missed: &dyn Fn(rawtonic_export::size_limit::SizeLimitMiss),
+    size_limit_missed: &dyn Fn(rawtonic_export::size_limit::SizeLimitNotice),
 ) -> Result<(), String> {
     let exif_sidecar = || pinned.exif(Path::new(source_path_str));
     let catalog = || pinned.metadata.clone();
@@ -734,7 +734,7 @@ fn save_image_with_metadata(
                  _extension: &str,
                  encoded: rawtonic_export::export_processing::EncodedExport| {
         if let Some(miss) = encoded.size_limit_miss() {
-            size_limit_missed(miss);
+            size_limit_missed(miss.for_file(path));
         }
         write_export_bytes(path, "", encoded)
     };
@@ -907,7 +907,7 @@ fn export_masks_for_image(
     enlarger: Option<&dyn rawtonic_export::export_processing::Enlarger>,
     pinned: &PinnedPhoto,
     cancellation_token: &AtomicBool,
-    size_limit_missed: &dyn Fn(rawtonic_export::size_limit::SizeLimitMiss),
+    size_limit_missed: &dyn Fn(rawtonic_export::size_limit::SizeLimitNotice),
 ) -> Result<(), String> {
     ensure_export_not_cancelled(cancellation_token)?;
     let (transformed_image, unscaled_crop_offset) =
@@ -2899,9 +2899,10 @@ fn export_photo(
                     .write_export(path, encoded)?;
                 *lock_recover(&written) = Some(file);
                 if let Some(miss) = miss {
+                    let notice = miss.for_file(path);
                     match &targets[target].tracking {
-                        Some(tracking) => tracking.size_limit_miss(item.global_index, miss),
-                        None => log::warn!("{}: {}", path.display(), miss.describe()),
+                        Some(tracking) => tracking.size_limit_miss(item.global_index, notice),
+                        None => log::warn!("{}", notice.describe()),
                     }
                 }
                 Ok(())
@@ -3021,9 +3022,9 @@ fn export_photo(
                     Some(&crate::super_resolution::ExportEnlarger { app_handle }),
                     &pinned,
                     &finish_photo,
-                    &|miss| match &targets[target].tracking {
-                        Some(tracking) => tracking.size_limit_miss(item.global_index, miss),
-                        None => log::warn!("{}: {}", output_path.display(), miss.describe()),
+                    &|notice| match &targets[target].tracking {
+                        Some(tracking) => tracking.size_limit_miss(item.global_index, notice),
+                        None => log::warn!("{}", notice.describe()),
                     },
                 )?;
             }

@@ -3480,6 +3480,22 @@
 .studio-export-items li.is-done > span {
   color: var(--studio-shade-success, #a8c8a0);
 }
+.studio-export-items li > .studio-export-notice {
+  grid-column: 1 / -1;
+  color: var(--studio-shade-warning, #d8c27a);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.studio-export-queue .studio-export-notices {
+  margin-top: 4px;
+}
+.studio-export-queue .studio-export-notices li {
+  display: block;
+  padding: 2px 0;
+  border-top: 0;
+  color: var(--studio-shade-warning, #d8c27a);
+  overflow-wrap: anywhere;
+}
 .studio-export-items li > progress {
   grid-column: 1 / -1;
   width: 100%;

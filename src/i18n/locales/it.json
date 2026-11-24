@@ -95,6 +95,7 @@
       "interrupted": "Esportazione interrotta: {{label}}",
       "nothingExported": "Nessuna foto esportata — {{existing}} ({{label}})",
       "running": "Esportazione di {{label}}",
+      "sizeLimitMissed": "Limite di dimensione del file non raggiunto: {{label}}",
       "waiting": "In attesa di esportazione: {{label}}"
     },
     "eyes": {
@@ -4009,7 +4010,6 @@
           "rendering": "Rendering e scrittura…",
           "replaced": "Esportazione precedente sostituita",
           "selecting": "Calcolo delle selezioni IA…",
-          "sizeLimitMissed": "File più piccolo scritto: {{size}} KB, oltre il limite di {{limit}} KB",
           "skippedExists": "Saltata: esiste un file con questo nome",
           "skippedUnchanged": "Saltata: invariata dall'ultima esportazione",
           "waiting": "In attesa"
@@ -4024,6 +4024,9 @@
         "retry": "Riprova",
         "running": "Esportazione ({{done}} di {{total}} esportate)",
         "show": "Mostra",
+        "sizeLimitMissed": "{{file}}: impossibile raggiungere {{limit}} KB; salvato il file più piccolo ({{size}} KB)",
+        "sizeLimitMore": "+{{n}} altri",
+        "sizeLimitNotices": "File sopra il loro limite di dimensione",
         "start": "Avvia",
         "startQueue": "Avvia la coda",
         "title": "Coda di esportazione",

@@ -74,6 +74,37 @@ it('says what each photo is doing, AI Denoise with its share done', () => {
   expect(describeExportItem(item(0, {}))).toBe('Waiting');
 });
 
+it('shows a missed file size limit on the job without opening it, and on its photo with every file', async () => {
+  const miss = (file: string, bytes: number) => ({ file, limitBytes: 500_000, bytes });
+  const misses = [miss('/out/0.jpg', 689_582), miss('/out/0_mask.jpg', 640_001)];
+  items = [item(0, { state: 'done', output: '/out/0.jpg', sizeLimitMisses: misses })];
+  useProcessStore
+    .getState()
+    .setExportQueue({ jobs: [job({ state: 'done', total: 1, done: 1, sizeLimitMisses: misses })], held: false });
+  render(<ExportQueuePanel onClose={() => {}} />);
+
+  const notices = screen.getByRole('list', { name: 'Files above their size limit' });
+  expect(
+    within(notices)
+      .getAllByRole('listitem')
+      .map((li) => li.textContent)
+  ).toEqual([
+    '0.jpg: could not reach 500 KB; saved the smallest file (690 KB)',
+    '0_mask.jpg: could not reach 500 KB; saved the smallest file (641 KB)'
+  ]);
+
+  fireEvent.click(screen.getByRole('button', { name: '1 photo' }));
+  const photos = await screen.findByRole('list', { name: 'Photos of 4 photos as JPG' });
+  expect(
+    within(photos)
+      .getAllByRole('note')
+      .map((note) => note.textContent)
+  ).toEqual([
+    '0.jpg: could not reach 500 KB; saved the smallest file (690 KB)',
+    '0_mask.jpg: could not reach 500 KB; saved the smallest file (641 KB)'
+  ]);
+});
+
 it('says what "If a file exists" skipped, replaced or kept, per job and per photo', () => {
   expect(describeExportJob(job({ state: 'done', done: 4 }))).toBe('Done · 4 written');
   expect(describeExportJob(job({ state: 'done', total: 6, done: 6, skipped: 2, replaced: 1 }))).toBe(

@@ -47,6 +47,34 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+it('keeps a finished export that missed its file size limit under attention, naming each file', () => {
+  const miss = (file: string, bytes = 689_582) => ({ file, limitBytes: 500_000, bytes });
+  useProcessStore.getState().setExportQueue({ jobs: [job({ done: 1 })], held: false });
+  expect(entry('export:j1')?.status).toBe('running');
+  useProcessStore.getState().setExportQueue({
+    jobs: [
+      job({
+        state: 'done',
+        total: 2,
+        done: 2,
+        sizeLimitMisses: [miss('/out/IMG_0001.jpg'), miss('/out/IMG_0001_mask.jpg', 612_000)]
+      })
+    ],
+    held: false
+  });
+  expect(entry('export:j1')).toMatchObject({
+    status: 'warning',
+    source: 'export',
+    title: 'File size limit not reached: 3 photos as JPG · 2 written',
+    detail:
+      'IMG_0001.jpg: could not reach 500 KB; saved the smallest file (690 KB)\n' +
+      'IMG_0001_mask.jpg: could not reach 500 KB; saved the smallest file (612 KB)'
+  });
+  // An export that met its limit still just finishes.
+  useProcessStore.getState().setExportQueue({ jobs: [job({ id: 'j2', state: 'done', done: 3 })], held: false });
+  expect(entry('export:j2')?.status).toBe('done');
+});
+
 it('shows a running export with its progress and Cancel', async () => {
   useProcessStore.getState().setExportQueue({ jobs: [job({ done: 1 })], held: false });
   expect(entry('export:j1')).toMatchObject({

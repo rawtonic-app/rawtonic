@@ -85,6 +85,7 @@
       "interrupted": "Export interrupted: {{label}}",
       "nothingExported": "Nothing exported — {{existing}} ({{label}})",
       "running": "Exporting {{label}}",
+      "sizeLimitMissed": "File size limit not reached: {{label}}",
       "waiting": "Waiting to export {{label}}"
     },
     "eyes": {
@@ -3842,7 +3843,6 @@
           "rendering": "Rendering and writing…",
           "replaced": "Replaced its earlier export",
           "selecting": "Computing AI selections…",
-          "sizeLimitMissed": "Smallest file written: {{size}} KB, above the {{limit}} KB limit",
           "skippedExists": "Skipped: a file of its name exists",
           "skippedUnchanged": "Skipped: unchanged since its last export",
           "waiting": "Waiting"
@@ -3856,6 +3856,9 @@
         "retry": "Retry",
         "running": "Exporting ({{done}} of {{total}} exported)",
         "show": "Show",
+        "sizeLimitMissed": "{{file}}: could not reach {{limit}} KB; saved the smallest file ({{size}} KB)",
+        "sizeLimitMore": "+{{n}} more",
+        "sizeLimitNotices": "Files above their size limit",
         "start": "Start",
         "startQueue": "Start queue",
         "title": "Export queue",

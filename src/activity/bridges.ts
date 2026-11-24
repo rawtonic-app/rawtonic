@@ -11,7 +11,7 @@ import { listen } from '@tauri-apps/api/event';
 import i18n from 'i18next';
 import { Invokes } from '../components/ui/AppProperties';
 import { renderErrorMessage } from '../utils/renderErrors';
-import { describeCompletedExports } from '../utils/exportFeedback';
+import { describeCompletedExports, describeSizeLimitMisses } from '../utils/exportFeedback';
 import { formatBytes } from '../utils/previews';
 import { useActivityStore } from '../store/useActivityStore';
 import { useEditorStore } from '../store/useEditorStore';
@@ -165,7 +165,17 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
         job.skipped === job.total
           ? i18n.t('activity.export.nothingExported', { label: job.label, existing: completed })
           : `${job.label} · ${completed}`;
-      activity.finish(id, { source: 'export', title });
+      const misses = job.sizeLimitMisses ?? [];
+      if (misses.length)
+        // A file above the size limit the photographer asked for needs a look
+        // (an upload may refuse it): it stays until dismissed.
+        activity.report('warning', {
+          id,
+          source: 'export',
+          title: `${i18n.t('activity.export.sizeLimitMissed', { label: job.label })} · ${completed}`,
+          detail: describeSizeLimitMisses(misses).join('\n')
+        });
+      else activity.finish(id, { source: 'export', title });
     } else {
       // Cancelled or paused by the user, or waiting while the queue is held.
       activity.resolve(id);

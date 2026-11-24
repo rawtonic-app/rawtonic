@@ -322,7 +322,7 @@ mod tests {
             error: None,
             attempts: 1,
             outcome: None,
-            size_limit_miss: None,
+            size_limit_misses: Vec::new(),
             started_ms: None,
             finished_ms: None,
         }

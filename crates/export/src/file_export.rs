@@ -357,7 +357,7 @@ impl FileExporter {
             let file = job.publish.write_export(path, encoded)?;
             if let Some(miss) = miss {
                 // The CLI's log is its result; the app queue shows it per photo.
-                log::warn!("{}: {}", path.display(), miss.describe());
+                log::warn!("{}", miss.for_file(path).describe());
             }
             *written.lock().unwrap_or_else(|e| e.into_inner()) = Some(file);
             Ok(())

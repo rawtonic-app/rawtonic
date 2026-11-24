@@ -1719,15 +1719,22 @@ fn export(args: ExportArgs) -> Result<()> {
                         "jpg" | "jpeg"
                     )
                 {
-                    let miss = rawtonic_export::size_limit::SizeLimitMiss {
+                    let notice = rawtonic_export::size_limit::SizeLimitMiss {
                         limit_bytes: limit,
                         bytes: file.size,
-                    };
-                    eprintln!("Rawtonic: {}: {}", output.display(), miss.describe());
+                    }
+                    .for_file(output);
+                    let message = notice.describe();
+                    cli_eprintln!("Rawtonic: {message}");
                     size_limit_missed
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
-                        .push(serde_json::json!({"output": output, "limitBytes": limit, "bytes": file.size}));
+                        .push(serde_json::json!({
+                            "file": notice.file,
+                            "limitBytes": notice.limit_bytes,
+                            "bytes": notice.bytes,
+                            "message": message,
+                        }));
                 }
                 Ok(output.clone())
             }
