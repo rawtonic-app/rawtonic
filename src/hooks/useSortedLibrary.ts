@@ -319,9 +319,11 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     if (unknown && (filterCriteria.eyes ?? 'all') !== 'all') return false;
     if (unknown && (filterCriteria.suggestion ?? 'all') !== 'all') return false;
     if (catalogMatches !== null && !unknown) {
-      // A virtual copy is found as its photograph (its own keywords are
-      // not in the catalog's index: an open gap, G37).
-      if (!catalogMatches.has(photo)) return false;
+      // A virtual copy the catalog records is found by its own rating,
+      // label and keywords, as Lightroom finds it; one it does not record
+      // yet, as its photograph.
+      const item = image.path !== photo && catalogKnown?.has(image.path) ? image.path : photo;
+      if (!catalogMatches.has(item)) return false;
       if (parsedTags.length === 0) return true;
     }
 

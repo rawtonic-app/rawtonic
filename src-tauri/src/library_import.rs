@@ -114,8 +114,9 @@ pub struct ImportReport {
     pub copies_in_albums: Vec<String>,
     /// Smart albums imported on camera, lens, ISO or capture date: the
     /// catalog fills them as the background pass reads the files, and
-    /// camera words are matched in the name the file states, not as
-    /// Lightroom does, so they can differ from Lightroom's. (Lens rules use
+    /// camera words are matched in the camera's one make and model, not in
+    /// the model alone as Lightroom does, so they can differ from
+    /// Lightroom's. (Lens rules use
     /// Lightroom's own lens name for each photograph, kept by the import.)
     pub smart_albums_by_facts: Vec<String>,
     /// Edits here (photographs' and virtual copies') a repeated import
@@ -341,9 +342,11 @@ fn smart_condition(
             let op = compare(operation).filter(|op| matches!(op, Op::Is | Op::IsNot))?;
             (Field::Label, op, json!(label))
         }
-        // Lightroom's camera name is the maker and the model ("Canon EOS
-        // 600D"); the catalog keeps them apart, so a word is looked for in
-        // either. A whole name has no column to compare with.
+        // Lightroom's camera name is the model as the camera writes it
+        // ("Canon EOS 600D", "NIKON D750", "ILCE-7M3"; measured, SMR5); the
+        // catalog keeps one make and model per camera
+        // (`rawtonic_raw_format::camera_names`), so a word is looked for in
+        // either, and a whole name is that camera's one make and model.
         "camera" => {
             let in_either = |op: Op, words: &str| {
                 [Field::Camera, Field::Make]
@@ -383,6 +386,46 @@ fn smart_condition(
                     combine: Combine::None,
                     rules: in_either(Op::ContainsAny, &text(value)?),
                 }),
+                // Lightroom ignores case; the catalog's "is" does too.
+                "==" | "!=" => {
+                    let name = text(value)?;
+                    let rules = match rawtonic_raw_format::camera_names::canonical_of_model(&name) {
+                        Some((make, model)) => vec![
+                            Rule::Condition {
+                                field: Field::Make,
+                                op: Op::Is,
+                                value: json!(make),
+                            },
+                            Rule::Condition {
+                                field: Field::Camera,
+                                op: Op::Is,
+                                value: json!(model),
+                            },
+                        ],
+                        // A camera the decoder does not know keeps the
+                        // names its files give.
+                        None => vec![Rule::Condition {
+                            field: Field::Camera,
+                            op: Op::Is,
+                            value: json!(name.trim()),
+                        }],
+                    };
+                    Some(Rule::Group {
+                        combine: if operation == "==" {
+                            Combine::All
+                        } else {
+                            Combine::None
+                        },
+                        rules: if operation == "==" {
+                            rules
+                        } else {
+                            vec![Rule::Group {
+                                combine: Combine::All,
+                                rules,
+                            }]
+                        },
+                    })
+                }
                 "empty" | "notEmpty" => Some(Rule::Condition {
                     field: Field::Camera,
                     op: if operation == "empty" {
@@ -4469,7 +4512,9 @@ mod tests {
         assert_eq!(italy.parent.as_deref(), Some(trips.id.as_str()));
         assert_eq!(catalog.collection_assets(&italy.id).unwrap().len(), 1);
         let best = collections.iter().find(|c| c.name == "Best picks").unwrap();
-        assert_eq!((best.kind.as_str(), best.count), (SMART, 1));
+        // The photograph and its virtual copy (rated 4 as well; the pick is
+        // the photograph's) are both in it.
+        assert_eq!((best.kind.as_str(), best.count), (SMART, 2));
         let best_id = best.id.clone();
         assert_eq!(best.parent.as_deref(), Some(trips.id.as_str()));
         assert!(!collections.iter().any(|c| c.name == "Recently edited"));
@@ -4507,7 +4552,7 @@ mod tests {
         let after = catalog.collections().unwrap();
         let best: Vec<_> = after.iter().filter(|c| c.name == "Best picks").collect();
         assert_eq!(best.len(), 2);
-        assert!(best.iter().any(|c| c.id == best_id && c.count == 1));
+        assert!(best.iter().any(|c| c.id == best_id && c.count == 2));
         assert!(best.iter().any(|c| c.id != best_id && c.count == 0));
     }
 
@@ -5047,8 +5092,15 @@ mod tests {
         assert!(one("isoSpeedRating", ">=", text("800")).is_none());
         assert!(one("camera", "words", SmartValue::Number(1.0)).is_none());
         assert!(one("camera", "sideways", text("x")).is_none());
-        // A whole name ("Canon EOS 600D") is not the model the catalog reads.
-        assert!(one("camera", "==", text("Canon EOS 600D")).is_none());
+        // Lightroom's whole name ("Canon EOS 600D") is the camera's one make
+        // and model in the catalog.
+        assert_eq!(
+            one("camera", "==", text("Canon EOS 600D")).unwrap(),
+            json!({"combine": "all", "rules": [
+                {"field": "make", "op": "is", "value": "Canon"},
+                {"field": "camera", "op": "is", "value": "EOS 600D"}]})
+        );
+        assert!(one("camera", "beginsWith", text("Canon EOS")).is_none());
     }
 
     /// The translated rules select photographs by the camera, lens, name
@@ -5166,6 +5218,11 @@ mod tests {
         assert_eq!(
             members("camera", "noneOf", text("Canon")),
             ["19c.DNG", "20d.NEF"]
+        );
+        assert_eq!(members("camera", "==", text("canon EOS 6D")), ["18b.CR2"]);
+        assert_eq!(
+            members("camera", "!=", text("Canon EOS 6D")),
+            ["17a.CR2", "19c.DNG", "20d.NEF"]
         );
         assert_eq!(members("lens", "words", text("TAMRON")), ["18b.CR2"]);
         assert_eq!(

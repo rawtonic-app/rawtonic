@@ -84,8 +84,13 @@ export function useCatalogSearch() {
         const mine = ++generation;
         const current = () =>
           !cancelled && mine === generation && useLibraryStore.getState().sessionDirectory === directory;
-        const paths = (asked: Promise<string[]>) => asked.then((list) => new Set(list.map(photographPath)));
-        Promise.all([paths(search(rule)), paths(search(scope ?? { combine: 'all', rules: [] }))])
+        // Photographs and the virtual copies the rule matches (a copy as
+        // `<photograph>?vc=<copy>`, found by its own metadata), and those
+        // the catalog holds at all (a copy's photograph with it).
+        const matched = (asked: Promise<string[]>) => asked.then((list) => new Set(list));
+        const held = (asked: Promise<string[]>) =>
+          asked.then((list) => new Set(list.flatMap((path) => [path, photographPath(path)])));
+        Promise.all([matched(search(rule)), held(search(scope ?? { combine: 'all', rules: [] }))])
           .then(([matches, known]) => {
             if (!current()) return;
             setLibrary({ catalogMatches: matches, catalogKnown: known });

@@ -80,6 +80,7 @@ impl CaptureFacts {
                 .filter(|t| !t.is_empty())
         };
         let positive = |v: Option<f64>| v.filter(|n| n.is_finite() && *n > 0.0);
+        let names = camera_names(text(&self.make), text(&self.model));
         Self {
             captured: self
                 .captured
@@ -104,8 +105,8 @@ impl CaptureFacts {
                 })
                 .filter(|_| self.captured.is_some())
                 .map(str::to_string),
-            make: text(&self.make),
-            model: text(&self.model),
+            make: names.0,
+            model: names.1,
             lens: text(&self.lens),
             focal_length: positive(self.focal_length),
             aperture: positive(self.aperture),
@@ -125,6 +126,68 @@ impl CaptureFacts {
             sequence: self.sequence.filter(|n| (1..=1_000_000).contains(n)),
         }
     }
+}
+
+/// The camera's one make and model for every file of it
+/// (`rawtonic_raw_format::camera_names::canonical_names`): a body's RAW,
+/// whose decoder gives the catalogue's clean names, and its JPEG or HEIF,
+/// whose EXIF states the names the camera writes (`NIKON CORPORATION` /
+/// `NIKON D750` → `Nikon` / `D750`), are one camera in the library's
+/// lists, searches and smart albums.
+fn camera_names(make: Option<String>, model: Option<String>) -> (Option<String>, Option<String>) {
+    let (Some(make), Some(model)) = (&make, &model) else {
+        return (make, model);
+    };
+    let (make, model) = rawtonic_raw_format::camera_names::canonical_names(make, model);
+    let some = |t: String| (!t.is_empty()).then_some(t);
+    (some(make), some(model))
+}
+
+/// Gives the photographs' stored make and model the camera naming of the
+/// decoder catalogue in use (`camera_names`) when they were named by
+/// another one, or before one name per camera (schema 34): the names a
+/// camera's files state map to the same one name, so this is the names
+/// the files would be given now, without reading them. Once per catalogue.
+pub(crate) fn one_camera_names(conn: &Connection) -> Result<()> {
+    let now = rawtonic_raw_format::camera_names::naming_fingerprint();
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT fingerprint FROM camera_naming WHERE id=1",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if stored.as_deref() == Some(now) {
+        return Ok(());
+    }
+    let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+    let pairs: Vec<(String, String)> = tx
+        .prepare(
+            "SELECT DISTINCT coalesce(make,''), coalesce(camera,'') FROM assets \
+             WHERE coalesce(make,'')!='' AND coalesce(camera,'')!=''",
+        )?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    for (make, model) in pairs {
+        let (Some(one_make), Some(one_model)) =
+            camera_names(Some(make.clone()), Some(model.clone()))
+        else {
+            continue;
+        };
+        if one_make != make || one_model != model {
+            tx.execute(
+                "UPDATE assets SET make=?,camera=? WHERE make=? AND camera=?",
+                params![one_make, one_model, make, model],
+            )?;
+        }
+    }
+    tx.execute(
+        "INSERT INTO camera_naming(id,fingerprint) VALUES(1,?) \
+         ON CONFLICT(id) DO UPDATE SET fingerprint=excluded.fingerprint",
+        [now],
+    )?;
+    tx.commit()?;
+    Ok(())
 }
 
 /// Stores `facts` as asset `id`'s and marks its file read. The camera's

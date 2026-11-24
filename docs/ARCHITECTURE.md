@@ -27,7 +27,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 |---|---|---|---|---|
 | `catalog` | SQLite schema, sessions/catalogs, recipes, search | `fs`, `metadata` | `lib`, `query`, `add` | `core:test` |
 | `fs` | file-safety kernel: atomic write, no-clobber publish, temporary and staging files; volume detection | none | `lib`, `no_clobber`, `temp`, `staging`, `volume` | `core:test` |
-| `raw-format` | Photo extensions and camera RAW container classification shared by sidecar ownership and decode routing | `fs` | `classify_cached` | synthetic TIFFs and optional private samples |
+| `raw-format` | Photo extensions and camera RAW container classification shared by sidecar ownership and decode routing; one make and model per camera from rawler's catalogue (`camera_names`, for camera defaults and the catalog's capture facts) | `fs` | `classify_cached`, `camera_names::canonical_names` | synthetic TIFFs and optional private samples |
 | `metadata` | XMP sidecars, provenance, labels, hierarchical keyword paths (levels joined by a pipe, TS twin `src/utils/keywordTree.ts`), photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs`, `raw-format`, `recipe` | `lib`, `provenance`, `labels`, `keywords`, `photo_ref` | `core:test` |
 | `fileops` | journaled rename/move/trash, `purge` | `fs` | `lib`, `volume`, `tree` | `core:test`; crash hooks |
 | `naming` | strict filename templates | runtime | `lib` | `core:test` |

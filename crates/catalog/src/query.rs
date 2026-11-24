@@ -110,7 +110,8 @@ pub enum Field {
     /// AI_FACTS` by name: generated areas and the model that filled them,
     /// AI selections, AI Denoise, AI results still missing; `none` for
     /// none). A photograph has the facts of its own recipe and its virtual
-    /// copies' (copies are found as their photograph).
+    /// copies'; a copy listed as an item of its own (`search_items`) its
+    /// own.
     Ai,
     /// The IPTC Digital Source Type the file states (its IPTC code,
     /// `trainedAlgorithmicMedia`; `none` for none).
@@ -316,7 +317,30 @@ struct Compiler<'a> {
     /// The separator of the stored paths (`rel_path`, `roots.path`): the
     /// platform's, as `Path` gives them when photographs are registered.
     sep: char,
+    /// The condition is evaluated for virtual copies (`COPY_ITEMS`): `m` is
+    /// the copy's own metadata, its keywords those of `copy_keywords`.
+    copies: bool,
 }
+
+/// A virtual copy as searches see it (`Library::search_items`): its own
+/// rating, colour label and keywords (from its recorded editor state, as
+/// `copy_metadata` reads them), and its photograph's flag (flags belong to
+/// the photograph) and other metadata. `m` in a copy condition.
+const COPY_ITEMS: &str = "WITH copy_items(asset_id, copy, rating, label, flag, data) AS (
+    SELECT v.asset_id, v.name,
+           max(0, min(5, coalesce(CAST(json_extract(v.legacy_state, '$.rating') AS INTEGER), 0))),
+           coalesce((SELECT lower(substr(t.value, 7)) FROM json_each(v.legacy_state, '$.tags') t
+                     WHERE t.type='text' AND substr(t.value, 1, 6)='color:'
+                     ORDER BY t.key DESC LIMIT 1), ''),
+           md.flag, md.data
+    FROM versions v JOIN metadata md ON md.asset_id=v.asset_id
+    WHERE v.is_primary=0 AND json_valid(v.legacy_state)),
+  copy_keywords(asset_id, copy, keyword) AS (
+    SELECT DISTINCT v.asset_id, v.name,
+           CASE WHEN substr(t.value, 1, 5)='user:' THEN substr(t.value, 6) ELSE t.value END
+    FROM versions v, json_each(v.legacy_state, '$.tags') t
+    WHERE v.is_primary=0 AND json_valid(v.legacy_state) AND t.type='text'
+      AND substr(t.value, 1, 6)!='color:')";
 
 fn words(value: &Value) -> Result<Vec<String>> {
     let text = value.as_str().context("Text rules need a text value")?;
@@ -398,9 +422,16 @@ const AI_ANY: u32 = {
 /// The photographs one of whose versions (its recipe, a virtual copy) has
 /// any of `bits`. A constant in the text: it selects the partial index of
 /// versions with facts (`versions_ai_facts`).
-fn ai_test(bits: u32) -> String {
+/// A photograph has the facts of any of its versions; a virtual copy
+/// (`copies`) those of its own.
+fn ai_test(bits: u32, copies: bool) -> String {
+    let own = if copies {
+        " AND name=m.copy AND is_primary=0"
+    } else {
+        ""
+    };
     format!(
-        "a.id IN (SELECT asset_id FROM versions WHERE ai_facts != 0 AND (ai_facts & {bits}) != 0)"
+        "a.id IN (SELECT asset_id FROM versions WHERE ai_facts != 0 AND (ai_facts & {bits}) != 0{own})"
     )
 }
 
@@ -453,6 +484,17 @@ impl<'a> Compiler<'a> {
             roots: false,
             duplicates: false,
             sep: std::path::MAIN_SEPARATOR,
+            copies: false,
+        }
+    }
+
+    /// The keywords of the photograph or copy a condition tests, as `k`
+    /// (followed by more conditions on `k`).
+    fn keywords(&self) -> &'static str {
+        if self.copies {
+            "copy_keywords k WHERE k.asset_id=a.id AND k.copy=m.copy"
+        } else {
+            "asset_keywords k WHERE k.asset_id=a.id"
         }
     }
 
@@ -543,6 +585,23 @@ impl<'a> Compiler<'a> {
         }
         let mut parts = Vec::with_capacity(words.len());
         for word in words {
+            if self.copies {
+                // A copy's searchable text (`search_text`) with its own
+                // keywords, read from its row (copies are few).
+                self.push(word);
+                parts.push(
+                    "instr(rawtonic_fold(a.rel_path || ' ' || \
+                     coalesce((SELECT group_concat(k.keyword, ' ') FROM copy_keywords k \
+                               WHERE k.asset_id=a.id AND k.copy=m.copy), '') || ' ' || \
+                     coalesce(json_extract(m.data, '$.title'), '') || ' ' || \
+                     coalesce(json_extract(m.data, '$.description'), '') || ' ' || \
+                     coalesce(json_extract(m.data, '$.creator'), '') || ' ' || \
+                     coalesce((SELECT group_concat(value, ' ') FROM json_each(m.data, '$.iptc')), '') || ' ' || \
+                     a.make || ' ' || a.camera || ' ' || a.lens), rawtonic_fold(?)) > 0"
+                        .to_string(),
+                );
+                continue;
+            }
             // The index holds folded text and compares exactly.
             let phrase = format!("\"{}\"", crate::fold(&word).replace('"', "\"\""));
             // A word most photographs have (the first letters of a file
@@ -805,12 +864,12 @@ impl<'a> Compiler<'a> {
     fn ai_has(&mut self, bits: u32) -> String {
         let mut parts = Vec::new();
         if bits & !RAW_ONLY != 0 {
-            parts.push(ai_test(bits & !RAW_ONLY));
+            parts.push(ai_test(bits & !RAW_ONLY, self.copies));
         }
         if bits & RAW_ONLY != 0 {
             parts.push(format!(
                 "({} AND {})",
-                ai_test(bits & RAW_ONLY),
+                ai_test(bits & RAW_ONLY, self.copies),
                 self.raw_test()
             ));
         }
@@ -883,12 +942,15 @@ impl<'a> Compiler<'a> {
                     let path = text_value(value)?;
                     self.push(path.clone());
                     self.push(path);
-                    let test = "EXISTS(SELECT 1 FROM asset_keywords k WHERE k.asset_id=a.id \
-                                AND (rawtonic_fold(k.keyword)=rawtonic_fold(?) \
-                                     OR (instr(k.keyword, '|') > 0 \
-                                         AND rawtonic_keyword_within(k.keyword, ?))))";
+                    let test = format!(
+                        "EXISTS(SELECT 1 FROM {} \
+                         AND (rawtonic_fold(k.keyword)=rawtonic_fold(?) \
+                              OR (instr(k.keyword, '|') > 0 \
+                                  AND rawtonic_keyword_within(k.keyword, ?))))",
+                        self.keywords()
+                    );
                     Ok(if op == Op::Is {
-                        test.into()
+                        test
                     } else {
                         format!("NOT {test}")
                     })
@@ -911,7 +973,8 @@ impl<'a> Compiler<'a> {
                         Op::NotContains => {
                             let positive = self.text_words("k.keyword", Op::ContainsAny, value)?;
                             return Ok(format!(
-                                "NOT EXISTS(SELECT 1 FROM asset_keywords k WHERE k.asset_id=a.id AND {positive})"
+                                "NOT EXISTS(SELECT 1 FROM {} AND {positive})",
+                                self.keywords()
                             ));
                         }
                         _ => {
@@ -921,12 +984,13 @@ impl<'a> Compiler<'a> {
                             if words.is_empty() {
                                 return Ok(if op == Op::ContainsAny { "0" } else { "1" }.into());
                             }
+                            let keywords = self.keywords();
                             let parts: Vec<String> = words
                                 .into_iter()
                                 .map(|w| {
                                     self.push(w);
                                     format!(
-                                        "EXISTS(SELECT 1 FROM asset_keywords k WHERE k.asset_id=a.id AND {})",
+                                        "EXISTS(SELECT 1 FROM {keywords} AND {})",
                                         contains_sql("k.keyword")
                                     )
                                 })
@@ -936,15 +1000,12 @@ impl<'a> Compiler<'a> {
                         }
                     };
                     Ok(format!(
-                        "EXISTS(SELECT 1 FROM asset_keywords k WHERE k.asset_id=a.id AND {inner})"
+                        "EXISTS(SELECT 1 FROM {} AND {inner})",
+                        self.keywords()
                     ))
                 }
-                Op::Empty => {
-                    Ok("NOT EXISTS(SELECT 1 FROM asset_keywords k WHERE k.asset_id=a.id)".into())
-                }
-                Op::NotEmpty => {
-                    Ok("EXISTS(SELECT 1 FROM asset_keywords k WHERE k.asset_id=a.id)".into())
-                }
+                Op::Empty => Ok(format!("NOT EXISTS(SELECT 1 FROM {})", self.keywords())),
+                Op::NotEmpty => Ok(format!("EXISTS(SELECT 1 FROM {})", self.keywords())),
                 _ => bail!("This operator does not apply to keywords"),
             },
             Field::FileType => {
@@ -1182,9 +1243,13 @@ impl<'a> Compiler<'a> {
             }
             Field::Stacked => {
                 let wanted = value.as_bool().context("Stacked is true or false")?;
-                let test = "EXISTS(SELECT 1 FROM stack_members m WHERE m.asset_id=a.id)";
+                // The photograph's or the copy's own stack membership.
+                let test = format!(
+                    "EXISTS(SELECT 1 FROM stack_members s WHERE s.asset_id=a.id AND s.copy={})",
+                    if self.copies { "m.copy" } else { "''" }
+                );
                 match (op, wanted) {
-                    (Op::Is, true) | (Op::IsNot, false) => Ok(test.to_string()),
+                    (Op::Is, true) | (Op::IsNot, false) => Ok(test),
                     (Op::Is, false) | (Op::IsNot, true) => Ok(format!("NOT {test}")),
                     _ => bail!("Use is / is not for stacked"),
                 }
@@ -1245,6 +1310,8 @@ impl<'a> Compiler<'a> {
             ))?;
         Ok(match row {
             None => "0".into(),
+            // An album holds photographs; a virtual copy is never in one.
+            Some((kind, _)) if kind == crate::ALBUM && self.copies => "0".into(),
             Some((kind, _)) if kind == crate::ALBUM => {
                 self.push(id.to_string());
                 "a.id IN (SELECT asset_id FROM collection_assets WHERE collection_id=?)".into()
@@ -1662,6 +1729,87 @@ impl Library {
             Ok(self.join_root(root, external, relative))
         })
         .collect()
+    }
+
+    /// The photographs and the virtual copies `rule` matches, by place
+    /// (root, path in it, the photograph before its copies): a copy by its
+    /// own rating, colour label and keywords and what it shares with its
+    /// photograph (`COPY_ITEMS`), as `<photograph>?vc=<copy>`. What
+    /// smart albums and the Library's search list (Lightroom evaluates a
+    /// virtual copy as a photograph of its own; notes:
+    /// benchmark-results/smr5-2026-11-24).
+    pub fn search_items(&self, rule: &Rule) -> Result<Vec<PathBuf>, CatalogError> {
+        self.search_items_for_listing(rule, None)
+    }
+
+    /// `search_items` with an explicit folder-grid context
+    /// (`search_for_listing`).
+    pub fn search_items_for_listing(
+        &self,
+        rule: &Rule,
+        listed: Option<&Path>,
+    ) -> Result<Vec<PathBuf>, CatalogError> {
+        let visible = self.visible_assets_for_listing(listed);
+        let compiled = self.compile_visible(rule, visible)?;
+        let mut items: Vec<(String, String, Option<String>, PathBuf)> = Vec::new();
+        let mut query = self.conn.prepare(&format!(
+            "SELECT a.root_id,a.rel_path,r.path,r.external FROM {} WHERE {}",
+            compiled.from(false, true),
+            compiled.condition
+        ))?;
+        let mut rows = query.query(compiled.params().as_slice())?;
+        while let Some(row) = rows.next()? {
+            let photo = self.join_root(row.get(2)?, row.get(3)?, row.get(1)?);
+            items.push((row.get(0)?, row.get(1)?, None, photo));
+        }
+        let copies = self.compile_copies(rule, visible)?;
+        let mut query = self.conn.prepare(&format!(
+            "{COPY_ITEMS} SELECT a.root_id,a.rel_path,r.path,r.external,m.copy \
+             FROM assets a JOIN copy_items m ON m.asset_id=a.id JOIN roots r ON r.id=a.root_id \
+             WHERE {}",
+            copies.condition
+        ))?;
+        let mut rows = query.query(copies.params().as_slice())?;
+        while let Some(row) = rows.next()? {
+            let copy: String = row.get(4)?;
+            let photo = self.join_root(row.get(2)?, row.get(3)?, row.get(1)?);
+            let path = PathBuf::from(
+                rawtonic_metadata::photo_ref::PhotoRef::of_path(&photo, Some(&copy)).format(),
+            );
+            items.push((row.get(0)?, row.get(1)?, Some(copy), path));
+        }
+        items.sort_by(|a, b| (&a.0, &a.1, &a.2).cmp(&(&b.0, &b.1, &b.2)));
+        Ok(items.into_iter().map(|item| item.3).collect())
+    }
+
+    /// How many photographs and virtual copies `rule` matches
+    /// (`search_items`).
+    pub fn search_item_count(&self, rule: &Rule) -> Result<usize, CatalogError> {
+        let copies = self.compile_copies(rule, self.visible_assets())?;
+        let copies: i64 = self.conn.query_row(
+            &format!(
+                "{COPY_ITEMS} SELECT count(*) FROM assets a JOIN copy_items m ON m.asset_id=a.id \
+                 JOIN roots r ON r.id=a.root_id WHERE {}",
+                copies.condition
+            ),
+            copies.params().as_slice(),
+            |r| r.get(0),
+        )?;
+        Ok(self.search_count(rule)? + copies as usize)
+    }
+
+    /// `rule` compiled for virtual copies (`COPY_ITEMS`).
+    fn compile_copies(&self, rule: &Rule, visible: &str) -> Result<Compiled> {
+        rule.validate()?;
+        let mut compiler = Compiler::new(&self.directory, Some(self));
+        compiler.copies = true;
+        let condition = format!("({visible}) AND ({})", compiler.rule(rule)?);
+        Ok(Compiled {
+            condition,
+            params: compiler.params,
+            metadata: true,
+            roots: true,
+        })
     }
 
     /// Ids of the photographs `rule` matches, in the order of `search`.
