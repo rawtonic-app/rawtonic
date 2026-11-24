@@ -9,7 +9,7 @@ use rawtonic_fs::Canonical;
 use std::fs::{self, File};
 use std::io::{Cursor, Read};
 use std::os::unix::fs::MetadataExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::utils::config::AppDirectoriesOverride;
 
@@ -45,26 +45,29 @@ fn replace_if_changed_through_the_desktop_worker() {
     )
     .unwrap();
 
-    let run = |exposure: f64, expected: Option<(Outcome, &str)>| {
+    let run = |explicit: Option<&Path>, exposure: f64, expected: Option<(Outcome, &str)>| {
         rawtonic_fs::atomic_write(
             &adjustments,
             serde_json::to_vec(&serde_json::json!({"exposure": exposure})).unwrap(),
         )
         .unwrap();
-        let result = Command::new(env!("CARGO_BIN_EXE_rawtonic-app"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rawtonic-app"));
+        command
             .arg("export")
             .arg(&source)
             .arg("--output")
-            .arg(&output)
-            .arg("--recipes")
-            .arg(&recipes)
+            .arg(explicit.unwrap_or(&output))
             .arg("--adjustments")
             .arg(&adjustments)
             .args(["--jobs", "1"])
             .env("TMPDIR", &root)
-            .env("RUST_LOG", "debug")
-            .output()
-            .unwrap();
+            .env("RUST_LOG", "debug");
+        if explicit.is_some() {
+            command.args(["--format", "png", "--on-conflict", "replace-if-changed"]);
+        } else {
+            command.arg("--recipes").arg(&recipes);
+        }
+        let result = command.output().unwrap();
         let log = fs::read_to_string(data.join("logs/app.log")).unwrap_or_default();
         assert!(
             result.status.success(),
@@ -91,7 +94,7 @@ fn replace_if_changed_through_the_desktop_worker() {
 
     let own = output.join("delivery.png");
     let numbered = output.join("delivery_1.png");
-    run(0.0, None);
+    run(None, 0.0, None);
     let first = fs::read(&own).unwrap();
     let mut open_first = File::open(&own).unwrap();
     let first_inode = open_first.metadata().unwrap().ino();
@@ -99,13 +102,13 @@ fn replace_if_changed_through_the_desktop_worker() {
         ExportRecords::open(&rawtonic_export::existing_files::records_path(&data)).unwrap();
     let first_record = records.get(&own).unwrap().unwrap();
 
-    run(0.0, Some((Outcome::SkippedUnchanged, "delivery.png")));
+    run(None, 0.0, Some((Outcome::SkippedUnchanged, "delivery.png")));
     assert_eq!(fs::read(&own).unwrap(), first);
     assert_eq!(fs::metadata(&own).unwrap().ino(), first_inode);
     assert_eq!(records.get(&own).unwrap().unwrap(), first_record);
     assert!(!numbered.exists());
 
-    run(0.5, Some((Outcome::Replaced, "delivery.png")));
+    run(None, 0.5, Some((Outcome::Replaced, "delivery.png")));
     let replacement = fs::read(&own).unwrap();
     assert_ne!(
         image::open(&own).unwrap(),
@@ -127,7 +130,7 @@ fn replace_if_changed_through_the_desktop_worker() {
     let mut foreign = replacement;
     foreign[0] ^= 1;
     rawtonic_fs::atomic_write(&own, &foreign).unwrap();
-    run(1.0, Some((Outcome::KeptBoth, "delivery_1.png")));
+    run(None, 1.0, Some((Outcome::KeptBoth, "delivery_1.png")));
     assert_eq!(fs::read(&own).unwrap(), foreign);
     assert_eq!(records.get(&own).unwrap().unwrap(), replacement_record);
     assert!(
@@ -140,6 +143,30 @@ fn replace_if_changed_through_the_desktop_worker() {
     assert_eq!(
         image::open(&numbered).unwrap().to_rgb8().dimensions(),
         original.dimensions()
+    );
+
+    let save_as = output.join("chosen-name.png");
+    let sibling = output.join("chosen-name_1.png");
+    rawtonic_fs::atomic_write(&save_as, b"another program's file").unwrap();
+    assert!(records.get(&save_as).unwrap().is_none());
+    let before = fs::read_dir(&output).unwrap().count();
+    run(
+        Some(&save_as),
+        1.0,
+        Some((Outcome::KeptBoth, "chosen-name_1.png")),
+    );
+    assert_eq!(fs::read(&save_as).unwrap(), b"another program's file");
+    assert_eq!(fs::read_dir(&output).unwrap().count(), before + 1);
+    assert_eq!(
+        image::open(&sibling).unwrap().to_rgb8().dimensions(),
+        original.dimensions()
+    );
+    assert!(
+        records
+            .get(&sibling)
+            .unwrap()
+            .unwrap()
+            .is_export_of(&sibling, &first_record.source)
     );
     assert_eq!(fs::read(&source).unwrap(), *encoded.get_ref());
 }
