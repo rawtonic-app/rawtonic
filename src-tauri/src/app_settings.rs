@@ -180,6 +180,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "wbTint",
         "colorRanges",
         "blackAndWhite",
+        "blackAndWhiteToning",
         "grayMixer",
         "sharpnessFalloff",
         "sharpenRadius",
