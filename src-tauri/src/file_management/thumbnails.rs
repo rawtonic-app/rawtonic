@@ -1864,6 +1864,17 @@ impl ThumbnailCacheEntry {
         app_handle: &AppHandle,
         settings: &AppSettings,
     ) -> Option<Self> {
+        Self::lookup(path_str, thumb_cache_dir, settings, |source, sidecar| {
+            enqueue_metadata(app_handle, path_str.to_string(), source, sidecar);
+        })
+    }
+
+    fn lookup(
+        path_str: &str,
+        thumb_cache_dir: &Path,
+        settings: &AppSettings,
+        queue_metadata: impl FnOnce(PathBuf, PathBuf),
+    ) -> Option<Self> {
         let (source_path, sidecar_path) = parse_virtual_path(path_str);
 
         // Rating and edit state only when a sidecar was read: without one they
@@ -1871,12 +1882,7 @@ impl ThumbnailCacheEntry {
         // arrive after the photograph was registered with its rating.
         let mut lut = None;
         let (rating, is_edited, adjustments_bytes) = if is_cloud_placeholder(&sidecar_path) {
-            enqueue_metadata(
-                app_handle,
-                path_str.to_string(),
-                source_path.clone(),
-                sidecar_path.clone(),
-            );
+            queue_metadata(source_path.clone(), sidecar_path.clone());
             (None, None, Vec::new())
         } else if let Some(meta) = thumbnail_metadata(&source_path, &sidecar_path) {
             {
@@ -3965,6 +3971,58 @@ mod face_retouch_thumbnail_tests {
             compute_thumbnail_cache_hash(cr2, b"null"),
             thumbnail_hash_before_orf_preview(cr2, b"null")
         );
+    }
+
+    #[test]
+    fn an_offline_orf_lookup_finds_both_legacy_tiles_even_with_a_matching_proxy() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = rawtonic_catalog::Library::create(
+            temp.path(),
+            "Olympus",
+            rawtonic_catalog::Mode::Session,
+        )
+        .unwrap();
+        let source = lib.directory.join("Capture/photo.ORF");
+        std::fs::write(&source, b"ORF fixture").unwrap();
+        std::fs::write(
+            lib.directory.join("Capture/photo.ORF.rrdata"),
+            br#"{"version":1,"rating":0,"adjustments":null}"#,
+        )
+        .unwrap();
+        lib.add_files(std::slice::from_ref(&source)).unwrap();
+        let path = source.to_str().unwrap();
+        let cache = temp.path().join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        let proxy = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+            8,
+            8,
+            image::Rgb([0.2, 0.3, 0.4]),
+        ));
+        crate::preview_proxy::write_for_test(&source, &proxy, 8);
+        let legacy = thumbnail_hash_before_orf_preview(path, b"null").unwrap();
+        let small = cache.join(format!("{legacy}_small.jpg"));
+        let medium = cache.join(format!("{legacy}_medium.jpg"));
+        for tile in [&small, &medium] {
+            std::fs::write(tile, b"cached tile").unwrap();
+        }
+        let settings = AppSettings::default();
+        let lookup = || {
+            ThumbnailCacheEntry::lookup(path, &cache, &settings, |_, _| {
+                panic!("fixture has no cloud sidecar")
+            })
+            .unwrap()
+            .cached()
+        };
+        assert!(lookup().is_none(), "online, renew the legacy tiles");
+
+        std::fs::rename(&source, temp.path().join("disconnected.ORF")).unwrap();
+        assert_eq!(
+            crate::preview_proxy::stands_for_by_recipe(&source, &serde_json::Value::Null),
+            Some(true)
+        );
+        let (found_small, found_medium, _, _) = lookup().expect("offline, keep the legacy tiles");
+        assert_eq!(Path::new(&found_small), small);
+        assert_eq!(Path::new(&found_medium), medium);
     }
 
     #[test]
