@@ -1486,7 +1486,7 @@ export const COLOR_NOISE_VERSION = 11;
 export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
-export const TONE_VERSION = 22;
+export const TONE_VERSION = 23;
 
 /** The tone-slider response from which raised Whites move at the reference
  * editors' pace (`whites_amount_v17` in crates/engine/src/image_processing.rs). */
@@ -1532,6 +1532,11 @@ export const SHADOWS_TRAVEL_TONE_VERSION = 21;
  * above its base (`WHITES_EDGE_CAP_TONE_VERSION` in
  * crates/engine/src/recipe_versions.rs). */
 export const WHITES_EDGE_CAP_TONE_VERSION = 22;
+
+/** The tone-slider response from which raised Shadows and lowered
+ * Highlights add a per-pixel anchor term to their gain
+ * (`PIXEL_ANCHOR_TONE_VERSION` in crates/engine/src/recipe_versions.rs). */
+export const PIXEL_ANCHOR_TONE_VERSION = 23;
 
 const SHADOWS_V21_KNOTS: [number, number, number][] = [
   [0, 0, 1.61],

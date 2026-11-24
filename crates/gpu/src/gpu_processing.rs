@@ -4326,7 +4326,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 1 << 29;
+const PREVIEW_PIPELINE_COUNT: usize = 1 << 30;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -4348,7 +4348,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// 5 or older 8388608, halation 16777216, grain 33554432, raised Shadows'
 /// level of tone version 19 67108864, raised Shadows' bounds of tone
 /// version 20 134217728, lowered Whites' offset cap of tone version 22
-/// 268435456.
+/// 268435456, raised Shadows' and lowered Highlights' pixel anchor of tone
+/// version 23 536870912.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -4466,14 +4467,19 @@ const SHADOWS_V20_FEATURE: usize = 134217728;
 /// `whites_v22_offset`), compiled only for recipes of that version that
 /// lower Whites, so older recipes' pipelines keep the code they had.
 const WHITES_V22_FEATURE: usize = 268435456;
+/// Raised Shadows' and lowered Highlights' pixel anchor of tone version 23
+/// (`ANCHOR_V23`, shader `shadows_v23_gain`, `highlights_v23_target`),
+/// compiled only for recipes of that version that use either, so older
+/// recipes' pipelines keep the code they had.
+const ANCHOR_V23_FEATURE: usize = 536870912;
 
 /// Slots per page of a [`VariantTable`]: features that differ only in the
 /// low bits (detail, noise reduction, tone, relight, sharpening responses)
 /// share a page. 2^15 pages, as at 2^24 variants with 2^9 slots: the page
 /// array stays the size it was when the effects got a bit each (G76/WCC8)
-/// and when tone version 20's raised Shadows (2^13 slots) and version 22's
-/// lowered Whites (2^14) got one.
-const VARIANT_PAGE_BITS: u32 = 14;
+/// and when tone version 20's raised Shadows (2^13 slots), version 22's
+/// lowered Whites (2^14) and version 23's pixel anchor (2^15) got one.
+const VARIANT_PAGE_BITS: u32 = 15;
 const VARIANT_PAGE_SLOTS: usize = 1 << VARIANT_PAGE_BITS;
 const VARIANT_PAGES: usize = PREVIEW_PIPELINE_COUNT / VARIANT_PAGE_SLOTS;
 
@@ -5871,6 +5877,15 @@ fn whites_v22(adjustments: &AllAdjustments) -> bool {
         && whites_v12(adjustments)
 }
 
+/// Whether the recipe raises Shadows or lowers Highlights with tone version
+/// 23's pixel anchor, on the photo or a layer (`ANCHOR_V23`). Both act only
+/// under the Camera Raw look (shader `base_look_is_camera_raw`).
+fn anchor_v23(adjustments: &AllAdjustments) -> bool {
+    adjustments.global.tonemapper_mode == 3
+        && ToneVersion::from_uniform(adjustments.global.tone_version).pixel_anchor()
+        && (shadows_v20(adjustments) || highlights_v14(adjustments))
+}
+
 /// Whether the recipe raises Shadows with tone version 20's bounds, on the
 /// photo or a layer (`SHADOWS_V20`).
 fn shadows_v20(adjustments: &AllAdjustments) -> bool {
@@ -5924,7 +5939,8 @@ fn dehaze_v3(adjustments: &AllAdjustments) -> bool {
 /// of version 12 (1), raised Shadows of version 13 (2), lowered Highlights
 /// of version 14 (4), lowered Blacks of version 16 (8), raised Shadows'
 /// level of version 19 (16), raised Shadows' bounds of version 20 (32),
-/// lowered Whites' offset cap of version 22 (64).
+/// lowered Whites' offset cap of version 22 (64), raised Shadows' and
+/// lowered Highlights' pixel anchor of version 23 (128).
 fn tone_level(adjustments: &AllAdjustments) -> usize {
     usize::from(whites_v12(adjustments))
         | (usize::from(shadows_v13(adjustments)) << 1)
@@ -5933,10 +5949,11 @@ fn tone_level(adjustments: &AllAdjustments) -> usize {
         | (usize::from(shadows_v19(adjustments)) << 4)
         | (usize::from(shadows_v20(adjustments)) << 5)
         | (usize::from(whites_v22(adjustments)) << 6)
+        | (usize::from(anchor_v23(adjustments)) << 7)
 }
 
 /// `tone_level`'s values (`Range2Pipelines`, `MIXER_FEATURE_SLOTS`).
-const TONE_LEVELS: usize = 128;
+const TONE_LEVELS: usize = 256;
 
 /// Whether lowered Whites of tone version 10 reads the small blur's mean log
 /// luminance (shader.wgsl whites_v10_offset), on the photo or a layer.
@@ -6147,6 +6164,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let shadows_v19 = shadows_v19(adjustments);
     let shadows_v20 = shadows_v20(adjustments);
     let whites_v22 = whites_v22(adjustments);
+    let anchor_v23 = anchor_v23(adjustments);
     let hsl_v2 = hsl_v2(adjustments);
     let presence_v3 = presence_v3(adjustments);
     let dehaze_v2 = dehaze_v2(adjustments);
@@ -6194,6 +6212,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if shadows_v19 { SHADOWS_V19_FEATURE } else { 0 }
         | if shadows_v20 { SHADOWS_V20_FEATURE } else { 0 }
         | if whites_v22 { WHITES_V22_FEATURE } else { 0 }
+        | if anchor_v23 { ANCHOR_V23_FEATURE } else { 0 }
         | if hsl_v2 { HSL_V2_FEATURE } else { 0 }
         | if presence_v3 { PRESENCE_V3_FEATURE } else { 0 }
         | if dehaze_v2 { DEHAZE_V2_FEATURE } else { 0 }
@@ -6451,7 +6470,7 @@ fn export_variant(
 /// `GpuProcessor::range2_pipelines`, one table per main output on the heap:
 /// inline, the tables of all outputs made `GpuProcessor` too large for a
 /// test thread's stack once the tone levels doubled to 32. The tone levels
-/// are a `Vec` of `TONE_LEVELS` entries (64 since tone version 20: more
+/// are a `Vec` of `TONE_LEVELS` entries (256 since tone version 23: more
 /// than an array builds by default, and built on the heap).
 type Range2Pipelines = Vec<Range2OutputPipelines>;
 type Range2OutputPipelines =
@@ -6684,6 +6703,12 @@ impl Drop for SmallVariant {
 
 /// The one small compile that may run (`CompileWeight::Small`).
 static SMALL_SLOT: Mutex<()> = Mutex::new(());
+
+/// Detail-cache passes whose compile thread went past its start wait
+/// (`GpuProcessor::detail_pipeline_after`).
+#[cfg(test)]
+static DETAIL_COMPILES_STARTED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 /// Heavy compiles waiting for a compile slot or running
 /// (`background_compile_slot`: an idle compile starts only without one).
@@ -7342,6 +7367,11 @@ impl StartGate {
         self.opened.notify_all();
     }
 
+    /// Whether the gate is open now.
+    fn is_open(&self) -> bool {
+        self.open.lock().unwrap_or_else(|e| e.into_inner()).0
+    }
+
     /// Whether the gate opened (false: cancelled first).
     fn wait(&self) -> bool {
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
@@ -7911,6 +7941,7 @@ fn variant_constants(
         ("SHADOWS_V19", ((features >> 26) & 1) as f64),
         ("SHADOWS_V20", ((features >> 27) & 1) as f64),
         ("WHITES_V22", ((features >> 28) & 1) as f64),
+        ("ANCHOR_V23", ((features >> 29) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -9022,7 +9053,7 @@ impl GpuProcessor {
             relight_pattern_cache: Mutex::new(None),
             main_bgl,
             main_pipeline,
-            start_gate,
+            start_gate: Arc::clone(&start_gate),
             compiles_ahead: ahead,
             edge_pipelines: Default::default(),
             profile_pipelines: Default::default(),
@@ -9043,8 +9074,11 @@ impl GpuProcessor {
             preview_failed,
             layer_sum_pipelines: Arc::new(variant_table()),
             layer_sum_compilation: Arc::new(variant_table()),
-            idle_compiles: (display_variants && !ahead)
-                .then(|| idle_compiles::IdleCompilesOwner(idle_compiles::IdleCompiles::new())),
+            idle_compiles: (display_variants && !ahead).then(|| {
+                idle_compiles::IdleCompilesOwner(idle_compiles::IdleCompiles::after_first_frame(
+                    Arc::clone(&start_gate),
+                ))
+            }),
             sharpen_view_pipelines: Arc::new(variant_table()),
             sharpen_view_compilation: variant_table(),
             preview_shader: shader_module,
@@ -10230,8 +10264,12 @@ impl GpuProcessor {
         // (a preview: no response 8) and after. A first session compiled
         // both when the first edit needed them (5.8–6.5 s on a Radeon 680M,
         // G76/WSMOKE18, WCOLD1).
-        self.detail_pipeline_for(0);
-        self.detail_pipeline_for(sharpen_level(adjustments));
+        // After the first frame has its pipelines (`IdleCompiles::started`):
+        // beside the RAW default variant they took the small compile slot
+        // between its pipelines (G76/WCC4).
+        for slot in [0, sharpen_level(adjustments)] {
+            self.detail_pipeline_after(slot, Some(Arc::clone(&idle.0)));
+        }
     }
 
     /// What an idle compile needs (`idle_compiles`).
@@ -10286,6 +10324,9 @@ impl GpuProcessor {
         if on_screen && let Some(idle) = idle {
             idle.frame();
         }
+        // Idle compiles wait while it does at the start (`StartWindow`;
+        // `render_window` ends the window once the frame has every pipeline).
+        let _waits = idle.filter(|_| on_screen).map(|idle| idle.frame_waits());
         #[cfg(test)]
         if self
             .force_legacy_curves
@@ -10352,6 +10393,9 @@ impl GpuProcessor {
         // runs now (a superset of its features) instead of queueing its own
         // behind it; shown as a compile the photo waits for.
         let mut waits_for_idle = None;
+        // At the start a frame within the RAW default variant waits for
+        // that one while it compiles (`start_variant_covers`).
+        let mut waits_for_start = false;
         // Under a compile limit a frame no planned variant covers compiles
         // the variant its export renders with (`export_display_features`, a
         // superset): the export then compiles nothing, and the photo's later
@@ -10370,6 +10414,12 @@ impl GpuProcessor {
                 // them (G76/WGT14: Blacks 220 s, with repeated memory
                 // pressure on a 15 GB Radeon 680M laptop).
                 Some(_) if served() => {}
+                // At the start the RAW default variant compiles already and
+                // covers it: the frame waits for that, and no planned
+                // superset is rushed beside it (`StartWindow`).
+                Some(idle) if !idle.started() && self.start_variant_covers(features) => {
+                    waits_for_start = true;
+                }
                 // Glow on a never-edited photo too, although its own
                 // variant is small (9–12 s on a Radeon 680M): compiling it
                 // stops the helper, whose compile then starts over, so the
@@ -10418,6 +10468,15 @@ impl GpuProcessor {
                     idle.plan(features, adjustments, || self.idle_target());
                 }
                 return Ok((pipeline, true));
+            }
+            // The RAW default variant failed: the frame's own compiles.
+            if waits_for_start
+                && self.preview_failed[RAW_DEFAULT_PREVIEW_FEATURES]
+                    .load(std::sync::atomic::Ordering::Acquire)
+            {
+                waits_for_start = false;
+                self.compile_preview_variant(own);
+                continue;
             }
             // The idle compile ended without serving this frame (it
             // failed): the frame's own variant compiles now.
@@ -10619,6 +10678,19 @@ impl GpuProcessor {
         self.compile_preview_variant_gated(features, None);
     }
 
+    /// Whether the RAW default display variant, started with the processor,
+    /// compiles now (or is compiled) and covers `features`: in the start
+    /// window a frame waits for it rather than rush a planned superset
+    /// beside it (`idle_compiles::StartWindow`).
+    fn start_variant_covers(&self, features: usize) -> bool {
+        small_display_variant(features)
+            && self.preview_compilation[RAW_DEFAULT_PREVIEW_FEATURES]
+                .get()
+                .is_some()
+            && !self.preview_failed[RAW_DEFAULT_PREVIEW_FEATURES]
+                .load(std::sync::atomic::Ordering::Acquire)
+    }
+
     /// Compile a display variant once the start gate opens (see `StartGate`).
     fn compile_preview_variant_after_start(&self, features: usize) {
         self.compile_preview_variant_gated(features, Some(Arc::clone(&self.start_gate)));
@@ -10665,6 +10737,17 @@ impl GpuProcessor {
     /// Slot 0 plain, 1 with response 7's Masking, 2 with response 8, 3 the
     /// mask view (response 7's code), 4 the mask view with response 8's.
     fn detail_pipeline_slot(&self, slot: usize) -> Option<&wgpu::ComputePipeline> {
+        self.detail_pipeline_after(slot, None)
+    }
+
+    /// `detail_pipeline_slot`, its compile once `start` (if any) has
+    /// started (`IdleCompiles::wait_started`); a frame that asks for it
+    /// before computes the detail stage inline.
+    fn detail_pipeline_after(
+        &self,
+        slot: usize,
+        start: Option<Arc<idle_compiles::IdleCompiles>>,
+    ) -> Option<&wgpu::ComputePipeline> {
         if self.detail_pipeline[slot].get().is_none() {
             self.detail_compilation[slot].get_or_init(|| {
                 let pipeline = Arc::clone(&self.detail_pipeline[slot]);
@@ -10672,6 +10755,13 @@ impl GpuProcessor {
                 let shader = self.preview_shader.clone();
                 let layout = self.detail_layout.clone();
                 spawn_device_thread("pipeline-compile", move || {
+                    if let Some(start) = start
+                        && !start.wait_started()
+                    {
+                        return;
+                    }
+                    #[cfg(test)]
+                    DETAIL_COMPILES_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let _ = pipeline.set(compile_detail_pipeline(&device, &shader, &layout, slot));
                 });
             });
@@ -11210,6 +11300,7 @@ impl GpuProcessor {
                         ("SHADOWS_V19", on(tone & 16 != 0)),
                         ("SHADOWS_V20", on(tone & 32 != 0)),
                         ("WHITES_V22", on(tone & 64 != 0)),
+                        ("ANCHOR_V23", on(tone & 128 != 0)),
                         ("HSL_V2", on(hsl)),
                         ("PRESENCE_V3", on(presence)),
                         ("DEHAZE_V2", on(dehaze)),
@@ -11367,6 +11458,14 @@ impl GpuProcessor {
         streams: &mut [Option<RowStream<'_>>],
         readback_analytics: bool,
     ) -> Result<(Vec<RenderedPixels>, u32, u32, u32, u32), String> {
+        // A frame for the window holds idle compiles back at the start until
+        // it has every pipeline it needs, its effect passes' too
+        // (`StartWindow`).
+        let first_frame = self
+            .idle_compiles
+            .as_ref()
+            .filter(|_| output_to_display)
+            .map(|idle| (&idle.0, idle.0.frame_waits()));
         let mut request = request;
         if request.lut.is_none() {
             // A recipe whose LUT file did not load renders without it, not
@@ -11933,9 +12032,6 @@ impl GpuProcessor {
         } else {
             0
         };
-        if let Some(passes) = passes.filter(|_| output_to_display) {
-            passes.compile_ahead(device, export_display_features(&request.adjustments));
-        }
         // The finish pass after a main pass, into the tile the frame or
         // export reads (`output_tile_view`): with grain, which the main
         // pass does not hold, and for an export whose outputs are encoded
@@ -11968,6 +12064,16 @@ impl GpuProcessor {
             )),
             _ => None,
         };
+        if let Some((idle, waits)) = first_frame {
+            idle.frame_served();
+            drop(waits);
+        }
+        // Only now, with every pass of this frame there: started before the
+        // frame's own finish pass, the terms passes it does not use took the
+        // small compile slot that pass waits for (G76/WCC5).
+        if let Some(passes) = passes.filter(|_| output_to_display) {
+            passes.compile_ahead(device, export_display_features(&request.adjustments));
+        }
         let blur_requirements = if force_full_preparation {
             [true; 5]
         } else {

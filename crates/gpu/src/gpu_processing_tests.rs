@@ -489,6 +489,118 @@ fn whites_version_22_compiles_only_for_its_recipes() {
     );
 }
 
+/// The anchors' scene levels (shader `SH_V23_FROM_SCENE`, …) are the
+/// default tone curve's inverse at their display levels, as
+/// `default_tone_curve_inverse` finds it.
+#[test]
+fn anchor_v23_levels_are_the_default_curves() {
+    let shader = include_str!("shaders/shader.wgsl");
+    let constant = |name: &str| -> f32 {
+        let key = format!("const {name}: f32 = ");
+        let start = shader
+            .find(&key)
+            .unwrap_or_else(|| panic!("{name} is missing"))
+            + key.len();
+        shader[start..start + shader[start..].find(';').unwrap()]
+            .parse()
+            .unwrap()
+    };
+    let start = shader
+        .find("const DEFAULT_TONE_CURVE = array<f32, 49>(")
+        .unwrap();
+    let body = &shader[start..];
+    let body = &body[body.find(">(").unwrap() + 2..body.find(");").unwrap()];
+    let table: Vec<f32> = body
+        .split(',')
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .map(|v| v.parse().unwrap())
+        .collect();
+    assert_eq!(table.len(), 49);
+    let start_ev = constant("DEFAULT_TONE_CURVE_START_EV");
+    let inverse = |level: f32| {
+        let i = (0..48).rev().find(|&k| table[k] <= level).unwrap_or(0);
+        let t = ((level - table[i]) / (table[i + 1] - table[i]).max(1e-6)).clamp(0.0, 1.0);
+        start_ev + (i as f32 + t) * 0.25
+    };
+    for (scene, display) in [
+        ("SH_V23_FROM_SCENE", constant("SH_V23_FROM")),
+        (
+            "SH_V23_TO_SCENE",
+            constant("SH_V23_FROM") - constant("SH_V23_WIDTH"),
+        ),
+        ("HL_V23_FROM_SCENE", constant("HL_V23_FROM")),
+        ("SH_V20_TO_SCENE", constant("SH_V20_TO")),
+    ] {
+        assert!(
+            (constant(scene) - inverse(display)).abs() < 1e-6,
+            "{scene}: {} against {}",
+            constant(scene),
+            inverse(display)
+        );
+    }
+}
+
+#[test]
+fn anchor_version_23_compiles_only_for_its_recipes() {
+    // The anchor applies only under the Camera Raw look, so the tests run
+    // under it.
+    let adjustments = |profile: serde_json::Value| {
+        let mut a = get_all_adjustments_from_json(&profile, true, Some(1));
+        a.global.tonemapper_mode = 3;
+        a
+    };
+    let features =
+        |profile: serde_json::Value| preview_features(&adjustments(profile)) & ANCHOR_V23_FEATURE;
+    for edit in [
+        json!({"shadows": 30, "toneVersion": 23}),
+        json!({"highlights": -30, "toneVersion": 23}),
+        json!({"shadows": 30, "highlights": -30, "whites": -20, "toneVersion": 23}),
+    ] {
+        assert_eq!(features(edit.clone()), ANCHOR_V23_FEATURE, "{edit}");
+        // Under another look the shader never runs it.
+        for mode in [0, 1, 2, 4] {
+            let mut other = adjustments(edit.clone());
+            other.global.tonemapper_mode = mode;
+            assert_eq!(
+                preview_features(&other) & ANCHOR_V23_FEATURE,
+                0,
+                "{edit} {mode}"
+            );
+            assert_eq!(tone_level(&other) & 128, 0, "{edit} {mode}");
+        }
+    }
+    for layer_edit in [json!({"shadows": 30}), json!({"highlights": -30})] {
+        let mut layer = local_profile(layer_edit.clone());
+        layer["toneVersion"] = json!(23);
+        assert_eq!(features(layer), ANCHOR_V23_FEATURE, "{layer_edit}");
+    }
+    // Version 22's recipes, lowered Shadows, raised Highlights, other
+    // sliders and the key alone keep the shader without it: saved edits
+    // compile the code they had.
+    for edit in [
+        json!({"shadows": 30, "highlights": -30, "toneVersion": 22}),
+        json!({"shadows": -30, "highlights": 30, "toneVersion": 23}),
+        json!({"whites": -30, "blacks": 20, "contrast": 20, "toneVersion": 23}),
+        json!({"toneVersion": 23}),
+    ] {
+        assert_eq!(features(edit.clone()), 0, "{edit}");
+    }
+    // Its feature pipeline is version 20's or 14's plus the anchor.
+    assert_eq!(
+        tone_level(&adjustments(json!({"shadows": 30, "toneVersion": 23}))),
+        2 | 16 | 32 | 128
+    );
+    assert_eq!(
+        tone_level(&adjustments(json!({"highlights": -30, "toneVersion": 23}))),
+        4 | 128
+    );
+    assert_eq!(
+        tone_level(&adjustments(json!({"shadows": 30, "toneVersion": 22}))),
+        2 | 16 | 32
+    );
+}
+
 #[test]
 fn shadows_version_19_compiles_only_where_shadows_are_raised() {
     let adjustments =
@@ -669,6 +781,11 @@ fn preview_features_preserve_global_and_local_effects() {
         // Lowered Whites' offset cap of version 22 likewise
         // (`whites_version_22_compiles_only_for_its_recipes`).
         if expected & WHITES_V22_FEATURE != 0 {
+            continue;
+        }
+        // The pixel anchor of version 23 likewise
+        // (`anchor_version_23_compiles_only_for_its_recipes`).
+        if expected & ANCHOR_V23_FEATURE != 0 {
             continue;
         }
         // Lowered Dehaze of version 2 likewise
@@ -15659,6 +15776,230 @@ fn whites_v22_edges(width: u32, height: u32) -> Vec<f32> {
 }
 
 #[test]
+#[ignore = "requires a native GPU; tone version 23's pixel anchor keeps deep-shadow and bright texture"]
+fn tone_version_23_anchor_keeps_deep_and_bright_texture() {
+    let context = context();
+    // 1080 rows: the blurs at their reference size.
+    let (width, height) = (1024u32, 1080u32);
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    // −9 … +1 EV left to right, textured (±0.4 EV along each column) and
+    // smooth.
+    let textured = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    let smooth = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, false),
+    );
+    let with = |recipe: &serde_json::Value, version: u64| {
+        let mut recipe = recipe.clone();
+        recipe["toneVersion"] = json!(version);
+        recipe
+    };
+    // Without raised Shadows or lowered Highlights version 23 renders as
+    // version 22, under every look.
+    for recipe in [
+        json!({}),
+        json!({ "shadows": -60, "highlights": 50 }),
+        json!({ "whites": -60, "blacks": -40, "contrast": 30 }),
+    ] {
+        for view in [&textured, &smooth] {
+            for look in [(3, 2.0), (0, 2.0)] {
+                assert!(
+                    render_raw_look(&processor, view, (width, height), &with(&recipe, 22), look)
+                        == render_raw_look(
+                            &processor,
+                            view,
+                            (width, height),
+                            &with(&recipe, 23),
+                            look
+                        ),
+                    "{recipe} under {look:?} differs"
+                );
+            }
+        }
+    }
+    let look = (3, 2.0);
+    let w = width as usize;
+    let rows = 64..height as usize - 64;
+    // Per column: mean L* and the std of log2 luminance along it (the
+    // texture's contrast, which a gain that is the same for all of the
+    // column's pixels leaves as it is).
+    let columns = |img: &[[u16; 3]]| -> Vec<(f64, f64)> {
+        (0..w)
+            .map(|x| {
+                let l: Vec<f64> = rows
+                    .clone()
+                    .map(|y| lstar_of_codes(&img[y * w + x]))
+                    .collect();
+                let e: Vec<f64> = rows
+                    .clone()
+                    .map(|y| {
+                        let p = &img[y * w + x];
+                        let lum = 0.2126 * srgb_code_to_linear(p[0])
+                            + 0.7152 * srgb_code_to_linear(p[1])
+                            + 0.0722 * srgb_code_to_linear(p[2]);
+                        lum.max(1e-7).log2()
+                    })
+                    .collect();
+                let n = e.len() as f64;
+                let mean = e.iter().sum::<f64>() / n;
+                let var = e.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / n;
+                (l.iter().sum::<f64>() / n, var.sqrt())
+            })
+            .collect()
+    };
+    let neutral = columns(&render_raw_look(
+        &processor,
+        &textured,
+        (width, height),
+        &with(&json!({}), 23),
+        look,
+    ));
+    // Mean texture ratio (edited / neutral) and mean dL* of the columns
+    // whose neutral L* lies in `band`.
+    let in_band = |cols: &[(f64, f64)], band: std::ops::Range<f64>| {
+        let picked: Vec<_> = (0..w)
+            .filter(|&x| band.contains(&neutral[x].0) && neutral[x].1 > 0.05)
+            .map(|x| (cols[x].1 / neutral[x].1, cols[x].0 - neutral[x].0))
+            .collect();
+        assert!(picked.len() > 20, "band {band:?}: {} columns", picked.len());
+        let n = picked.len() as f64;
+        (
+            picked.iter().map(|p| p.0).sum::<f64>() / n,
+            picked.iter().map(|p| p.1).sum::<f64>() / n,
+        )
+    };
+    for (recipe, deep, kept) in [
+        (json!({ "shadows": 100 }), 3.0..20.0, 45.0..90.0),
+        (json!({ "shadows": 50 }), 3.0..20.0, 45.0..90.0),
+        (json!({ "highlights": -100 }), 75.0..98.0, 5.0..40.0),
+        (json!({ "highlights": -50 }), 75.0..98.0, 5.0..40.0),
+    ] {
+        let before = columns(&render_raw_look(
+            &processor,
+            &textured,
+            (width, height),
+            &with(&recipe, 22),
+            look,
+        ));
+        let after = columns(&render_raw_look(
+            &processor,
+            &textured,
+            (width, height),
+            &with(&recipe, 23),
+            look,
+        ));
+        let (tex_22, d_22) = in_band(&before, deep.clone());
+        let (tex_23, d_23) = in_band(&after, deep.clone());
+        let (_, k_22) = in_band(&before, kept.clone());
+        let (_, k_23) = in_band(&after, kept.clone());
+        eprintln!(
+            "{recipe}: texture in L* {deep:?} {tex_22:.3} → {tex_23:.3}, dL* {d_22:.2} → {d_23:.2}; dL* in L* {kept:?} {k_22:.2} → {k_23:.2}"
+        );
+        // The anchored tones keep more of their texture than version 22's.
+        assert!(
+            tex_23 > 1.02 * tex_22,
+            "{recipe}: texture {tex_23:.3} (version 22 {tex_22:.3})"
+        );
+        // Tones the slider barely moves stay where they were.
+        assert!(
+            (k_23 - k_22).abs() < 1.0,
+            "{recipe}: dL* {k_23:.2} (version 22 {k_22:.2})"
+        );
+    }
+    // Direction: raised Shadows never renders a pixel darker than Shadows 0
+    // does, lowered Highlights none brighter than Highlights 0, at any
+    // amount: with a level that lifts little (dark texture on a bright
+    // ground, the textured ramp's light end) the anchor's take-back, and
+    // near 0 the linear give-back against the pull's amount^1.7, must not
+    // reverse the slider.
+    // On the smooth ramp no pixel moves against the slider; on the textured
+    // one no more than version 22's (whose lowered Highlights lifts texture
+    // peaks a little: bright detail restored above the pixel).
+    let against =
+        |view: &wgpu::TextureView, recipe: &serde_json::Value, version: u64, raise: bool| {
+            let neutral = render_raw_look(
+                &processor,
+                view,
+                (width, height),
+                &with(&json!({}), version),
+                look,
+            );
+            let img = render_raw_look(
+                &processor,
+                view,
+                (width, height),
+                &with(recipe, version),
+                look,
+            );
+            img.iter()
+                .zip(&neutral)
+                .map(|(e, n)| {
+                    let d = lstar_of_codes(e) - lstar_of_codes(n);
+                    if raise { -d } else { d }
+                })
+                .fold(0.0f64, f64::max)
+        };
+    for (recipe, raise) in [
+        (json!({ "shadows": 1 }), true),
+        (json!({ "shadows": 5 }), true),
+        (json!({ "shadows": 30 }), true),
+        (json!({ "shadows": 100 }), true),
+        (json!({ "highlights": -1 }), false),
+        (json!({ "highlights": -5 }), false),
+        (json!({ "highlights": -30 }), false),
+    ] {
+        let flat = against(&smooth, &recipe, 23, raise);
+        assert!(
+            flat < 0.02,
+            "{recipe}: a flat tone moves {flat:.3} L* against the slider"
+        );
+        let (old, new) = (
+            against(&textured, &recipe, 22, raise),
+            against(&textured, &recipe, 23, raise),
+        );
+        eprintln!(
+            "{recipe}: against the slider, smooth {flat:.3}, textured {old:.3} → {new:.3} L*"
+        );
+        assert!(
+            new < old + 0.05,
+            "{recipe}: texture moves {new:.3} L* against the slider (version 22 {old:.3})"
+        );
+    }
+    // Order: on the smooth ramp a brighter scene tone never renders darker,
+    // with Blacks raised too and with both sliders at once.
+    for recipe in [
+        json!({ "shadows": 100 }),
+        json!({ "shadows": 100, "blacks": 50 }),
+        json!({ "highlights": -100 }),
+        json!({ "shadows": 100, "highlights": -100, "exposure": 1.0 }),
+        json!({ "shadows": 30, "highlights": -30 }),
+    ] {
+        let img = render_raw_look(
+            &processor,
+            &smooth,
+            (width, height),
+            &with(&recipe, 23),
+            look,
+        );
+        let row = height as usize / 2;
+        let l: Vec<f64> = (0..w).map(|x| lstar_of_codes(&img[row * w + x])).collect();
+        let worst = l.windows(2).map(|p| p[0] - p[1]).fold(0.0f64, f64::max);
+        assert!(
+            worst < 0.02,
+            "{recipe}: a brighter tone renders {worst:.3} L* darker"
+        );
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; lowered Whites of tone version 22 leaves less of a light rim at strong edges"]
 fn tone_version_22_whites_less_light_rim() {
     let context = context();
@@ -15912,9 +16253,11 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
                 look,
             )
         };
-        // The gaps' mean dL* minus the far panel's (x ≥ 800).
-        let neutral = render(&grating, 20, 0);
-        let gap_lift = |img: &[[u16; 3]]| {
+        // The gaps' mean dL* minus the far panel's (x ≥ 800), against the
+        // version's own render at Shadows 0 (version 22's Whites differs).
+        let neutral_20 = render(&grating, 20, 0);
+        let neutral_23 = render(&grating, 23, 0);
+        let gap_lift = |img: &[[u16; 3]], neutral: &[[u16; 3]]| {
             let (mut gap, mut far, mut ng, mut nf) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
             for y in rows.clone() {
                 for x in 200..560 {
@@ -15932,8 +16275,11 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
             }
             gap / ng - far / nf
         };
-        let gap_19 = gap_lift(&render(&grating, 19, amount));
-        let gap_20 = gap_lift(&render(&grating, 20, amount));
+        let gap_19 = gap_lift(&render(&grating, 19, amount), &neutral_20);
+        let gap_20 = gap_lift(&render(&grating, 20, amount), &neutral_20);
+        // Version 23's stronger level and anchor leave the gaps as version
+        // 20 does.
+        let gap_23 = gap_lift(&render(&grating, 23, amount), &neutral_23);
         // The shadows of the textured ramp (below −4 EV): mean dL* and
         // texture (std of L* minus the row's 9-pixel mean) against neutral.
         let neutral = render(&ramp, 20, 0);
@@ -15961,7 +16307,11 @@ fn tone_version_20_shadows_no_bright_gap_lift() {
         let (lift_19, det_19) = shadows(&render(&ramp, 19, amount));
         let (lift_20, det_20) = shadows(&render(&ramp, 20, amount));
         eprintln!(
-            "Shadows +{amount}, Exposure {exposure}, Whites {whites}: gap dL* {gap_19:.2} → {gap_20:.2}, shadows dL* {lift_19:.3} → {lift_20:.3}, texture {det_19:.4} → {det_20:.4}"
+            "Shadows +{amount}, Exposure {exposure}, Whites {whites}: gap dL* {gap_19:.2} → {gap_20:.2} (version 23 {gap_23:.2}), shadows dL* {lift_19:.3} → {lift_20:.3}, texture {det_19:.4} → {det_20:.4}"
+        );
+        assert!(
+            gap_23 > -0.3 && gap_23 < most,
+            "Shadows +{amount}, Exposure {exposure}: version 23 gap dL* {gap_23:.2} (version 20 {gap_20:.2})"
         );
         // Measured on Vulkan (RTX 3080): gaps +50 1.35 → 0.00, +100 3.83 →
         // 0.00 L*, at Exposure −0.7 11.84 → 2.41, +0.7 0.84 → 0.00; the
@@ -16199,7 +16549,16 @@ fn tone_version_20_stage_is_version_13s_but_for_the_gain() {
         &rest[..rest.find("\n}\n").unwrap()]
     };
     let v13_gain = "rgb *= shadows_v13_gain(level_luma * exposure_gain, sh, bl, fade);";
-    let v20_gain = "rgb *= shadows_v20_gain(level_luma * exposure_gain, tonal_level * exposure_gain, safe_pixel_luma, sh, bl, fade);";
+    // Version 23's anchor follows version 20's gain, behind its own bit.
+    let v20_gain = concat!(
+        "var gain = shadows_v20_gain(level_luma * exposure_gain, tonal_level * exposure_gain, safe_pixel_luma, sh, bl, fade);\n",
+        "        // Apart from the line above, so pipelines without ANCHOR_V23\n",
+        "        // compile the code they always had.\n",
+        "        if (ANCHOR_V23 && adjustments.global.tone_version > 22.5) {\n",
+        "            gain = shadows_v23_gain(gain, level_luma * exposure_gain, tonal_level * exposure_gain, safe_pixel_luma, sh, bl);\n",
+        "        }\n",
+        "        rgb *= gain;"
+    );
     let v13_level = "level_luma = exp2(mix(log2(max(tonal_level, 0.0001)), log2(wide), fade));";
     let v20_level = "level_luma = wide;";
     let v13 = body("apply_tonal_adjustments_v13");
@@ -16295,8 +16654,9 @@ fn tone_version_20_shadows_keeps_fine_detail_in_order() {
                 (100, 0.0, 0, 60),
                 (100, 0.0, 0, -60),
             ] {
-                let mut worst = [0.0f64; 2];
-                for (slot, version) in [19u64, 20].into_iter().enumerate() {
+                // Version 23's anchor and stronger share keep the order too.
+                let mut worst = [0.0f64; 3];
+                for (slot, version) in [19u64, 20, 23].into_iter().enumerate() {
                     let img = render_raw_look(
                         &processor,
                         &view,
@@ -16323,13 +16683,13 @@ fn tone_version_20_shadows_keeps_fine_detail_in_order() {
                                     if excess > worst[slot] {
                                         worst[slot] = excess;
                                     }
-                                    if version == 20 && excess > 1.0 {
+                                    if version >= 20 && excess > 1.0 {
                                         let line_ev = SHADOWS_V20_LINE_LOW_EV
                                             * (1.0 - y as f32 / (height - 1) as f32);
                                         failures.push((
                                             excess,
                                             format!(
-                                                "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: ground {} EV, {line} px line at {line_ev:.2} EV falls {ev:.3} EV",
+                                                "version {version} {scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: ground {} EV, {line} px line at {line_ev:.2} EV falls {ev:.3} EV",
                                                 SHADOWS_V20_LINE_GROUNDS[band]
                                             ),
                                         ));
@@ -16341,8 +16701,8 @@ fn tone_version_20_shadows_keeps_fine_detail_in_order() {
                     }
                 }
                 eprintln!(
-                    "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: worst fall (limits) version 19 {:.2}, version 20 {:.2}",
-                    worst[0], worst[1]
+                    "{scale}x {look:?} Shadows +{amount} Exposure {exposure} Blacks {blacks} Whites {whites}: worst fall (limits) version 19 {:.2}, version 20 {:.2}, version 23 {:.2}",
+                    worst[0], worst[1], worst[2]
                 );
                 worst_19 = worst_19.max(worst[0]);
             }
@@ -16470,6 +16830,62 @@ fn tone_version_22_whites_drag_render_time() {
             t[t.len() * 9 / 10],
             t.len()
         );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; raised Shadows and lowered Highlights of tone version 23 against version 22: wall-clock time of a preview render with its readback per drag step"]
+fn tone_version_23_anchor_drag_render_time() {
+    // As `tone_version_22_whites_drag_render_time`, versions 22 and 23 under
+    // the Camera Raw look, where the anchor runs: a Shadows drag, then a
+    // Highlights drag.
+    let context = context();
+    let (width, height) = (2560u32, 1707u32);
+    let _limit = DeviceCompileLimit::set(&context);
+    let processor = GpuProcessor::for_exports(context.clone(), width, height).unwrap();
+    let view = grey_texture(
+        &context,
+        width,
+        height,
+        &whites_v10_levels(width, height, true),
+    );
+    for slider in ["shadows", "highlights"] {
+        let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
+        for block in 0..24 {
+            let version = 22 + (block % 2) as u64;
+            for step in 0..10 {
+                let amount = if slider == "shadows" {
+                    20 + 8 * step
+                } else {
+                    -20 - 8 * step
+                };
+                let recipe = json!({ slider: amount, "toneVersion": version });
+                let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+                let start = std::time::Instant::now();
+                let _ = readback_pixels(
+                    &processor,
+                    &view,
+                    (width, height),
+                    *adjustments,
+                    &[],
+                    RenderOutputPrecision::EightBit,
+                    ReadbackShader::Preview,
+                );
+                if step >= 2 && block >= 2 {
+                    times[(version - 22) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+        }
+        for (k, t) in times.iter_mut().enumerate() {
+            t.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            eprintln!(
+                "{slider} version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+                22 + k,
+                t[t.len() / 2],
+                t[t.len() * 9 / 10],
+                t.len()
+            );
+        }
     }
 }
 
