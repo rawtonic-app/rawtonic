@@ -416,8 +416,10 @@ mod tests {
             |context| {
                 attempts += 1;
                 if attempts == 1 {
-                    // The loss comes while the render runs.
+                    // The loss comes while the render runs; the driver's
+                    // reset can make wgpu panic in the readback's poll.
                     rawtonic_gpu::device_start::simulate_lost("DVL3 test");
+                    panic!("wgpu: device lost while polling");
                 }
                 render(context)
             },

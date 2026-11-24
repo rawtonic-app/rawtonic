@@ -1581,6 +1581,24 @@ fn device_after_loss(
 /// recovery's back-off (10 s) and a device start, with room.
 pub(crate) const DEVICE_RECOVERY_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// `render` on `context`, where a panic after the device was lost (wgpu
+/// panics in `Device::poll` while reporting a driver reset during a
+/// readback) is the lost error, so the retry classifies it; any other
+/// panic goes on.
+fn render_catching_loss<T>(
+    context: &Arc<GpuContext>,
+    render: &mut impl FnMut(&Arc<GpuContext>) -> Result<T, String>,
+) -> Result<T, String> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render(context))) {
+        Ok(result) => result,
+        Err(_) if rawtonic_gpu::device_start::device_lost() => {
+            log::warn!("Export: a render panicked after the graphics device was lost");
+            Err(rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST.to_string())
+        }
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
 /// One render of a single photo (a collage's cell) that goes once more on
 /// the new device the app starts when the GPU device was lost under it
 /// (DVL3; the queue export's retry, `retry_after_device_loss`, with the
@@ -1597,7 +1615,12 @@ pub(crate) fn render_after_device_loss<T>(
     let mut results = rawtonic_runtime::gpu_memory::retry_after_device_loss(
         &[()],
         export_context(gpu, run),
-        |context, _| vec![((), render(context).map(|value| result = Some(value)))],
+        |context, _| {
+            vec![(
+                (),
+                render_catching_loss(context, &mut render).map(|value| result = Some(value)),
+            )]
+        },
         |()| true,
         |context, error| lost_under(gpu, context, error),
         |context| device_after_loss(gpu, context, cancelled, wait),
