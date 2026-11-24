@@ -1952,7 +1952,11 @@ impl ThumbnailCacheEntry {
         settings: &AppSettings,
         queue_metadata: impl FnOnce(PathBuf, PathBuf),
     ) -> Option<Self> {
-        with_lookup_facts(|| Self::lookup_keys(path_str, thumb_cache_dir, settings, queue_metadata))
+        with_lookup_facts(|| {
+            crate::preview_proxy::with_availability_kept(|| {
+                Self::lookup_keys(path_str, thumb_cache_dir, settings, queue_metadata)
+            })
+        })
     }
 
     fn lookup_keys(
@@ -2788,6 +2792,56 @@ mod share_lookup_tests {
         let edited = lookup();
         assert_eq!(edited.rating, Some(4));
         assert!(edited.cached().is_none());
+    }
+
+    /// An edited photo with a Standard preview whose tile is still to be
+    /// made: its keys (the current one and those an older tile may have)
+    /// each ask whether the preview stands for the recipe, and that asks
+    /// whether the original is available; one lookup opens it once at most
+    /// (GRD2 review: up to four more opens per tile on a share).
+    #[test]
+    fn a_lookup_asks_once_whether_the_original_is_available() {
+        let temp = tempfile::tempdir().unwrap();
+        let session = temp.path().join("Job");
+        std::fs::create_dir_all(session.join("Capture")).unwrap();
+        std::fs::write(session.join("session.json"), "{}").unwrap();
+        std::fs::write(session.join("session.sqlite"), "").unwrap();
+        let source = session.join("Capture").join("A.NEF");
+        std::fs::write(&source, b"raw").unwrap();
+        std::fs::write(
+            source.with_file_name("A.NEF.rrdata"),
+            br#"{"version":1,"rating":2,"adjustments":{"exposure":0.5}}"#,
+        )
+        .unwrap();
+        let image = image::DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+            8,
+            6,
+            image::Rgb([0.5, 0.4, 0.3]),
+        ));
+        crate::preview_proxy::write_for_test(&source, &image, 8);
+        let cache = temp.path().join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        let settings = crate::AppSettings::default();
+        crate::preview_proxy::SOURCE_OPENS.with(|opens| opens.set(0));
+        let entry = rawtonic_export::sidecars::with_sidecars_kept(|| {
+            super::ThumbnailCacheEntry::lookup(
+                source.to_str().unwrap(),
+                &cache,
+                &settings,
+                |_, _| panic!("no cloud sidecar"),
+            )
+            .unwrap()
+        });
+        assert!(entry.cached().is_none());
+        assert_eq!(entry.rating, Some(2));
+        assert!(
+            crate::preview_proxy::SOURCE_OPENS.with(std::cell::Cell::get) <= 1,
+            "opens {}",
+            crate::preview_proxy::SOURCE_OPENS.with(std::cell::Cell::get)
+        );
+        // Outside a lookup the original is asked as it is now.
+        std::fs::remove_file(&source).unwrap();
+        assert!(!crate::preview_proxy::source_available(&source));
     }
 
     /// A never-edited RAW's tile is its camera preview, cached under its
