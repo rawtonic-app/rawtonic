@@ -171,6 +171,11 @@ CREATE TABLE pending_capture_times(
 CREATE TABLE camera_naming(
  id INTEGER PRIMARY KEY CHECK(id = 1),
  fingerprint TEXT NOT NULL);
+CREATE TABLE forgotten_copies(
+ asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+ copy TEXT NOT NULL,
+ flag INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1),
+ PRIMARY KEY(asset_id, copy));
 INSERT INTO roots(id,path,volume_id,external,volume_name,volume_path,volume_kind) VALUES('session','.',NULL,0,NULL,NULL,NULL);
 INSERT INTO roots(id,path,volume_id,external,volume_name,volume_path,volume_kind) VALUES('ext-archive','/Volumes/ARCHIVE/Photos','4C1A2B3D-0000-4000-8000-00000000A001',1,'ARCHIVE','/Volumes/ARCHIVE','removable');
 INSERT INTO assets(id,root_id,rel_path,size,mtime,fingerprint,capture_time,camera,lens,width,height,orientation,kind,raw_jpeg_pair,stack,missing,search_text,sha256,companion_size,companion_fingerprint,companion_sha256,make,focal_length,aperture,iso,exposure,facts_read,trashed,source_type,exposure_mode,exposure_bias,sequence,capture_subsec,capture_offset,lens_import) VALUES('00000000-0000-4000-8000-000000000001','session','Capture/Day 1/DSC00123.ARW',20000001,1780000001,'xxh3:0000000000001eef','2026-06-01 10:00:00','ILCE-7RM4','FE 24-70mm F2.8 GM',6000,4000,1,'arw','DSC00123.JPG',NULL,0,'wedding ceremony','0000000000000000000000000000000000000000000000000000000000000001',5000000,'xxh3:00000000000c0001','00000000000000000000000000000000000000000000000000000000000003e9','SONY',50.0,2.8,100,0.004,1,0,'',NULL,NULL,NULL,NULL,NULL,NULL);
@@ -280,6 +285,7 @@ INSERT INTO cull_scores(asset_id,model,fingerprint,misfire,document,error) VALUE
 INSERT INTO cull_dismissed(asset_id,criterion) VALUES('00000000-0000-4000-8000-000000000009','misfire');
 INSERT INTO imported_recipes(version_id,source,translated,stored) VALUES('00000000-0000-4000-9000-000000000001','1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a','2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b','3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c');
 INSERT INTO pending_capture_times(asset_id,wall_time) VALUES('00000000-0000-4000-8000-000000000002','2026-10-31T12:00:00.05');
+INSERT INTO forgotten_copies(asset_id,copy,flag) VALUES('00000000-0000-4000-8000-000000000003','dead01',-1);
 CREATE INDEX assets_fingerprint ON assets(fingerprint);
 CREATE UNIQUE INDEX primary_version ON versions(asset_id) WHERE is_primary=1;
 CREATE INDEX recipe_blob_refs_hash ON recipe_blob_refs(hash);

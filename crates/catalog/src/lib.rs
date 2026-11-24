@@ -2491,7 +2491,7 @@ impl Library {
     /// Its snapshots are the library's (`Library::add_snapshot`); those the
     /// state carries are taken over only when the copy is first recorded
     /// (a copy's sidecar adopted). A copy first recorded takes its
-    /// photograph's flag.
+    /// photograph's flag, one recorded again (`remove_copy`) its own.
     pub fn save_copy_state(
         &self,
         asset: &str,
@@ -2514,11 +2514,17 @@ impl Library {
             let version = Uuid::new_v4().to_string();
             // A new copy starts with its photograph's flag, as it starts
             // with its rating, label and keywords; from then on the flag
-            // is its own (`set_item_flags`).
+            // is its own (`set_item_flags`). One the library forgot
+            // (`remove_copy`) gets its own back.
             tx.execute(
-                "INSERT INTO versions(id,asset_id,name,is_primary,legacy_state,flag) VALUES(?,?,?,0,?,\
-                 coalesce((SELECT flag FROM metadata WHERE asset_id=?),0))",
-                params![version, asset, copy, text, asset],
+                "INSERT INTO versions(id,asset_id,name,is_primary,legacy_state,flag) VALUES(?1,?2,?3,0,?4,\
+                 coalesce((SELECT flag FROM forgotten_copies WHERE asset_id=?2 AND copy=?3),\
+                          (SELECT flag FROM metadata WHERE asset_id=?2), 0))",
+                params![version, asset, copy, text],
+            )?;
+            tx.execute(
+                "DELETE FROM forgotten_copies WHERE asset_id=? AND copy=?",
+                params![asset, copy],
             )?;
             snapshots::insert(&tx, &self.directory, &version, &carried)?;
         }
@@ -2557,19 +2563,23 @@ impl Library {
             .collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Forgets a virtual copy (its sidecar was deleted), which leaves its
-    /// albums. Returns whether one was recorded.
+    /// Forgets a virtual copy (its sidecar was deleted). Its flag and album
+    /// memberships come back when it is recorded again. Returns whether one
+    /// was recorded.
     pub fn remove_copy(&self, asset: &str, copy: &str) -> Result<bool, CatalogError> {
         let tx = self.conn.unchecked_transaction()?;
+        // Its flag and album memberships are kept for when it is recorded
+        // again (the Undo of its Trash restores the sidecar); albums list
+        // only recorded copies.
+        tx.execute(
+            "INSERT OR REPLACE INTO forgotten_copies(asset_id,copy,flag)
+             SELECT asset_id,name,flag FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
+            params![asset, copy],
+        )?;
         let removed = tx.execute(
             "DELETE FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
             params![asset, copy],
         )? > 0;
-        // It leaves its albums.
-        tx.execute(
-            "DELETE FROM collection_assets WHERE asset_id=? AND copy=?",
-            params![asset, copy],
-        )?;
         tx.commit()?;
         prune_blobs(&self.conn)?;
         Ok(removed)

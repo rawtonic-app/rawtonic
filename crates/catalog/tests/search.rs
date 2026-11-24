@@ -1975,18 +1975,23 @@ fn virtual_copies_have_their_own_flags_albums_status_and_counts() {
     lib.remove_items_from_collection(&album.id, &[(ids[2].clone(), Some("aaaaa1".into()))])
         .unwrap();
     assert_eq!(members(), ["DSC00124.ARW"]);
-    // A forgotten copy leaves its albums.
+    // A copy the library forgets (its sidecar in the Trash) is not
+    // listed; recorded again (the Trash's Undo) it has its flag and albums.
     lib.add_items_to_collection(&album.id, &[(ids[2].clone(), Some("aaaaa1".into()))])
         .unwrap();
     assert!(lib.remove_copy(&ids[2], "aaaaa1").unwrap());
     assert_eq!((members(), count()), (vec!["DSC00124.ARW".to_string()], 1));
+    assert!(!picked().contains(&"IMG_0001.CR3?vc=aaaaa1".to_string()));
     lib.save_copy_state(
         &ids[2],
         "aaaaa1",
         &json!({"rating":5,"tags":["user:People"],"adjustments":{}}),
     )
     .unwrap();
-    assert_eq!(members(), ["DSC00124.ARW"]);
+    assert_eq!(members(), ["DSC00124.ARW", "IMG_0001.CR3?vc=aaaaa1"]);
+    assert_eq!((lib.copy_flag(&ids[2], "aaaaa1").unwrap(), count()), (1, 2));
+    lib.remove_items_from_collection(&album.id, &[(ids[2].clone(), Some("aaaaa1".into()))])
+        .unwrap();
     // Copy status: virtual copies only, or every photograph that is not one.
     assert_eq!(
         items(json!({"field":"virtualCopy","op":"is","value":true})),

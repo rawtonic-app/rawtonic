@@ -599,6 +599,16 @@ fn fill(conn: &Connection, version: usize) {
             ],
         );
     }
+    // A copy the library forgot keeps its flag for its return (schema 35).
+    put(
+        conn,
+        "forgotten_copies",
+        &[
+            ("asset_id", t(&asset_id(3))),
+            ("copy", t("dead01")),
+            ("flag", i(-1)),
+        ],
+    );
     // A virtual copy as an album member of its own (schema 36).
     if version >= 36 {
         put(

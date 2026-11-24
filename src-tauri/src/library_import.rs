@@ -444,17 +444,32 @@ fn smart_condition(
                     })
                 }
                 // The model's start or end (Lightroom's camera is the EXIF
-                // model; the catalog's camera rule also reads the names a
-                // camera's files state).
-                "beginsWith" | "endsWith" => Some(Rule::Condition {
-                    field: Field::Camera,
-                    op: if operation == "beginsWith" {
-                        Op::StartsWith
-                    } else {
-                        Op::EndsWith
-                    },
-                    value: json!(text(value)?),
-                }),
+                // model; the catalog's camera rule reads the camera's one
+                // model and the models its files state). Left out (named in
+                // the import report) where the two would select different
+                // files: a test that splits one camera here (Olympus
+                // `STYLUS1` / `STYLUS1,1s`) or holds for its one model only.
+                "beginsWith" | "endsWith" => {
+                    let affix = text(value)?;
+                    let folded = affix.trim().to_lowercase();
+                    let begins = operation == "beginsWith";
+                    let agrees =
+                        rawtonic_raw_format::camera_names::model_test_agrees_per_file(|model| {
+                            if begins {
+                                model.starts_with(&folded)
+                            } else {
+                                model.ends_with(&folded)
+                            }
+                        });
+                    if !agrees || folded.is_empty() {
+                        return None;
+                    }
+                    Some(Rule::Condition {
+                        field: Field::Camera,
+                        op: if begins { Op::StartsWith } else { Op::EndsWith },
+                        value: json!(affix),
+                    })
+                }
                 "empty" | "notEmpty" => Some(Rule::Condition {
                     field: Field::Camera,
                     op: if operation == "empty" {
@@ -475,8 +490,14 @@ fn smart_condition(
                 "masterImages" => false,
                 _ => return None,
             };
-            let op = compare(operation).filter(|op| matches!(op, Op::Is | Op::IsNot))?;
-            (Field::VirtualCopy, op, json!(copies))
+            // "is not" as "is" with the other answer, the form the
+            // smart-album editor shows.
+            let copies = match compare(operation)? {
+                Op::Is => copies,
+                Op::IsNot => !copies,
+                _ => return None,
+            };
+            (Field::VirtualCopy, Op::Is, json!(copies))
         }
         // Text of the photograph's own facts: Lightroom's word search and
         // comparisons, as the catalog's.
@@ -5168,7 +5189,15 @@ mod tests {
             one("vcStatus", "==", text("masterImages")).unwrap(),
             json!({"field": "virtualCopy", "op": "is", "value": false})
         );
+        assert_eq!(
+            one("vcStatus", "!=", text("virtualCopies")).unwrap(),
+            json!({"field": "virtualCopy", "op": "is", "value": false})
+        );
         assert!(one("vcStatus", "==", text("other")).is_none());
+        // A test Lightroom applies to each file's model that would select
+        // other files here is left out.
+        assert!(one("camera", "endsWith", text("1s")).is_none());
+        assert!(one("camera", "beginsWith", text("EOS")).is_none());
         // One camera in the library for two models Lightroom tells apart.
         assert!(one("camera", "==", text("STYLUS1")).is_none());
         assert!(one("camera", "!=", text("STYLUS1,1s")).is_none());

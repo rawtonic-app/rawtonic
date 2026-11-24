@@ -378,18 +378,32 @@ impl Library {
             digests.normalize(edit, root);
         }
         let mut copies = BTreeMap::new();
-        let rows: Vec<(String, Option<String>)> = self
+        let rows: Vec<(String, Option<String>, bool)> = self
             .conn
-            .prepare("SELECT name,legacy_state FROM versions WHERE asset_id=? AND is_primary=0")?
-            .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .prepare(
+                "SELECT v.name,v.legacy_state,v.flag != coalesce(m.flag,0) FROM versions v
+                 LEFT JOIN metadata m ON m.asset_id=v.asset_id WHERE v.asset_id=? AND v.is_primary=0",
+            )?
+            .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
             .collect::<rusqlite::Result<_>>()?;
-        for (name, text) in rows {
+        for (name, text, own_flag) in rows {
             let mut value: Value = text
                 .as_deref()
                 .map(serde_json::from_str)
                 .transpose()?
                 .unwrap_or(Value::Null);
             digests.normalize(&mut value, root);
+            // A copy's own flag where it differs from its photograph's (each
+            // copy had its photograph's before schema 35, so earlier
+            // baselines still compare equal).
+            if own_flag {
+                let flag: i8 = self.conn.query_row(
+                    "SELECT flag FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
+                    params![asset, name],
+                    |r| r.get(0),
+                )?;
+                value = serde_json::json!({"state": value, "flag": flag});
+            }
             copies.insert(name, value);
         }
         let eyes = self
@@ -478,10 +492,11 @@ impl Library {
     }
 
     /// The albums holding `asset` by their name and the names of the groups
-    /// above them ("Weddings/Smith"): the same in both catalogs.
+    /// above them ("Weddings/Smith"): the same in both catalogs; a virtual
+    /// copy's membership with `?vc=<copy>` after it.
     fn album_paths(&self, asset: &str) -> Result<BTreeSet<String>> {
         let mut out = BTreeSet::new();
-        for id in self.album_memberships(asset)? {
+        for (id, copy) in self.album_memberships(asset)? {
             let mut names = Vec::new();
             let mut next = Some(id);
             while let Some(id) = next {
@@ -494,7 +509,12 @@ impl Library {
                 next = parent;
             }
             names.reverse();
-            out.insert(names.join("/"));
+            let member = if copy.is_empty() {
+                String::new()
+            } else {
+                format!("?vc={copy}")
+            };
+            out.insert(names.join("/") + &member);
         }
         Ok(out)
     }
@@ -751,15 +771,16 @@ impl Library {
         Ok(())
     }
 
-    /// The albums holding `asset`, by id, with their name and parent.
-    fn album_memberships(&self, asset: &str) -> Result<Vec<String>> {
+    /// The albums holding `asset` or one of its virtual copies, by id, each
+    /// with the member: '' for the photograph, else the copy's id.
+    fn album_memberships(&self, asset: &str) -> Result<Vec<(String, String)>> {
         Ok(self
             .conn
             .prepare(
-                "SELECT c.id FROM collection_assets ca JOIN collections c ON c.id=ca.collection_id
-                 WHERE ca.asset_id=? AND c.kind='album' ORDER BY c.id",
+                "SELECT c.id,ca.copy FROM collection_assets ca JOIN collections c ON c.id=ca.collection_id
+                 WHERE ca.asset_id=? AND c.kind='album' ORDER BY c.id,ca.copy",
             )?
-            .query_map([asset], |r| r.get(0))?
+            .query_map([asset], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?)
     }
 
@@ -998,9 +1019,9 @@ impl Library {
                 changes.push("snapshots");
             }
             let ours_albums = self.album_memberships(&target)?;
-            for album in other.album_memberships(&asset.id)? {
+            for (album, copy) in other.album_memberships(&asset.id)? {
                 match self.matching_album(other, &album)? {
-                    Some(here) if ours_albums.contains(&here) => {}
+                    Some(here) if ours_albums.iter().any(|(id, c)| *id == here && *c == copy) => {}
                     _ => {
                         changes.push("albums");
                         break;
@@ -1229,12 +1250,14 @@ impl Library {
             }
         }
         for (incoming, target) in &here {
-            for album in other.album_memberships(incoming)? {
+            for (album, copy) in other.album_memberships(incoming)? {
                 let (id, created) = ensure_album(&tx, self, other, &album)?;
                 report.albums_created += created;
+                // A virtual copy's membership stays the copy's (copies keep
+                // their ids across catalogs).
                 tx.execute(
-                    "INSERT OR IGNORE INTO collection_assets(collection_id,asset_id) VALUES(?,?)",
-                    params![id, target],
+                    "INSERT OR IGNORE INTO collection_assets(collection_id,asset_id,copy) VALUES(?,?,?)",
+                    params![id, target, copy],
                 )?;
             }
         }
@@ -1500,9 +1523,11 @@ fn replace(
                 .optional()?;
             let here = match existing {
                 Some(here) => {
+                    // Their flag only when their copies changed (a
+                    // snapshot-only change keeps the pick made here).
                     tx.execute(
-                        "UPDATE versions SET legacy_state=?,flag=? WHERE id=?",
-                        params![state, flag, here],
+                        "UPDATE versions SET legacy_state=?,flag=CASE WHEN ? THEN ? ELSE flag END WHERE id=?",
+                        params![state, changes.contains(&"copies"), flag, here],
                     )?;
                     here
                 }

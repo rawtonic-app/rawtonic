@@ -608,6 +608,60 @@ fn a_stack_there_does_not_replace_one_the_photographer_made_here() {
     assert_eq!(w.main.stacks().unwrap(), before);
 }
 
+/// A virtual copy's own flag and its album membership (without its
+/// photograph) changed in the exported catalog come back as the copy's
+/// (SMR6, schemas 35/36); a snapshot-only change keeps the pick made here.
+#[test]
+fn a_copys_own_flag_and_album_membership_come_back() {
+    let (_tmp, w) = world_with(|main, ids| {
+        main.save_copy_state(
+            &ids[0],
+            "c0ffee",
+            &json!({"version": 1, "rating": 1, "tags": [], "adjustments": {"exposure": 0.5}}),
+        )
+        .unwrap();
+    });
+    // There: the copy is picked (its photograph stays unflagged) and put
+    // alone into a new album.
+    w.laptop
+        .set_item_flags(&[(w.ids[0].clone(), Some("c0ffee".into()), 1)])
+        .unwrap();
+    let client = w.laptop.create_collection("Client", None).unwrap();
+    w.laptop
+        .add_items_to_collection(&client.id, &[(w.ids[0].clone(), Some("c0ffee".into()))])
+        .unwrap();
+    let source = open_source(&w.main, &w.laptop.directory).unwrap();
+    let seen = review(&w.main, &source).unwrap();
+    drop(source);
+    let a = seen.photos.iter().find(|p| p.id == w.ids[0]).unwrap();
+    assert_eq!(a.side, Some(Side::There), "{a:?}");
+    import(
+        &w.main,
+        &w.laptop.directory,
+        &options(NewPhotos::Reference),
+        &go(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(w.main.copy_flag(&w.ids[0], "c0ffee").unwrap(), 1);
+    assert_eq!(w.main.metadata(&w.ids[0]).unwrap().flag, 0);
+    let here = w
+        .main
+        .collections()
+        .unwrap()
+        .into_iter()
+        .find(|c| c.name == "Client")
+        .unwrap();
+    let members: Vec<String> = w
+        .main
+        .collection_item_paths(&here.id)
+        .unwrap()
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(members, ["a.arw?vc=c0ffee"]);
+}
+
 #[test]
 fn conflict_choices_keep_virtual_copy_and_changed_here_only() {
     let (_tmp, w) = world();

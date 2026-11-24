@@ -25,6 +25,7 @@
 'index' | 'sqlite_autoindex_face_eyes_1' | 'face_eyes' | NULL
 'index' | 'sqlite_autoindex_file_ops_log_1' | 'file_ops_log' | NULL
 'index' | 'sqlite_autoindex_folder_root_volumes_1' | 'folder_root_volumes' | NULL
+'index' | 'sqlite_autoindex_forgotten_copies_1' | 'forgotten_copies' | NULL
 'index' | 'sqlite_autoindex_hot_folder_files_1' | 'hot_folder_files' | NULL
 'index' | 'sqlite_autoindex_image_hashes_1' | 'image_hashes' | NULL
 'index' | 'sqlite_autoindex_imported_recipes_1' | 'imported_recipes' | NULL
@@ -133,6 +134,11 @@
  PRIMARY KEY(asset_id, face))'
 'table' | 'file_ops_log' | 'file_ops_log' | 'CREATE TABLE file_ops_log(id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
 'table' | 'folder_root_volumes' | 'folder_root_volumes' | 'CREATE TABLE folder_root_volumes(path TEXT PRIMARY KEY, volume TEXT NOT NULL)'
+'table' | 'forgotten_copies' | 'forgotten_copies' | 'CREATE TABLE forgotten_copies(
+ asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+ copy TEXT NOT NULL,
+ flag INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1),
+ PRIMARY KEY(asset_id, copy))'
 'table' | 'hot_folder' | 'hot_folder' | 'CREATE TABLE hot_folder(
  id INTEGER PRIMARY KEY CHECK(id=1),
  folder TEXT NOT NULL,
@@ -417,6 +423,7 @@ END'
 # table pending_capture_times (0 rows): asset_id, wall_time
 # table camera_naming (1 rows): id, fingerprint
 1 | '<decoder naming>'
+# table forgotten_copies (0 rows): asset_id, copy, flag
 # table collection_assets (5 rows): collection_id, asset_id, copy
 'album-portraits' | '00000000-0000-4000-8000-000000000003' | ''
 'album-portraits' | '00000000-0000-4000-8000-000000000007' | ''

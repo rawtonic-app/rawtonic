@@ -101,6 +101,31 @@ fn most_common(names: impl Iterator<Item = String>) -> Option<String> {
         .map(|(name, _)| name)
 }
 
+/// Whether a model test (`holds`, given folded names) that the library
+/// applies to a camera's one model or any model its files state (as camera
+/// rules match there) selects exactly the files a per-file test of the
+/// stated model selects (as Lightroom's camera rules do), for every
+/// catalogued camera: false when it holds for some of a camera's stated
+/// models but not all (`ends with 1s` for Olympus `STYLUS1` and
+/// `STYLUS1,1s`, one camera here), or for its one model only (`starts with
+/// EOS` holds for `EOS 6D`, never for a file's `Canon EOS 6D`).
+pub fn model_test_agrees_per_file(holds: impl Fn(&str) -> bool) -> bool {
+    let names = catalog_names();
+    names.all.iter().all(|((_, one_model), files)| {
+        let stated: Vec<bool> = files
+            .iter()
+            .filter(|name| !names.by_size.contains(*name))
+            .map(|(_, model)| holds(model))
+            .collect();
+        if stated.is_empty() {
+            return true;
+        }
+        let any = stated.iter().any(|h| *h);
+        let every = stated.iter().all(|h| *h);
+        (any == every) && (any || !holds(one_model))
+    })
+}
+
 /// Whether `model` is the one model name (`canonical_names`) of a
 /// catalogued camera, ignoring case.
 pub fn is_canonical_model(model: &str) -> bool {
@@ -195,6 +220,18 @@ fn catalog_names() -> &'static CatalogNames {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A model test agrees per file unless it splits a camera's stated
+    /// models or holds for its one model alone.
+    #[test]
+    fn model_tests_that_agree_per_file() {
+        assert!(model_test_agrees_per_file(|m| m.starts_with("nikon d")));
+        assert!(model_test_agrees_per_file(|m| m.starts_with("canon eos")));
+        // `EOS 6D` starts with it, the files' `Canon EOS 6D` does not.
+        assert!(!model_test_agrees_per_file(|m| m.starts_with("eos")));
+        // Olympus `STYLUS1` and `STYLUS1,1s` are one camera here.
+        assert!(!model_test_agrees_per_file(|m| m.ends_with("1s")));
+    }
 
     /// A camera's RAW and its JPEG name it alike (a JPEG's EXIF states the
     /// names the RAW's tags do); a name the catalogue does not know stays.

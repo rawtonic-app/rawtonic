@@ -166,6 +166,11 @@ CREATE TABLE pending_capture_times(
 CREATE TABLE camera_naming(
  id INTEGER PRIMARY KEY CHECK(id = 1),
  fingerprint TEXT NOT NULL);
+CREATE TABLE forgotten_copies(
+ asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+ copy TEXT NOT NULL,
+ flag INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1),
+ PRIMARY KEY(asset_id, copy));
 CREATE TABLE "collection_assets"(
  collection_id TEXT REFERENCES collections(id) ON DELETE CASCADE,
  asset_id TEXT REFERENCES assets(id) ON DELETE CASCADE,
@@ -276,6 +281,7 @@ INSERT INTO cull_scores(asset_id,model,fingerprint,misfire,document,error) VALUE
 INSERT INTO cull_dismissed(asset_id,criterion) VALUES('00000000-0000-4000-8000-000000000009','misfire');
 INSERT INTO imported_recipes(version_id,source,translated,stored) VALUES('00000000-0000-4000-9000-000000000001','1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a','2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b','3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c');
 INSERT INTO pending_capture_times(asset_id,wall_time) VALUES('00000000-0000-4000-8000-000000000002','2026-10-31T12:00:00.05');
+INSERT INTO forgotten_copies(asset_id,copy,flag) VALUES('00000000-0000-4000-8000-000000000003','dead01',-1);
 INSERT INTO collection_assets(collection_id,asset_id,copy) VALUES('album-wedding','00000000-0000-4000-8000-000000000001','');
 INSERT INTO collection_assets(collection_id,asset_id,copy) VALUES('album-wedding','00000000-0000-4000-8000-000000000002','');
 INSERT INTO collection_assets(collection_id,asset_id,copy) VALUES('album-wedding','00000000-0000-4000-8000-000000000004','');
