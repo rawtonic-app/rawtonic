@@ -3705,9 +3705,13 @@
         "format": "Format",
         "jxlLossless": "Qualität 100 ist verlustfrei.",
         "legend": "Dateieinstellungen",
+        "limitSize": "Dateigröße begrenzen auf",
+        "limitSizeAria": "Dateigrößenlimit in KB",
+        "limitSizeHint": "Findet eine hohe Qualität, bei der die ganze Datei samt Metadaten hineinpasst. Ist selbst die niedrigste Qualität zu groß, wird die kleinste Datei geschrieben und das Exportergebnis weist darauf hin; das Bild wird nie verkleinert.",
         "proPhotoWarning": "ProPhoto RGB braucht 16-Bit-TIFF; mit 8 Bit pro Kanal können Tonwertabrisse entstehen.",
         "quality": "Qualität",
         "qualityAria": "{{format}}-Qualität",
+        "qualityAuto": "automatisch",
         "template": "Dateinamenvorlage",
         "templateHelp": "Verwende {{original}}, {{sequence}} und das Aufnahmedatum {{date}}."
       },
@@ -3734,7 +3738,8 @@
       "plan": {
         "fullSize": "volle Größe",
         "legend": "Dieser Export",
-        "quality": "Qualität {{quality}}"
+        "quality": "Qualität {{quality}}",
+        "sizeLimit": "≤ {{kb}} KB"
       },
       "progress": {
         "cancelling": "Wird abgebrochen…",
@@ -3832,6 +3837,7 @@
           "rendering": "Wird gerendert und geschrieben…",
           "replaced": "Früheren Export ersetzt",
           "selecting": "KI-Auswahlen werden berechnet …",
+          "sizeLimitMissed": "Kleinste Datei geschrieben: {{size}} KB, über dem Limit von {{limit}} KB",
           "skippedExists": "Übersprungen: Eine Datei dieses Namens existiert",
           "skippedUnchanged": "Übersprungen: seit dem letzten Export unverändert",
           "waiting": "Wartet"

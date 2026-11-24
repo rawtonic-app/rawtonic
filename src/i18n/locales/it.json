@@ -3867,9 +3867,13 @@
         "format": "Formato",
         "jxlLossless": "La qualità 100 è senza perdita.",
         "legend": "Impostazioni file",
+        "limitSize": "Limita la dimensione del file a",
+        "limitSizeAria": "Limite di dimensione del file in KB",
+        "limitSizeHint": "Cerca una qualità alta il cui file completo, metadati inclusi, rientri nel limite. Se anche la qualità più bassa è troppo grande, viene scritto il file più piccolo e il risultato dell'esportazione lo segnala; l'immagine non viene mai ridimensionata.",
         "proPhotoWarning": "ProPhoto RGB richiede TIFF a 16 bit; con 8 bit per canale possono comparire bande.",
         "quality": "Qualità",
         "qualityAria": "Qualità {{format}}",
+        "qualityAuto": "auto",
         "template": "Modello nome file",
         "templateHelp": "Usa {{original}}, {{sequence}} e la data di scatto {{date}}."
       },
@@ -3896,7 +3900,8 @@
       "plan": {
         "fullSize": "dimensione piena",
         "legend": "Questa esportazione",
-        "quality": "qualità {{quality}}"
+        "quality": "qualità {{quality}}",
+        "sizeLimit": "≤ {{kb}} KB"
       },
       "progress": {
         "cancelling": "Annullamento…",
@@ -3999,6 +4004,7 @@
           "rendering": "Rendering e scrittura…",
           "replaced": "Esportazione precedente sostituita",
           "selecting": "Calcolo delle selezioni IA…",
+          "sizeLimitMissed": "File più piccolo scritto: {{size}} KB, oltre il limite di {{limit}} KB",
           "skippedExists": "Saltata: esiste un file con questo nome",
           "skippedUnchanged": "Saltata: invariata dall'ultima esportazione",
           "waiting": "In attesa"

@@ -661,6 +661,21 @@ it("saves a shown recipe's changes to it, so a ticked recipe exports what it sho
   expect((screen.getByLabelText('JPEG quality') as HTMLInputElement).value).toBe('70');
 });
 
+it('a JPEG file size limit replaces the quality with auto and shows in the plan', () => {
+  render(<StudioExport />);
+  const quality = screen.getByLabelText('JPEG quality') as HTMLInputElement;
+  expect(quality.disabled).toBe(false);
+  fireEvent.click(screen.getByRole('checkbox', { name: 'Limit file size to' }));
+  fireEvent.change(screen.getByLabelText('File size limit in KB'), { target: { value: '800' } });
+  expect(quality.disabled).toBe(true);
+  expect(quality.value).toBe('auto');
+  expect(screen.getByRole('region', { name: 'This export' }).textContent).toContain('≤ 800 KB');
+  // Another format has no size limit.
+  fireEvent.change(screen.getByLabelText('Format'), { target: { value: 'webp' } });
+  expect(screen.queryByRole('checkbox', { name: 'Limit file size to' })).toBeNull();
+  expect((screen.getByLabelText('WebP quality') as HTMLInputElement).disabled).toBe(false);
+});
+
 it('offers every image format the export writes', () => {
   render(<StudioExport />);
   const formats = Array.from((screen.getByLabelText('Format') as HTMLSelectElement).options).map((o) => o.value);

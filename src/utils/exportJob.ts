@@ -48,9 +48,11 @@ export function readFormDraft(library: string | null): RecipeDraft | null {
       // A setting that defaults to nothing (a watermark's file or font) is
       // a string once chosen.
       const same =
-        fallback === null || fallback === undefined
-          ? typeof saved[name] === 'string'
-          : typeof saved[name] === typeof fallback;
+        name === 'maxFileKb'
+          ? Number.isFinite(saved[name]) && saved[name] >= 1
+          : fallback === null || fallback === undefined
+            ? typeof saved[name] === 'string'
+            : typeof saved[name] === typeof fallback;
       if (same) draft[name] = saved[name];
     }
     if (typeof saved.folder === 'string') draft.folder = saved.folder;

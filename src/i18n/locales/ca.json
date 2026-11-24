@@ -3867,9 +3867,13 @@
         "format": "Format",
         "jxlLossless": "La qualitat 100 és sense pèrdua.",
         "legend": "Configuració del fitxer",
+        "limitSize": "Limita la mida del fitxer a",
+        "limitSizeAria": "Límit de mida del fitxer en KB",
+        "limitSizeHint": "Cerca una qualitat alta el fitxer sencer de la qual, metadades incloses, càpiga dins el límit. Si fins i tot la qualitat més baixa és massa gran, s'escriu el fitxer més petit i el resultat de l'exportació ho indica; la imatge mai no es redimensiona.",
         "proPhotoWarning": "ProPhoto RGB necessita TIFF de 16 bits; amb 8 bits per canal poden aparèixer bandes.",
         "quality": "Qualitat",
         "qualityAria": "Qualitat {{format}}",
+        "qualityAuto": "auto",
         "template": "Plantilla de nom de fitxer",
         "templateHelp": "Fes servir {{original}}, {{sequence}} i la data de captura {{date}}."
       },
@@ -3896,7 +3900,8 @@
       "plan": {
         "fullSize": "mida completa",
         "legend": "Aquesta exportació",
-        "quality": "qualitat {{quality}}"
+        "quality": "qualitat {{quality}}",
+        "sizeLimit": "≤ {{kb}} KB"
       },
       "progress": {
         "cancelling": "S'està cancel·lant…",
@@ -3999,6 +4004,7 @@
           "rendering": "S'està renderitzant i escrivint…",
           "replaced": "Exportació anterior substituïda",
           "selecting": "Calculant les seleccions amb IA…",
+          "sizeLimitMissed": "Fitxer més petit escrit: {{size}} KB, per sobre del límit de {{limit}} KB",
           "skippedExists": "Omesa: existeix un fitxer amb aquest nom",
           "skippedUnchanged": "Omesa: sense canvis des de l'última exportació",
           "waiting": "En espera"

@@ -3705,9 +3705,13 @@
         "format": "Format",
         "jxlLossless": "Quality 100 is lossless.",
         "legend": "File settings",
+        "limitSize": "Limit file size to",
+        "limitSizeAria": "File size limit in KB",
+        "limitSizeHint": "Finds a high quality whose whole file, metadata included, fits. If even the lowest quality is too big, the smallest file is written and the export result says so; the picture is never resized.",
         "proPhotoWarning": "ProPhoto RGB needs 16-bit TIFF; 8 bits per channel can band.",
         "quality": "Quality",
         "qualityAria": "{{format}} quality",
+        "qualityAuto": "auto",
         "template": "Filename template",
         "templateHelp": "Use {{original}}, {{sequence}} and the capture date {{date}}."
       },
@@ -3734,7 +3738,8 @@
       "plan": {
         "fullSize": "full size",
         "legend": "This export",
-        "quality": "quality {{quality}}"
+        "quality": "quality {{quality}}",
+        "sizeLimit": "≤ {{kb}} KB"
       },
       "progress": {
         "cancelling": "Cancelling…",
@@ -3832,6 +3837,7 @@
           "rendering": "Rendering and writing…",
           "replaced": "Replaced its earlier export",
           "selecting": "Computing AI selections…",
+          "sizeLimitMissed": "Smallest file written: {{size}} KB, above the {{limit}} KB limit",
           "skippedExists": "Skipped: a file of its name exists",
           "skippedUnchanged": "Skipped: unchanged since its last export",
           "waiting": "Waiting"

@@ -62,6 +62,11 @@ export function describeExportItem(item: ExportItemLive): string {
     case 'failed':
       return renderErrorMessage(item.error ?? '');
     case 'done':
+      if (item.sizeLimitMiss)
+        return i18n.t('studio.export.queue.photo.sizeLimitMissed', {
+          size: Math.ceil(item.sizeLimitMiss.bytes / 1000),
+          limit: Math.ceil(item.sizeLimitMiss.limitBytes / 1000)
+        });
       if (
         item.outcome === 'skippedExists' ||
         item.outcome === 'skippedUnchanged' ||
