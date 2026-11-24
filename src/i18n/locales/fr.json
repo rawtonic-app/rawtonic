@@ -2317,7 +2317,7 @@
       "sidecarsCopied_one": "{{count}} fichier annexe XMP copié",
       "sidecarsCopied_many": "{{count}} fichiers annexes XMP copiés",
       "sidecarsCopied_other": "{{count}} fichiers annexes XMP copiés",
-      "sourceGeometryAll": "Appliquer le redressement et le recadrage de Capture One à toutes les photos listées ({{n}})",
+      "sourceGeometryAll": "Appliquer le redressement de Capture One et remplacer les recadrages au format de chaque image ({{n}} photos)",
       "sourceGeometryApplied": "Redressement et recadrage de Capture One appliqués à {{n}} photo(s) (Annuler les rétablit)",
       "sourceGeometryErrors": "Redressement et recadrage de Capture One non appliqués à certaines photos : {{n}}.",
       "sourceGeometryFailed": "Le redressement et le recadrage de Capture One n'ont pas pu être appliqués",

@@ -2872,6 +2872,62 @@ mod tests {
         assert!(!super::needs_maker_note_lens("a.CR3", &named));
     }
 
+    #[test]
+    fn cr3_metadata_fallback_keeps_camera_lens_tags_in_the_export() {
+        use super::OutputColorSpace;
+        use rawtonic_engine::lens_detect::LENS_CANDIDATES;
+
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("photo.CR3");
+        // Exercise the fallback by supplying the fields the RAW decoder
+        // returns when the container has no EXIF our generic reader can open.
+        let bytes = b"no generic EXIF";
+        std::fs::write(&source, bytes).unwrap();
+        let path = source.to_str().unwrap();
+        let map = super::exif_data_with(path, bytes, &|| {
+            let mut metadata = RawMetadata {
+                make: "Canon".into(),
+                lens_candidates: vec![
+                    described_lens("Sigma", "24-70mm f/2.8 IF EX DG HSM"),
+                    described_lens("Tamron", "SP 24-70mm f/2.8 Di VC USD"),
+                ],
+                ..Default::default()
+            };
+            metadata.exif.lens_model = Some("24-70mm".into());
+            metadata.exif.lens_make = Some("Canon".into());
+            Some(metadata)
+        });
+        assert!(map[LENS_CANDIDATES].contains("Sigma"));
+        assert!(map[LENS_CANDIDATES].contains("Tamron"));
+        let metadata = super::export_metadata_with(
+            path,
+            "jpg",
+            OutputColorSpace::Srgb,
+            true,
+            false,
+            false,
+            32,
+            24,
+            false,
+            &|| Some(map.clone()),
+            &|| None,
+        )
+        .unwrap();
+        let mut jpeg = small_jpeg();
+        embed_export_metadata(&mut jpeg, "jpg", &metadata).unwrap();
+        let read = jpeg_exif_tags(&jpeg);
+        for (tag, value) in [
+            (exif::Tag::LensModel, b"24-70mm".as_slice()),
+            (exif::Tag::LensMake, b"Canon".as_slice()),
+        ] {
+            let field = read.get_field(tag, exif::In::PRIMARY).unwrap();
+            let exif::Value::Ascii(values) = &field.value else {
+                panic!("expected an ASCII lens tag");
+            };
+            assert_eq!(values, &[value.to_vec()]);
+        }
+    }
+
     /// A little-endian TIFF whose EXIF holds FocalLength 50 mm and, when
     /// given, FocalLengthIn35mmFilm.
     fn tiff_with_focal_length(equivalent: Option<u16>) -> Vec<u8> {

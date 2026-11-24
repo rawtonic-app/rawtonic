@@ -4965,6 +4965,67 @@ mod view_state_tests {
 mod tiff_rows_tests {
     use super::*;
 
+    #[test]
+    fn a_stripped_tiff_embeds_rights_without_contact_or_location() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("photo.jpg");
+        let metadata = rawtonic_metadata::Metadata {
+            creator: "Ada".into(),
+            copyright: "(c) Ada".into(),
+            iptc: [
+                ("creatorEmail".into(), "ada@example.org".into()),
+                ("creatorPhone".into(), "+49 555 0100".into()),
+                ("city".into(), "Kiel".into()),
+                ("usageTerms".into(), "Editorial only".into()),
+            ]
+            .into(),
+            ..Default::default()
+        };
+        let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 90, "keepMetadata": false, "stripGps": true
+        }))
+        .unwrap();
+        let tiff = tmp.path().join("stripped.tif");
+        save_export_image(
+            image::DynamicImage::new_rgb8(8, 8),
+            source.to_str().unwrap(),
+            &settings,
+            false,
+            &ExportOutput {
+                path: &tiff,
+                format: "tiff",
+                exif_sidecar: &|| None,
+                catalog: &|| Some(metadata.clone()),
+                write: &|path, _, encoded| crate::output::write_new_export(path, encoded),
+                enlarger: None,
+                provenance: None,
+            },
+        )
+        .unwrap();
+        let exif = exif::Reader::new()
+            .read_from_container(&mut std::io::BufReader::new(
+                std::fs::File::open(&tiff).unwrap(),
+            ))
+            .unwrap();
+        let field = exif
+            .get_field(exif::Tag(exif::Context::Tiff, 700), exif::In::PRIMARY)
+            .expect("TIFF XMP tag");
+        let exif::Value::Byte(packet) = &field.value else {
+            panic!("TIFF XMP tag must contain bytes");
+        };
+        let packet = std::str::from_utf8(packet).unwrap();
+        let (embedded, _) = rawtonic_metadata::read_xmp(packet).unwrap();
+        assert_eq!(embedded.creator, "Ada");
+        assert_eq!(embedded.copyright, "(c) Ada");
+        assert_eq!(embedded.iptc["usageTerms"], "Editorial only");
+        for private in ["ada@example.org", "+49 555 0100", "Kiel"] {
+            assert!(
+                !packet.contains(private),
+                "private value in encoded TIFF XMP: {private}"
+            );
+        }
+    }
+
     fn rgba(width: u32, height: u32, sixteen: bool) -> DynamicImage {
         let sample = |x: u32, y: u32, c: u32| (x * 7919 + y * 104_729 + c * 31) % 65_521;
         if sixteen {

@@ -2439,7 +2439,7 @@
       "sidecarsCopied_few": "скопировано {{count}} файла XMP",
       "sidecarsCopied_many": "скопировано {{count}} файлов XMP",
       "sidecarsCopied_other": "скопировано {{count}} файла XMP",
-      "sourceGeometryAll": "Применить выравнивание и кадрирование Capture One ко всем перечисленным снимкам ({{n}})",
+      "sourceGeometryAll": "Применить выравнивание Capture One и заменить кадрирование с пропорциями каждого изображения ({{n}} фото)",
       "sourceGeometryApplied": "Выравнивание и кадрирование Capture One применены к снимкам: {{n}} (Отмена вернёт прежнее)",
       "sourceGeometryErrors": "Выравнивание и кадрирование Capture One не применены к некоторым снимкам: {{n}}.",
       "sourceGeometryFailed": "Не удалось применить выравнивание и кадрирование Capture One",

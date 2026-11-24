@@ -2317,7 +2317,7 @@
       "sidecarsCopied_one": "{{count}} archivo XMP complementario copiado",
       "sidecarsCopied_many": "{{count}} archivos XMP complementarios copiados",
       "sidecarsCopied_other": "{{count}} archivos XMP complementarios copiados",
-      "sourceGeometryAll": "Aplicar el enderezado y el recorte de Capture One a todas las fotos listadas ({{n}})",
+      "sourceGeometryAll": "Aplicar el enderezado de Capture One y sustituir los recortes con la relación de aspecto de cada imagen ({{n}} fotos)",
       "sourceGeometryApplied": "Enderezado y recorte de Capture One aplicados a {{n}} foto(s) (Deshacer los devuelve)",
       "sourceGeometryErrors": "Enderezado y recorte de Capture One no aplicados a algunas fotos: {{n}}.",
       "sourceGeometryFailed": "No se pudieron aplicar el enderezado y el recorte de Capture One",

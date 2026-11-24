@@ -1548,7 +1548,9 @@ mod tests {
         let source = hot.join("A.ARW");
         fs::write(&source, b"capture").unwrap();
         // No embedded date. Use a year that differs from the test run's date.
-        fs::File::open(&source)
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&source)
             .unwrap()
             .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_600_000_000))
             .unwrap();
