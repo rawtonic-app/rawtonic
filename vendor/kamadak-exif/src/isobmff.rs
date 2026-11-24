@@ -239,10 +239,16 @@ impl<R> Parser<R> where R: BufRead + Seek {
                     let end = off.checked_add(len).ok_or("Invalid length")?;
                     let off = off.try_into().or(Err("Offset too large"))?;
                     let end = end.try_into().or(Err("Length too large"))?;
-                    buf.extend_from_slice(match len {
+                    let part = match len {
                         0 => idat.get(off..),
                         _ => idat.get(off..end),
-                    }.ok_or("Out of ItemDataBox")?);
+                    }.ok_or("Out of ItemDataBox")?;
+                    // Rawtonic: check before copying, so a damaged extent
+                    // cannot make a copy beyond the cap.
+                    if part.len() > MAX_EXIF_SIZE.saturating_sub(buf.len()) {
+                        return Err("Exif data too large".into());
+                    }
+                    buf.extend_from_slice(part);
                     if buf.len() > MAX_EXIF_SIZE {
                         return Err("Exif data too large".into());
                     }
