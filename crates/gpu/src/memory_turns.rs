@@ -298,7 +298,13 @@ impl Turns {
         } else {
             state.runs > 0
         };
-        if refused || state.asked_waiting > 0 {
+        // An asked run that waits while an export holds its turn starts
+        // only after that export, which may wait for this very compile (its
+        // variant): it does not hold a compile somebody waits for (DVL5
+        // review r3: an export and a pasted Landscape mask waited for each
+        // other for good). An idle compile nobody waits for still gives way.
+        let asked_holds = state.asked_waiting > 0 && !(awaited && state.exports > 0);
+        if refused || asked_holds {
             state.compile_waited = Some(Instant::now());
             return (false, 0);
         }
@@ -480,5 +486,27 @@ mod tests {
         turns.run_ended(AiRun::Ahead);
         turns.lock().asked_waiting = 1;
         assert_eq!(turns.compile(true), (false, 0), "an asked run waits");
+    }
+
+    /// An asked run that waits for an export does not hold the compile the
+    /// export (or a frame) waits for: the run cannot start before the
+    /// export ends, and the export may wait for that compile (DVL5 review
+    /// r3). A compile nobody waits for still gives way to it.
+    #[test]
+    fn an_asked_run_behind_an_export_does_not_hold_an_awaited_compile() {
+        let turns = turns();
+        turns.export();
+        let asked = start_run(&turns, AiRun::Asked);
+        let seen = Instant::now();
+        while turns.lock().asked_waiting == 0 {
+            assert!(seen.elapsed() < SOON);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(turns.compile(false), (false, 0), "nobody waits for it");
+        assert_eq!(turns.compile(true), (true, 0), "the export waits for it");
+        turns.compile_ended();
+        turns.export_ended();
+        assert_eq!(asked.recv_timeout(SOON), Ok(true));
+        turns.run_ended(AiRun::Asked);
     }
 }
