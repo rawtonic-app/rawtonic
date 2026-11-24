@@ -17,6 +17,7 @@ pub mod queue;
 pub mod render_inputs;
 pub mod sidecars;
 mod signed_tiff;
+pub mod size_limit;
 pub mod text_watermark;
 pub mod tiff_exif;
 pub mod webp_container;

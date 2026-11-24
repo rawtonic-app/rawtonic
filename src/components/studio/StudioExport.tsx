@@ -34,6 +34,7 @@ import {
   printRadius,
   resizeRange,
   savedRecipes,
+  sizeLimitKb,
   subfolderName,
   subfolderProblem,
   watermarkReady,
@@ -444,6 +445,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
     format.translated ? t('studio.export.file.cubeLut') : format.name;
   const currentFormat = FORMATS.find((f) => f.extension === draft.format);
   const formatName = currentFormat ? formatLabel(currentFormat) : draft.format;
+  const sizeLimited = sizeLimitKb(draft) !== undefined;
   /** One planned export in a line: format, quality, size, destination. */
   const describeJob = (job: RecipeDraft, renderedFolder?: string) => {
     const format = FORMATS.find((f) => f.extension === job.format);
@@ -463,7 +465,9 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             : t('studio.export.destination.choose');
     return [
       format ? formatLabel(format) : job.format,
-      QUALITY_FORMATS.includes(job.format) && t('studio.export.plan.quality', { quality: job.quality }),
+      sizeLimitKb(job) !== undefined
+        ? t('studio.export.plan.sizeLimit', { kb: sizeLimitKb(job) })
+        : QUALITY_FORMATS.includes(job.format) && t('studio.export.plan.quality', { quality: job.quality }),
       job.resize ? `${t(`studio.export.sizing.modes.${job.resizeMode}`)} ${size}` : t('studio.export.plan.fullSize'),
       subfolder ? `${where} / ${subfolder}` : where,
       job.provenance && t('studio.export.provenance.planSigned')
@@ -680,14 +684,39 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
                   aria-label={t('studio.export.file.qualityAria', {
                     format: formatName
                   })}
-                  type="number"
+                  type={sizeLimited ? 'text' : 'number'}
                   min="1"
                   max="100"
                   required
-                  value={draft.quality}
+                  disabled={sizeLimited}
+                  value={sizeLimited ? t('studio.export.file.qualityAuto') : draft.quality}
                   onChange={(e) => set({ quality: Number(e.target.value) })}
                 />
               </label>
+            )}
+            {draft.format === 'jpg' && (
+              <div className="studio-check">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={draft.maxFileKb !== null}
+                    onChange={(e) => set({ maxFileKb: e.target.checked ? 500 : null })}
+                  />
+                  {t('studio.export.file.limitSize')}
+                </label>
+                {draft.maxFileKb !== null && (
+                  <input
+                    {...selectOnFocus}
+                    aria-label={t('studio.export.file.limitSizeAria')}
+                    type="number"
+                    min="1"
+                    required
+                    value={draft.maxFileKb}
+                    onChange={(e) => set({ maxFileKb: Math.max(1, Math.round(Number(e.target.value)) || 1) })}
+                  />
+                )}
+                {draft.maxFileKb !== null && <small>{t('studio.export.file.limitSizeHint')}</small>}
+              </div>
             )}
             {draft.format === 'jxl' && <small>{t('studio.export.file.jxlLossless')}</small>}
             {draft.format === 'tiff' && (

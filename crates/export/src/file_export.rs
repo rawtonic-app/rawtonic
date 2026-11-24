@@ -353,7 +353,12 @@ impl FileExporter {
         let catalog = || job.catalog.clone();
         let written = std::sync::Mutex::new(None);
         let write = |path: &Path, _extension: &str, encoded: EncodedExport| {
+            let miss = encoded.size_limit_miss();
             let file = job.publish.write_export(path, encoded)?;
+            if let Some(miss) = miss {
+                // The CLI's log is its result; the app queue shows it per photo.
+                log::warn!("{}: {}", path.display(), miss.describe());
+            }
             *written.lock().unwrap_or_else(|e| e.into_inner()) = Some(file);
             Ok(())
         };

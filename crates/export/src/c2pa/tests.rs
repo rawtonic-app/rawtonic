@@ -978,6 +978,82 @@ mod export {
         }
     }
 
+    /// A signed JPEG with a size limit is measured with its manifest in:
+    /// a limit the bare picture meets but the signed file cannot is missed
+    /// and reported; a limit the signed file meets keeps the best quality
+    /// and a valid signature.
+    #[test]
+    fn a_size_limit_counts_the_signed_manifest() {
+        let (_dir, identity) = identity();
+        let run = |kb: u32| {
+            let mut settings = settings(true);
+            settings.max_file_kb = Some(kb);
+            let miss = std::rc::Rc::new(RefCell::new(None));
+            let (into, missed) = (std::rc::Rc::new(RefCell::new(None)), miss.clone());
+            let write = {
+                let into = into.clone();
+                move |_: &Path, _: &str, encoded: EncodedExport<'_>| {
+                    *missed.borrow_mut() = encoded.size_limit_miss();
+                    *into.borrow_mut() = Some(encoded.into_bytes()?);
+                    Ok(())
+                }
+            };
+            let catalog = || {
+                Some(rawtonic_metadata::Metadata {
+                    creator: "Ada Example".to_string(),
+                    ..Default::default()
+                })
+            };
+            save_rendered_export(
+                render(),
+                "/photos/DSC0001.ARW",
+                &json!({}),
+                &settings,
+                &ExportOutput {
+                    path: Path::new("/out/photo.jpg"),
+                    format: "jpg",
+                    exif_sidecar: &|| None,
+                    catalog: &catalog,
+                    enlarger: None,
+                    write: &write,
+                    provenance: Some(&identity),
+                },
+                &|| Ok(()),
+            )
+            .unwrap();
+            (into.take().unwrap(), miss.take())
+        };
+        // The same picture and metadata at quality 100, unsigned and signed.
+        let sizes = |kb: Option<u32>, signed: bool| {
+            let mut settings = settings(signed);
+            settings.max_file_kb = kb;
+            settings.jpeg_quality = 100;
+            let (result, file) = export("jpg", &settings, signed.then_some(&identity), &json!({}));
+            result.unwrap();
+            file.unwrap().len() as u64
+        };
+        let (unsigned, signed) = (sizes(None, false), sizes(None, true));
+        assert!(
+            signed > unsigned + 1000,
+            "the manifest adds {} bytes",
+            signed - unsigned
+        );
+        // A limit the bare picture meets at quality 100 but the manifest breaks.
+        let tight = (unsigned as u32).div_ceil(1000);
+        assert!(u64::from(tight) * 1000 < signed);
+        let (file, miss) = run(tight);
+        let miss = miss.expect("the signed file is above the limit");
+        assert_eq!(miss.bytes, file.len() as u64);
+        assert!(miss.bytes > u64::from(tight) * 1000);
+        validate(&file, &jpeg_store(&file));
+        // Room for the manifest: met, signed, validated.
+        let roomy = (signed as u32).div_ceil(1000);
+        let (file, miss) = run(roomy);
+        assert!(miss.is_none());
+        assert!(file.len() as u64 <= u64::from(roomy) * 1000);
+        validate(&file, &jpeg_store(&file));
+    }
+
     #[test]
     fn without_the_option_nothing_changes() {
         let (_dir, identity) = identity();

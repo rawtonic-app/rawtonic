@@ -21,3 +21,13 @@ it('ignores unknown keys, wrong types and other libraries', () => {
   expect(readFormDraft('/Shoots/A')).toEqual({ ...DEFAULT_RECIPE_DRAFT, format: 'png' });
   expect(readFormDraft('/Shoots/B')).toBeNull();
 });
+
+it('brings back a JPEG file size limit and drops a nonsensical one', () => {
+  const draft = { ...DEFAULT_RECIPE_DRAFT, maxFileKb: 500 };
+  writeFormDraft('/Shoots/A', draft);
+  expect(readFormDraft('/Shoots/A')?.maxFileKb).toBe(500);
+  localStorage.setItem('rawtonic.export.form:/Shoots/A', JSON.stringify({ maxFileKb: 'big' }));
+  expect(readFormDraft('/Shoots/A')?.maxFileKb).toBeNull();
+  localStorage.setItem('rawtonic.export.form:/Shoots/A', JSON.stringify({ maxFileKb: 0 }));
+  expect(readFormDraft('/Shoots/A')?.maxFileKb).toBeNull();
+});

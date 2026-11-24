@@ -3601,9 +3601,13 @@
         "format": "格式",
         "jxlLossless": "质量 100 为无损。",
         "legend": "文件设置",
+        "limitSize": "限制文件大小为",
+        "limitSizeAria": "文件大小上限（KB）",
+        "limitSizeHint": "查找使整个文件（含元数据）不超过上限的较高质量。若连最低质量也过大，则写入最小的文件，并在导出结果中提示；图像绝不会被缩小。",
         "proPhotoWarning": "ProPhoto RGB 需要 16 位 TIFF；每通道 8 位可能出现色带。",
         "quality": "质量",
         "qualityAria": "{{format}} 质量",
+        "qualityAuto": "自动",
         "template": "文件名模板",
         "templateHelp": "可使用 {{original}}、{{sequence}} 和拍摄日期 {{date}}。"
       },
@@ -3630,7 +3634,8 @@
       "plan": {
         "fullSize": "原始尺寸",
         "legend": "本次导出",
-        "quality": "质量 {{quality}}"
+        "quality": "质量 {{quality}}",
+        "sizeLimit": "≤ {{kb}} KB"
       },
       "progress": {
         "cancelling": "正在取消…",
@@ -3723,6 +3728,7 @@
           "rendering": "正在渲染并写入…",
           "replaced": "已替换之前的导出",
           "selecting": "正在计算 AI 选区…",
+          "sizeLimitMissed": "已写入最小文件：{{size}} KB，超过 {{limit}} KB 的上限",
           "skippedExists": "已跳过：已有同名文件",
           "skippedUnchanged": "已跳过：自上次导出后未更改",
           "waiting": "等待中"

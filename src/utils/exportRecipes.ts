@@ -85,6 +85,8 @@ export interface RecipeDraft {
   preserveTimestamps: boolean;
   /** "If a file exists": keep both (default), skip, or replace if changed. */
   existingFiles: ExistingFiles;
+  /** JPEG only: limit the whole file to this many KB and let the quality follow; null: the quality decides. */
+  maxFileKb: number | null;
   /** Also write each mask as an image and an alpha PNG. */
   exportMasks: boolean;
   watermark: boolean;
@@ -147,6 +149,7 @@ export const DEFAULT_RECIPE_DRAFT: RecipeDraft = {
   preserveFolders: false,
   preserveTimestamps: true,
   existingFiles: 'keepBoth',
+  maxFileKb: null,
   exportMasks: false,
   watermark: false,
   watermarkPath: null,
@@ -219,6 +222,12 @@ export function provenanceFormat(format: string): boolean {
   return ['jpg', 'jpeg', 'png', 'tif', 'tiff', 'webp', 'avif', 'jxl'].includes(format.toLowerCase());
 }
 
+/** The file size limit in KB the form asks for: only a JPEG has one. */
+export function sizeLimitKb(draft: Pick<RecipeDraft, 'format' | 'maxFileKb'>): number | undefined {
+  const kb = draft.maxFileKb;
+  return (draft.format === 'jpg' || draft.format === 'jpeg') && kb !== null && kb >= 1 ? Math.round(kb) : undefined;
+}
+
 /** A recipe from the form. */
 export function presetFromDraft(draft: RecipeDraft, id: string, name: string, base?: ExportPreset): ExportPreset {
   return {
@@ -255,6 +264,8 @@ export function presetFromDraft(draft: RecipeDraft, id: string, name: string, ba
     preserveTimestamps: draft.preserveTimestamps,
     // Saved only when not the default, so recipes without it stay as they were.
     existingFiles: draft.existingFiles === 'keepBoth' ? undefined : draft.existingFiles,
+    // Saved only when set, so recipes without it stay as they were.
+    maxFileKb: sizeLimitKb(draft),
     exportMasks: draft.exportMasks,
     enableWatermark: draft.watermark,
     watermarkPath: draft.watermarkPath,
@@ -322,6 +333,7 @@ export function draftFromPreset(preset: ExportPreset): RecipeDraft {
     preserveFolders: preset.preserveFolders ?? d.preserveFolders,
     preserveTimestamps: preset.preserveTimestamps ?? d.preserveTimestamps,
     existingFiles: pick(preset.existingFiles, EXISTING_FILES, d.existingFiles),
+    maxFileKb: finite(preset.maxFileKb, 0) >= 1 ? Math.round(preset.maxFileKb as number) : null,
     exportMasks: preset.exportMasks ?? d.exportMasks,
     watermark: !!preset.enableWatermark,
     watermarkPath: preset.watermarkPath ?? null,
@@ -368,6 +380,7 @@ export function exportSettingsFromDraft(draft: RecipeDraft): { settings: ExportS
       keepMetadata: draft.metadata,
       preserveTimestamps: draft.preserveTimestamps,
       existingFiles: draft.existingFiles,
+      maxFileKb: sizeLimitKb(draft),
       stripGps: draft.stripGps,
       keepCreatorContact: !!draft.keepCreatorContact,
       superResolution: draft.superResolution,
