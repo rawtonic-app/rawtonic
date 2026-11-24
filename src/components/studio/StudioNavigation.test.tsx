@@ -10,6 +10,7 @@ import { useLibraryStore } from '../../store/useLibraryStore';
 import { useProcessStore } from '../../store/useProcessStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
+import { IMPORTS_CHANGED } from '../../utils/folderSync';
 import { useLibraryActions } from '../../hooks/useLibraryActions';
 import { SortDirection, type AppSettings, type SelectedImage } from '../ui/AppProperties';
 
@@ -437,6 +438,50 @@ describe("a catalog's folders by drive", () => {
     fireEvent.click(screen.getByLabelText('Expand Card'));
     expect(screen.getByText('2026')).toBeTruthy();
   });
+});
+
+it('lists the folder of photographs an import added without a restart', async () => {
+  const added = { path: '/Volumes/Old/Capture 43', photos: 43, offline: 0, exists: true };
+  const volume = (folders: (typeof added)[]) => ({
+    catalog: true,
+    volumes: [
+      {
+        key: 'id:SYS',
+        id: 'SYS',
+        name: 'Macintosh HD',
+        mount_point: '/',
+        online: true,
+        free_bytes: null,
+        total_bytes: null,
+        folders,
+        roots: ['/job']
+      }
+    ]
+  });
+  let imported = false;
+  mockInvoke.mockImplementation(async (command, args) => {
+    if (command === 'session_offline') return [];
+    if (command === 'catalog_folders') return volume(imported ? [added] : []);
+    if (command === 'get_pinned_folder_trees')
+      return (args as { paths: string[] }).paths.includes(added.path) ? [folder(added.path, 43)] : [];
+    return undefined;
+  });
+  render(
+    <ContextMenuProvider>
+      <StudioNavigation onNavigate={vi.fn()} folderActions={actions} />
+    </ContextMenuProvider>
+  );
+  await act(async () => {});
+  await act(async () => {});
+  expect(screen.queryByText('Capture 43')).toBeNull();
+  // A Capture One or Lightroom import, a hot folder or a synchronization
+  // committed photographs outside the library's folders.
+  imported = true;
+  await act(async () => {
+    window.dispatchEvent(new Event(IMPORTS_CHANGED));
+  });
+  await act(async () => {});
+  expect(screen.getByText('Capture 43')).toBeTruthy();
 });
 
 it('shows startup first and identifies an offline network share with one root', async () => {
