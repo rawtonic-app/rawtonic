@@ -2112,7 +2112,7 @@
       "ingestWaiting": "中断的导入中有 {{n}} 张照片正在等待其存储卡或驱动器；连接后打开图库即可继续导入。",
       "showImported": "显示",
       "sidecarsCopied_other": "已复制 {{count}} 个 XMP 附属文件",
-      "sourceGeometryAll": "将 Capture One 的拉直与裁剪应用到所有列出的照片（{{n}} 张）",
+      "sourceGeometryAll": "应用 Capture One 的拉直，并按各图像的宽高比替换裁剪（{{n}} 张照片）",
       "sourceGeometryApplied": "已将 Capture One 的拉直与裁剪应用到 {{n}} 张照片（撤销可恢复）",
       "sourceGeometryErrors": "部分照片未能应用 Capture One 的拉直与裁剪：{{n}} 张。",
       "sourceGeometryFailed": "无法应用 Capture One 的拉直与裁剪",
