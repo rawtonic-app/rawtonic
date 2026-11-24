@@ -6480,9 +6480,13 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// (`image_loader::BLACK_DEAD_RENDER_VERSION`). 18 (2026-11-24) repairs
 /// dead photosites at black beside samples down to 0.5 of their own
 /// colour's median, and gives a dead green photosite its neighbours' ratio
-/// to the other colours (`image_loader::CROSS_DEAD_RENDER_VERSION`).
+/// to the other colours (`image_loader::CROSS_DEAD_RENDER_VERSION`). 19
+/// (2026-11-24) gives a dead photosite the median of three repairs (colour
+/// ratio, ratio of the neighbours nearest in the other colours, colour
+/// difference along the smoothest direction;
+/// `image_loader::MEDIAN_DEAD_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 18;
+pub const RENDER_VERSION: u64 = 19;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the

@@ -316,6 +316,58 @@ describe('sourceDevelopToApply', () => {
     );
   });
 
+  it('develops again when the median of three dead repairs flips with the render version', () => {
+    const base = {
+      ...multiscaleBase,
+      deadPixelAdjacent: true,
+      defectsIsolated: true,
+      defectsTexture: true,
+      defectsBlack: true,
+      defectsCross: true,
+      unbiasedBlack: true,
+      highlightRatios: true
+    };
+    const crossOnly = { ...base, defectsMedian: false };
+    const withMedian = { ...base, defectsMedian: true };
+    // Saved edits of render version 18 keep their repair.
+    expect(sourceDevelopToApply(crossOnly, { ...v2, renderVersion: 18 }, false)).toBeNull();
+    expect(sourceDevelopToApply(withMedian, { ...v2, renderVersion: 19 }, false)).toBeNull();
+    // Reset of an older edit (render version 19), and undo back.
+    expect(sourceDevelopToApply(crossOnly, { ...v2, renderVersion: 19 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      defectsIsolated: true,
+      defectsTexture: true,
+      defectsBlack: true,
+      defectsCross: true,
+      defectsMedian: true,
+      unbiasedBlack: true,
+      highlightRatios: true
+    });
+    expect(sourceDevelopToApply(withMedian, { ...v2, renderVersion: 18 }, false)).toEqual({
+      aiDenoise: 0,
+      multiscale: true,
+      deadPixelAdjacent: true,
+      defectsIsolated: true,
+      defectsTexture: true,
+      defectsBlack: true,
+      defectsCross: true,
+      defectsMedian: false,
+      unbiasedBlack: true,
+      highlightRatios: true
+    });
+    // Failed before: not retried; unknown (preview data) waits.
+    expect(
+      sourceDevelopToApply({ ...crossOnly, defectsMedianFailed: true }, { ...v2, renderVersion: 19 }, false)
+    ).toBeNull();
+    expect(sourceDevelopToApply(base, { ...v2, renderVersion: 19 }, false)).toBeNull();
+    // Recipes of either repair never share a source.
+    expect(developmentSignature({ ...v2, renderVersion: 18 }, true)).not.toBe(
+      developmentSignature({ ...v2, renderVersion: 19 }, true)
+    );
+  });
+
   it('develops again when the black handling flips with the render version', () => {
     const clipped = { ...multiscaleBase, deadPixelAdjacent: true, unbiasedBlack: false };
     const unbiased = { ...multiscaleBase, deadPixelAdjacent: true, unbiasedBlack: true };
