@@ -7,8 +7,8 @@ use super::generate_single_thumbnail_and_cache;
 use super::increment_thumbnail_progress;
 use super::parse_virtual_path;
 use super::resolve_thumbnail_cache_dir;
-use super::sync_metadata_from_xmp;
 use super::sync_metadata_to_xmp;
+use super::xmp_sync::load_sidecar_with_xmp;
 use crate::app_state::AppState;
 use crate::batch_journal::{self, BatchKind};
 use crate::formats::is_raw_file;
@@ -1993,14 +1993,7 @@ pub(crate) fn load_metadata_blocking(
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
     let (source_path, sidecar_path) = parse_virtual_path(&path);
-    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
-
-    if enable_xmp_sync
-        && sync_metadata_from_xmp(&source_path, &mut metadata)
-        && let Ok(json) = serde_json::to_string_pretty(&metadata)
-    {
-        let _ = crate::session_bridge::write_editor_sidecar(&sidecar_path, json);
-    }
+    let mut metadata = load_sidecar_with_xmp(&source_path, &sidecar_path, enable_xmp_sync);
 
     // For the editor only (not written): its history carries it (see
     // LensLookup::Keep).

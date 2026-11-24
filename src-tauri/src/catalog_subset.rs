@@ -194,6 +194,7 @@ pub async fn library_import_catalog(
                 })?;
                 // The editor and listings read an online photograph's
                 // edits and virtual copies from the sidecars beside it.
+                let _turn = crate::session_bridge::write_turn();
                 for id in &receipt.report.touched {
                     crate::session_bridge::rederive(&lib, id);
                 }

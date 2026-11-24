@@ -158,12 +158,12 @@ function drop(paths: string[], element: Element | null = null) {
 const ingestCall = () => vi.mocked(invoke).mock.calls.find(([command]) => command === 'session_ingest');
 
 describe('Dropping photographs onto the window', () => {
-  it('offers import presets only for imports that apply them', async () => {
+  it('offers the import metadata preset to the hot folder', async () => {
     const user = userEvent.setup();
     await open();
     await user.click(screen.getByRole('button', { name: 'Hot folder' }));
     await screen.findByRole('heading', { name: 'Hot folder' });
-    expect(screen.queryByLabelText('Metadata preset')).toBeNull();
+    expect(screen.getByLabelText('Metadata preset')).toBeTruthy();
   });
 
   it('passes a selected metadata preset with the import and keeps None as the default', async () => {

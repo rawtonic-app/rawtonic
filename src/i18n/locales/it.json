@@ -1071,6 +1071,8 @@
     }
   },
   "errors": {
+    "gpuDeviceLost": "Il driver grafico ha smesso di rispondere più volte. Le tue modifiche sono al sicuro; chiudi e riapri Rawtonic per continuare a sviluppare. Dettagli: {{details}}",
+    "gpuDeviceRecovered": "Il driver grafico ha smesso di rispondere. Rawtonic ha riavviato la grafica; le tue modifiche sono al sicuro.",
     "gpuStartFailed": "Rawtonic non è riuscito ad avviare il processore grafico, quindi non è possibile sviluppare né esportare foto. Reimposta le impostazioni grafiche e riprova; se non basta, aggiorna il driver grafico. Dettagli: {{details}}",
     "operationFailed": "Non è stato possibile completare l’operazione."
   },

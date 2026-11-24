@@ -642,8 +642,8 @@ impl IdleCompiles {
                     queue = self.changed.wait(queue).unwrap_or_else(|e| e.into_inner());
                 }
                 queue.frames_moved_on(now_ms());
-                let urgent =
-                    queue.export_job.is_some() || !queue.frame_jobs.is_empty() || queue.rush;
+                let awaited = queue.export_job.is_some() || !queue.frame_jobs.is_empty();
+                let urgent = awaited || queue.rush;
                 drop(queue);
                 if !urgent && !self.idle() {
                     let queue = self.lock();
@@ -653,7 +653,7 @@ impl IdleCompiles {
                         .unwrap_or_else(|e| e.into_inner());
                     continue;
                 }
-                let slot = background_compile_slot("idle compile");
+                let slot = background_compile_slot("idle compile", awaited);
                 let Some(slot) = slot else {
                     let queue = self.lock();
                     let _ = self
@@ -768,17 +768,7 @@ impl IdleCompiles {
             // for unless a frame or an export waits for this job
             // (`memory_turns`). A frame's variant stops any other but an
             // export's and another frame's still waited for (`for_frame`).
-            let stop = || {
-                let mut queue = self.lock();
-                if queue.cancelled
-                    || queue.export_job.is_some_and(|export| export != job)
-                    || (queue.export_job != Some(job) && queue.frame_goes_before(job, now_ms()))
-                {
-                    return true;
-                }
-                drop(queue);
-                crate::memory_turns::asked_run_waits() && !self.awaited(job)
-            };
+            let stop = || self.helper_stops(job);
             #[cfg(test)]
             let slowed_and_stopped = source == Source::Frame && tests::slow_frame_compile(&stop);
             #[cfg(not(test))]
@@ -842,6 +832,30 @@ impl IdleCompiles {
             }
             queue.frame_jobs.retain(|(frame, _)| *frame != job);
         }
+    }
+
+    /// Whether the helper compiling `job` stops now (besides a compile that
+    /// waits for the slot, `idle_compile_child`): idle compiles end, an
+    /// export waits for another variant, a frame for another one before
+    /// it, an AI run the photographer asked for waits; or an export waits
+    /// for the compiles to end (`ENDS_AWAITED`) and neither a frame nor an
+    /// export waits for `job`. One they wait for goes on, as that export
+    /// waits for it: stopped, the worker started it again at once for its
+    /// frame (WDVL3).
+    fn helper_stops(&self, job: IdleJob) -> bool {
+        let mut queue = self.lock();
+        if queue.cancelled
+            || queue.export_job.is_some_and(|export| export != job)
+            || (queue.export_job != Some(job) && queue.frame_goes_before(job, now_ms()))
+        {
+            return true;
+        }
+        let waited_for = queue.export_job == Some(job) || queue.frame_asked(job).is_some();
+        if ends_awaited() && !waited_for {
+            return true;
+        }
+        drop(queue);
+        crate::memory_turns::asked_run_waits() && !self.awaited(job)
     }
 
     /// `job` of `source` needs no compile: the export or the frame that
@@ -1559,9 +1573,9 @@ mod tests {
         set_compile_limit(None);
     }
 
-    /// An export that starts while an idle helper runs stops it (it asks
-    /// for the slot), unless the idle worker has the export's own variant to
-    /// compile: then the export waits for that (G76/WSMOKE19).
+    /// An export that starts while an idle helper runs stops it (it waits
+    /// for the compiles to end), unless the idle worker has the export's own
+    /// variant to compile: then the export waits for that (G76/WSMOKE19).
     #[test]
     #[ignore = "sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn an_export_waits_for_its_own_variant_instead_of_stopping_it() {
@@ -1585,12 +1599,12 @@ mod tests {
             let export = std::thread::spawn(|| wait_for_running_compiles("export"));
             std::thread::sleep(Duration::from_millis(500));
             assert!(!export.is_finished(), "the export waits for the helper");
-            assert_eq!(slot_wanted(), !own, "own: {own}");
+            assert_eq!(ends_awaited(), !own, "own: {own}");
             // The worker is done with it.
             idle.lock().export_job = None;
             drop(helper);
             export.join().unwrap();
-            assert!(!slot_wanted());
+            assert!(!ends_awaited());
         }
         set_compile_limit(None);
     }
@@ -1832,6 +1846,174 @@ mod tests {
         let result =
             super::super::compile_in_helper_process(job, std::path::Path::new(folder), TEST_BUILD);
         std::process::exit(i32::from(result.is_err()));
+    }
+
+    /// An export that waits for the compiles to end without having named its
+    /// variant (`export_starts`; WDVL1: an export retried on the device the
+    /// app started after a loss) stops the running idle helper once and
+    /// goes on: no new helper starts while it waits (it stopped one 80
+    /// times a second and waited 5 min on a Radeon 680M).
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit and idle helper, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
+    fn an_export_waiting_for_compiles_stops_the_idle_helper_once() {
+        if !alone("an_export_waiting_for_compiles_stops_the_idle_helper_once") {
+            return;
+        }
+        use super::super::idle_compile_child::STOPS;
+        use super::super::preview_tests::get_all_adjustments_from_json;
+        use std::time::Instant;
+        let exe = std::env::current_exe().unwrap();
+        // Every helper only sleeps: the idle job never finishes by itself.
+        super::super::set_idle_compile_helper(Box::new(move |job, folder| {
+            std::process::Command::new(&exe)
+                .args([
+                    "--exact",
+                    "gpu_processing::idle_compiles::tests::idle_helper_process",
+                    "--ignored",
+                    "--nocapture",
+                ])
+                .env(
+                    "RAWTONIC_TEST_IDLE_HELPER",
+                    format!("slow|{job}|{}", folder.display()),
+                )
+                .stdout(std::process::Stdio::null())
+                .spawn()
+        }));
+        let cache = tempfile::tempdir().unwrap();
+        let context =
+            GpuContext::headless_with_pipeline_cache_of(Some(cache.path()), TEST_BUILD).unwrap();
+        if crate::pipeline_cache::file_name_of(&context.device).is_none() {
+            eprintln!("SKIP: no pipeline cache on this backend, so no idle helpers");
+            return;
+        }
+        set_compile_limit(Some(1));
+        let processor = GpuProcessor::new(context, 256, 256).unwrap();
+        let idle = Arc::clone(&processor.idle_compiles.as_ref().unwrap().0);
+        let photo = get_all_adjustments_from_json(
+            &serde_json::Value::Object(crate::image_processing::new_edit_responses(true)),
+            true,
+            Some(3),
+        );
+        processor.preview_pipeline(&photo, true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while idle.lock().running.is_none() {
+            assert!(Instant::now() < deadline, "an idle helper starts");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let stops = STOPS.load(Ordering::SeqCst);
+        let started = Instant::now();
+        let (done, waited) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            super::super::wait_for_running_compiles("export (test)");
+            let _ = done.send(());
+        });
+        let finished = waited.recv_timeout(Duration::from_secs(10)).is_ok();
+        let waited = started.elapsed();
+        let stopped = STOPS.load(Ordering::SeqCst) - stops;
+        assert!(
+            finished,
+            "the export still waits after {waited:?} ({stopped} helpers stopped)"
+        );
+        assert!(stopped <= 2, "{stopped} helpers stopped for one export");
+        eprintln!("the export waited {waited:?}, {stopped} helper(s) stopped");
+    }
+
+    /// Two export lanes after a lost device (WDVL2): one waits for the
+    /// compiles to end, then the other names its variant for the idle
+    /// worker (`export_starts`) and waits for it, so the first waits for it
+    /// too. The worker gets a slot for that variant (no other idle compile
+    /// starts meanwhile); it got none, and both lanes waited for good.
+    #[test]
+    #[ignore = "sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
+    fn an_awaited_variant_gets_a_slot_while_another_export_waits_for_compiles() {
+        if !alone("an_awaited_variant_gets_a_slot_while_another_export_waits_for_compiles") {
+            return;
+        }
+        set_compile_limit(Some(1));
+        let idle = IdleCompiles::new();
+        {
+            let mut queue = idle.lock();
+            queue.worker = true;
+            queue.exact = Some(7335999);
+        }
+        // Lane 1 waits for a compile in the slot.
+        let running = compile_slot("an idle helper");
+        let lane1 = std::thread::spawn(|| wait_for_running_compiles("export lane 1"));
+        std::thread::sleep(Duration::from_millis(300));
+        // Lane 2 names its variant; the running compile ends.
+        assert!(idle.export_starts());
+        drop(running);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!lane1.is_finished(), "lane 1 waits for lane 2's variant");
+        assert!(
+            background_compile_slot("another idle compile", false).is_none(),
+            "no other idle compile starts while lane 1 waits"
+        );
+        let slot = background_compile_slot("lane 2's variant", true);
+        assert!(
+            slot.is_some(),
+            "the variant both lanes wait for gets the slot"
+        );
+        // The worker compiled it.
+        idle.lock().export_job = None;
+        drop(slot);
+        lane1.join().unwrap();
+        set_compile_limit(None);
+    }
+
+    /// After a lost device (WDVL3) the shown photo's frame waits for its
+    /// variant in a helper (a pending compile) while two export lanes wait
+    /// for the compiles to end: the lanes stop no helper whose job a frame
+    /// waits for (they wait for it to end), and still stop one nobody waits
+    /// for. They stopped the frame's too, the worker started it again for
+    /// the frame 95 times a second, and both exports waited for good.
+    #[test]
+    #[ignore = "sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
+    fn exports_waiting_for_compiles_leave_a_frames_helper_running() {
+        if !alone("exports_waiting_for_compiles_leave_a_frames_helper_running") {
+            return;
+        }
+        set_compile_limit(Some(1));
+        let frame = IdleJob::Display(91222079);
+        let idle = IdleCompiles::new();
+        {
+            let mut queue = idle.lock();
+            queue.worker = true;
+            queue.frame_jobs.push((frame, now_ms().max(1)));
+        }
+        // The worker's slot for the frame's variant, and the frame waiting
+        // for it (`covering`: a pending compile).
+        let slot = background_compile_slot("the frame's variant", true).expect("a free slot");
+        let frame_waits = PendingCompile::new();
+        let lanes: Vec<_> = (1..=2)
+            .map(|lane| {
+                std::thread::spawn(move || {
+                    wait_for_running_compiles(&format!("export lane {lane}"))
+                })
+            })
+            .collect();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            lanes.iter().all(|lane| !lane.is_finished()),
+            "the lanes wait for the frame's variant"
+        );
+        // The frame asks again (every few ms while it waits).
+        *idle.lock().frame_asked(frame).unwrap() = now_ms().max(1);
+        assert!(!slot_wanted(), "no compile waits for the slot");
+        assert!(!idle.helper_stops(frame), "the frame's helper goes on");
+        // A helper of a job nobody waits for stops for the lanes.
+        let other = IdleCompiles::new();
+        other.lock().worker = true;
+        assert!(other.helper_stops(IdleJob::Display(4113)));
+        // The helper is done and the frame has its variant.
+        drop(frame_waits);
+        drop(slot);
+        idle.lock().frame_jobs.clear();
+        for lane in lanes {
+            lane.join().unwrap();
+        }
+        assert!(!ends_awaited());
+        set_compile_limit(None);
     }
 
     /// Under a compile limit idle compiles run in a helper process: a frame

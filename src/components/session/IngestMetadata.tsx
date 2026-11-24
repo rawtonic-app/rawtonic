@@ -42,19 +42,26 @@ const contactFields = [
 export default function IngestMetadata({
   value,
   onChange,
-  adding = false
+  adding = false,
+  onSavingChange
 }: {
   adding?: boolean;
   value: ImportMetadata | null;
   onChange: (value: ImportMetadata | null) => void;
+  onSavingChange?: (saving: boolean) => void;
 }) {
   const { t } = useTranslation();
   const prefix = useId();
   const settings = useSettingsStore((s) => s.appSettings);
   const presets = settings?.importMetadataPresets ?? [];
-  const [selected, setSelected] = useState('');
-  const [name, setName] = useState('');
-  const [keywords, setKeywords] = useState('');
+  // A value given from outside (a hot folder's saved preset) keeps the
+  // preset it was chosen from selected.
+  const given = value as Partial<ImportMetadataPreset> | null;
+  const [selected, setSelected] = useState(() =>
+    !given ? '' : given.id && presets.some((p) => p.id === given.id) ? given.id : 'new'
+  );
+  const [name, setName] = useState(given?.name ?? '');
+  const [keywords, setKeywords] = useState(given?.keywords?.join(', ') ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -69,19 +76,20 @@ export default function IngestMetadata({
     setKeywords(preset?.keywords.join(', ') ?? '');
     onChange(id === '' ? null : preset ? structuredClone(preset) : empty());
   };
-  const persist = async (next: ImportMetadataPreset[]) => {
+  const persist = async (next: ImportMetadataPreset[], onSaved: () => void) => {
     setSaving(true);
+    onSavingChange?.(true);
     setError(null);
     try {
       const settings = { ...useSettingsStore.getState().appSettings!, importMetadataPresets: next };
       await saveSettings(settings);
       useSettingsStore.getState().setAppSettings(settings);
-      return true;
+      onSaved();
     } catch (e) {
       setError(String(e));
-      return false;
     } finally {
       setSaving(false);
+      onSavingChange?.(false);
     }
   };
   const save = async () => {
@@ -89,7 +97,11 @@ export default function IngestMetadata({
     const id = selected === 'new' ? crypto.randomUUID() : selected;
     const saved = { ...value, id, name: name.trim() };
     const next = selected === 'new' ? [...presets, saved] : presets.map((p) => (p.id === id ? saved : p));
-    if (await persist(next)) setSelected(id);
+    await persist(next, () => {
+      setSelected(id);
+      // The form's value is the saved preset now (a watch started from it keeps its identity).
+      onChange(saved);
+    });
   };
   const field = (key: string, label: string) => {
     const id = `${prefix}-${key}`;
@@ -205,9 +217,12 @@ export default function IngestMetadata({
                 className="session-action"
                 type="button"
                 disabled={saving}
-                onClick={async () => {
-                  if (await persist(presets.filter((p) => p.id !== selected))) select('');
-                }}
+                onClick={() =>
+                  void persist(
+                    presets.filter((p) => p.id !== selected),
+                    () => select('')
+                  )
+                }
               >
                 {t('session.ingest.metadata.delete')}
               </button>

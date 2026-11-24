@@ -60,7 +60,13 @@ pub fn resolve_xmp_path(image_path: &Path) -> Option<PathBuf> {
     rawtonic_metadata::existing_sidecar(image_path)
 }
 
-pub fn sync_metadata_from_xmp(source_path: &Path, metadata: &mut ImageMetadata) -> bool {
+pub(super) fn load_sidecar_with_xmp(source: &Path, sidecar: &Path, enabled: bool) -> ImageMetadata {
+    crate::exif_processing::load_sidecar_updating(sidecar, |metadata| {
+        enabled && sync_metadata_from_xmp(source, metadata)
+    })
+}
+
+fn sync_metadata_from_xmp(source_path: &Path, metadata: &mut ImageMetadata) -> bool {
     if crate::session_bridge::is_managed_source(source_path) {
         return false;
     }

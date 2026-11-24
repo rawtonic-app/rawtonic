@@ -351,6 +351,8 @@ enum Content {
 pub(crate) struct Verified {
     pub sha256: String,
     pub bytes: u64,
+    /// The modification time of the source handle we read and checked.
+    pub modified: std::time::SystemTime,
     content: Content,
     /// Each destination's temporary file (taken when published).
     temps: Vec<Option<(NamedTempFile, PathBuf)>>,
@@ -471,10 +473,9 @@ fn copy_verified_from(
         None => copy_streaming(source, &mut input, &mut temps, cancel, &mut progress)?,
     };
     let after = input.metadata()?;
+    let modified = before.modified()?;
     ensure!(
-        after.len() == before.len()
-            && bytes == before.len()
-            && after.modified()? == before.modified()?,
+        after.len() == before.len() && bytes == before.len() && after.modified()? == modified,
         "Source changed during ingest"
     );
     ensure!(
@@ -484,6 +485,7 @@ fn copy_verified_from(
     Ok(Verified {
         sha256,
         bytes,
+        modified,
         content,
         temps: temps.into_iter().map(Some).collect(),
     })

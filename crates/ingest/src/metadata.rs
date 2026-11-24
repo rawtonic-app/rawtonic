@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,9 +30,13 @@ pub struct ImportMetadata {
     pub ratings: BTreeMap<PathBuf, u8>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MetadataPreset {
+    /// Empty for an unsaved preset (a watch started from a new, unsaved
+    /// preset keeps its values without an identity).
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub name: String,
     #[serde(flatten)]
     pub metadata: ImportMetadata,
@@ -108,6 +113,28 @@ impl ImportMetadata {
         }
     }
 
+    /// Merges this preset into the `metadata` a captured photograph is
+    /// registered with, as the import merges it into a registered copy: what
+    /// the verified copy carries (`embedded`), then this preset by the
+    /// import's rules (fill-empty, `overwrite`, `{year}`). `metadata` holds
+    /// what the capture was given (rating, keywords) or, with `adopted`, the
+    /// metadata of its card sidecar, whose rating and flag stay. The note
+    /// says the keywords could not all be added (`merge`).
+    pub(crate) fn merge_capture(
+        &self,
+        source: &Path,
+        embedded: Embedded,
+        metadata: &mut Metadata,
+        adopted: bool,
+    ) -> Option<String> {
+        let typed_rating = if adopted { 0 } else { metadata.rating };
+        let note = self.merge(source, embedded, metadata, adopted);
+        if typed_rating > 0 {
+            metadata.rating = typed_rating;
+        }
+        note
+    }
+
     /// Whether this holds nothing but ratings: then only the rated
     /// photographs are touched, the others are imported as they come.
     fn ratings_only(&self) -> bool {
@@ -123,19 +150,17 @@ impl ImportMetadata {
         !self.ratings_only() || self.ratings.contains_key(source)
     }
 
-    /// What the photograph `photo` (copied from `source`) brings itself: its
-    /// embedded metadata and the year `{year}` stands for. Reads the file
-    /// only; `header` is its header as registration read it.
+    /// The copy's embedded metadata and the year `{year}` stands for.
+    /// `header` is the copy's header as registration read it. Captures use
+    /// the modification time recorded during verification as their fallback.
     pub(crate) fn embedded(
         photo: &Path,
-        source: &Path,
+        modified: impl FnOnce() -> Option<SystemTime>,
         header: Option<rawtonic_naming::Capture>,
     ) -> Result<Embedded> {
         let (metadata, embedded_year) = crate::capture::import_metadata(photo, header)?;
         let year = embedded_year.unwrap_or_else(|| {
-            let local = std::fs::metadata(source)
-                .and_then(|m| m.modified())
-                .ok()
+            let local = modified()
                 .and_then(|time| jiff::Timestamp::try_from(time).ok())
                 .map(|time| time.to_zoned_datetime(rawtonic_runtime::local_time::zone()))
                 .unwrap_or_else(rawtonic_runtime::local_time::now);
@@ -254,7 +279,15 @@ pub(crate) fn apply_to_copy(
     let id = id.as_str();
     let asset = library.asset(id)?;
     // The file is read before the turn, which is held only for the catalog.
-    let embedded = ImportMetadata::embedded(&asset.path, &result.source, result.header.take())?;
+    let embedded = ImportMetadata::embedded(
+        &asset.path,
+        || {
+            std::fs::metadata(&result.source)
+                .and_then(|m| m.modified())
+                .ok()
+        },
+        result.header.take(),
+    )?;
     let _turn = turn();
     let mut metadata = library.metadata(id)?;
     let note = preset.merge(
@@ -280,6 +313,40 @@ pub(crate) fn apply_to_copy(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn capture_year_stays_with_the_verified_source_when_the_path_is_replaced() {
+        use std::{fs, sync::atomic::AtomicBool, time::UNIX_EPOCH};
+
+        let tmp = tempfile::tempdir().unwrap();
+        let source = tmp.path().join("capture.ARW");
+        let destination = tmp.path().join("verified.ARW");
+        rawtonic_fs::atomic_write(&source, b"capture with no embedded date").unwrap();
+        // Mid-2001 in any local time zone.
+        let modified = UNIX_EPOCH + std::time::Duration::from_secs(994_032_000);
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&source)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+        let mut verified = crate::copy::copy_verified(
+            &source,
+            &[&destination],
+            &AtomicBool::new(false),
+            |_| {},
+            None,
+        )
+        .unwrap();
+        let mut barrier = crate::copy::Barrier::default();
+        verified.publish(0, &mut barrier).unwrap();
+        barrier.flush().unwrap();
+        rawtonic_fs::atomic_write(&source, b"another capture").unwrap();
+
+        let embedded =
+            ImportMetadata::embedded(&destination, || Some(verified.modified), None).unwrap();
+        assert_eq!(embedded.year, 2001);
+    }
+
     #[test]
     fn fill_empty_overwrite_year_contacts_and_keywords() {
         let mut preset = ImportMetadata {

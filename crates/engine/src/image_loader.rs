@@ -675,9 +675,40 @@ fn preview_fallbacks() -> &'static std::sync::Mutex<HashMap<String, PreviewFallb
     FALLBACKS.get_or_init(Default::default)
 }
 
+thread_local! {
+    static DECODE_USED_PREVIEW: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Observe the fallback of this synchronous decode even when other threads
+/// are decoding the same file. The call returning the fallback pixels must
+/// also call `note_preview_fallback` on this thread.
+pub(crate) fn observe_preview_fallback<T>(decode: impl FnOnce() -> T) -> (T, bool) {
+    struct Restore(Option<bool>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            DECODE_USED_PREVIEW.with(|used| {
+                used.set(self.0.map(|previous| previous || used.get() == Some(true)));
+            });
+        }
+    }
+    let _restore = Restore(DECODE_USED_PREVIEW.with(|used| used.replace(Some(false))));
+    let decoded = decode();
+    (
+        decoded,
+        DECODE_USED_PREVIEW.with(|used| used.get() == Some(true)),
+    )
+}
+
 /// Records whether the last full load of a RAW used its embedded preview
 /// (with the decode error) or developed the sensor data.
 pub fn note_preview_fallback(path: &str, reason: Option<PreviewFallback>) {
+    if reason.is_some() {
+        DECODE_USED_PREVIEW.with(|used| {
+            if used.get().is_some() {
+                used.set(Some(true));
+            }
+        });
+    }
     let mut fallbacks = preview_fallbacks()
         .lock()
         .unwrap_or_else(|e| e.into_inner());

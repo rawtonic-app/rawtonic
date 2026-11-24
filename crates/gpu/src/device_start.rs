@@ -148,6 +148,14 @@ pub fn compile_limit(info: &wgpu::AdapterInfo, windows: bool) -> Option<usize> {
     (windows && info.backend == wgpu::Backend::Vulkan && info.vendor == AMD).then_some(1)
 }
 
+/// Whether renders on the adapter go in short submissions
+/// (`gpu_processing::set_short_submissions`): integrated GPUs, where the
+/// 2 s watchdog took the device away mid-session (DVL1: Radeon 680M, a
+/// single submission of 2.15 s lost it, 1.67 s did not).
+pub fn short_submissions(info: &wgpu::AdapterInfo) -> bool {
+    info.device_type == wgpu::DeviceType::IntegratedGpu
+}
+
 /// Why the adapter cannot run the processing pipeline, if it cannot: WARP,
 /// found by its PCI ids (Microsoft vendor 0x1414, device 0x8C) on DX12.
 pub fn unsupported_adapter(info: &wgpu::AdapterInfo) -> Option<&'static str> {
@@ -239,12 +247,27 @@ pub fn start_device(
         &adapter.get_info(),
         cfg!(target_os = "windows"),
     ));
+    crate::gpu_processing::set_short_submissions(short_submissions(&adapter.get_info()));
+    // There each submission's own GPU time is logged when it passes the
+    // watchdog budget (`gpu_submit`); elsewhere the time from queuing it.
+    if crate::gpu_processing::short_submissions() {
+        rawtonic_rawdecode::gpu_submit::time_on_gpu(&device);
+    } else {
+        rawtonic_rawdecode::gpu_submit::stop_timing();
+    }
     // A lost device otherwise shows only as the next resource's validation
     // error (WGT5: "Buffer … is invalid").
-    device.set_device_lost_callback(|reason, message| {
-        log::error!("GPU device lost ({reason:?}): {message}");
+    let generation = mark_started();
+    device.set_device_lost_callback(move |reason, message| {
+        log::error!("GPU device lost ({reason:?}): {message} (device {generation})");
         if marks_device_lost(reason) {
-            DEVICE_LOST.store(true, std::sync::atomic::Ordering::Release);
+            mark_lost(generation);
+            if let Some(hook) = LOST_HOOK.get() {
+                hook(LostDevice {
+                    generation,
+                    message,
+                });
+            }
         }
     });
     Ok(StartedDevice {
@@ -256,22 +279,82 @@ pub fn start_device(
     })
 }
 
-/// Whether a device this process started was lost other than by being
-/// dropped (its driver reset it; G76/WCC6: 'Out of memory' on a Radeon
-/// 680M). The app makes no new device while it runs, so it stays set.
-static DEVICE_LOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// A device the driver took away (`on_device_lost`).
+#[derive(Debug, Clone)]
+pub struct LostDevice {
+    /// The device's number among this process's starts (from 1).
+    pub generation: u64,
+    /// The driver's or wgpu's reason.
+    pub message: String,
+}
 
-/// Whether a device lost for `reason` counts as lost (`DEVICE_LOST`): not
-/// one the app dropped itself (`Destroyed`, e.g. a context replaced for the
+/// The number of the newest device started (0: none yet) and of the newest
+/// one lost other than by being dropped (its driver reset it; G76/WCC6:
+/// 'Out of memory', DVL1: 'Unexpected error variant' on a Radeon 680M).
+/// A device started after a loss (the app's recovery, `on_device_lost`)
+/// is not lost: only the lost device's own work fails with the lost error.
+static STARTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static LOST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Called once per lost device, on the thread wgpu reports it on (it may
+/// hold wgpu's locks: the hook only hands the work on).
+type LostHook = Box<dyn Fn(LostDevice) + Send + Sync>;
+static LOST_HOOK: std::sync::OnceLock<LostHook> = std::sync::OnceLock::new();
+
+/// Hears every device the driver takes away, so the app can start a new
+/// one (DVL1: the multi view froze until a restart). Set once; later calls
+/// are ignored.
+pub fn on_device_lost(hook: impl Fn(LostDevice) + Send + Sync + 'static) {
+    let _ = LOST_HOOK.set(Box::new(hook));
+}
+
+/// Takes the newest device as lost without a driver reset, for QA and
+/// tests of the recovery: its renders fail with the lost error and the
+/// hook hears it, as after a real loss. `None` before any device started.
+pub fn simulate_lost(message: &str) -> Option<LostDevice> {
+    let generation = STARTED.load(std::sync::atomic::Ordering::Acquire);
+    if generation == 0 {
+        return None;
+    }
+    log::error!("GPU device lost (simulated): {message} (device {generation})");
+    mark_lost(generation);
+    let lost = LostDevice {
+        generation,
+        message: message.to_string(),
+    };
+    if let Some(hook) = LOST_HOOK.get() {
+        hook(lost.clone());
+    }
+    Some(lost)
+}
+
+fn mark_started() -> u64 {
+    STARTED.fetch_add(1, std::sync::atomic::Ordering::AcqRel) + 1
+}
+
+fn mark_lost(generation: u64) {
+    LOST.fetch_max(generation, std::sync::atomic::Ordering::AcqRel);
+}
+
+/// Whether a device lost for `reason` counts as lost (`LOST`): not one the
+/// app dropped itself (`Destroyed`, e.g. a context replaced for the
 /// window's display).
 fn marks_device_lost(reason: wgpu::DeviceLostReason) -> bool {
     reason != wgpu::DeviceLostReason::Destroyed
 }
 
-/// Whether the GPU device was lost (`DEVICE_LOST`): renders fail with
-/// `rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST` from then on.
+/// Whether the newest GPU device was lost: its renders fail with
+/// `rawtonic_runtime::gpu_memory::GPU_DEVICE_LOST` until a new device
+/// starts.
 pub fn device_lost() -> bool {
-    DEVICE_LOST.load(std::sync::atomic::Ordering::Acquire)
+    lost_of(
+        STARTED.load(std::sync::atomic::Ordering::Acquire),
+        LOST.load(std::sync::atomic::Ordering::Acquire),
+    )
+}
+
+fn lost_of(started: u64, lost: u64) -> bool {
+    lost != 0 && lost >= started
 }
 
 #[cfg(test)]
@@ -282,6 +365,15 @@ mod tests {
     fn a_driver_reset_marks_the_device_lost_a_dropped_device_does_not() {
         assert!(marks_device_lost(wgpu::DeviceLostReason::Unknown));
         assert!(!marks_device_lost(wgpu::DeviceLostReason::Destroyed));
+    }
+
+    #[test]
+    fn a_device_started_after_a_loss_is_not_lost() {
+        assert!(!lost_of(0, 0), "nothing started");
+        assert!(!lost_of(1, 0), "running");
+        assert!(lost_of(1, 1), "the only device lost");
+        assert!(!lost_of(2, 1), "a new device after the loss");
+        assert!(lost_of(2, 2), "the new device lost too");
     }
     use wgpu::{Backend, Backends};
 

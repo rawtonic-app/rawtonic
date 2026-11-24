@@ -6,7 +6,9 @@
 //! `rawtonic export`.
 
 use std::collections::HashMap;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use walkdir::WalkDir;
 
@@ -75,6 +77,77 @@ pub fn with_original(mut sidecars: Vec<Option<String>>) -> Vec<Option<String>> {
     sidecars
 }
 
+/// A sidecar's exact text. A missing or unreadable file can be shown as
+/// default metadata, but only an absent file can be created automatically.
+pub type SidecarText = Result<Option<Arc<str>>, io::ErrorKind>;
+
+thread_local! {
+    /// Sidecar texts read inside `with_sidecars_kept` on this thread (None:
+    /// no scope), including reads that found no readable text.
+    static KEPT: std::cell::RefCell<Option<HashMap<PathBuf, SidecarText>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `f` with each sidecar read at most once on this thread: one job
+/// (a Library tile's lookup or render) asks for its photo's and its
+/// master's recipe several times, each a read over a network share
+/// (PXV2/CRD6: ~19 ms per read on a LAN share). Nested scopes share the
+/// outer one; nothing outlives the outermost scope, also on a panic.
+pub fn with_sidecars_kept<R>(f: impl FnOnce() -> R) -> R {
+    struct Scope(bool);
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            if self.0 {
+                KEPT.with(|kept| *kept.borrow_mut() = None);
+            }
+        }
+    }
+    let outer = KEPT.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        let outer = kept.is_none();
+        if outer {
+            *kept = Some(HashMap::new());
+        }
+        outer
+    });
+    let _scope = Scope(outer);
+    f()
+}
+
+/// The text of the sidecar at `path` (None when missing or unreadable),
+/// read once per `with_sidecars_kept` scope.
+pub fn read_sidecar_text(path: &Path) -> Option<Arc<str>> {
+    read_text(path).ok().flatten()
+}
+
+fn read_text(path: &Path) -> SidecarText {
+    if let Some(kept) = KEPT.with(|kept| kept.borrow().as_ref().and_then(|m| m.get(path).cloned()))
+    {
+        return kept;
+    }
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(Arc::from(text))),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.kind()),
+    };
+    KEPT.with(|kept| {
+        if let Some(map) = kept.borrow_mut().as_mut() {
+            map.insert(path.to_path_buf(), text.clone());
+        }
+    });
+    text
+}
+
+/// Forgets a kept sidecar text after the app wrote that sidecar, so the
+/// rest of the scope reads what was written.
+pub fn forget_kept_sidecar(path: &Path) {
+    KEPT.with(|kept| {
+        if let Some(map) = kept.borrow_mut().as_mut() {
+            map.remove(path);
+        }
+    });
+}
+
 /// A `.rrdata` sidecar's metadata (defaults when it is missing or not JSON;
 /// a field of another type or a missing one alone takes its default,
 /// `metadata_fields`) and whether over-long EXIF values were shortened,
@@ -82,15 +155,45 @@ pub fn with_original(mut sidecars: Vec<Option<String>>) -> Vec<Option<String>> {
 /// belongs to, against which its recipe's library resources
 /// (`rawtonic-resource:…`) resolve; None for a photo of no library.
 pub fn read_sidecar_file(sidecar_path: &Path, library: Option<&Path>) -> (ImageMetadata, bool) {
-    if !sidecar_path.exists() {
-        return (ImageMetadata::default(), false);
-    }
+    let (metadata, healed, _) = read_sidecar_snapshot(sidecar_path, library);
+    (metadata, healed)
+}
 
-    let Ok(content) = std::fs::read_to_string(sidecar_path) else {
-        return (ImageMetadata::default(), false);
+/// Returns the text the metadata was parsed from for a compare-and-swap
+/// rewrite. The write must still check that this text is current on disk.
+pub fn read_sidecar_snapshot(
+    sidecar_path: &Path,
+    library: Option<&Path>,
+) -> (ImageMetadata, bool, SidecarText) {
+    let kept = is_kept(sidecar_path);
+    let read = read_sidecar_parsed(sidecar_path, library);
+    // What the caller writes back must be the sidecar as it is now, not a
+    // text this thread kept while another saved the photo: read it again.
+    if read.1 && kept {
+        forget_kept_sidecar(sidecar_path);
+        return read_sidecar_parsed(sidecar_path, library);
+    }
+    read
+}
+
+fn is_kept(path: &Path) -> bool {
+    KEPT.with(|kept| {
+        kept.borrow()
+            .as_ref()
+            .is_some_and(|map| map.contains_key(path))
+    })
+}
+
+fn read_sidecar_parsed(
+    sidecar_path: &Path,
+    library: Option<&Path>,
+) -> (ImageMetadata, bool, SidecarText) {
+    let text = read_text(sidecar_path);
+    let Ok(Some(content)) = &text else {
+        return (ImageMetadata::default(), false, text);
     };
 
-    let mut value = serde_json::from_str::<serde_json::Value>(&content).unwrap_or_default();
+    let mut value = serde_json::from_str::<serde_json::Value>(content).unwrap_or_default();
     if let Some(root) = library {
         rawtonic_metadata::resources::resolve(&mut value, root);
     }
@@ -106,7 +209,7 @@ pub fn read_sidecar_file(sidecar_path: &Path, library: Option<&Path>) -> (ImageM
             }
         }
     }
-    (meta, healed)
+    (meta, healed, text)
 }
 
 /// The metadata of a sidecar the typed reader does not take whole (one
@@ -368,5 +471,64 @@ mod tests {
             at("resources/m.png")
         );
         assert_eq!(std::fs::read_to_string(sidecar).unwrap(), state);
+    }
+}
+
+#[cfg(test)]
+mod kept_sidecar_tests {
+    use super::*;
+
+    #[test]
+    fn a_scope_reads_each_sidecar_once_and_sees_its_own_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let sidecar = dir.path().join("a.ARW.rrdata");
+        std::fs::write(&sidecar, "{\"rating\":1}").unwrap();
+        with_sidecars_kept(|| {
+            assert_eq!(
+                read_sidecar_text(&sidecar).as_deref(),
+                Some("{\"rating\":1}")
+            );
+            std::fs::write(&sidecar, "{\"rating\":2}").unwrap();
+            // Nested scopes share the outer one: still the first read.
+            with_sidecars_kept(|| {
+                assert_eq!(
+                    read_sidecar_text(&sidecar).as_deref(),
+                    Some("{\"rating\":1}")
+                )
+            });
+            forget_kept_sidecar(&sidecar);
+            assert_eq!(
+                read_sidecar_text(&sidecar).as_deref(),
+                Some("{\"rating\":2}")
+            );
+        });
+        std::fs::write(&sidecar, "{\"rating\":3}").unwrap();
+        // Nothing outlives the scope.
+        assert_eq!(
+            read_sidecar_text(&sidecar).as_deref(),
+            Some("{\"rating\":3}")
+        );
+        assert_eq!(read_sidecar_text(&dir.path().join("missing.rrdata")), None);
+    }
+
+    #[test]
+    fn a_sidecar_to_heal_is_read_again_not_taken_from_the_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let sidecar = dir.path().join("b.ARW.rrdata");
+        let long = "x".repeat(600);
+        let with = |rating: u8| {
+            serde_json::json!({ "rating": rating, "exif": { "Long": long } }).to_string()
+        };
+        std::fs::write(&sidecar, with(1)).unwrap();
+        with_sidecars_kept(|| {
+            assert!(read_sidecar_text(&sidecar).is_some());
+            // Saved on another thread meanwhile (its forget does not reach
+            // this thread's scope).
+            std::fs::write(&sidecar, with(5)).unwrap();
+            let (meta, healed) = read_sidecar_file(&sidecar, None);
+            assert!(healed);
+            // What the caller writes back is the save, not the kept text.
+            assert_eq!(meta.rating, 5);
+        });
     }
 }

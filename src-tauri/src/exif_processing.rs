@@ -9,6 +9,7 @@ use std::path::Path;
 
 use crate::image_processing::ImageMetadata;
 use jiff::Timestamp;
+use rawtonic_export::sidecars::{forget_kept_sidecar, read_sidecar_file, read_sidecar_snapshot};
 
 thread_local! {
     /// A sidecar a batch edit on this thread reads as moved to the full
@@ -38,6 +39,14 @@ pub(crate) fn reading_conformed<T>(
 }
 
 pub fn load_sidecar(sidecar_path: &Path) -> ImageMetadata {
+    load_sidecar_updating(sidecar_path, |_| false)
+}
+
+/// Loads editor metadata and optionally incorporates loose-file XMP.
+pub(crate) fn load_sidecar_updating(
+    sidecar_path: &Path,
+    update: impl FnOnce(&mut ImageMetadata) -> bool,
+) -> ImageMetadata {
     if let Some(metadata) = CONFORMED.with(|c| {
         c.borrow()
             .as_ref()
@@ -51,20 +60,55 @@ pub fn load_sidecar(sidecar_path: &Path) -> ImageMetadata {
     {
         return meta;
     }
-    load_sidecar_file(sidecar_path)
+    load_sidecar_file_updating(sidecar_path, update)
 }
 
 /// Physical fallback after the caller has already resolved database authority.
 pub(crate) fn load_sidecar_file(sidecar_path: &Path) -> ImageMetadata {
+    load_sidecar_file_updating(sidecar_path, |_| false)
+}
+
+fn load_sidecar_file_updating(
+    sidecar_path: &Path,
+    update: impl FnOnce(&mut ImageMetadata) -> bool,
+) -> ImageMetadata {
     let library = crate::photo_library::library_of(sidecar_path);
-    let (meta, healed) =
-        rawtonic_export::sidecars::read_sidecar_file(sidecar_path, library.as_deref());
-    if healed && let Ok(json) = serde_json::to_string_pretty(&meta) {
-        let _ = crate::session_bridge::write_editor_sidecar(sidecar_path, json);
-        log::info!(
-            "Auto-healed bloated sidecar for: {}",
-            sidecar_path.display()
-        );
+    let (mut meta, healed, snapshot) = read_sidecar_snapshot(sidecar_path, library.as_deref());
+    let synchronized = update(&mut meta);
+    if (healed || synchronized)
+        && let Ok(text) = &snapshot
+    {
+        let expected = text.as_deref().map(str::as_bytes);
+        // Healing affects only the legacy EXIF cache in this file. Keep
+        // unknown fields and library resource references in their disk form.
+        let serialize = || {
+            if synchronized {
+                return serde_json::to_vec_pretty(&meta);
+            }
+            let mut value: serde_json::Value =
+                serde_json::from_slice(expected.unwrap_or_default())?;
+            value["exif"] = serde_json::to_value(&meta.exif)?;
+            serde_json::to_vec_pretty(&value)
+        };
+        if let Ok(json) = serialize() {
+            let written = {
+                let _turn = crate::session_bridge::write_turn();
+                if rawtonic_metadata::photo_ref::source_path_of_sidecar(sidecar_path).is_some_and(
+                    |source| crate::session_bridge::file_replaced_since_open(&source).is_some(),
+                ) {
+                    return meta;
+                }
+                rawtonic_fs::write_if_unchanged(sidecar_path, expected, &json)
+            };
+            forget_kept_sidecar(sidecar_path);
+            if matches!(written, Ok(false)) {
+                // The edit we read has been superseded. Return the current
+                // state and give any remaining repair another turn next load.
+                return crate::session_bridge::read_editor_sidecar(sidecar_path)
+                    .and_then(|value| serde_json::from_value(value).ok())
+                    .unwrap_or_else(|| read_sidecar_file(sidecar_path, library.as_deref()).0);
+            }
+        }
     }
     meta
 }
@@ -105,10 +149,31 @@ fn load_primary_metadata(image_path: &Path) -> ImageMetadata {
     load_sidecar(&primary)
 }
 
-fn save_primary_metadata(image_path: &Path, metadata: &ImageMetadata) -> std::io::Result<()> {
+/// Fill the EXIF cache in the physical sidecar, leaving all edit fields
+/// and any EXIF already saved there alone.
+fn cache_primary_exif(
+    image_path: &Path,
+    exif: &HashMap<String, String>,
+    create: bool,
+) -> anyhow::Result<bool> {
     let primary = get_primary_sidecar_path(image_path);
-    let json = serde_json::to_string_pretty(metadata).map_err(std::io::Error::other)?;
-    rawtonic_fs::atomic_write(&primary, json).map_err(std::io::Error::other)
+    let snapshot = rawtonic_fs::read_optional(&primary)?;
+    let mut state: serde_json::Value = match &snapshot {
+        Some(bytes) => serde_json::from_slice(bytes)?,
+        None if create => serde_json::to_value(ImageMetadata::default())?,
+        None => return Ok(false),
+    };
+    let Some(fields) = state.as_object_mut() else {
+        return Ok(false);
+    };
+    if fields.get("exif").is_some_and(serde_json::Value::is_object) {
+        return Ok(true);
+    }
+    fields.insert("exif".into(), serde_json::to_value(exif)?);
+    let bytes = serde_json::to_vec_pretty(&state)?;
+    let _turn = crate::session_bridge::write_turn();
+    forget_kept_sidecar(&primary);
+    rawtonic_fs::write_if_unchanged(&primary, snapshot.as_deref(), &bytes)
 }
 
 pub fn read_rrexif_sidecar(image_path: &Path) -> Option<HashMap<String, String>> {
@@ -198,15 +263,10 @@ fn cached_exif_data(
     }
 
     let exif_map = read();
-    if !exif_map.is_empty() {
-        let primary = get_primary_sidecar_path(source_path);
-        if primary.exists() {
-            let mut metadata = load_primary_metadata(source_path);
-            metadata.exif = Some(exif_map.clone());
-            let _ = save_primary_metadata(source_path, &metadata);
-        } else {
-            save_exif_to_rrcache(source_path, exif_map.clone());
-        }
+    if !exif_map.is_empty()
+        && !matches!(cache_primary_exif(source_path, &exif_map, false), Ok(true))
+    {
+        save_exif_to_rrcache(source_path, exif_map.clone());
     }
 
     exif_map
@@ -222,15 +282,7 @@ pub fn persist_exif_if_missing(source_path: &Path, source_path_str: &str, file_b
         return;
     }
 
-    let primary = get_primary_sidecar_path(source_path);
-
-    if primary.exists() {
-        let mut metadata = load_primary_metadata(source_path);
-        if metadata.exif.is_none() {
-            metadata.exif = Some(exif_map);
-            let _ = save_primary_metadata(source_path, &metadata);
-        }
-    } else {
+    if !matches!(cache_primary_exif(source_path, &exif_map, false), Ok(true)) {
         save_exif_to_rrcache(source_path, exif_map);
     }
 }
@@ -250,9 +302,8 @@ pub fn write_rrexif_sidecar(source_path_str: &str, target_image_path: &Path) -> 
         return Ok(());
     }
 
-    let mut metadata = load_primary_metadata(target_image_path);
-    metadata.exif = Some(exif_data);
-    save_primary_metadata(target_image_path, &metadata)
+    cache_primary_exif(target_image_path, &exif_data, true)
+        .map(|_| ())
         .map_err(|e| format!("Failed to write sidecar: {}", e))
 }
 
@@ -260,23 +311,71 @@ pub fn write_rrexif_sidecar(source_path_str: &str, target_image_path: &Path) -> 
 mod sidecar_write_tests {
     use super::*;
 
+    fn legacy_sidecar(path: &Path) {
+        let legacy = serde_json::json!({
+            "version": 1, "rating": 2, "adjustments": {"exposure": 1},
+            "exif": {"Comment": "x".repeat(850)}, "unknown": {"future": true}
+        });
+        rawtonic_fs::atomic_write(path, legacy.to_string()).unwrap();
+    }
+
     #[test]
-    fn primary_sidecar_is_replaced_atomically() {
+    fn sidecar_heal_keeps_a_save_committed_after_the_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let sidecar = dir.path().join("photo.raf.rrdata");
+        legacy_sidecar(&sidecar);
+        let newer = br#"{"version":1,"rating":5,"adjustments":{"exposure":2}}"#;
+
+        let loaded = load_sidecar_file_updating(&sidecar, |_| {
+            crate::session_bridge::write_editor_sidecar(&sidecar, newer).unwrap();
+            false
+        });
+
+        assert_eq!(fs::read(&sidecar).unwrap(), newer);
+        assert_eq!(loaded.rating, 5);
+    }
+
+    #[test]
+    fn sidecar_heal_shortens_exif_when_the_file_is_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let sidecar = dir.path().join("photo.raf.rrdata");
+        legacy_sidecar(&sidecar);
+
+        rawtonic_export::sidecars::with_sidecars_kept(|| {
+            let read = || rawtonic_export::sidecars::read_sidecar_text(&sidecar).unwrap();
+            let before = read();
+            load_sidecar_file(&sidecar);
+            let after = read();
+            assert_ne!(before, after);
+            assert_eq!(&*after, fs::read_to_string(&sidecar).unwrap());
+        });
+
+        let saved: serde_json::Value =
+            serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+        assert_eq!(saved["rating"], 2);
+        assert_eq!(saved["adjustments"]["exposure"], 1);
+        assert_eq!(saved["unknown"], serde_json::json!({"future": true}));
+        assert!(saved["exif"]["Comment"].as_str().unwrap().len() <= 500);
+    }
+
+    #[test]
+    fn exif_cache_preserves_edit_fields_in_the_primary_sidecar() {
         let dir = tempfile::tempdir().unwrap();
         let photo = dir.path().join("photo.raf");
         fs::write(&photo, b"original").unwrap();
-        let mut metadata = ImageMetadata {
-            rating: 2,
-            ..Default::default()
-        };
-        save_primary_metadata(&photo, &metadata).unwrap();
-        metadata.rating = 4;
-        save_primary_metadata(&photo, &metadata).unwrap();
-
         let sidecar = get_primary_sidecar_path(&photo);
-        let saved: ImageMetadata =
-            serde_json::from_str(&fs::read_to_string(&sidecar).unwrap()).unwrap();
-        assert_eq!(saved.rating, 4);
+        rawtonic_fs::atomic_write(&sidecar, br#"{"rating":4,"extra":{"kept":true}}"#).unwrap();
+        let exif = HashMap::from([("Model".into(), "Camera".into())]);
+        assert!(cache_primary_exif(&photo, &exif, false).unwrap());
+
+        let saved: serde_json::Value =
+            serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+        assert_eq!(
+            saved,
+            serde_json::json!({
+                "rating": 4, "extra": {"kept": true}, "exif": {"Model": "Camera"}
+            })
+        );
         assert_eq!(fs::read(&photo).unwrap(), b"original");
         let mut names: Vec<_> = fs::read_dir(dir.path())
             .unwrap()

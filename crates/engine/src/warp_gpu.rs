@@ -477,7 +477,13 @@ impl UploadedFrame<'_> {
             for (row0, rows) in warp.bands() {
                 let mut encoder = device.create_command_encoder(&Default::default());
                 warp.encode(&mut encoder, row0, rows, &frame, row0);
-                queue.submit(Some(encoder.finish()));
+                rawtonic_rawdecode::gpu_submit::submit(
+                    device,
+                    queue,
+                    "warp band",
+                    0,
+                    Some(encoder.finish()),
+                );
                 let (sender, done) = std::sync::mpsc::channel();
                 queue.on_submitted_work_done(move || {
                     let _ = sender.send(());
@@ -526,7 +532,7 @@ pub fn read_every_fourth_row(
             row_bytes,
         );
     }
-    queue.submit(Some(encoder.finish()));
+    rawtonic_rawdecode::gpu_submit::submit(device, queue, "warp rows", 0, Some(encoder.finish()));
     map(device, &readback, |bytes| {
         bytemuck::cast_slice(bytes).to_vec()
     })
@@ -801,7 +807,13 @@ impl<'a> Prepared<'a> {
             let mut encoder = device.create_command_encoder(&Default::default());
             self.encode(&mut encoder, row0, rows, &slot.output, 0);
             encoder.copy_buffer_to_buffer(&slot.output, 0, &slot.readback, 0, bytes);
-            queue.submit(Some(encoder.finish()));
+            rawtonic_rawdecode::gpu_submit::submit(
+                device,
+                queue,
+                "warp read back",
+                0,
+                Some(encoder.finish()),
+            );
             let (sender, mapped) = std::sync::mpsc::channel();
             slot.readback
                 .slice(..bytes)
@@ -827,7 +839,13 @@ impl<'a> Prepared<'a> {
         });
         let mut encoder = device.create_command_encoder(&Default::default());
         encoder.copy_buffer_to_buffer(&self.missed, 0, &readback, 0, 4);
-        queue.submit(Some(encoder.finish()));
+        rawtonic_rawdecode::gpu_submit::submit(
+            device,
+            queue,
+            "warp check",
+            0,
+            Some(encoder.finish()),
+        );
         let missed: u32 = map(device, &readback, |bytes| {
             bytemuck::pod_read_unaligned(&bytes[..4])
         })?;

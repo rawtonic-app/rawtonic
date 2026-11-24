@@ -52,6 +52,7 @@ import { previewBuffer } from '../utils/previewBuffer';
 import { dragTargetResolution, needsFrameSize, previewTargetResolution } from '../utils/previews';
 import { applyLayerSolo } from '../utils/layerSolo';
 import { onSharpenViewReady, type SharpenView } from '../utils/sharpenView';
+import { onGpuRecovered } from '../utils/gpuRecovery';
 import { onColorNoiseViewReady } from '../utils/colorNoiseView';
 import { acknowledgeParameters, forgetParameterReferences, withParameterReferences } from '../utils/maskParameterRefs';
 import { useOsPlatform } from './useOsPlatform';
@@ -617,9 +618,19 @@ export function useImageProcessing(
       if (state.sharpenView !== previous.sharpenView) renderView();
     });
     const stopReady = onSharpenViewReady(() => useEditorStore.getState().sharpenView !== null, renderView);
+    // A new GPU device after a lost one (utils/gpuRecovery): the frame
+    // renders again on it; until then the window keeps the last frame.
+    // The split's before texture was on the lost device too.
+    const stopRecovered = onGpuRecovered(() => {
+      renderView();
+      const { splitView } = useEditorStore.getState();
+      const targetRes = currentResRef.current;
+      if (splitView && targetRes) requestSplitBefore(targetRes);
+    });
     return () => {
       unsubscribe();
       stopReady();
+      stopRecovered();
     };
   }, [previewQueue, currentResRef]);
   // The export's colour noise reduction for the fit view is in: a webview

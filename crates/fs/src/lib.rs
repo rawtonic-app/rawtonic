@@ -311,6 +311,53 @@ pub fn atomic_write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
     Ok(())
 }
 
+/// The bytes at `path`, or None if it does not exist. Other read errors
+/// must not be mistaken for an empty slot when publishing a rewrite.
+pub fn read_optional(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Publishes a rewrite only if the file still holds `expected` (None
+/// means the file was absent). Hold the writers' lock across this call.
+/// For external writers, the final check and rename have the same
+/// portable filesystem limitation as [`replace_existing`].
+pub fn write_if_unchanged(path: &Path, expected: Option<&[u8]>, bytes: &[u8]) -> Result<bool> {
+    let mut temp = temp::file_for(path)?;
+    temp.write_all(bytes)?;
+    temp.as_file().sync_all()?;
+    if let Some(expected) = expected {
+        replace_matching(temp, path, |path| {
+            let file = match fs::File::open(path) {
+                Ok(file) => file,
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+                Err(e) => return Err(e.into()),
+            };
+            // A concurrent replacement might be much larger than the read.
+            let mut current = Vec::new();
+            file.take(expected.len() as u64 + 1)
+                .read_to_end(&mut current)?;
+            Ok(current == expected)
+        })
+    } else {
+        match no_clobber::persist_atomic(temp, path) {
+            Ok(()) => {
+                sync_dir(
+                    path.parent()
+                        .filter(|p| !p.as_os_str().is_empty())
+                        .unwrap_or(Path::new(".")),
+                )?;
+                Ok(true)
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+}
+
 /// Publishes the finished temporary file `temp` (created beside `path`,
 /// written and synced by the caller) over the existing regular file at
 /// `path` in one atomic rename, after `still_expected` confirmed that
@@ -331,6 +378,19 @@ pub fn replace_existing(
     path: &Path,
     still_expected: impl FnOnce(&Path) -> bool,
 ) -> Result<()> {
+    ensure!(
+        replace_matching(temp, path, |path| Ok(still_expected(path)))?,
+        "{} changed since it was checked; it is not replaced",
+        path.display()
+    );
+    Ok(())
+}
+
+fn replace_matching(
+    temp: tempfile::NamedTempFile,
+    path: &Path,
+    still_expected: impl FnOnce(&Path) -> Result<bool>,
+) -> Result<bool> {
     let parent = match path.parent() {
         Some(parent) if parent.as_os_str().is_empty() => Path::new("."),
         Some(parent) => parent,
@@ -346,18 +406,25 @@ pub fn replace_existing(
         let stamp = FileStamp::of(path, &meta);
         Ok((meta, stamp))
     };
-    let (meta, before) = stamp(path)?;
+    let (meta, before) = match stamp(path) {
+        Ok(stamped) => stamped,
+        Err(e)
+            if e.downcast_ref::<io::Error>()
+                .is_some_and(|e| e.kind() == io::ErrorKind::NotFound) =>
+        {
+            return Ok(false);
+        }
+        Err(e) => return Err(e),
+    };
     #[cfg(windows)]
     ensure!(
         !meta.permissions().readonly(),
         "{} is read-only; it is not replaced",
         path.display()
     );
-    ensure!(
-        still_expected(path),
-        "{} changed since it was checked; it is not replaced",
-        path.display()
-    );
+    if !still_expected(path)? {
+        return Ok(false);
+    }
     let unchanged = || -> Result<()> {
         let (_, now) = stamp(path)?;
         ensure!(
@@ -371,37 +438,55 @@ pub fn replace_existing(
     temp.as_file().set_permissions(meta.permissions())?;
     replace_checked(temp, path, &unchanged)?;
     sync_dir(parent)?;
-    Ok(())
+    Ok(true)
 }
 
 /// What tells a file at a path from one put there in its place: its size,
 /// modification time and file identity (device and inode on Unix, volume
 /// serial number and file index on Windows).
-#[derive(PartialEq, Eq)]
-struct FileStamp {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileStamp {
     len: u64,
     modified: Option<std::time::SystemTime>,
     id: Option<(u64, u64)>,
 }
 
 impl FileStamp {
-    fn of(path: &Path, meta: &fs::Metadata) -> Self {
+    /// Stamps the file named by `path` with metadata only, without opening
+    /// it to query its identity.
+    pub fn read(path: &Path) -> io::Result<Self> {
+        fs::metadata(path).map(|meta| Self::from_metadata(&meta))
+    }
+
+    /// Stamps the file described by `meta`, including its identity on Unix.
+    /// Use the open descriptor's metadata when stamping bytes read from it.
+    pub fn from_metadata(meta: &fs::Metadata) -> Self {
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+
         Self {
             len: meta.len(),
             modified: meta.modified().ok(),
-            id: file_id(path, meta),
+            #[cfg(unix)]
+            id: Some((meta.dev(), meta.ino())),
+            #[cfg(not(unix))]
+            id: None,
         }
+    }
+
+    fn of(_path: &Path, meta: &fs::Metadata) -> Self {
+        let stamp = Self::from_metadata(meta);
+        #[cfg(windows)]
+        let stamp = Self {
+            id: file_id(_path),
+            ..stamp
+        };
+        stamp
     }
 }
 
-#[cfg(unix)]
-fn file_id(_path: &Path, meta: &fs::Metadata) -> Option<(u64, u64)> {
-    use std::os::unix::fs::MetadataExt;
-    Some((meta.dev(), meta.ino()))
-}
-
 #[cfg(windows)]
-fn file_id(path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
+fn file_id(path: &Path) -> Option<(u64, u64)> {
     use std::os::windows::fs::OpenOptionsExt;
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
@@ -425,11 +510,6 @@ fn file_id(path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
             (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
         )
     })
-}
-
-#[cfg(not(any(unix, windows)))]
-fn file_id(_path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
-    None
 }
 
 /// Renames `file` over `path`; on Windows retried while another program
@@ -499,6 +579,21 @@ fn in_use(error: &io::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn write_if_unchanged_checks_bytes_and_absence() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.rrdata");
+        assert!(write_if_unchanged(&path, None, b"save").unwrap());
+        assert!(!write_if_unchanged(&path, None, b"new").unwrap());
+        assert!(!write_if_unchanged(&path, Some(b"edit"), b"new").unwrap());
+        assert_eq!(fs::read(&path).unwrap(), b"save");
+        assert!(write_if_unchanged(&path, Some(b"save"), b"new").unwrap());
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+        fs::remove_file(&path).unwrap();
+        assert!(!write_if_unchanged(&path, Some(b"new"), b"repair").unwrap());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
 
     #[test]
     fn replace_existing_replaces_only_a_file_still_as_expected() {

@@ -19,9 +19,10 @@ pub const GPU_MEMORY_EXHAUSTED: &str = "Not enough graphics memory for this phot
 /// What GPU work fails with once the graphics chip's device is lost (its
 /// driver reset it, e.g. out of memory; G76/WCC6: a Radeon 680M lost it
 /// compiling an export variant). Every later render on that device fails
-/// too, and the app makes no new device while it runs, so the photo is
-/// exported again after a restart (the app's `renderErrors.ts` translates
-/// it).
+/// too. The app starts a new device and exports the photo once more on it
+/// (`retry_after_device_loss`, DVL2); this error is left when that did not
+/// help, so the photo is exported again after a restart (the app's
+/// `renderErrors.ts` translates it).
 pub const GPU_DEVICE_LOST: &str = "This photo could not be rendered on this graphics chip: it stopped responding (out of memory). Quit and reopen Rawtonic, then export this photo again.";
 
 /// What an export fails with when its shader variant is too large for a
@@ -87,9 +88,108 @@ pub fn retry_out_of_memory<K: Copy + PartialEq>(
     results
 }
 
+/// Exports `wanted` on `context` with `attempt`, and those whose export
+/// the loss of the GPU device failed (`lost` tells, from the error and the
+/// context it ran on) once more on the new device the app starts after it
+/// (DVL2): `new_context` waits for it and gives it, or `None` when none
+/// came (the recovery gave up, or the export was cancelled); they then keep
+/// their error. Only those `may_retry` allows go again (their file is not
+/// published). Each one's result once, in the order `attempt` first gave.
+pub fn retry_after_device_loss<K: Copy + PartialEq, C>(
+    wanted: &[K],
+    context: C,
+    mut attempt: impl FnMut(&C, &[K]) -> Vec<(K, Result<(), String>)>,
+    mut may_retry: impl FnMut(K) -> bool,
+    lost: impl Fn(&C, &str) -> bool,
+    new_context: impl FnOnce(&C) -> Option<C>,
+) -> Vec<(K, Result<(), String>)> {
+    let mut results = attempt(&context, wanted);
+    let again: Vec<K> = results
+        .iter()
+        .filter(|(key, result)| matches!(result, Err(e) if lost(&context, e)) && may_retry(*key))
+        .map(|(key, _)| *key)
+        .collect();
+    if again.is_empty() {
+        return results;
+    }
+    let Some(context) = new_context(&context) else {
+        return results;
+    };
+    for (key, result) in attempt(&context, &again) {
+        if let Some(slot) = results.iter_mut().find(|(k, _)| *k == key) {
+            slot.1 = result;
+        }
+    }
+    results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exports_the_device_loss_failed_go_again_once_on_the_new_device() {
+        let lost = || Err::<(), _>(GPU_DEVICE_LOST.to_string());
+        let mut attempts = Vec::new();
+        // Device 1 is lost under recipes 1 and 2; 2 is published already.
+        let results = retry_after_device_loss(
+            &[0, 1, 2, 3],
+            1,
+            |device, wanted| {
+                attempts.push((*device, wanted.to_vec()));
+                wanted
+                    .iter()
+                    .map(|&t| match (*device, t) {
+                        (1, 1 | 2) => (t, lost()),
+                        (1, 3) => (t, Err("bad file".to_string())),
+                        _ => (t, Ok(())),
+                    })
+                    .collect()
+            },
+            |t| t != 2,
+            |_, error| error == GPU_DEVICE_LOST,
+            |device| Some(device + 1),
+        );
+        assert_eq!(attempts, [(1, vec![0, 1, 2, 3]), (2, vec![1])]);
+        assert_eq!(
+            results,
+            [
+                (0, Ok(())),
+                (1, Ok(())),
+                (2, lost()),
+                (3, Err("bad file".to_string()))
+            ]
+        );
+
+        // No new device: the error stays, nothing runs again; the new
+        // device lost too: no third attempt.
+        let mut runs = 0;
+        let results = retry_after_device_loss(
+            &[0],
+            1,
+            |_, wanted| {
+                runs += 1;
+                wanted.iter().map(|&t| (t, lost())).collect()
+            },
+            |_| true,
+            |_, error| error == GPU_DEVICE_LOST,
+            |_| None,
+        );
+        assert_eq!((runs, results), (1, vec![(0, lost())]));
+        let mut runs = 0;
+        retry_after_device_loss(
+            &[0],
+            1,
+            |_, wanted| {
+                runs += 1;
+                wanted.iter().map(|&t| (t, lost())).collect()
+            },
+            |_| true,
+            |_, error| error == GPU_DEVICE_LOST,
+            |device| Some(device + 1),
+        );
+        assert_eq!(runs, 2);
+    }
 
     fn oom() -> Result<(), String> {
         Err(gpu_out_of_memory("test"))
