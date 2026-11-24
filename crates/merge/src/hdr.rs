@@ -1279,6 +1279,51 @@ mod tests {
         assert!(ghosts[2] < 0.01, "+1 EV frame ghost share {}", ghosts[2]);
     }
 
+    /// A glint clipped in the reference (one pixel in 64) has moved on in a
+    /// −1 EV frame, which shows water there: the clipped-reference rule
+    /// drops those samples. The cells are close enough on average for the
+    /// coarse map (Low) to keep the frame, and the consensus must still
+    /// stay the reference's there.
+    #[test]
+    fn clipped_reference_drops_stay_out_of_the_consensus() {
+        let (w, h, f) = (64u32, 64u32, 8usize);
+        let water = [0.05f32; 3];
+        let reference = move |x: u32, y: u32| {
+            if x % 8 == 1 && y % 8 == 2 {
+                [1.0; 3]
+            } else {
+                water
+            }
+        };
+        let frames = [
+            (exposed(w, h, reference, 1.0), 1.0),
+            (exposed(w, h, |_, _| water, 0.5), 0.5),
+            (exposed(w, h, reference, 0.25), 0.25),
+        ];
+        let (acc, ghosts, _) = run(&frames, f, Deghost::Low);
+        let acc = acc.unwrap();
+        assert!(
+            ghosts[1] < 0.5,
+            "premise: frame dropped whole: {}",
+            ghosts[1]
+        );
+        let id = Matrix3::identity();
+        let ref_low = low_res(&View::new(&frames[0].0, None), &id, f);
+        let (lw, lh) = (acc.cons_den.w, acc.cons_den.h);
+        for ly in 1..lh - 1 {
+            for lx in 1..lw - 1 {
+                let i = ly * lw + lx;
+                assert!(acc.dropped[i], "cell {lx},{ly}: no sample dropped");
+                let k = acc.cons_rgb[1].data[i] / acc.cons_den.data[i];
+                let r = ref_low.rgb[1].data[i];
+                assert!(
+                    (k / r).log2().abs() < 0.01,
+                    "cell {lx},{ly}: consensus {k} vs reference {r}"
+                );
+            }
+        }
+    }
+
     /// Review of MRG5 round 1: fine glints that moved within a cell in the
     /// −1 EV frame, and a +1 EV frame that matches the reference. The full-
     /// resolution merge holds the glints at both places (the −1 EV frame's
