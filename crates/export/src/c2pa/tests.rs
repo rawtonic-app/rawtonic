@@ -998,7 +998,12 @@ mod export {
                     Ok(())
                 }
             };
-            let catalog = || None;
+            let catalog = || {
+                Some(rawtonic_metadata::Metadata {
+                    creator: "Ada Example".to_string(),
+                    ..Default::default()
+                })
+            };
             save_rendered_export(
                 render(),
                 "/photos/DSC0001.ARW",
@@ -1018,22 +1023,31 @@ mod export {
             .unwrap();
             (into.take().unwrap(), miss.take())
         };
-        // The same picture and metadata, unsigned and at quality 100.
-        let mut bare = settings(false);
-        bare.jpeg_quality = 100;
-        let (result, unsigned) = export("jpg", &bare, None, &json!({}));
-        result.unwrap();
-        let unsigned = unsigned.unwrap().len();
-        // Just above the bare file: the manifest does not fit in.
+        // The same picture and metadata at quality 100, unsigned and signed.
+        let sizes = |kb: Option<u32>, signed: bool| {
+            let mut settings = settings(signed);
+            settings.max_file_kb = kb;
+            settings.jpeg_quality = 100;
+            let (result, file) = export("jpg", &settings, signed.then_some(&identity), &json!({}));
+            result.unwrap();
+            file.unwrap().len() as u64
+        };
+        let (unsigned, signed) = (sizes(None, false), sizes(None, true));
+        assert!(
+            signed > unsigned + 1000,
+            "the manifest adds {} bytes",
+            signed - unsigned
+        );
+        // A limit the bare picture meets at quality 100 but the manifest breaks.
         let tight = (unsigned as u32).div_ceil(1000);
-        assert!(u64::from(tight) * 1000 >= unsigned as u64);
+        assert!(u64::from(tight) * 1000 < signed);
         let (file, miss) = run(tight);
         let miss = miss.expect("the signed file is above the limit");
         assert_eq!(miss.bytes, file.len() as u64);
         assert!(miss.bytes > u64::from(tight) * 1000);
         validate(&file, &jpeg_store(&file));
         // Room for the manifest: met, signed, validated.
-        let roomy = (file.len() as u32).div_ceil(1000) + 1;
+        let roomy = (signed as u32).div_ceil(1000);
         let (file, miss) = run(roomy);
         assert!(miss.is_none());
         assert!(file.len() as u64 <= u64::from(roomy) * 1000);

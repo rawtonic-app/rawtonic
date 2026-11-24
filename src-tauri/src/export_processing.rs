@@ -724,13 +724,19 @@ fn save_image_with_metadata(
     export_settings: &ExportSettings,
     generated: bool,
     pinned: &PinnedPhoto,
+    size_limit_missed: &dyn Fn(rawtonic_export::size_limit::SizeLimitMiss),
 ) -> Result<(), String> {
     let exif_sidecar = || pinned.exif(Path::new(source_path_str));
     let catalog = || pinned.metadata.clone();
-    // Mask images are auxiliary files: the size limit is the main file's.
-    let export_settings = &ExportSettings {
-        max_file_kb: None,
-        ..export_settings.clone()
+    // A mask's image is a file of the export like the main one: the size
+    // limit holds for it and a miss is reported.
+    let write = |path: &Path,
+                 _extension: &str,
+                 encoded: rawtonic_export::export_processing::EncodedExport| {
+        if let Some(miss) = encoded.size_limit_miss() {
+            size_limit_missed(miss);
+        }
+        write_export_bytes(path, "", encoded)
     };
     save_export_image(
         image,
@@ -742,7 +748,7 @@ fn save_image_with_metadata(
             format: "",
             exif_sidecar: &exif_sidecar,
             catalog: &catalog,
-            write: &write_export_bytes,
+            write: &write,
             enlarger: None,
             // Mask images carry no manifest.
             provenance: None,
@@ -802,6 +808,7 @@ fn export_masks_for_image(
     enlarger: Option<&dyn rawtonic_export::export_processing::Enlarger>,
     pinned: &PinnedPhoto,
     cancellation_token: &AtomicBool,
+    size_limit_missed: &dyn Fn(rawtonic_export::size_limit::SizeLimitMiss),
 ) -> Result<(), String> {
     ensure_export_not_cancelled(cancellation_token)?;
     let (transformed_image, unscaled_crop_offset) =
@@ -902,6 +909,7 @@ fn export_masks_for_image(
                 export_settings,
                 rawtonic_engine::image_loader::has_generated_areas(js_adjustments),
                 pinned,
+                size_limit_missed,
             )?;
             ensure_export_not_cancelled(cancellation_token)?;
 
@@ -2860,6 +2868,10 @@ fn export_photo(
                     Some(&crate::super_resolution::ExportEnlarger { app_handle }),
                     &pinned,
                     &finish_photo,
+                    &|miss| match &targets[target].tracking {
+                        Some(tracking) => tracking.size_limit_miss(item.global_index, miss),
+                        None => log::warn!("{}: {}", output_path.display(), miss.describe()),
+                    },
                 )?;
             }
             // Recorded only now: a mask file that failed leaves no record,
@@ -3879,6 +3891,7 @@ mod tests {
                 &settings,
                 false,
                 &pinned,
+                &|_| {},
             )
             .unwrap();
             export_masks_for_image(
@@ -3897,6 +3910,7 @@ mod tests {
                 Some(&Doubler),
                 &pinned,
                 &AtomicBool::new(false),
+                &|_| {},
             )
             .unwrap();
             let main = image::open(&output).unwrap();
