@@ -1789,12 +1789,23 @@ mod tests {
             // The photo opened while its variant compiles: its frame waits
             // for that one and rushes no planned superset beside it.
             let frame = scope.spawn(|| processor.preview_pipeline(&photo, true).map(|_| ()));
+            // A photo within the RAW default variant (here without colour
+            // noise reduction) waits for that one too.
+            let within = new_raw_edit(serde_json::json!({ "colorNoiseReduction": 0 }));
+            let within_features = preview_features(&within);
+            assert_ne!(within_features, RAW_DEFAULT_PREVIEW_FEATURES);
+            assert!(small_display_variant(within_features));
+            let processor = &processor;
+            let other = scope.spawn(move || processor.preview_pipeline(&within, true).map(|_| ()));
             held("its frame waits");
             assert!(processor.preview_pipelines[shown].get().is_none());
             drop(small);
             frame.join().unwrap().unwrap();
+            other.join().unwrap().unwrap();
         });
         assert!(processor.preview_pipelines[shown].get().is_some());
+        // The photo shown last plans: the RAW's again.
+        processor.preview_pipeline(&photo, true).unwrap();
         let (plan, _) = planned_jobs(shown, &photo);
         wait("the planned variants and the detail passes", &|| {
             plan.iter()

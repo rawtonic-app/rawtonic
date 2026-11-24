@@ -10373,6 +10373,9 @@ impl GpuProcessor {
         // runs now (a superset of its features) instead of queueing its own
         // behind it; shown as a compile the photo waits for.
         let mut waits_for_idle = None;
+        // At the start a frame within the RAW default variant waits for
+        // that one while it compiles (`start_variant_covers`).
+        let mut waits_for_start = false;
         // Under a compile limit a frame no planned variant covers compiles
         // the variant its export renders with (`export_display_features`, a
         // superset): the export then compiles nothing, and the photo's later
@@ -10391,11 +10394,12 @@ impl GpuProcessor {
                 // them (G76/WGT14: Blacks 220 s, with repeated memory
                 // pressure on a 15 GB Radeon 680M laptop).
                 Some(_) if served() => {}
-                // At the start its own variant compiles already (the RAW
-                // default one): the frame waits for that, and no planned
+                // At the start the RAW default variant compiles already and
+                // covers it: the frame waits for that, and no planned
                 // superset is rushed beside it (`StartWindow`).
-                Some(idle)
-                    if !idle.started() && self.preview_compilation[features].get().is_some() => {}
+                Some(idle) if !idle.started() && self.start_variant_covers(features) => {
+                    waits_for_start = true;
+                }
                 // Glow on a never-edited photo too, although its own
                 // variant is small (9–12 s on a Radeon 680M): compiling it
                 // stops the helper, whose compile then starts over, so the
@@ -10444,6 +10448,15 @@ impl GpuProcessor {
                     idle.plan(features, adjustments, || self.idle_target());
                 }
                 return Ok((pipeline, true));
+            }
+            // The RAW default variant failed: the frame's own compiles.
+            if waits_for_start
+                && self.preview_failed[RAW_DEFAULT_PREVIEW_FEATURES]
+                    .load(std::sync::atomic::Ordering::Acquire)
+            {
+                waits_for_start = false;
+                self.compile_preview_variant(own);
+                continue;
             }
             // The idle compile ended without serving this frame (it
             // failed): the frame's own variant compiles now.
@@ -10643,6 +10656,19 @@ impl GpuProcessor {
     /// Compile a display variant off the render worker (once).
     fn compile_preview_variant(&self, features: usize) {
         self.compile_preview_variant_gated(features, None);
+    }
+
+    /// Whether the RAW default display variant, started with the processor,
+    /// compiles now (or is compiled) and covers `features`: in the start
+    /// window a frame waits for it rather than rush a planned superset
+    /// beside it (`idle_compiles::StartWindow`).
+    fn start_variant_covers(&self, features: usize) -> bool {
+        small_display_variant(features)
+            && self.preview_compilation[RAW_DEFAULT_PREVIEW_FEATURES]
+                .get()
+                .is_some()
+            && !self.preview_failed[RAW_DEFAULT_PREVIEW_FEATURES]
+                .load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Compile a display variant once the start gate opens (see `StartGate`).
@@ -11985,9 +12011,6 @@ impl GpuProcessor {
         } else {
             0
         };
-        if let Some(passes) = passes.filter(|_| output_to_display) {
-            passes.compile_ahead(device, export_display_features(&request.adjustments));
-        }
         // The finish pass after a main pass, into the tile the frame or
         // export reads (`output_tile_view`): with grain, which the main
         // pass does not hold, and for an export whose outputs are encoded
@@ -12023,6 +12046,12 @@ impl GpuProcessor {
         if let Some((idle, waits)) = first_frame {
             idle.frame_served();
             drop(waits);
+        }
+        // Only now, with every pass of this frame there: started before the
+        // frame's own finish pass, the terms passes it does not use took the
+        // small compile slot that pass waits for (G76/WCC5).
+        if let Some(passes) = passes.filter(|_| output_to_display) {
+            passes.compile_ahead(device, export_display_features(&request.adjustments));
         }
         let blur_requirements = if force_full_preparation {
             [true; 5]
