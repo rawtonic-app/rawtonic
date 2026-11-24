@@ -38,9 +38,9 @@ pub fn read_file_mapped_with_metadata(path: &Path) -> Result<(Mmap, fs::Metadata
 
 /// [`read_file_mapped_with_metadata`] of a RAW whose embedded preview is
 /// about to be read through the mapping: its byte ranges are read ahead
-/// first, one read each, through the same open file
-/// (`preview_ranges::read_ahead`; on a network share a mapping waits one
-/// round trip per fault).
+/// first, in a few large reads, through the same open file
+/// (`preview_ranges::read_ahead`; on a network share a mapping waits for
+/// the network fault by fault).
 pub fn read_preview_mapped_with_metadata(
     path: &Path,
 ) -> Result<(Mmap, fs::Metadata), ReadFileError> {

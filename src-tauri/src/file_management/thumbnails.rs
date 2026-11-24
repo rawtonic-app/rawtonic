@@ -546,8 +546,8 @@ fn retouched_base<'a>(
 /// the mapping it was read from, for the steps after it
 /// (`embedded_in_camera_crop`) to read the same file through it instead of
 /// opening it again. The preview's byte ranges are read ahead of the
-/// mapping, one read each (`preview_ranges`: a share's mapping waits one
-/// round trip per fault).
+/// mapping in a few large reads (`preview_ranges`: a share's mapping waits
+/// for the network fault by fault).
 fn embedded_raw_preview_and_file(source_path: &Path) -> Option<(DynamicImage, MappedRaw)> {
     let (mmap, metadata) =
         rawtonic_engine::file_io::read_preview_mapped_with_metadata(source_path).ok()?;
