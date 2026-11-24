@@ -341,7 +341,10 @@ pub fn ingest_capture(
     if let Some(contents) = &contents {
         // The derived editor sidecar and XMP, as after an edit; the library
         // already holds the adjustments and metadata.
-        crate::session_bridge::rederive(lib, &asset);
+        {
+            let _turn = crate::session_bridge::write_turn();
+            crate::session_bridge::rederive(lib, &asset);
+        }
         // Metadata that the editor's own state does not carry (creator,
         // copyright, contact) reaches the XMP sidecar all the same.
         if contents.editor_state.is_none()

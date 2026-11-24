@@ -6,7 +6,9 @@
 //! `rawtonic export`.
 
 use std::collections::HashMap;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use walkdir::WalkDir;
 
@@ -75,10 +77,14 @@ pub fn with_original(mut sidecars: Vec<Option<String>>) -> Vec<Option<String>> {
     sidecars
 }
 
+/// A sidecar's exact text. A missing or unreadable file can be shown as
+/// default metadata, but only an absent file can be created automatically.
+pub type SidecarText = Result<Option<Arc<str>>, io::ErrorKind>;
+
 thread_local! {
     /// Sidecar texts read inside `with_sidecars_kept` on this thread (None:
-    /// no scope); a missing or unreadable sidecar is kept as None.
-    static KEPT: std::cell::RefCell<Option<HashMap<PathBuf, Option<std::sync::Arc<str>>>>> =
+    /// no scope), including reads that found no readable text.
+    static KEPT: std::cell::RefCell<Option<HashMap<PathBuf, SidecarText>>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -110,14 +116,20 @@ pub fn with_sidecars_kept<R>(f: impl FnOnce() -> R) -> R {
 
 /// The text of the sidecar at `path` (None when missing or unreadable),
 /// read once per `with_sidecars_kept` scope.
-pub fn read_sidecar_text(path: &Path) -> Option<std::sync::Arc<str>> {
+pub fn read_sidecar_text(path: &Path) -> Option<Arc<str>> {
+    read_text(path).ok().flatten()
+}
+
+fn read_text(path: &Path) -> SidecarText {
     if let Some(kept) = KEPT.with(|kept| kept.borrow().as_ref().and_then(|m| m.get(path).cloned()))
     {
         return kept;
     }
-    let text = std::fs::read_to_string(path)
-        .ok()
-        .map(std::sync::Arc::<str>::from);
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(Arc::from(text))),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.kind()),
+    };
     KEPT.with(|kept| {
         if let Some(map) = kept.borrow_mut().as_mut() {
             map.insert(path.to_path_buf(), text.clone());
@@ -143,6 +155,16 @@ pub fn forget_kept_sidecar(path: &Path) {
 /// belongs to, against which its recipe's library resources
 /// (`rawtonic-resource:…`) resolve; None for a photo of no library.
 pub fn read_sidecar_file(sidecar_path: &Path, library: Option<&Path>) -> (ImageMetadata, bool) {
+    let (metadata, healed, _) = read_sidecar_snapshot(sidecar_path, library);
+    (metadata, healed)
+}
+
+/// Returns the text the metadata was parsed from for a compare-and-swap
+/// rewrite. The write must still check that this text is current on disk.
+pub fn read_sidecar_snapshot(
+    sidecar_path: &Path,
+    library: Option<&Path>,
+) -> (ImageMetadata, bool, SidecarText) {
     let kept = is_kept(sidecar_path);
     let read = read_sidecar_parsed(sidecar_path, library);
     // What the caller writes back must be the sidecar as it is now, not a
@@ -162,12 +184,16 @@ fn is_kept(path: &Path) -> bool {
     })
 }
 
-fn read_sidecar_parsed(sidecar_path: &Path, library: Option<&Path>) -> (ImageMetadata, bool) {
-    let Some(content) = read_sidecar_text(sidecar_path) else {
-        return (ImageMetadata::default(), false);
+fn read_sidecar_parsed(
+    sidecar_path: &Path,
+    library: Option<&Path>,
+) -> (ImageMetadata, bool, SidecarText) {
+    let text = read_text(sidecar_path);
+    let Ok(Some(content)) = &text else {
+        return (ImageMetadata::default(), false, text);
     };
 
-    let mut value = serde_json::from_str::<serde_json::Value>(&content).unwrap_or_default();
+    let mut value = serde_json::from_str::<serde_json::Value>(content).unwrap_or_default();
     if let Some(root) = library {
         rawtonic_metadata::resources::resolve(&mut value, root);
     }
@@ -183,7 +209,7 @@ fn read_sidecar_parsed(sidecar_path: &Path, library: Option<&Path>) -> (ImageMet
             }
         }
     }
-    (meta, healed)
+    (meta, healed, text)
 }
 
 /// The metadata of a sidecar the typed reader does not take whole (one
