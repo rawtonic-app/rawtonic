@@ -73,6 +73,12 @@ const SETTINGS: &[(&str, &str)] = &[
     // style, so it is named after it).
     ("ZLENSCHROMABRENABLED", "ChromaticAberEnabled"),
     ("ZLENSCUSTOMCHROMABR", "LensChromAbrCustomCurve"),
+    // The photo's whole rotation in degrees clockwise: its EXIF
+    // orientation's quarter turns, the photographer's own and the
+    // straightening (`5` on a straightened photo, `90` on an EXIF 6 one); and
+    // the crop (`0;0;0;0`: none).
+    ("ZROTATION", "Rotation"),
+    ("ZCROP", "Crop"),
 ];
 
 /// A Capture One local adjustment layer.

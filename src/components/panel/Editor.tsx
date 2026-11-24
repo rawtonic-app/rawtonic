@@ -132,6 +132,9 @@ export interface TransformWrapperHandle {
     /** Where an animated zoom or pan is going (the transform it ends at), else
      * the current one: what a frame requested now will be shown at. */
     readonly targetTransformState: TransformState;
+    /** How many transforms were applied so far (each zoom, pan, reset or
+     * placement, also one that leaves it where it was). */
+    readonly applied: number;
   };
 }
 
@@ -245,6 +248,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   /** The viewer shows browser frames (Linux), not the native display. */
   const browserFramesRef = useRef(false);
   const transformStateRef = useRef<TransformState>(transformState);
+  const appliedRef = useRef(0);
   transformStateRef.current = transformState;
   const [isPanningState, setIsPanningState] = useState(false);
   const isClickAnimating = useRef(false);
@@ -635,6 +639,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     (x: number, y: number, scale: number, animating = false) => {
       // Any other transform (a wheel, a pan, a reset) ends the animation.
       if (!animating) animationTargetRef.current = null;
+      appliedRef.current += 1;
       transformStateRef.current = { positionX: x, positionY: y, scale };
       setTransformState({ scale, positionX: x, positionY: y });
 
@@ -847,6 +852,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         },
         get targetTransformState() {
           return animationTargetRef.current ?? transformStateRef.current;
+        },
+        get applied() {
+          return appliedRef.current;
         }
       }
     }),

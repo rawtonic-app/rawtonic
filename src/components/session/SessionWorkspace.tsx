@@ -101,6 +101,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import i18n from 'i18next';
 import { invokeInOrder } from '../../utils/catalogWrites';
 import { closeOpenPhotoForLibraryWrite, recipesChangedOutside } from '../../hooks/useEditorActions';
+import { applySourceGeometry, rememberGeometryOffers, type GeometryOffer } from '../../utils/sourceGeometry';
 import {
   catalogAction,
   followLibraryMove,
@@ -423,6 +424,9 @@ interface ImportReport {
   /** Edits a repeated import brought up to date (still as the last import
    * left them): their recipes before and after, one Undo step. */
   recipeChanges?: RecipeSnapshot[];
+  /** Photos kept as imported earlier whose Capture One straightening an
+   * earlier import did not read: "Apply Capture One straightening and crop". */
+  geometryOffers?: GeometryOffer[];
   /** Edits changed here and in the other editor: kept, the other editor's
    * settings came in as new virtual copies (one line each). */
   editsKept?: string[];
@@ -436,6 +440,9 @@ interface Props {
   nativeTitlebar?: boolean;
   windowControls?: ReactNode;
 }
+
+/** Photos the import report offers their own "Apply" button; the rest use "all". */
+const SOURCE_GEOMETRY_PHOTO_ACTIONS = 5;
 
 /** How long a session may take to open before the app says what it waits for. */
 export const SLOW_RESTORE_MS = 3000;
@@ -1254,10 +1261,37 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
           detail: report.editsKept.join('\n'),
           autoClose: false
         });
+      const offers = report.geometryOffers ?? [];
+      rememberGeometryOffers({
+        directory: session.directory,
+        source: importSource.trim(),
+        relinks: relinkList(),
+        photos: offers
+      });
       if (report.warnings?.length)
         notify.warning(t('session.toasts.importUnconvertedSettings', { n: report.warnings.length }), {
           detail: report.warnings.join('\n'),
-          autoClose: false
+          autoClose: false,
+          ...(offers.length
+            ? {
+                // The photographer's explicit choice, never automatic: the
+                // straightening, quarter turns and crop only, one Undo step.
+                actions: [
+                  ...offers.slice(0, SOURCE_GEOMETRY_PHOTO_ACTIONS).map(({ path }) => ({
+                    label: t('session.toasts.sourceGeometryPhoto', { name: path.split(/[\\/]/).pop() }),
+                    run: () => applySourceGeometry(session.directory, [path])
+                  })),
+                  {
+                    label: t('session.toasts.sourceGeometryAll', { n: offers.length }),
+                    run: () =>
+                      applySourceGeometry(
+                        session.directory,
+                        offers.map((o) => o.path)
+                      )
+                  }
+                ]
+              }
+            : {})
         });
       if (report.smartAlbumsSkipped?.length)
         notify.warning(t('session.toasts.importSmartAlbumsSkipped', { n: report.smartAlbumsSkipped.length }), {

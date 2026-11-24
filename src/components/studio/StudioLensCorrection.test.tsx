@@ -154,9 +154,11 @@ describe('Lens correction tool', () => {
     await act(async () => {
       fireEvent.click(box());
     });
-    // Off: kept, disabled, not deleted; nothing looked up.
+    // Off: kept, disabled, not deleted, its vignetting off too; nothing
+    // looked up.
     expect(current).toMatchObject({
       lensDistortionEnabled: false,
+      lensVignetteEnabled: false,
       lensDistortionAmount: 60,
       lensCorrectionMode: 'manual',
       lensDistortionParams: polynomial
@@ -170,6 +172,7 @@ describe('Lens correction tool', () => {
     // On: exactly as it was.
     expect(current).toMatchObject({
       lensDistortionEnabled: true,
+      lensVignetteEnabled: true,
       lensDistortionAmount: 60,
       lensDistortionParams: polynomial
     });
@@ -184,6 +187,7 @@ describe('Lens correction tool', () => {
       lensMaker: null,
       lensModel: null,
       lensDistortionEnabled: false,
+      lensVignetteEnabled: false,
       lensDistortionParams: {
         model: 0,
         k1: -0.036,
@@ -202,6 +206,7 @@ describe('Lens correction tool', () => {
       fireEvent.click(screen.getByText('Use lens database…'));
     });
     expect(current.lensDistortionEnabled).toBe(true);
+    expect(current.lensVignetteEnabled).toBe(true);
   });
 
   it("enables the detected profile looked up with the photo's EXIF", async () => {

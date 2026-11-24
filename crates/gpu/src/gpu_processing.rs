@@ -3450,6 +3450,13 @@ impl WgpuDisplay {
         if self.current_bind_group.is_none() && self.camera_cover.is_none() && !multi {
             return;
         }
+        // A zoomed cell that just became the primary keeps its own frames at
+        // its zoom until its live frame is placed there (multi_view).
+        let held = multi && self.live_frame_shown() && {
+            let placed =
+                (!self.frame_uncropped && self.split_x.is_none()).then_some(self.geometry.rect);
+            self.multi.holds_primary(placed, std::time::Instant::now())
+        };
         #[cfg(feature = "performance-profiling")]
         let acquire_stage = crate::performance::PerformanceStage::new("display_acquire");
         let output = match self.surface.get_current_texture() {
@@ -3524,7 +3531,7 @@ impl WgpuDisplay {
             None => self
                 .current_bind_group
                 .as_ref()
-                .filter(|_| self.live_frame_shown())
+                .filter(|_| !held && self.live_frame_shown())
                 .map(|bind_group| PrimaryDraw {
                     bind_group,
                     before,

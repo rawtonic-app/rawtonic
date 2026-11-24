@@ -2027,7 +2027,8 @@ export function useEditorActions() {
       }
     }
     // Never below fit (zoom 1, with the proof margin when it is on).
-    useEditorStore.getState().setEditor({ zoom: clampViewerZoom(transformZoom) });
+    const { zoomRequests } = useEditorStore.getState();
+    useEditorStore.getState().setEditor({ zoom: clampViewerZoom(transformZoom), zoomRequests: zoomRequests + 1 });
   }, []);
 
   return {

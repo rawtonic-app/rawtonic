@@ -93,6 +93,24 @@ pub struct MultiView {
     zoom: Option<CellZoom>,
     /// Without the lock: each secondary's own zoom (absent: fit).
     cell_zooms: HashMap<String, CellZoom>,
+    /// The zoom the primary's cell had when it became the primary: its own
+    /// frames are drawn at it until its live frame shows it at that zoom
+    /// (the zooms sent with a layout leave the primary out).
+    primary_hold: Option<PrimaryHold>,
+}
+
+/// How long a primary's own zoomed frames may stand in for a live frame
+/// placed elsewhere that does not move (the editor never applied the zoom).
+pub const PRIMARY_HOLD_LIMIT: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// A zoomed cell that became the primary, until its live frame takes over.
+#[derive(Clone, Copy, Debug)]
+struct PrimaryHold {
+    zoom: CellZoom,
+    since: std::time::Instant,
+    /// Where its live frame was first placed (before the editor applied
+    /// the cell's zoom, e.g. at the previous primary's fit).
+    first: Option<[f32; 4]>,
 }
 
 /// Where a photograph of `width` × `height` sits in `area`: contained and
@@ -283,6 +301,73 @@ impl MultiView {
         self.cell_zooms.get(path).copied().or(self.zoom)
     }
 
+    /// The zoom `path`'s own frames are drawn at: its zoom, or for the
+    /// primary the zoom its cell had until its live frame shows it.
+    fn drawn_zoom(&self, path: &str) -> Option<CellZoom> {
+        self.zoom_of(path).or(self
+            .primary_hold
+            .filter(|_| self.primary.as_deref() == Some(path))
+            .map(|hold| hold.zoom))
+    }
+
+    /// Whether the primary's own frames, kept at the zoom its cell had,
+    /// stay drawn instead of its live frame placed at `placed` (None: not a normal placement) at `now`. They stay while
+    /// the live frame sits where it was first placed or at fit in the cell,
+    /// and not at that zoom (the editor has not applied it yet: WMV4, a
+    /// zoomed cell clicked beside a primary at fit). The live frame takes
+    /// over once it is placed at the zoom, moves elsewhere (the editor
+    /// applied another zoom or the photograph is panned), or after
+    /// [`PRIMARY_HOLD_LIMIT`].
+    pub(crate) fn holds_primary(
+        &mut self,
+        placed: Option<[f32; 4]>,
+        now: std::time::Instant,
+    ) -> bool {
+        let Some(hold) = self.primary_hold.as_mut() else {
+            return false;
+        };
+        // Where the live frame would sit at the zoom: the photograph's shown
+        // size is the held frame's (the live frame's own placement cannot
+        // tell a fit from a zoom of a smaller photograph).
+        let cell = self.primary.as_deref().and_then(|path| {
+            let shown = self.textures.get(path)?.extent?.shown;
+            let area = self.cells.iter().find(|cell| cell.path == path)?.area;
+            let extent = CellExtent {
+                shown,
+                region: None,
+            };
+            Some((area, zoomed_rect(area, extent, hold.zoom)))
+        });
+        let near = |a: [f32; 4], b: [f32; 4], tolerance: f32| {
+            a.iter()
+                .zip(b.iter())
+                .all(|(a, b)| (a - b).abs() <= tolerance)
+        };
+        let keep = match (cell, placed) {
+            (Some((area, at_zoom)), Some(rect))
+                if now.duration_since(hold.since) < PRIMARY_HOLD_LIMIT
+                    && !near(rect, at_zoom, 2.0 + 0.01 * at_zoom[2].max(at_zoom[3])) =>
+            {
+                // Still at fit in its cell (also re-fitted, e.g. the window
+                // resized while the photograph loads): the editor has not
+                // applied the zoom yet.
+                let at_fit = near(rect, fit_rect(area, rect[2], rect[3]), 1.0);
+                match hold.first {
+                    None => {
+                        hold.first = Some(rect);
+                        true
+                    }
+                    Some(first) => at_fit || near(first, rect, 0.5),
+                }
+            }
+            _ => false,
+        };
+        if !keep {
+            self.primary_hold = None;
+        }
+        keep
+    }
+
     /// Whether any cell is zoomed in.
     pub fn is_zoomed(&self) -> bool {
         self.zoom.is_some() || !self.cell_zooms.is_empty()
@@ -295,6 +380,20 @@ impl MultiView {
         self.textures.retain(|path, _| shown(path));
         self.regions.retain(|path, _| shown(path));
         self.cell_zooms.retain(|path, _| shown(path));
+        // A zoomed cell becoming the primary keeps its frames placed at its
+        // zoom until its live frame shows it, not to fit (WMV4: 0.6–1.0 s
+        // at fit after a click on a zoomed cell).
+        if primary != self.primary {
+            self.primary_hold =
+                primary
+                    .as_deref()
+                    .and_then(|path| self.zoom_of(path))
+                    .map(|zoom| PrimaryHold {
+                        zoom,
+                        since: std::time::Instant::now(),
+                        first: None,
+                    });
+        }
         self.primary = primary;
         self.cells = cells;
     }
@@ -312,13 +411,13 @@ impl MultiView {
         let before: HashMap<String, Option<CellZoom>> = self
             .regions
             .keys()
-            .map(|path| (path.clone(), self.zoom_of(path)))
+            .map(|path| (path.clone(), self.drawn_zoom(path)))
             .collect();
         self.zoom = shared;
         self.cell_zooms = cells;
         let after: HashMap<String, Option<CellZoom>> = before
             .keys()
-            .map(|path| (path.clone(), self.zoom_of(path)))
+            .map(|path| (path.clone(), self.drawn_zoom(path)))
             .collect();
         self.regions
             .retain(|path, _| match (before[path], after[path]) {
@@ -335,6 +434,7 @@ impl MultiView {
         self.regions.clear();
         self.zoom = None;
         self.cell_zooms.clear();
+        self.primary_hold = None;
     }
 
     /// The render key of the whole-photograph texture kept for `path` (0: a
@@ -717,7 +817,7 @@ impl MultiView {
     /// an adopted live frame shown so, while the cell stays at its zoom.
     fn pixelated(&self, path: &str, texture: &CellTexture) -> bool {
         texture.pixelated_at.is_some_and(|at| {
-            self.zoom_of(path)
+            self.drawn_zoom(path)
                 .is_some_and(|zoom| (zoom.scale - at).abs() <= at * 1e-3)
         })
     }
@@ -812,7 +912,7 @@ impl MultiView {
     }
 
     fn placement(&self, path: &str, area: [f32; 4], texture: &CellTexture) -> [f32; 4] {
-        match (self.zoom_of(path), texture.extent) {
+        match (self.drawn_zoom(path), texture.extent) {
             (Some(zoom), Some(extent)) => zoomed_rect(area, extent, zoom),
             _ => fit_rect(area, texture.width as f32, texture.height as f32),
         }
@@ -837,7 +937,7 @@ impl MultiView {
     /// The textures drawn in a cell, in order: the whole photograph, then
     /// (zoomed in) its sharp region.
     fn layers(&self, path: &str) -> impl Iterator<Item = (&CellTexture, CellLayer)> {
-        let region = self.zoom_of(path).and(self.regions.get(path));
+        let region = self.drawn_zoom(path).and(self.regions.get(path));
         self.textures
             .get(path)
             .map(|t| (t, CellLayer::Whole))
@@ -857,7 +957,7 @@ impl MultiView {
                 "\n  {name}{} area {:?} zoom {:?}:",
                 if primary { " (primary)" } else { "" },
                 cell.area,
-                self.zoom_of(&cell.path).map(|z| (z.scale, z.center))
+                self.drawn_zoom(&cell.path).map(|z| (z.scale, z.center))
             );
             let mut any = false;
             for (texture, layer) in self.layers(&cell.path) {
@@ -1758,6 +1858,20 @@ mod tests {
         assert_eq!(multi.texture_key("a"), Some(0));
     }
 
+    /// 32 × 32 RGBA: magenta with a cyan centre (texels 12–19).
+    fn bullseye_rgba() -> Vec<u8> {
+        (0..32 * 32)
+            .flat_map(|i| {
+                let (x, y) = (i % 32, i / 32);
+                if (12..20).contains(&x) && (12..20).contains(&y) {
+                    [0, 255, 255, 255]
+                } else {
+                    [255, 0, 255, 255]
+                }
+            })
+            .collect()
+    }
+
     /// A 32 × 32 live frame: magenta with a cyan centre (texels 12–19).
     fn bullseye(gpu: &Offscreen) -> wgpu::Texture {
         let size = wgpu::Extent3d {
@@ -1768,19 +1882,9 @@ mod tests {
         let texture = gpu
             .device
             .create_texture(&crate::gpu_processing::still_texture_descriptor(size));
-        let rgba: Vec<u8> = (0..32 * 32)
-            .flat_map(|i| {
-                let (x, y) = (i % 32, i / 32);
-                if (12..20).contains(&x) && (12..20).contains(&y) {
-                    [0, 255, 255, 255]
-                } else {
-                    [255, 0, 255, 255]
-                }
-            })
-            .collect();
         gpu.queue.write_texture(
             texture.as_image_copy(),
-            &rgba,
+            &bullseye_rgba(),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(128),
@@ -1934,6 +2038,218 @@ mod tests {
                 close(pixel(&pixels, 93, 50), [0, 255, 255]),
                 "{label}: region kept"
             );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; the incoming primary keeps its zoomed frame until its live frame"]
+    fn the_incoming_primary_stays_zoomed_until_its_own_frame() {
+        let gpu = offscreen();
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        let zoom = CellZoom {
+            scale: 4.0,
+            center: [0.5, 0.5],
+        };
+        // The webview sends the zooms of the cells other than the new
+        // primary (lock off: "a"'s own zoom is left out; lock on: the
+        // shared one).
+        for (label, before, after) in [
+            (
+                "lock off",
+                CellZooms {
+                    shared: None,
+                    cells: HashMap::from([("a".to_string(), zoom)]),
+                },
+                CellZooms {
+                    shared: None,
+                    cells: HashMap::from([("primary".to_string(), zoom)]),
+                },
+            ),
+            (
+                "lock on",
+                CellZooms {
+                    shared: Some(zoom),
+                    cells: HashMap::new(),
+                },
+                CellZooms {
+                    shared: Some(zoom),
+                    cells: HashMap::new(),
+                },
+            ),
+        ] {
+            let mut multi = layout(&gpu);
+            multi.set_zooms(before.shared, before.cells.clone());
+            // "a" (cell [5, 10, 60, 80], centre (35, 50)) shows its 32 × 32
+            // photograph at 4 device px per pixel: the cyan centre spans
+            // 19–51 (at fit 27.5–42.5, letterboxed at 20–80).
+            multi.upload(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                "a",
+                1,
+                whole(32, 32),
+                CellLayer::Whole,
+                32,
+                32,
+                &bullseye_rgba(),
+            );
+            multi.upload(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                "a",
+                2,
+                CellExtent {
+                    shown: [32.0, 32.0],
+                    region: Some([14.0, 14.0, 4.0, 4.0]),
+                },
+                CellLayer::Region,
+                4,
+                4,
+                &solid(4, 4, [0, 255, 0]),
+            );
+            let cells = multi.cells().to_vec();
+            multi.show(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                Some("a".into()),
+                cells,
+                Some(after.clone()),
+                None,
+            );
+            // A zoom sent after the layout (without "a") changes nothing.
+            multi.set_zooms(after.shared, after.cells.clone());
+            assert_eq!(multi.primary(), Some("a"), "{label}");
+            assert_eq!(
+                multi.region_of("a").map(|(key, _)| key),
+                Some(2),
+                "{label}: region kept"
+            );
+            // No live frame of "a" yet: its cell shows its own frames at its
+            // zoom (WMV4: at fit for 0.6–1.0 s until its first live frame).
+            let pixels = present(&gpu, &multi, None);
+            assert!(
+                close(pixel(&pixels, 35, 50), [0, 255, 0]),
+                "{label}: sharp region"
+            );
+            assert!(
+                close(pixel(&pixels, 22, 50), [0, 255, 255]),
+                "{label}: enlarged {:?}",
+                pixel(&pixels, 22, 50)
+            );
+            assert!(
+                close(pixel(&pixels, 35, 15), [255, 0, 255]),
+                "{label}: no letterbox {:?}",
+                pixel(&pixels, 35, 15)
+            );
+            // Its live frame first comes placed where the editor still was
+            // (here at fit): the cell's own frames stay. Placed at the zoom,
+            // the live frame takes over, and for good.
+            let area = [5.0, 10.0, 60.0, 80.0];
+            let at_fit = fit_rect(area, 32.0, 32.0);
+            let at_zoom = zoomed_rect(area, whole(32, 32), zoom);
+            let now = std::time::Instant::now();
+            assert!(multi.holds_primary(Some(at_fit), now), "{label}");
+            assert!(multi.holds_primary(Some(at_fit), now), "{label}");
+            assert!(!multi.holds_primary(Some(at_zoom), now), "{label}");
+            assert!(!multi.holds_primary(Some(at_fit), now), "{label}");
+            let cells = multi.cells().to_vec();
+            let hold_again = |multi: &mut MultiView| {
+                multi.show(
+                    &gpu.device,
+                    &gpu.queue,
+                    &bindings,
+                    Some("primary".into()),
+                    cells.clone(),
+                    Some(before.clone()),
+                    None,
+                );
+                multi.show(
+                    &gpu.device,
+                    &gpu.queue,
+                    &bindings,
+                    Some("a".into()),
+                    cells.clone(),
+                    Some(after.clone()),
+                    None,
+                );
+            };
+            // A live frame that moves elsewhere (the editor applied another
+            // zoom, or a pan) takes over.
+            hold_again(&mut multi);
+            assert!(multi.holds_primary(Some(at_fit), now), "{label}");
+            let twice = [
+                at_zoom[0] + 8.0,
+                at_zoom[1],
+                at_zoom[2] / 2.0,
+                at_zoom[3] / 2.0,
+            ];
+            assert!(!multi.holds_primary(Some(twice), now), "{label}");
+            // The rendered sequence: at fit, re-fitted 5 px higher in its
+            // resized cell (the window resized while it loads), the cell
+            // shows its own zoomed frames; placed at the zoom, the live frame.
+            hold_again(&mut multi);
+            let resized = [5.0, 10.0, 60.0, 70.0];
+            let refit = fit_rect(resized, 32.0, 32.0);
+            assert!((refit[1] - at_fit[1]).abs() >= 5.0);
+            let resized_zoom = zoomed_rect(resized, whole(32, 32), zoom);
+            let live = live_frame(&gpu, resized_zoom, resized);
+            for (rect, cell, held) in [
+                (at_fit, area, true),
+                (refit, resized, true),
+                (resized_zoom, resized, false),
+            ] {
+                let mut shown = multi.cells().to_vec();
+                shown
+                    .iter_mut()
+                    .filter(|c| c.path == "a")
+                    .for_each(|c| c.area = cell);
+                multi.set_layout(Some("a".into()), shown);
+                let hold = multi.holds_primary(Some(rect), now);
+                assert_eq!(hold, held, "{label}: {rect:?}");
+                let pixels = present(
+                    &gpu,
+                    &multi,
+                    (!hold).then_some(PrimaryDraw {
+                        bind_group: &live,
+                        before: &gpu.empty_before,
+                        clip: cell,
+                    }),
+                );
+                // Held: the cyan centre enlarged (at fit it spans 27.5–42.5);
+                // live: the live frame's blue.
+                let expected = if held { [0, 255, 255] } else { [0, 0, 255] };
+                assert!(
+                    close(pixel(&pixels, 22, 48), expected),
+                    "{label}: {rect:?} {:?}",
+                    pixel(&pixels, 22, 48)
+                );
+            }
+            // And after the limit, wherever it is; or when it is not placed
+            // normally (crop editing, a split).
+            hold_again(&mut multi);
+            let late = std::time::Instant::now() + PRIMARY_HOLD_LIMIT;
+            assert!(!multi.holds_primary(Some(at_fit), late), "{label}");
+            hold_again(&mut multi);
+            assert!(!multi.holds_primary(None, now), "{label}");
+            // "a" stops being the primary at fit: it is shown to fit again.
+            let cells = multi.cells().to_vec();
+            multi.show(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                Some("primary".into()),
+                cells,
+                Some(CellZooms::default()),
+                None,
+            );
+            assert_eq!(multi.zoom_of("a"), None, "{label}");
         }
     }
 
