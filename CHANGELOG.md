@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Capture One catalog imports keep catalog capture times as corrections, retaining the camera date for reset.
+
 - Assigning a keyboard shortcut gives it to the new command, clears its previous owner, and names that owner in Preferences.
 
 ### Highlights

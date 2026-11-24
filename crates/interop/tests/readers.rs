@@ -523,3 +523,18 @@ fn capture_one_sessions_with_the_same_name_in_two_folders_stay_told_apart() {
         Some(format!("{}#10", real(&second_db).display()).as_str())
     );
 }
+
+#[test]
+fn capture_one_catalog_capture_date_keeps_the_fraction_without_inventing_a_zone() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = capture_one_session(dir.path(), "Dates");
+    let conn = Connection::open(&db).unwrap();
+    conn.execute_batch("ALTER TABLE ZIMAGE ADD COLUMN ZEXP_DATE REAL; UPDATE ZIMAGE SET ZEXP_DATE=1473617768.7 WHERE Z_PK=1;").unwrap();
+    let lib = capture_one::read(&db).unwrap();
+    assert_eq!(
+        lib.photos[0].metadata.capture,
+        rawtonic_metadata::CaptureWrite::Set(
+            rawtonic_metadata::XmpDateTime::parse("2016-09-11T18:16:08.7").unwrap()
+        )
+    );
+}
