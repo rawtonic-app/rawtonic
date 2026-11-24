@@ -11,8 +11,46 @@ macro_rules! cli_eprintln {
         let _ = writeln!(std::io::stderr(), $($arg)*); }};
 }
 
+/// Result data ignores a closed consumer, but reports disk and other write failures.
+pub fn write_result_line(mut output: impl std::io::Write, text: &str) -> std::io::Result<()> {
+    match writeln!(output, "{text}") {
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        result => result,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn result_output_only_ignores_a_broken_pipe() {
+        struct Failed(std::io::ErrorKind);
+        impl std::io::Write for Failed {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(self.0.into())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        use std::io::ErrorKind;
+        assert!(super::write_result_line(Failed(ErrorKind::BrokenPipe), "report").is_ok());
+        for kind in [
+            ErrorKind::StorageFull,
+            ErrorKind::Other,
+            ErrorKind::PermissionDenied,
+        ] {
+            assert_eq!(
+                super::write_result_line(Failed(kind), "report")
+                    .unwrap_err()
+                    .kind(),
+                kind
+            );
+        }
+        let mut written = Vec::new();
+        super::write_result_line(&mut written, "report").unwrap();
+        assert_eq!(written, b"report\n");
+    }
+
     #[test]
     fn closed_pipe_child() {
         if std::env::var_os("RAWTONIC_CLOSED_PIPE_TEST").is_none() {

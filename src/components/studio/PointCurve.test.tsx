@@ -645,3 +645,25 @@ it('grabs the nearest point within 12 screen pixels, including the endpoint', ()
   fireEvent.pointerUp(svg);
   expect(onChange.mock.lastCall?.[0].luma[0]).toEqual({ x: 0, y: 10 });
 });
+
+it('keeps the unclamped drag target when crossing a neighbour and returning', () => {
+  const onChange = vi.fn();
+  const curves = {
+    ...INITIAL_ADJUSTMENTS.curves,
+    luma: [
+      { x: 0, y: 0 },
+      { x: 100, y: 100 },
+      { x: 110, y: 110 },
+      { x: 255, y: 255 }
+    ]
+  };
+  const { container } = render(
+    <PointCurve curves={curves} onChange={onChange} disabled={false} onInteraction={vi.fn()} />
+  );
+  const svg = stubCurvePointer(container);
+  fireEvent.pointerDown(svg, { button: 0, clientX: 100, clientY: 155 });
+  fireEvent.pointerMove(svg, { buttons: 1, clientX: 130, clientY: 155 });
+  fireEvent.pointerMove(svg, { buttons: 1, clientX: 100, clientY: 155 });
+  fireEvent.pointerUp(svg);
+  expect(onChange.mock.lastCall?.[0].luma[1]).toEqual({ x: 100, y: 100 });
+});

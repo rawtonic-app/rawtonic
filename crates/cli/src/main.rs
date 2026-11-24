@@ -1,4 +1,4 @@
-use rawtonic_runtime::{cli_eprintln, cli_println};
+use rawtonic_runtime::cli_eprintln;
 
 // The app's allocator, so exports free memory as the app does (the export
 // crate returns freed pages through it, `allocator::release_freed_memory`).
@@ -657,7 +657,10 @@ impl rawtonic_engine::ai_selections::SelectionDetector for SelectionModels {
 }
 
 pub(crate) fn print(value: impl serde::Serialize) -> Result<()> {
-    cli_println!("{}", serde_json::to_string_pretty(&value)?);
+    rawtonic_runtime::cli_output::write_result_line(
+        std::io::stdout(),
+        &serde_json::to_string_pretty(&value)?,
+    )?;
     Ok(())
 }
 fn run() -> Result<()> {
