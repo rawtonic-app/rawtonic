@@ -397,7 +397,7 @@ fn smart_condition(
                         // take more photographs than in Lightroom; left
                         // out (named in the import report).
                         Some((make, model))
-                            if camera_names::file_names(&make, &model).iter().any(
+                            if camera_names::stated_names(&make, &model).iter().any(
                                 |(_, file_model)| *file_model != name.trim().to_lowercase(),
                             ) =>
                         {
@@ -5126,6 +5126,10 @@ mod tests {
         // One camera in the library for two models Lightroom tells apart.
         assert!(one("camera", "==", text("STYLUS1")).is_none());
         assert!(one("camera", "!=", text("STYLUS1,1s")).is_none());
+        // A name only the decoder gives (headerless CHDK `… CRW` files) is
+        // no second model.
+        assert!(one("camera", "==", text("Canon PowerShot G7 X")).is_some());
+        assert!(one("camera", "!=", text("Canon PowerShot S100")).is_some());
     }
 
     /// The translated rules select photographs by the camera, lens, name

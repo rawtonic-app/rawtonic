@@ -35,6 +35,18 @@ pub fn file_names(make: &str, model: &str) -> &'static [(String, String)] {
         .map_or(&[], Vec::as_slice)
 }
 
+/// The make and model pairs files of the camera named `make` / `model`
+/// (its one name) state in their metadata, folded: `file_names` without
+/// the decoder's own lookup names for files it recognises by their size
+/// (headerless CHDK `… CRW` files carry no EXIF names).
+pub fn stated_names(make: &str, model: &str) -> Vec<&'static (String, String)> {
+    let names = catalog_names();
+    file_names(make, model)
+        .iter()
+        .filter(|name| !names.by_size.contains(*name))
+        .collect()
+}
+
 /// The one name (`canonical_names`) of the camera whose files give `model`
 /// as their model, whatever make they state (Lightroom's camera name is the
 /// model alone); none when no catalogued camera or more than one does.
@@ -131,12 +143,25 @@ struct CatalogNames {
     one: HashMap<(String, String), (String, String)>,
     /// The camera's one name (folded) → the file names giving it.
     all: HashMap<(String, String), Vec<(String, String)>>,
+    /// File names (folded) the decoder only gives files it recognises by
+    /// their size, never stated by a file.
+    by_size: std::collections::HashSet<(String, String)>,
 }
 
 fn catalog_names() -> &'static CatalogNames {
     static CATALOG: OnceLock<CatalogNames> = OnceLock::new();
     CATALOG.get_or_init(|| {
         let mut one = HashMap::new();
+        let mut by_size = std::collections::HashSet::new();
+        let mut stated = std::collections::HashSet::new();
+        for ((make, model, _mode), camera) in rawler::global_loader().get_cameras() {
+            if camera.filesize > 0 {
+                by_size.insert(folded(make, model));
+            } else {
+                stated.insert(folded(make, model));
+            }
+        }
+        by_size.retain(|name| !stated.contains(name));
         // The decoder looks a file's names up with mode "" first, then by
         // its own mode: the "" entry names a file as the decoder does; a
         // name only some modes list takes the first mode's in sorted order,
@@ -163,7 +188,7 @@ fn catalog_names() -> &'static CatalogNames {
         for names in all.values_mut() {
             names.sort();
         }
-        CatalogNames { one, all }
+        CatalogNames { one, all, by_size }
     })
 }
 
@@ -205,6 +230,15 @@ mod tests {
             Some("Nikon")
         );
         assert_eq!(canonical_of_make("SONY").as_deref(), Some("Sony"));
+        // A CHDK file's size-detected name is the decoder's, not a file's.
+        let (make, model) = canonical_of_model("Canon PowerShot G7 X").unwrap();
+        assert!(file_names(&make, &model).len() > stated_names(&make, &model).len());
+        assert!(
+            stated_names(&make, &model)
+                .iter()
+                .all(|(_, file_model)| file_model == "canon powershot g7 x")
+        );
+        assert!(stated_names("Olympus", "Stylus1").len() > 1);
         assert!(
             file_names("Nikon", "D750")
                 .iter()
