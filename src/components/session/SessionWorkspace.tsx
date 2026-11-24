@@ -1310,6 +1310,11 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
         });
       if (report.errors.length) notify.error(report.errors[0], { autoClose: false });
       window.dispatchEvent(new Event(SESSION_ALBUMS_CHANGED));
+      // The import is committed: Previous Import counts its photographs, the
+      // folder tree lists their folders and Missing Photographs the ones
+      // whose files were not found.
+      window.dispatchEvent(new Event(IMPORTS_CHANGED));
+      window.dispatchEvent(new Event(OFFLINE_CHANGED));
       setForm(null);
       await refresh();
       void refreshStacks(session.directory);

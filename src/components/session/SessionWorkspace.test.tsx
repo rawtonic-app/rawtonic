@@ -28,6 +28,8 @@ import { savedViewHeld } from '../../utils/restoreView';
 import { PHOTO_WRITES_SETTLED } from '../../utils/photoWrites';
 import { debouncedSave } from '../../hooks/useEditorActions';
 import type { Adjustments } from '../../utils/adjustments';
+import { IMPORTS_CHANGED } from '../../utils/folderSync';
+import { OFFLINE_CHANGED } from '../../utils/offline';
 
 vi.mock('@tauri-apps/api/core', () => ({
   isTauri: () => false,
@@ -972,6 +974,14 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
   await user.click(screen.getByRole('button', { name: 'Check' }));
   expect(await screen.findByText(/12 photos, 5 with edits, 2 albums/)).toBeTruthy();
   await user.type(screen.getByLabelText('New location of /Volumes/Old/2026'), '/Volumes/New/2026');
+  // The committed import is announced, so the folder tree and Previous
+  // Import list what it added without a restart.
+  const announced: string[] = [];
+  const listeners = [IMPORTS_CHANGED, OFFLINE_CHANGED].map((name) => {
+    const listener = () => announced.push(name);
+    window.addEventListener(name, listener);
+    return [name, listener] as const;
+  });
   await user.click(screen.getByRole('button', { name: /Import into Acme/ }));
   await waitFor(() =>
     expect(invoke).toHaveBeenCalledWith('library_import', {
@@ -1000,6 +1010,8 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
     expect.stringContaining('12 photos imported (5 with edits, 2 albums)'),
     expect.anything()
   );
+  await waitFor(() => expect(announced).toEqual(expect.arrayContaining([IMPORTS_CHANGED, OFFLINE_CHANGED])));
+  for (const [name, listener] of listeners) window.removeEventListener(name, listener);
 });
 
 it('offers "Apply Capture One straightening and crop" for photos an earlier import did not read, never by itself', async () => {
