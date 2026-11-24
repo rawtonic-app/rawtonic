@@ -676,6 +676,7 @@ fn index_folder(lib: &Library) -> anyhow::Result<Vec<SkippedDuplicate>> {
             // The same photograph, renamed or moved here in Finder (a
             // renamed folder): followed with its edits rather than
             // registered again as an unedited duplicate.
+            let _turn = write_turn();
             after_relink(lib, &report);
         } else {
             new.push(photo);
@@ -943,6 +944,7 @@ fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<Follo
         .collect();
     if !actions.is_empty() {
         let applied = lib.apply_folder_sync(&actions)?;
+        let _turn = write_turn();
         after_relink(lib, &applied.relinked());
         taken.extend(applied.moved.into_iter().map(|(_, to)| to));
     }
@@ -1090,6 +1092,7 @@ pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Su
         {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("session_verify");
+            let _turn = write_turn();
             check_files(&lib).map_err(|e| e.to_string())?;
         }
         {
@@ -2529,7 +2532,8 @@ impl rawtonic_catalog::folders::Probe for AppProbe {
 
 /// After a relink: previews move to the photograph's new place (cache files
 /// only, never replacing one), and the derived editor sidecar and XMP are
-/// written there from the library, as an edit writes them.
+/// written there from the library, as an edit writes them. The caller
+/// holds the editor write turn.
 pub(crate) fn after_relink(lib: &Library, report: &rawtonic_catalog::RelinkReport) {
     for (from, to) in &report.relinked {
         crate::preview_proxy::carry_over(from, to);
@@ -2544,31 +2548,26 @@ pub(crate) fn after_relink(lib: &Library, report: &rawtonic_catalog::RelinkRepor
 /// sidecars beside it, its own and its virtual copies', are brought up to
 /// the library's state (edits made while it was offline; written only when
 /// they differ) and its XMP follows, as after an edit. The original is not
-/// touched.
+/// touched. The caller holds the editor write turn.
 pub(crate) fn rederive(lib: &Library, id: &str) {
     // The copies' sidecars whether or not the photograph has an edit of
     // its own (an untouched photograph can have edited copies).
     rederive_copies(lib, id);
     let Ok(asset) = lib.asset(id) else { return };
     let sidecar = asset.path.with_file_name(sidecar_name(&asset.path, None));
-    let current: Option<Value> = fs::read(&sidecar)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
-    let state = match lib.editor_state(id) {
-        Ok(Some(state)) => state,
-        // Back to no edit and default metadata (an Undo of an import): a
-        // sidecar written before would still show the old rating in
-        // listings, so it is brought to the empty state.
+    let refreshed = refresh_derived_sidecar(&sidecar, |current| match lib.editor_state(id) {
+        Ok(Some(state)) => Some(state),
+        // Undoing an import can restore a photo with no edit or metadata.
+        // An existing sidecar must reflect that for the next listing.
         Ok(None) if current.is_some() => {
-            serde_json::json!({"version": 1, "rating": 0, "tags": [], "adjustments": null})
+            Some(serde_json::json!({"version": 1, "rating": 0, "tags": [], "adjustments": null}))
         }
-        _ => return,
-    };
-    if current.as_ref() != Some(&state)
-        && let Ok(bytes) = serde_json::to_vec_pretty(&state)
-        && let Err(e) = rawtonic_fs::atomic_write(&sidecar, bytes)
-    {
-        log::warn!("Editor sidecar pending for {}: {e}", asset.path.display());
+        _ => None,
+    });
+    match refreshed {
+        Ok(false) => return,
+        Ok(true) => {}
+        Err(e) => log::warn!("Editor sidecar pending for {}: {e}", asset.path.display()),
     }
     if let Err(e) = lib.sync_xmp(id) {
         log::warn!("XMP pending for {}: {e}", asset.path.display());
@@ -2586,22 +2585,34 @@ fn rederive_copies(lib: &Library, id: &str) {
         return;
     };
     for copy in copies {
-        let Ok(Some(state)) = lib.copy_state(id, &copy) else {
-            continue;
-        };
         let sidecar = asset
             .path
             .with_file_name(sidecar_name(&asset.path, Some(&copy)));
-        let current: Option<Value> = fs::read(&sidecar)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok());
-        if current.as_ref() != Some(&state)
-            && let Ok(bytes) = serde_json::to_vec_pretty(&state)
-            && let Err(e) = rawtonic_fs::atomic_write(&sidecar, bytes)
+        if let Err(e) =
+            refresh_derived_sidecar(&sidecar, |_| lib.copy_state(id, &copy).ok().flatten())
         {
             log::warn!("Editor sidecar pending for {}: {e}", sidecar.display());
         }
     }
+}
+
+/// Read the on-disk snapshot before looking up the state to publish.
+fn refresh_derived_sidecar(
+    sidecar: &Path,
+    state: impl FnOnce(Option<&Value>) -> Option<Value>,
+) -> anyhow::Result<bool> {
+    let snapshot = rawtonic_fs::read_optional(sidecar)?;
+    let current: Option<Value> = snapshot
+        .as_deref()
+        .and_then(|bytes| serde_json::from_slice(bytes).ok());
+    let Some(state) = state(current.as_ref()) else {
+        return Ok(false);
+    };
+    if current.as_ref() != Some(&state) {
+        let bytes = serde_json::to_vec_pretty(&state)?;
+        rawtonic_fs::write_if_unchanged(sidecar, snapshot.as_deref(), &bytes)?;
+    }
+    Ok(true)
 }
 
 /// `verify_paths` for an opened library, bringing the derived files of

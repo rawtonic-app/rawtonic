@@ -10,7 +10,6 @@ pub mod sidecars;
 mod xmp_input;
 use anyhow::{Context, Result, ensure};
 pub use error::MetadataError;
-use rawtonic_fs::atomic_write;
 use serde::{Deserialize, Serialize};
 pub use sidecars::{existing_sidecar, sidecar_path};
 use std::{
@@ -1398,7 +1397,8 @@ fn export_packet(
     Ok(out)
 }
 
-/// expected_hash is the DB's last observed digest. Conflicts never overwrite
+/// expected_hash is the last observed digest, or None if the packet was
+/// absent. Conflicts never overwrite
 /// (`MetadataError::XmpConflict`), and neither is a read-only sidecar replaced: a locked
 /// file stays as it is and the write fails.
 pub fn write_xmp(
@@ -1428,11 +1428,12 @@ pub fn write_xmp_announced(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => return Err(e.into()),
     };
-    if let Some(expected) = expected_hash
-        && !existing
-            .as_ref()
-            .is_some_and(|s| rawtonic_fs::sha256_hex(s.as_bytes()) == expected)
-    {
+    let still_expected = match (&existing, expected_hash) {
+        (Some(packet), Some(expected)) => rawtonic_fs::sha256_hex(packet.as_bytes()) == expected,
+        (None, None) => true,
+        _ => false,
+    };
+    if !still_expected {
         return Err(MetadataError::XmpConflict);
     }
     if existing.is_some() && fs::metadata(path)?.permissions().readonly() {
@@ -1441,13 +1442,40 @@ pub fn write_xmp_announced(
     let merged = merge_xmp(existing.as_deref(), metadata, recipe)?;
     let hash = rawtonic_fs::sha256_hex(merged.as_bytes());
     announce(&hash)?;
-    atomic_write(path, merged.as_bytes())?;
+    if !rawtonic_fs::write_if_unchanged(
+        path,
+        existing.as_deref().map(str::as_bytes),
+        merged.as_bytes(),
+    )? {
+        return Err(MetadataError::XmpConflict);
+    }
     Ok(hash)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn xmp_changed_after_the_merge_wins_over_the_announced_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.xmp");
+        let hash = write_xmp(&path, &Metadata::default(), None, None).unwrap();
+        let newer = merge_xmp(
+            None,
+            &Metadata {
+                rating: 4,
+                ..Metadata::default()
+            },
+            None,
+        )
+        .unwrap();
+        let result = write_xmp_announced(&path, &Metadata::default(), None, Some(&hash), |_| {
+            rawtonic_fs::atomic_write(&path, &newer)
+        });
+        assert!(matches!(result, Err(MetadataError::XmpConflict)));
+        assert_eq!(fs::read_to_string(path).unwrap(), newer);
+    }
+
     #[test]
     fn packet_edges_keep_foreign_subtrees_and_duplicates() {
         let nested = "<f:box><dc:title><rdf:Alt><rdf:li xml:lang='fr'>Nested</rdf:li></rdf:Alt></dc:title></f:box>";

@@ -2,7 +2,7 @@
 //! Part of `file_management`, split by concern (ADR 0009).
 use super::read_file_mapped;
 use super::resolve_xmp_path;
-use super::sync_metadata_from_xmp;
+use super::xmp_sync::load_sidecar_with_xmp;
 use crate::AppSettings;
 use crate::formats::is_supported_image_file;
 use crate::image_processing::ImageMetadata;
@@ -68,15 +68,7 @@ pub(crate) fn resolve_image_metadata(
     enable_xmp_sync: bool,
     settings: &AppSettings,
 ) -> ImageFileMetadata {
-    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
-
-    if enable_xmp_sync
-        && sync_metadata_from_xmp(image_path, &mut metadata)
-        && let Ok(json) = serde_json::to_string_pretty(&metadata)
-    {
-        let _ = crate::session_bridge::write_editor_sidecar(sidecar_path, json);
-    }
-
+    let metadata = load_sidecar_with_xmp(image_path, sidecar_path, enable_xmp_sync);
     image_file_metadata(image_path, metadata, settings)
 }
 
