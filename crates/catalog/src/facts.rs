@@ -195,19 +195,26 @@ impl Library {
     /// Records what asset `id`'s file says about its capture. Returns
     /// whether the asset exists.
     pub fn record_facts(&self, id: &str, facts: &CaptureFacts) -> Result<bool, CatalogError> {
-        let unread: bool = self
-            .conn
+        let tx = rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        let unread: bool = tx
             .query_row("SELECT facts_read=0 FROM assets WHERE id=?", [id], |r| {
                 r.get(0)
             })
             .optional()?
             .unwrap_or(false);
-        let written = write_facts(&self.conn, id, facts)?.0;
+        let written = write_facts(&tx, id, facts)?.0;
         // The file's time is known now: the adopted sidecar's capture time
         // can be compared with it (`capture_time::adopt_sidecar`).
         if written && unread {
-            self.adopt_sidecar_on_disk(&self.conn, id, &self.asset(id)?.path)?;
+            self.adopt_sidecar_on_disk(&tx, id, &self.asset(id)?.path)?;
         }
+        if written {
+            crate::capture_time::apply_imported_capture_time(&tx, id)?;
+        }
+        tx.commit()?;
         Ok(written)
     }
 
@@ -314,6 +321,7 @@ impl Library {
                 let (written, rating) = write_facts(&tx, &id, &facts)?;
                 if written {
                     self.adopt_sidecar_on_disk(&tx, &id, &path)?;
+                    crate::capture_time::apply_imported_capture_time(&tx, &id)?;
                 }
                 recorded += usize::from(written);
                 if let Some(rating) = rating {
