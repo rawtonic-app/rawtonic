@@ -8220,8 +8220,9 @@ pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// effect: shadow detail at Shadows +100 0.13 below the better editor →
 /// 0.07, within the floor of Camera Raw's; bright detail at Highlights −100
 /// 0.10 below Capture One's → 0.04; no halo, noise or tone band outside the
-/// floors; raising Shadows never darkens and lowering Highlights never
-/// brightens a pixel against its render at 0;
+/// floors; raising Shadows renders no pixel darker than Shadows 0 does,
+/// and the Highlights anchor brightens no flat tone (version 14's restored
+/// texture peaks are lifted as before);
 /// notes: benchmark-results/hsb1-2026-11-24).
 /// New edits record it; recipes without the key keep version 1, the
 /// response they were made with.
