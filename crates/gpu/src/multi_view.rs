@@ -93,6 +93,10 @@ pub struct MultiView {
     zoom: Option<CellZoom>,
     /// Without the lock: each secondary's own zoom (absent: fit).
     cell_zooms: HashMap<String, CellZoom>,
+    /// The zoom the primary's cell had when it became the primary: its own
+    /// frames are drawn at it until its live frame shows it (the zooms sent
+    /// with a layout leave the primary out).
+    primary_zoom: Option<CellZoom>,
 }
 
 /// Where a photograph of `width` × `height` sits in `area`: contained and
@@ -283,6 +287,20 @@ impl MultiView {
         self.cell_zooms.get(path).copied().or(self.zoom)
     }
 
+    /// The zoom `path`'s own frames are drawn at: its zoom, or for the
+    /// primary the zoom its cell had until its live frame shows it.
+    fn drawn_zoom(&self, path: &str) -> Option<CellZoom> {
+        self.zoom_of(path).or(self
+            .primary_zoom
+            .filter(|_| self.primary.as_deref() == Some(path)))
+    }
+
+    /// The live frame shows the primary now: its own frames, kept at the
+    /// zoom its cell had, are no longer drawn (at its zoom in the editor).
+    pub(crate) fn primary_frame_shown(&mut self) {
+        self.primary_zoom = None;
+    }
+
     /// Whether any cell is zoomed in.
     pub fn is_zoomed(&self) -> bool {
         self.zoom.is_some() || !self.cell_zooms.is_empty()
@@ -295,6 +313,12 @@ impl MultiView {
         self.textures.retain(|path, _| shown(path));
         self.regions.retain(|path, _| shown(path));
         self.cell_zooms.retain(|path, _| shown(path));
+        // A zoomed cell becoming the primary keeps its frames placed at its
+        // zoom until its live frame shows it, not to fit (WMV4: 0.6–1.0 s
+        // at fit after a click on a zoomed cell).
+        if primary != self.primary {
+            self.primary_zoom = primary.as_deref().and_then(|path| self.zoom_of(path));
+        }
         self.primary = primary;
         self.cells = cells;
     }
@@ -312,13 +336,13 @@ impl MultiView {
         let before: HashMap<String, Option<CellZoom>> = self
             .regions
             .keys()
-            .map(|path| (path.clone(), self.zoom_of(path)))
+            .map(|path| (path.clone(), self.drawn_zoom(path)))
             .collect();
         self.zoom = shared;
         self.cell_zooms = cells;
         let after: HashMap<String, Option<CellZoom>> = before
             .keys()
-            .map(|path| (path.clone(), self.zoom_of(path)))
+            .map(|path| (path.clone(), self.drawn_zoom(path)))
             .collect();
         self.regions
             .retain(|path, _| match (before[path], after[path]) {
@@ -335,6 +359,7 @@ impl MultiView {
         self.regions.clear();
         self.zoom = None;
         self.cell_zooms.clear();
+        self.primary_zoom = None;
     }
 
     /// The render key of the whole-photograph texture kept for `path` (0: a
@@ -707,7 +732,7 @@ impl MultiView {
     /// an adopted live frame shown so, while the cell stays at its zoom.
     fn pixelated(&self, path: &str, texture: &CellTexture) -> bool {
         texture.pixelated_at.is_some_and(|at| {
-            self.zoom_of(path)
+            self.drawn_zoom(path)
                 .is_some_and(|zoom| (zoom.scale - at).abs() <= at * 1e-3)
         })
     }
@@ -802,7 +827,7 @@ impl MultiView {
     }
 
     fn placement(&self, path: &str, area: [f32; 4], texture: &CellTexture) -> [f32; 4] {
-        match (self.zoom_of(path), texture.extent) {
+        match (self.drawn_zoom(path), texture.extent) {
             (Some(zoom), Some(extent)) => zoomed_rect(area, extent, zoom),
             _ => fit_rect(area, texture.width as f32, texture.height as f32),
         }
@@ -827,7 +852,7 @@ impl MultiView {
     /// The textures drawn in a cell, in order: the whole photograph, then
     /// (zoomed in) its sharp region.
     fn layers(&self, path: &str) -> impl Iterator<Item = (&CellTexture, CellLayer)> {
-        let region = self.zoom_of(path).and(self.regions.get(path));
+        let region = self.drawn_zoom(path).and(self.regions.get(path));
         self.textures
             .get(path)
             .map(|t| (t, CellLayer::Whole))
@@ -847,7 +872,7 @@ impl MultiView {
                 "\n  {name}{} area {:?} zoom {:?}:",
                 if primary { " (primary)" } else { "" },
                 cell.area,
-                self.zoom_of(&cell.path).map(|z| (z.scale, z.center))
+                self.drawn_zoom(&cell.path).map(|z| (z.scale, z.center))
             );
             let mut any = false;
             for (texture, layer) in self.layers(&cell.path) {
@@ -1683,6 +1708,20 @@ mod tests {
         assert_eq!(multi.texture_key("a"), Some(0));
     }
 
+    /// 32 × 32 RGBA: magenta with a cyan centre (texels 12–19).
+    fn bullseye_rgba() -> Vec<u8> {
+        (0..32 * 32)
+            .flat_map(|i| {
+                let (x, y) = (i % 32, i / 32);
+                if (12..20).contains(&x) && (12..20).contains(&y) {
+                    [0, 255, 255, 255]
+                } else {
+                    [255, 0, 255, 255]
+                }
+            })
+            .collect()
+    }
+
     /// A 32 × 32 live frame: magenta with a cyan centre (texels 12–19).
     fn bullseye(gpu: &Offscreen) -> wgpu::Texture {
         let size = wgpu::Extent3d {
@@ -1693,19 +1732,9 @@ mod tests {
         let texture = gpu
             .device
             .create_texture(&crate::gpu_processing::still_texture_descriptor(size));
-        let rgba: Vec<u8> = (0..32 * 32)
-            .flat_map(|i| {
-                let (x, y) = (i % 32, i / 32);
-                if (12..20).contains(&x) && (12..20).contains(&y) {
-                    [0, 255, 255, 255]
-                } else {
-                    [255, 0, 255, 255]
-                }
-            })
-            .collect();
         gpu.queue.write_texture(
             texture.as_image_copy(),
-            &rgba,
+            &bullseye_rgba(),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(128),
@@ -1859,6 +1888,128 @@ mod tests {
                 close(pixel(&pixels, 93, 50), [0, 255, 255]),
                 "{label}: region kept"
             );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; the incoming primary keeps its zoomed frame until its live frame"]
+    fn the_incoming_primary_stays_zoomed_until_its_own_frame() {
+        let gpu = offscreen();
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        let zoom = CellZoom {
+            scale: 4.0,
+            center: [0.5, 0.5],
+        };
+        // The webview sends the zooms of the cells other than the new
+        // primary (lock off: "a"'s own zoom is left out; lock on: the
+        // shared one).
+        for (label, before, after) in [
+            (
+                "lock off",
+                CellZooms {
+                    shared: None,
+                    cells: HashMap::from([("a".to_string(), zoom)]),
+                },
+                CellZooms {
+                    shared: None,
+                    cells: HashMap::from([("primary".to_string(), zoom)]),
+                },
+            ),
+            (
+                "lock on",
+                CellZooms {
+                    shared: Some(zoom),
+                    cells: HashMap::new(),
+                },
+                CellZooms {
+                    shared: Some(zoom),
+                    cells: HashMap::new(),
+                },
+            ),
+        ] {
+            let mut multi = layout(&gpu);
+            multi.set_zooms(before.shared, before.cells);
+            // "a" (cell [5, 10, 60, 80], centre (35, 50)) shows its 32 × 32
+            // photograph at 4 device px per pixel: the cyan centre spans
+            // 19–51 (at fit 27.5–42.5, letterboxed at 20–80).
+            multi.upload(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                "a",
+                1,
+                whole(32, 32),
+                CellLayer::Whole,
+                32,
+                32,
+                &bullseye_rgba(),
+            );
+            multi.upload(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                "a",
+                2,
+                CellExtent {
+                    shown: [32.0, 32.0],
+                    region: Some([14.0, 14.0, 4.0, 4.0]),
+                },
+                CellLayer::Region,
+                4,
+                4,
+                &solid(4, 4, [0, 255, 0]),
+            );
+            let cells = multi.cells().to_vec();
+            multi.show(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                Some("a".into()),
+                cells,
+                Some(after.clone()),
+                None,
+            );
+            // A zoom sent after the layout (without "a") changes nothing.
+            multi.set_zooms(after.shared, after.cells);
+            assert_eq!(multi.primary(), Some("a"), "{label}");
+            assert_eq!(
+                multi.region_of("a").map(|(key, _)| key),
+                Some(2),
+                "{label}: region kept"
+            );
+            // No live frame of "a" yet: its cell shows its own frames at its
+            // zoom (WMV4: at fit for 0.6–1.0 s until its first live frame).
+            let pixels = present(&gpu, &multi, None);
+            assert!(
+                close(pixel(&pixels, 35, 50), [0, 255, 0]),
+                "{label}: sharp region"
+            );
+            assert!(
+                close(pixel(&pixels, 22, 50), [0, 255, 255]),
+                "{label}: enlarged {:?}",
+                pixel(&pixels, 22, 50)
+            );
+            assert!(
+                close(pixel(&pixels, 35, 15), [255, 0, 255]),
+                "{label}: no letterbox {:?}",
+                pixel(&pixels, 35, 15)
+            );
+            // "a" stops being the primary at fit: it is shown to fit again.
+            let cells = multi.cells().to_vec();
+            multi.show(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                Some("primary".into()),
+                cells,
+                Some(CellZooms::default()),
+                None,
+            );
+            assert_eq!(multi.zoom_of("a"), None, "{label}");
         }
     }
 

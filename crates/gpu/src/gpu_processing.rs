@@ -3450,6 +3450,9 @@ impl WgpuDisplay {
         if self.current_bind_group.is_none() && self.camera_cover.is_none() && !multi {
             return;
         }
+        if multi && self.current_bind_group.is_some() && self.live_frame_shown() {
+            self.multi.primary_frame_shown();
+        }
         #[cfg(feature = "performance-profiling")]
         let acquire_stage = crate::performance::PerformanceStage::new("display_acquire");
         let output = match self.surface.get_current_texture() {

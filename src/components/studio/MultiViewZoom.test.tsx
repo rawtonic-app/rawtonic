@@ -69,26 +69,26 @@ function stage() {
 
 /** The editor measures itself in the primary's cell (as its resize
  * observer does a frame or more after the multi view starts). */
-function measureEditor(container: HTMLElement) {
+function measureEditor(container: HTMLElement, size = SIZE) {
   const primary = container.querySelector<HTMLElement>('.studio-mv-primary')!;
   const width = parseFloat(primary.style.width);
   const height = parseFloat(primary.style.height);
-  const fit = Math.min(width / SIZE.width, height / SIZE.height);
+  const fit = Math.min(width / size.width, height / size.height);
   useEditorStore.setState({
     baseRenderSize: {
-      width: SIZE.width * fit,
-      height: SIZE.height * fit,
-      offsetX: (width - SIZE.width * fit) / 2,
-      offsetY: (height - SIZE.height * fit) / 2,
+      width: size.width * fit,
+      height: size.height * fit,
+      offsetX: (width - size.width * fit) / 2,
+      offsetY: (height - size.height * fit) / 2,
       containerWidth: width,
       containerHeight: height
     }
   });
 }
 
-function open(path: string) {
+function open(path: string, size = SIZE) {
   useEditorStore.setState({
-    selectedImage: { path, isReady: true, width: SIZE.width, height: SIZE.height } as never
+    selectedImage: { path, isReady: true, width: size.width, height: size.height } as never
   });
 }
 
@@ -318,6 +318,44 @@ describe('switching the primary', () => {
     const next = zoomCalls().at(-1)!;
     if (zoomLock) expect(next.zoom!.scale).toBeCloseTo(1);
     else expect(next.cells!['/s/b.CR3'].scale).toBeCloseTo(1);
+  });
+});
+
+describe('the zoom lock across a primary switch', () => {
+  it('keeps the image scale when the next primary has another size and shape', () => {
+    useMultiViewStore.setState({ zoomLock: true });
+    const { container, rerender } = stage();
+    // b, the primary, at 1:1 in the editor: every cell at 100 %.
+    Object.assign(transform, oneToOne());
+    runFrame();
+    expect(zoomCalls().at(-1)!.zoom!.scale).toBeCloseTo(1);
+    const before = zoomCalls().length;
+    // a is a 4:3 photograph of another resolution (8256 × 6192 beside
+    // 6000 × 4000): its fit in the cell differs, the editor keeps its
+    // transform (a factor over the fit) until told otherwise.
+    const A = { width: 8256, height: 6192 };
+    act(() => open('/s/a.CR3', A));
+    rerender(
+      <MultiViewStage
+        files={files}
+        onOpen={(path) => open(path)}
+        onRate={vi.fn()}
+        transformWrapperRef={editorHandle as never}
+      >
+        <div data-testid="editor" />
+      </MultiViewStage>
+    );
+    measureEditor(container, A);
+    runFrame();
+    runFrame();
+    // The lock keeps 1 image px per device px in every cell (WMV4: every
+    // cell went 100 % -> 127 % about 1 s after the switch).
+    for (const call of zoomCalls().slice(before - 1)) expect(call.zoom!.scale).toBeCloseTo(1);
+    expect(badge(container, '/s/b.CR3')).toBe('100%');
+    expect(badge(container, '/s/c.CR3')).toBe('100%');
+    // The editor shows the new primary at 1:1 too.
+    const fit = useEditorStore.getState().baseRenderSize;
+    expect((fit.width * transform.scale * 2) / A.width).toBeCloseTo(1);
   });
 });
 

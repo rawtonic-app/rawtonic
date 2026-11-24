@@ -72,6 +72,36 @@ export function editorInCell(
   return Math.abs(fit.containerWidth - area.width) <= 2 && Math.abs(fit.containerHeight - area.height) <= 2;
 }
 
+/** What the primary's zoom is read against: a change means the editor's
+ * transform (a factor over its fit) no longer shows the same zoom. */
+function fitKey(
+  primary: string,
+  fit: {
+    width: number;
+    height: number;
+    offsetX: number;
+    offsetY: number;
+    containerWidth: number;
+    containerHeight: number;
+  },
+  shown: { width: number; height: number },
+  dpr: number
+): string {
+  const r = (v: number) => Math.round(v * 100) / 100;
+  return [
+    primary,
+    r(fit.width),
+    r(fit.height),
+    r(fit.offsetX),
+    r(fit.offsetY),
+    r(fit.containerWidth),
+    r(fit.containerHeight),
+    shown.width,
+    shown.height,
+    dpr
+  ].join('|');
+}
+
 /** Whether the editor's fit box belongs to a photograph of `shown` size (it
  * is measured a frame after the photograph changes). */
 function fitMatches(fit: { width: number; height: number }, shown: { width: number; height: number }) {
@@ -104,6 +134,9 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
   /** The primary whose zoom the editor shows (after a switch without the
    * lock: once its own zoom is applied). */
   const adopted = useRef<string | null>(primary);
+  /** The fit (primary, fit box, shown size, device px ratio) the primary's
+   * zoom was last read or placed against. */
+  const readFit = useRef('');
   /** The secondary under the pointer and where (CSS px, window). */
   const hover = useRef<{ path: string; x: number; y: number } | null>(null);
 
@@ -191,15 +224,34 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
         fitMatches(editor.baseRenderSize, shownSize) &&
         editorInCell(editor.baseRenderSize, areas.get(primary));
       const store = useMultiViewStore.getState();
+      const fitNow = known ? fitKey(primary!, editor.baseRenderSize, shownSize, dprNow()) : '';
       if (known && !zoomLock && adopted.current !== primary) {
         // The new primary's own zoom, now that its fit is measured.
         const own = store.cellZooms[primary!];
         const target = own && transformOfZoom(own, editor.baseRenderSize, shownSize, dprNow());
         if (target) transformWrapperRef?.current?.setTransform(target.positionX, target.positionY, target.scale, 0);
         adopted.current = primary;
+        readFit.current = fitNow;
         return;
       }
       if (known && (zoomLock || adopted.current === primary)) {
+        // The editor's transform is a factor over its fit. When the fit
+        // changes under it (another primary of another size or shape, its
+        // cell packed again, a crop), the zoom stays what it was: 100 %
+        // stays 1 image px per device px in every cell (WMV4: with the
+        // lock every cell went 100 % -> 127 % once the next primary's fit
+        // was measured). The editor is placed at that zoom; only its own
+        // moves (wheel, keys, pan) change the zoom.
+        const zoomed = primaryZoomRef.current;
+        if (zoomed && readFit.current !== fitNow) {
+          readFit.current = fitNow;
+          const target = transformOfZoom(zoomed, editor.baseRenderSize, shownSize, dprNow());
+          if (target) {
+            transformWrapperRef?.current?.setTransform(target.positionX, target.positionY, target.scale, 0);
+            return;
+          }
+        }
+        readFit.current = fitNow;
         const zoom = sharedZoomOf(transform!, editor.baseRenderSize, shownSize, dprNow());
         if (!sameZoom(primaryZoomRef.current, zoom)) {
           primaryZoomRef.current = zoom;
