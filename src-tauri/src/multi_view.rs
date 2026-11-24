@@ -1350,6 +1350,8 @@ struct Prepared {
     path: String,
     recipe: serde_json::Value,
     key: u64,
+    /// The base's [`base_key`].
+    preparation_key: u64,
     facts: Facts,
     base: PreviewBase,
     mask_source: Option<ParametricMaskSource>,
@@ -1524,6 +1526,7 @@ fn prepare_in(
         path: todo.path,
         recipe: todo.recipe,
         key,
+        preparation_key,
         // The size known for the photograph, the measures of the base's source.
         facts: Facts { measures, ..facts },
         base,
@@ -1571,9 +1574,10 @@ struct DevelopInput<'a> {
     probe: Option<u32>,
 }
 
-/// The second window's region source on the GPU, with its colour noise
-/// pyramid ([`gpu_processing::SECOND_WINDOW_CALLER`]): kept from edit to
-/// edit of the same region ([`region_source_id`]), freed when the window
+/// The second window's region or whole-frame source on the GPU, with its
+/// colour noise pyramid ([`gpu_processing::SECOND_WINDOW_CALLER`]): kept from
+/// edit to edit of the same region ([`region_source_id`]) or base
+/// ([`whole_render`]), freed when the window
 /// closes ([`SecondBases::clear`]).
 static SECOND_WINDOW_SOURCE: Mutex<Option<gpu_processing::GpuImageCache>> = Mutex::new(None);
 
@@ -1594,6 +1598,31 @@ fn region_source_id(path: &str, base: &RegionBase, rect: [u32; 4]) -> u64 {
     )
         .hash(&mut hash);
     hash.finish()
+}
+
+/// How the second window's whole frame of `prepared` renders: the source id
+/// of its base in the image cache (the same for every recipe developed from
+/// that base, so an edit keeps its upload and colour noise pyramid in
+/// [`SECOND_WINDOW_SOURCE`]) and the caller, whose foreground turn starts it
+/// at once after the main window's frame. As a background render with a
+/// transient upload each edit's fit waited out the pause after the main's
+/// frame and uploaded again (~340 ms of its 1184x788 frame on a Radeon
+/// 680M; notes: benchmark-results/swc6-2026-11-25).
+fn whole_render(prepared: &Prepared) -> (u64, &'static str) {
+    let base = &prepared.base;
+    let mut hash = DefaultHasher::new();
+    (
+        prepared.path.as_str(),
+        file_stamp(&prepared.path),
+        prepared.preparation_key,
+        base.scale.to_bits(),
+        base.unscaled_crop_offset.0.to_bits(),
+        base.unscaled_crop_offset.1.to_bits(),
+        base.image.dimensions(),
+        Arc::as_ptr(&base.image) as usize,
+    )
+        .hash(&mut hash);
+    (hash.finish(), gpu_processing::SECOND_WINDOW_CALLER)
 }
 
 /// The cell worker's renders: background renders at the GPU processor,
@@ -1890,6 +1919,7 @@ pub(crate) fn develop_whole(
         .interims
         .clear();
     let scale = prepared.base.scale;
+    let (source_id, caller) = whole_render(&prepared);
     let rgba = develop_rgba(
         app_handle,
         context,
@@ -1908,8 +1938,8 @@ pub(crate) fn develop_whole(
             placement: None,
             flare_samples: None,
             roi: None,
-            key: prepared.key,
-            caller: CELL_RENDER,
+            key: source_id,
+            caller,
             space: None,
             probe: None,
         },
@@ -4555,6 +4585,7 @@ pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
             path: path.clone(),
             recipe,
             key,
+            preparation_key,
             facts,
             base,
             mask_source,
@@ -4682,6 +4713,51 @@ fn live_region(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn prepared_whole(recipe: serde_json::Value, image: &Arc<DynamicImage>) -> Prepared {
+        Prepared {
+            path: "/photos/a.NEF".to_string(),
+            key: recipe.to_string().len() as u64,
+            recipe,
+            preparation_key: 11,
+            facts: Facts {
+                full_width: 6048,
+                full_height: 4024,
+                is_raw: true,
+                measures: None,
+            },
+            base: crate::preview_cache::PreviewBase {
+                image: Arc::clone(image),
+                scale: 0.2,
+                unscaled_crop_offset: (0.0, 0.0),
+            },
+            mask_source: None,
+            source_kind: "base-cache",
+            prepare_ms: 0.0,
+        }
+    }
+
+    #[test]
+    fn the_second_windows_fit_keeps_its_source_and_takes_a_foreground_turn() {
+        let image = Arc::new(DynamicImage::new_rgb32f(1184, 788));
+        let before = prepared_whole(serde_json::json!({ "exposure": 0.3 }), &image);
+        let after = prepared_whole(serde_json::json!({ "exposure": -0.3 }), &image);
+        let (source, caller) = whole_render(&before);
+        // An edit develops from the kept upload, at once after the main's frame.
+        assert_eq!(whole_render(&after), (source, caller));
+        assert_eq!(caller, gpu_processing::SECOND_WINDOW_CALLER);
+        // Another base (new geometry, another decode) is uploaded again.
+        let rebuilt = Prepared {
+            preparation_key: 12,
+            ..prepared_whole(serde_json::json!({ "exposure": -0.3 }), &image)
+        };
+        assert_ne!(whole_render(&rebuilt).0, source);
+        let other = Arc::new(DynamicImage::new_rgb32f(1184, 788));
+        assert_ne!(
+            whole_render(&prepared_whole(serde_json::json!({}), &other)).0,
+            source
+        );
+    }
 
     fn zooms_of(cells: &[(&str, f32)]) -> CellZooms {
         CellZooms {
