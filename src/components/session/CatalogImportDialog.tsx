@@ -35,7 +35,8 @@ import { catalogImportAction, type XmpReceipt } from '../../utils/appUndo';
 
 export type ImportChoice = 'replace' | 'keep' | 'virtualCopy';
 /** What differs between the two catalogs for a changed photo. */
-export type ImportChange = 'edit' | 'copies' | 'metadata' | 'captureTime' | 'eyes' | 'snapshots' | 'albums' | 'stacks';
+export type ImportChange =
+  'edit' | 'copies' | 'copyFlags' | 'metadata' | 'captureTime' | 'eyes' | 'snapshots' | 'albums' | 'stacks';
 export interface IncomingPhoto {
   id: string;
   target: string | null;

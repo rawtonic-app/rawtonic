@@ -217,7 +217,9 @@ pub struct DecodeVariant {
     /// from 17, so dead ones at black in dark texture are found too where
     /// the estimated noise allows, and dead ones take their neighbours'
     /// colour; `DeadTest::IsolatedCross` from 18, with a looser line guard
-    /// at black and green ones taking the other colours' ratio.
+    /// at black and green ones taking the other colours' ratio;
+    /// `DeadTest::IsolatedMedian` from 19, dead ones taking the median of
+    /// three repairs.
     pub dead_test: DeadTest,
     /// The frame developed (`source_frame`): the recipe's
     /// `sourceFrameVersion`, as the oldest version that frames this file
@@ -266,6 +268,13 @@ pub const BLACK_DEAD_RENDER_VERSION: u64 = 17;
 /// neighbours' ratio to the other colours around them
 /// (`DeadTest::IsolatedCross`; notes: benchmark-results/hot4-2026-11-24/).
 pub const CROSS_DEAD_RENDER_VERSION: u64 = 18;
+
+/// The render version from which a dead photosite takes the median of three
+/// repairs: renderVersion 18's colour ratio, the ratio of the same-colour
+/// neighbours whose other colours lie nearest its own, and the colour
+/// difference along the smoothest direction (`DeadTest::IsolatedMedian`;
+/// notes: benchmark-results/hot5-2026-11-24/).
+pub const MEDIAN_DEAD_RENDER_VERSION: u64 = 19;
 
 /// The render version from which RAW shadows keep the means of their
 /// samples through the black clip and the demosaic, and a decoder's black
@@ -339,7 +348,9 @@ pub fn decode_variant_for_frame(adjustments: &Value, source: &str, frame: u32) -
     let render = crate::recipe_versions::RenderVersion::effective(adjustments);
     DecodeVariant {
         multiscale: crate::recipe_versions::ColorNoiseVersion::of(adjustments, is_raw).multiscale(),
-        dead_test: if render.cross_dead_test() {
+        dead_test: if render.median_dead_test() {
+            DeadTest::IsolatedMedian
+        } else if render.cross_dead_test() {
             DeadTest::IsolatedCross
         } else if render.black_dead_test() {
             DeadTest::IsolatedBlack
@@ -2846,9 +2857,13 @@ mod decode_variant_tests {
             test(json!({ "renderVersion": 18 })),
             DeadTest::IsolatedCross
         );
+        assert_eq!(
+            test(json!({ "renderVersion": 19 })),
+            DeadTest::IsolatedMedian
+        );
         // A never-edited photo renders as a new edit.
-        assert_eq!(test(serde_json::Value::Null), DeadTest::IsolatedCross);
-        assert_eq!(test(json!({})), DeadTest::IsolatedCross);
+        assert_eq!(test(serde_json::Value::Null), DeadTest::IsolatedMedian);
+        assert_eq!(test(json!({})), DeadTest::IsolatedMedian);
         let black = |recipe| decode_variant(&recipe, "/p/A.NEF").black;
         assert_eq!(black(json!({ "exposure": 1 })), BlackLevels::Clipped);
         assert_eq!(black(json!({ "renderVersion": 7 })), BlackLevels::Clipped);

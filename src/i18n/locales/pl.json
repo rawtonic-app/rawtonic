@@ -1851,6 +1851,7 @@
         "albums": "albumy",
         "captureTime": "czas wykonania",
         "copies": "kopie wirtualne",
+        "copyFlags": "flagi kopii wirtualnych",
         "edit": "edycja",
         "eyes": "kontrole oczu",
         "metadata": "metadane",
@@ -2386,7 +2387,6 @@
       "importCopies_few": "{{count}} kopie wirtualne zaimportowane",
       "importCopies_many": "{{count}} kopii wirtualnych zaimportowanych",
       "importCopies_other": "{{count}} kopii wirtualnej zaimportowanej",
-      "importCopiesInAlbums": "Albumy zawierają zdjęcia, nie kopie wirtualne — te kopie dodano jako ich zdjęcia: {{n}}.",
       "importCopiesSkipped_one": "{{count}} kopia wirtualna niezaimportowana",
       "importCopiesSkipped_few": "{{count}} kopie wirtualne niezaimportowane",
       "importCopiesSkipped_many": "{{count}} kopii wirtualnych niezaimportowanych",
@@ -2590,6 +2590,7 @@
         "EasyPortrait face parsing (FPN + ResNet-50)": "Szpary powiek i zęby do retuszu twarzy (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Zmieniono: przekonwertowano do ONNX i Core ML, opublikowano na licencji CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Mapowanie nazw stref czasowych systemu Windows na identyfikatory IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
+        "kamadak-exif": "Odczyt EXIF z poprawką Rawtonic, która akceptuje bloki EXIF w HEIF większe niż 64 KiB.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2649,6 +2650,7 @@
       "optimization": "Optymalizacja urządzenia wejściowego",
       "optimizationDesc": "Wybierz główne urządzenie wejściowe do przesuwania i przybliżania obszaru roboczego.",
       "pressKey": "Naciśnij klawisz... (Esc by anulować)",
+      "reassignedFrom": "Przypisano ponownie z {{commands}}",
       "resetDefaults": "Przywróć wszystkie domyślne",
       "speed": "Prędkość",
       "title": "Sterowanie myszą",
@@ -3921,7 +3923,10 @@
         "exportWithRecipes_one": "Eksportuj z {{count}} przepisem",
         "exportWithRecipes_few": "Eksportuj z {{count}} przepisami",
         "exportWithRecipes_many": "Eksportuj z {{count}} przepisami",
-        "exportWithRecipes_other": "Eksportuj z {{count}} przepisu"
+        "exportWithRecipes_other": "Eksportuj z {{count}} przepisu",
+        "saveAs": "Zapisz jako…",
+        "saveAsHint": "Eksportuj to zdjęcie do pliku o wybranej nazwie i w wybranym folderze",
+        "saveAsOneRecipe": "Zapisz jako tworzy jeden plik: zaznacz jeden przepis lub żaden"
       },
       "border": {
         "add": "Dodaj ramkę",
@@ -4268,6 +4273,8 @@
         "queuedMany_many": "Dodano {{count}} eksportów do kolejki.",
         "queuedMany_other": "Dodano {{count}} eksportu do kolejki.",
         "queuedOne": "Dodano do kolejki eksportu.",
+        "saveAsFormat": "{{name}}: Rawtonic nie eksportuje plików .{{extension}}. Wybierz nazwę kończącą się na .jpg, .tif, .png, .webp, .jxl lub .avif.",
+        "saveAsOriginal": "{{name}} to oryginał tego zdjęcia lub jego plik towarzyszący. Zapisz jako nigdy ich nie nadpisuje: wybierz inną nazwę.",
         "unsavedEdits": "Nie udało się zapisać edycji {{names}}, więc nic nie zostało wyeksportowane. Wyeksportuj ponownie po ich zapisaniu."
       },
       "watermark": {
@@ -5067,7 +5074,8 @@
           "sourceType": "Źródło cyfrowe (w pliku)",
           "stacked": "W stosie",
           "suggestion": "Sugestia selekcji",
-          "text": "Dowolny tekst do wyszukania"
+          "text": "Dowolny tekst do wyszukania",
+          "virtualCopy": "Jest kopią wirtualną"
         },
         "folderPlaceholder": "Ścieżka folderu",
         "fromFilter": "Zapisz jako album inteligentny…",

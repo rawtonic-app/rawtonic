@@ -93,6 +93,14 @@ fn schema_at(version: usize) -> Connection {
             32 => conn
                 .execute_batch("ALTER TABLE assets ADD COLUMN lens_import TEXT;")
                 .unwrap(),
+            35 => conn
+                .execute_batch(
+                    "ALTER TABLE versions ADD COLUMN flag INTEGER NOT NULL DEFAULT 0 CHECK(flag BETWEEN -1 AND 1);",
+                )
+                .unwrap(),
+            36 => conn
+                .execute_batch("ALTER TABLE collection_assets ADD COLUMN copy TEXT NOT NULL DEFAULT '';")
+                .unwrap(),
             _ => {}
         }
         conn.execute_batch(&script(step)).unwrap();
@@ -508,6 +516,8 @@ fn fill(conn: &Connection, version: usize) {
                 ("name", t(name)),
                 ("is_primary", i(0)),
                 ("legacy_state", t(&state.to_string())),
+                // A copy's own flag (schema 35).
+                ("flag", i(if *name == "beef01" { 1 } else { 0 })),
             ],
         );
     }
@@ -586,6 +596,28 @@ fn fill(conn: &Connection, version: usize) {
             &[
                 ("collection_id", t(album)),
                 ("asset_id", t(&asset_id(photo))),
+            ],
+        );
+    }
+    // A copy the library forgot keeps its flag for its return (schema 35).
+    put(
+        conn,
+        "forgotten_copies",
+        &[
+            ("asset_id", t(&asset_id(3))),
+            ("copy", t("dead01")),
+            ("flag", i(-1)),
+        ],
+    );
+    // A virtual copy as an album member of its own (schema 36).
+    if version >= 36 {
+        put(
+            conn,
+            "collection_assets",
+            &[
+                ("collection_id", t(ALBUM)),
+                ("asset_id", t(&asset_id(2))),
+                ("copy", t("beef01")),
             ],
         );
     }
@@ -880,6 +912,14 @@ fn fill(conn: &Connection, version: usize) {
             ("source", t(&"1a".repeat(32))),
             ("translated", t(&"2b".repeat(32))),
             ("stored", t(&"3c".repeat(32))),
+        ],
+    );
+    put(
+        conn,
+        "pending_capture_times",
+        &[
+            ("asset_id", t(&asset_id(2))),
+            ("wall_time", t("2026-10-31T12:00:00.05")),
         ],
     );
     // A stack of photograph 1, its copy and photograph 2 (schema 22).
@@ -1178,6 +1218,12 @@ fn report(lib: &Library, db: &Path) -> String {
             .map(|row| row.iter().map(render).collect::<Vec<_>>().join(" | "))
             .collect();
         lines.sort();
+        // The camera naming is the decoder catalogue's of the build, not
+        // the fixture's: recorded as that, so a decoder update keeps it.
+        let naming = rawtonic_raw_format::camera_names::naming_fingerprint();
+        for line in &mut lines {
+            *line = line.replace(naming, "<decoder naming>");
+        }
         writeln!(
             out,
             "# table {name} ({} rows): {}",

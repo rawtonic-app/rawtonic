@@ -9,6 +9,7 @@ import {
   defectsTexture,
   defectsBlack,
   defectsCross,
+  defectsMedian,
   highlightRatios,
   unbiasedBlack,
   type Adjustments
@@ -108,6 +109,9 @@ export interface SourceDevelop {
   /** With the looser line guard at black and the green colour-ratio repair
    * (`renderVersion` 18; undefined: the stored recipe's). */
   defectsCross?: boolean;
+  /** With the median of three repairs for dead photosites (`renderVersion`
+   * 19; undefined: the stored recipe's). */
+  defectsMedian?: boolean;
   /** With unbiased blacks (`renderVersion` 8; undefined: the stored
    * recipe's). */
   unbiasedBlack?: boolean;
@@ -128,7 +132,7 @@ export interface SourceDevelop {
  * its colour noise filter (`colorNoiseMultiscale`: reset of a legacy
  * edit, paste or a preset can change `colorNoiseVersion`) or its
  * dead-photosite test (`deadPixelAdjacent`, `defectsIsolated`, `defectsTexture`,
- * `defectsBlack`, `defectsCross`), its black handling
+ * `defectsBlack`, `defectsCross`, `defectsMedian`), its black handling
  * (`unbiasedBlack`, `borderBlack`), its highlight rebuild (`highlightRatios`)
  * or a DNG's lens warp (`cameraPlaneWarp`) differs from the source's. Other
  * formats only develop again when their preprocessing preferences change.
@@ -156,6 +160,8 @@ export function sourceDevelopToApply(
     | 'defectsBlackFailed'
     | 'defectsCross'
     | 'defectsCrossFailed'
+    | 'defectsMedian'
+    | 'defectsMedianFailed'
     | 'unbiasedBlack'
     | 'unbiasedBlackFailed'
     | 'borderBlack'
@@ -201,6 +207,10 @@ export function sourceDevelopToApply(
   const haveCross = image.defectsCross;
   const wantedCross = image.offline || haveCross === undefined ? haveCross : defectsCross(adjustments);
   const cross = wantedCross === image.defectsCrossFailed ? haveCross : wantedCross;
+  // And for the median of three dead repairs (`renderVersion` 19).
+  const haveMedian = image.defectsMedian;
+  const wantedMedian = image.offline || haveMedian === undefined ? haveMedian : defectsMedian(adjustments);
+  const median = wantedMedian === image.defectsMedianFailed ? haveMedian : wantedMedian;
   // And for the black handling (`renderVersion` 8).
   const haveBlack = image.unbiasedBlack;
   const wantedBlack = image.offline || haveBlack === undefined ? haveBlack : unbiasedBlack(adjustments);
@@ -226,6 +236,7 @@ export function sourceDevelopToApply(
     texture === haveTexture &&
     deadBlack === haveDeadBlack &&
     cross === haveCross &&
+    median === haveMedian &&
     black === haveBlack &&
     border === haveBorder &&
     ratios === haveRatios &&
@@ -242,6 +253,7 @@ export function sourceDevelopToApply(
     defectsTexture: texture,
     defectsBlack: deadBlack,
     defectsCross: cross,
+    defectsMedian: median,
     unbiasedBlack: black,
     borderBlack: border,
     highlightRatios: ratios,
@@ -296,6 +308,7 @@ export function developmentSignature(
     defectsTexture(adjustments),
     defectsBlack(adjustments),
     defectsCross(adjustments),
+    defectsMedian(adjustments),
     ...(warpPlanes ? [cameraPlaneWarp(adjustments)] : [])
   ]);
 }

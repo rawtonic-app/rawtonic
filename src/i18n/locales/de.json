@@ -1683,6 +1683,7 @@
         "albums": "Alben",
         "captureTime": "Aufnahmezeit",
         "copies": "virtuelle Kopien",
+        "copyFlags": "Markierungen virtueller Kopien",
         "edit": "Bearbeitung",
         "eyes": "Augenprüfungen",
         "metadata": "Metadaten",
@@ -2161,7 +2162,6 @@
       "importAiMasksOnOpen_other": "KI-Masken von {{count}} Fotos werden berechnet, wenn sie in Entwickeln geöffnet oder exportiert werden",
       "importCopies_one": "{{count}} virtuelle Kopie importiert",
       "importCopies_other": "{{count}} virtuelle Kopien importiert",
-      "importCopiesInAlbums": "Alben enthalten Fotos, keine virtuellen Kopien – diese Kopien wurden als ihre Fotos hinzugefügt: {{n}}.",
       "importCopiesSkipped_one": "{{count}} virtuelle Kopie nicht importiert",
       "importCopiesSkipped_other": "{{count}} virtuelle Kopien nicht importiert",
       "importCropsClipped_one": "{{count}} Freistellung ragte über das Bildfeld der Kamera hinaus und wurde darauf beschnitten",
@@ -2317,6 +2317,7 @@
         "EasyPortrait face parsing (FPN + ResNet-50)": "Augenöffnungen und Zähne für die Gesichtsretusche (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Geändert: nach ONNX und Core ML umgewandelt, veröffentlicht unter CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Zuordnung von Windows-Zeitzonennamen zu IANA-Kennungen.",
         "jxl-oxide": "Öffnet JPEG-XL-Dateien (Wonwoo Choi), mit einer Rawtonic-Korrektur für leere Modular-Datenströme.",
+        "kamadak-exif": "EXIF-Lesen, mit einer Rawtonic-Korrektur, die HEIF-EXIF-Blöcke über 64 KiB zulässt.",
         "Lensfun database": "Objektivprofile für die automatische Objektivkorrektur (nur Daten, kein Lensfun-Code).",
         "libgphoto2": "Tether-Aufnahmen: kommuniziert in einem separaten Hilfsprozess per USB mit der Kamera (mit libltdl und unter Linux libusb; dynamisch gelinkt). Unter macOS über ImageCaptureCore.",
         "libgphoto2 Rust bindings": "Anbindung des Tether-Hilfsprozesses an libgphoto2 (RapidRAWs Fork von vibe-libgphoto2-rs).",
@@ -2376,6 +2377,7 @@
       "optimization": "Eingabegeräte-Optimierung",
       "optimizationDesc": "Wähle das primäre Eingabegerät zum Schwenken und Zoomen.",
       "pressKey": "Taste drücken... (Esc zum Löschen)",
+      "reassignedFrom": "Neu zugewiesen von {{commands}}",
       "resetDefaults": "Alles auf Standard zurücksetzen",
       "speed": "Geschwindigkeit",
       "title": "Maussteuerung",
@@ -3600,7 +3602,10 @@
         "choosing": "Ziel auswählen…",
         "export": "Exportieren",
         "exportWithRecipes_one": "Mit {{count}} Rezept exportieren",
-        "exportWithRecipes_other": "Mit {{count}} Rezepten exportieren"
+        "exportWithRecipes_other": "Mit {{count}} Rezepten exportieren",
+        "saveAs": "Sichern unter…",
+        "saveAsHint": "Dieses Foto als Datei mit eigenem Namen in einen gewählten Ordner exportieren",
+        "saveAsOneRecipe": "„Sichern unter“ erzeugt eine Datei: höchstens ein Rezept ankreuzen"
       },
       "border": {
         "add": "Rahmen hinzufügen",
@@ -3929,6 +3934,8 @@
         "queuedMany_one": "{{count}} Export zur Warteschlange hinzugefügt.",
         "queuedMany_other": "{{count}} Exporte zur Warteschlange hinzugefügt.",
         "queuedOne": "Zur Exportwarteschlange hinzugefügt.",
+        "saveAsFormat": "{{name}}: Rawtonic exportiert keine .{{extension}}-Dateien. Wähle einen Namen mit .jpg, .tif, .png, .webp, .jxl oder .avif.",
+        "saveAsOriginal": "{{name}} ist das Original dieses Fotos oder seine Begleitdatei. „Sichern unter“ überschreibt sie nie: Wähle einen anderen Namen.",
         "unsavedEdits": "Die Bearbeitungen von {{names}} konnten nicht gespeichert werden, daher wurde nichts exportiert. Exportiere erneut, sobald sie gespeichert sind."
       },
       "watermark": {
@@ -4674,7 +4681,8 @@
           "sourceType": "Digitale Quelle (in der Datei)",
           "stacked": "In einem Stapel",
           "suggestion": "Aussortier-Vorschlag",
-          "text": "Beliebiger durchsuchbarer Text"
+          "text": "Beliebiger durchsuchbarer Text",
+          "virtualCopy": "Ist eine virtuelle Kopie"
         },
         "folderPlaceholder": "Ordnerpfad",
         "fromFilter": "Als Smart-Album speichern…",

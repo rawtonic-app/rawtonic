@@ -1163,6 +1163,7 @@ fn start(args: Vec<String>) {
             image_loader::load_embedded_preview,
             export_processing::export_images,
             export_processing::export_images_batch,
+            export_processing::save_as_target_stamp,
             export_collisions::plan_export_collisions,
             export_processing::export_naming_preview,
             provenance::provenance_identity,

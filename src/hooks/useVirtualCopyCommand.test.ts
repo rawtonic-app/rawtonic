@@ -78,6 +78,47 @@ it('saves pending edits first and reloads the album the copy joins', async () =>
   hook.unmount();
 });
 
+// A library album holds the copy itself, as Lightroom's collections do: the
+// copy is added through the library, not the standalone album list.
+it('adds a copy made in a library album to that album', async () => {
+  const refresh = vi.fn(async () => {});
+  const hook = renderHook(() => useVirtualCopyCommand(refresh));
+  useUIStore.setState({ activeView: 'library' });
+  useLibraryStore.setState({
+    multiSelectedPaths: ['/job/a.CR3'],
+    activeAlbumId: 'session-album:a1',
+    sessionDirectory: '/job'
+  });
+  vi.mocked(invoke).mockImplementation(async (command: string) =>
+    command === 'create_virtual_copy'
+      ? '/job/a.CR3?vc=abc123'
+      : command === 'session_albums'
+        ? [
+            { id: 'a1', kind: 'album' },
+            { id: 's1', kind: 'smart' }
+          ]
+        : undefined
+  );
+  expect(runAppCommand('virtual_copy')).toBe(true);
+  await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+  expect(invoke).toHaveBeenCalledWith('create_virtual_copy', { sourceVirtualPath: '/job/a.CR3', targetAlbumId: null });
+  expect(invoke).toHaveBeenCalledWith('session_album_add', {
+    directory: '/job',
+    id: 'a1',
+    paths: ['/job/a.CR3?vc=abc123']
+  });
+  expect(invoke).not.toHaveBeenCalledWith('get_albums');
+  // In a smart album the copy is shown by the album's rules, never added.
+  vi.mocked(invoke).mockClear();
+  refresh.mockClear();
+  useLibraryStore.setState({ activeAlbumId: 'session-album:s1' });
+  expect(runAppCommand('virtual_copy')).toBe(true);
+  await vi.waitFor(() => expect(refresh).toHaveBeenCalled());
+  expect(invoke).not.toHaveBeenCalledWith('session_album_add', expect.anything());
+  useLibraryStore.setState({ activeAlbumId: null, sessionDirectory: null });
+  hook.unmount();
+});
+
 // UXR4M-19: the copy was made but nothing showed it, so the user pressed
 // again (four hidden copies in one run). Lightroom shows the new copy
 // selected beside its photo; Develop switches to it.

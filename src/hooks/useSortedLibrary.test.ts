@@ -45,11 +45,14 @@ describe('live culling filters', () => {
     expect(result.displayList.map((f) => f.path)).toEqual(['/shoot/a.ARW', '/shoot/b.ARW']);
   });
 
-  it('uses the source flag for virtual copies and reflects a cleared flag immediately', () => {
-    const input = { ...state(), imageList: [file('/shoot/a.ARW?vc=copy')] };
+  it("uses a virtual copy's own flag, not its photograph's, and reflects a cleared flag immediately", () => {
+    const input = { ...state(), imageList: [file('/shoot/a.ARW'), file('/shoot/a.ARW?vc=copy')] };
     input.filterCriteria.flag = 'picked';
-    expect(computeSortedLibrary(input, {})).toHaveLength(1);
-    expect(computeSortedLibrary({ ...input, imageFlags: { '/shoot/a.ARW': 0 } }, {})).toHaveLength(0);
+    // The photograph is picked, its copy is not (Lightroom keeps a flag per copy).
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW']);
+    const copyPicked = { ...input, imageFlags: { '/shoot/a.ARW': 0, '/shoot/a.ARW?vc=copy': 1 } };
+    expect(computeSortedLibrary(copyPicked, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW?vc=copy']);
+    expect(computeSortedLibrary({ ...copyPicked, imageFlags: { '/shoot/a.ARW?vc=copy': 0 } }, {})).toHaveLength(0);
   });
 
   it('counts matches after search, returns zero counts for no matches and reuses grouping badges', () => {
@@ -98,16 +101,24 @@ describe('catalog search', () => {
     ).toEqual(['/shoot/c.ARW']);
   });
 
-  it('finds a virtual copy as its photograph (its own keywords are not indexed: G37)', () => {
-    const copy = { ...file('/shoot/a.ARW?vc=c1', 0, ['user:client']), is_virtual_copy: true };
+  it('shows a virtual copy the catalog records by its own match, like Lightroom', () => {
+    const own = { ...file('/shoot/a.ARW?vc=c1', 5, ['user:client']), is_virtual_copy: true };
+    const other = { ...file('/shoot/a.ARW?vc=c2'), is_virtual_copy: true };
+    const unrecorded = { ...file('/shoot/b.ARW?vc=c3'), is_virtual_copy: true };
     const input = {
       ...state(),
-      imageList: [file('/shoot/a.ARW', 0, ['user:client']), copy, file('/shoot/b.ARW')],
+      imageList: [file('/shoot/a.ARW'), own, other, file('/shoot/b.ARW'), unrecorded],
       searchCriteria: { text: 'client', tags: [], mode: 'OR' as const },
-      catalogMatches: new Set(['/shoot/a.ARW']),
-      catalogKnown: new Set(['/shoot/a.ARW', '/shoot/b.ARW'])
+      // Only the copy c1 holds the keyword; b.ARW matched by its name.
+      catalogMatches: new Set(['/shoot/a.ARW?vc=c1', '/shoot/b.ARW']),
+      catalogKnown: new Set(['/shoot/a.ARW', '/shoot/a.ARW?vc=c1', '/shoot/a.ARW?vc=c2', '/shoot/b.ARW'])
     };
-    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW', '/shoot/a.ARW?vc=c1']);
+    // A copy the catalog does not record yet follows its photograph.
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual([
+      '/shoot/a.ARW?vc=c1',
+      '/shoot/b.ARW',
+      '/shoot/b.ARW?vc=c3'
+    ]);
   });
 
   it('matches files the catalog does not hold by name and tags', () => {

@@ -1638,6 +1638,7 @@
         "albums": "アルバム",
         "captureTime": "撮影日時",
         "copies": "仮想コピー",
+        "copyFlags": "仮想コピーのフラグ",
         "edit": "編集",
         "eyes": "目のチェック",
         "metadata": "メタデータ",
@@ -2089,7 +2090,6 @@
       "hotFolderResumeFailed": "監視フォルダを再開できませんでした: {{error}}",
       "importAiMasksOnOpen_other": "{{count}} 件の写真の AI マスクは、現像で開いたとき、または書き出すときに計算されます",
       "importCopies_other": "仮想コピー {{count}} 件を読み込みました",
-      "importCopiesInAlbums": "アルバムには仮想コピーではなく写真が入ります。これらのコピーはその写真として追加されました: {{n}}。",
       "importCopiesSkipped_other": "仮想コピー {{count}} 件は読み込まれていません",
       "importCropsClipped_other": "切り抜き {{count}} 件がカメラの撮影範囲を超えていたため、その範囲に収めました",
       "imported_other": "{{count}} 枚の写真を読み込みました（補正あり {{withSettings}} 枚、アルバム {{albums}} 個）",
@@ -2221,6 +2221,7 @@
         "EasyPortrait face parsing (FPN + ResNet-50)": "顔のレタッチ用の目の開口部と歯（SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin）。変更: ONNX と Core ML に変換し、CC BY-SA 4.0 で公開。",
         "Jiff / Unicode CLDR": "Windows のタイムゾーン名と IANA 識別子の対応表。",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
+        "kamadak-exif": "EXIF の読み取り。64 KiB を超える HEIF の EXIF 項目を受け付ける Rawtonic 独自の修正を適用しています。",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2280,6 +2281,7 @@
       "optimization": "入力デバイスの最適化",
       "optimizationDesc": "キャンバスのパンとズームに使用するメインの入力デバイスを選択します。",
       "pressKey": "キーを押してください... (Escでクリア)",
+      "reassignedFrom": "{{commands}} から再割り当て",
       "resetDefaults": "すべてデフォルトに戻す",
       "speed": "速度",
       "title": "マウス操作設定",
@@ -3497,7 +3499,10 @@
         "chooseAndExport": "書き出し先を選んで書き出し",
         "choosing": "書き出し先を選択…",
         "export": "書き出し",
-        "exportWithRecipes_other": "{{count}} 個のレシピで書き出し"
+        "exportWithRecipes_other": "{{count}} 個のレシピで書き出し",
+        "saveAs": "別名で保存…",
+        "saveAsHint": "この写真を、名前とフォルダーを指定したファイルに書き出します",
+        "saveAsOneRecipe": "別名で保存は 1 つのファイルを作成します。レシピは 1 つだけ選ぶか、選ばないでください"
       },
       "border": {
         "add": "枠を追加",
@@ -3817,6 +3822,8 @@
         "notQueued": "何も書き出されませんでした: {{error}}",
         "queuedMany_other": "{{count}} 件の書き出しをキューに追加しました。",
         "queuedOne": "書き出しキューに追加しました。",
+        "saveAsFormat": "{{name}}: Rawtonic は .{{extension}} ファイルを書き出しません。.jpg、.tif、.png、.webp、.jxl、.avif で終わる名前を選んでください。",
+        "saveAsOriginal": "{{name}} はこの写真のオリジナルかサイドカーです。別名で保存では上書きしません。別の名前を選んでください。",
         "unsavedEdits": "{{names}} の編集を保存できなかったため、何も書き出していません。保存されたら、もう一度書き出してください。"
       },
       "watermark": {
@@ -4542,7 +4549,8 @@
           "sourceType": "デジタルソースの種類（ファイル内）",
           "stacked": "スタック内",
           "suggestion": "選別の候補",
-          "text": "検索可能なすべてのテキスト"
+          "text": "検索可能なすべてのテキスト",
+          "virtualCopy": "仮想コピー"
         },
         "folderPlaceholder": "フォルダのパス",
         "fromFilter": "スマートアルバムとして保存…",

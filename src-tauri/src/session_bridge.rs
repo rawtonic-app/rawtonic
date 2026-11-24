@@ -137,13 +137,36 @@ pub(crate) fn is_library_photo(path: &Path, known: &[PathBuf]) -> bool {
     if crate::exif_processing::get_primary_sidecar_path(path).exists() {
         return true;
     }
+    in_libraries(path, known, |lib, path| {
+        !matches!(lib.asset_at(path), Ok(None))
+    })
+}
+
+/// Whether the file at `path` is one a library keeps with one of its
+/// photos (the camera JPEG of a RAW+JPEG pair), by its recorded path, also
+/// after another program changed it (a caption added elsewhere), asked of
+/// the same libraries as [`is_library_photo`]. Save As never replaces it.
+pub(crate) fn is_library_companion(path: &Path, known: &[PathBuf]) -> bool {
+    use rawtonic_fs::Canonical;
+    let path = path.canonical().unwrap_or_else(|_| path.to_path_buf());
+    in_libraries(&path, known, |lib, path| match lib.companion_records() {
+        Ok(records) => records.iter().any(|record| record.path == path),
+        // Unreadable: taken as keeping it.
+        Err(_) => true,
+    })
+}
+
+/// Whether `holds` answers yes for `path` in the library managing its
+/// folder (one that cannot be read counts as holding it) or in any other
+/// library the app knows (`known`; one gone or unreadable holds nothing).
+fn in_libraries(path: &Path, known: &[PathBuf], holds: impl Fn(&Library, &Path) -> bool) -> bool {
     // The library managing the file's folder, found from the file itself
     // (not from the library an export runs under), else the open one.
     let owner = culling_library_for(path, active_library_directory().as_deref());
     if let Some(owner) = &owner {
         match Library::open(owner) {
             Ok(lib) => {
-                if !matches!(lib.asset_at(path), Ok(None)) {
+                if holds(&lib, path) {
                     return true;
                 }
             }
@@ -160,7 +183,7 @@ pub(crate) fn is_library_photo(path: &Path, known: &[PathBuf]) -> bool {
         }
         seen.push(directory);
         if let Ok(lib) = Library::open(directory)
-            && !matches!(lib.asset_at(path), Ok(None))
+            && holds(&lib, path)
         {
             return true;
         }
@@ -1750,31 +1773,48 @@ pub(crate) fn write_flag_values(
     values: Vec<(String, i8)>,
 ) -> Result<Vec<crate::file_management::CullingChange>, String> {
     use crate::file_management::{CullingChange, CullingValue};
+    use rawtonic_metadata::photo_ref::PhotoRef;
+    // A virtual copy's flag is its own (as in Lightroom): a copy a listing
+    // has not recorded yet is recorded from its sidecar first.
+    let unrecorded: Vec<(PathBuf, String, PathBuf)> = values
+        .iter()
+        .filter_map(|(path, _)| {
+            let reference = PhotoRef::parse(path);
+            let copy = reference.copy_id()?.to_string();
+            let sidecar = reference.sidecar_path();
+            Some((reference.source_path().to_path_buf(), copy, sidecar))
+        })
+        .collect();
+    adopt_virtual_copies(&unrecorded);
     let _lock = WRITE_LOCK.lock().map_err(|e| e.to_string())?;
     let lib = Library::open(Path::new(directory)).map_err(|e| e.to_string())?;
-    // Flags belong to physical assets, including when several copies are selected.
-    let mut assets = std::collections::BTreeMap::new();
+    // One value per photograph or copy, including when one is named twice.
+    let mut items = std::collections::BTreeMap::new();
     for (path, flag) in values {
-        let source = crate::file_management::parse_virtual_path(&path).0;
+        let reference = PhotoRef::parse(&path);
         let asset = lib
-            .asset_at(&source)
+            .asset_at(reference.source_path())
             .map_err(|e| e.to_string())?
             .ok_or_else(|| "This photograph is not registered in the open library".to_string())?;
-        assets.insert(asset.id, (asset.path, flag));
+        let copy = reference.copy_id().map(str::to_string);
+        items.insert((asset.id, copy), (asset.path, flag));
     }
-    let values: Vec<_> = assets
+    let values: Vec<_> = items
         .iter()
-        .map(|(id, (_, flag))| (id.clone(), *flag))
+        .map(|((id, copy), (_, flag))| (id.clone(), copy.clone(), *flag))
         .collect();
-    let before = lib.set_flag_values(&values).map_err(|e| e.to_string())?;
+    let before = lib.set_item_flags(&values).map_err(|e| e.to_string())?;
     let mut receipts = Vec::new();
-    for (id, flag) in before {
-        let (path, after) = &assets[&id];
-        if let Err(error) = lib.sync_xmp(&id) {
+    for (id, copy, flag) in before {
+        let (path, after) = &items[&(id.clone(), copy.clone())];
+        // A copy has no XMP of its own; the photograph's flag goes to its XMP.
+        if copy.is_none()
+            && let Err(error) = lib.sync_xmp(&id)
+        {
             log::warn!("Flag saved; XMP pending: {error}");
         }
         receipts.push(CullingChange {
-            path: path.to_string_lossy().into_owned(),
+            path: PhotoRef::of_path(path, copy.as_deref()).format(),
             asset_id: Some(id),
             directory: Some(lib.directory.to_string_lossy().into_owned()),
             before: CullingValue::Flag(flag),
@@ -2000,6 +2040,28 @@ pub(crate) fn with_library_blocking<T>(
     work(&lib)
 }
 
+/// The album members `paths` name: a photograph, or a virtual copy by
+/// itself (`<photo>?vc=<copy>`), as Lightroom's regular collections hold
+/// a copy without its master.
+pub(crate) fn album_items(
+    lib: &Library,
+    paths: &[String],
+) -> Result<Vec<(String, Option<String>)>, String> {
+    paths
+        .iter()
+        .map(|path| {
+            let reference = rawtonic_metadata::photo_ref::PhotoRef::parse(path);
+            let asset = lib
+                .asset_at(reference.source_path())
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| {
+                    "This photograph is not registered in the open library".to_string()
+                })?;
+            Ok((asset.id, reference.copy_id().map(str::to_string)))
+        })
+        .collect()
+}
+
 pub(crate) fn asset_ids(lib: &Library, paths: &[String]) -> Result<Vec<String>, String> {
     Ok(registered_assets(lib, paths)?
         .into_iter()
@@ -2033,7 +2095,7 @@ pub async fn session_create_album(
     with_library(directory, true, move |lib| {
         let kind = kind.as_deref().unwrap_or(rawtonic_catalog::ALBUM);
         let ids = if kind == rawtonic_catalog::ALBUM {
-            asset_ids(lib, &paths)?
+            album_items(lib, &paths)?
         } else {
             Vec::new()
         };
@@ -2041,7 +2103,7 @@ pub async fn session_create_album(
             .create_collection_of_kind(&name, parent.as_deref(), kind)
             .map_err(|e| e.to_string())?;
         if !ids.is_empty() {
-            lib.add_to_collection(&album.id, &ids)
+            lib.add_items_to_collection(&album.id, &ids)
                 .map_err(|e| e.to_string())?;
         }
         album.count = ids.iter().collect::<HashSet<_>>().len() as u32;
@@ -2097,8 +2159,9 @@ pub async fn session_album_add(
     paths: Vec<String>,
 ) -> Result<(), String> {
     with_library(directory, true, move |lib| {
-        let ids = asset_ids(lib, &paths)?;
-        lib.add_to_collection(&id, &ids).map_err(|e| e.to_string())
+        let items = album_items(lib, &paths)?;
+        lib.add_items_to_collection(&id, &items)
+            .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2111,8 +2174,8 @@ pub async fn session_album_remove(
     paths: Vec<String>,
 ) -> Result<(), String> {
     with_library(directory, true, move |lib| {
-        let ids = asset_ids(lib, &paths)?;
-        lib.remove_from_collection(&id, &ids)
+        let items = album_items(lib, &paths)?;
+        lib.remove_items_from_collection(&id, &items)
             .map_err(|e| e.to_string())
     })
     .await
@@ -2120,13 +2183,14 @@ pub async fn session_album_remove(
 }
 
 /// Absolute paths of the album's photographs, in path order (a smart
-/// album's: those its rules match now).
+/// album's: those its rules match now, with the virtual copies they match
+/// as `<photograph>?vc=<copy>`).
 #[tauri::command]
 pub async fn session_album_paths(directory: String, id: String) -> Result<Vec<PathBuf>, String> {
     with_library(directory, false, move |lib| {
         crate::library_search::start_facts_pass_if_needed(lib);
         crate::duplicates::start_pass_if_needed(lib, &rawtonic_catalog::Rule::album(&id));
-        lib.collection_paths(&id).map_err(|e| e.to_string())
+        lib.collection_item_paths(&id).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -2718,6 +2782,46 @@ mod tests {
         assert!(super::with_culling_owner(other.to_str(), || {
             super::is_library_photo(&jpg, &known)
         }));
+    }
+
+    /// The camera JPEG a catalog keeps with its RAW (a RAW+JPEG pair) is
+    /// not an asset of its own, yet Save As must never replace it.
+    #[test]
+    fn a_camera_jpeg_kept_with_a_raw_is_a_library_companion() {
+        use rawtonic_fs::Canonical;
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonical().unwrap();
+        let catalog_dir = root.join("Catalog");
+        let catalog = rawtonic_catalog::Library::create(
+            &catalog_dir,
+            "Main",
+            rawtonic_catalog::Mode::Catalog,
+        )
+        .unwrap();
+        let shoot = root.join("Shoot");
+        std::fs::create_dir_all(&shoot).unwrap();
+        std::fs::write(shoot.join("A.NEF"), b"raw").unwrap();
+        let jpg = shoot.join("A.JPG");
+        std::fs::write(&jpg, b"camera jpeg").unwrap();
+        let known = vec![catalog_dir];
+        let asset = catalog.add_asset(&shoot.join("A.NEF")).unwrap();
+        assert!(!super::is_library_companion(&jpg, &known), "not paired yet");
+        catalog.set_companion(&asset.id, Some("A.JPG")).unwrap();
+        assert!(super::is_library_companion(&jpg, &known));
+        assert!(
+            !super::is_library_photo(&jpg, &known),
+            "no asset of its own"
+        );
+        // A caption added to it in another program changes its size and
+        // fingerprint: still the pair's camera JPEG.
+        std::fs::write(&jpg, b"camera jpeg with a caption added elsewhere").unwrap();
+        assert!(super::is_library_companion(&jpg, &known));
+        // Save As of another photo, named onto it, is refused.
+        assert!(crate::export_processing::save_as_protected_in(
+            &jpg,
+            &root.join("elsewhere").join("B.NEF"),
+            &known
+        ));
     }
 
     use super::*;
@@ -3829,22 +3933,47 @@ mod tests {
         );
         assert_eq!(lib.metadata(&asset.id).unwrap().flag, 0);
         assert!(lib.asset_at(&unregistered).unwrap().is_none());
+        // A virtual copy's flag is its own (as in Lightroom); one named
+        // twice is set once.
+        lib.save_copy_state(&asset.id, "abc123", &serde_json::json!({"rating": 0}))
+            .unwrap();
+        let copy = format!("{path}?vc=abc123");
         let changed = session_set_flag(
             directory.clone(),
-            vec![path.clone(), format!("{path}?vc=copy")],
+            vec![path.clone(), copy.clone(), copy.clone()],
             1,
         )
         .await
         .unwrap();
-        assert_eq!(changed.len(), 1);
+        assert_eq!(changed.len(), 2);
+        assert!(changed.iter().any(|c| c.path == copy));
+        assert!(
+            changed
+                .iter()
+                .all(|c| c.after == crate::file_management::CullingValue::Flag(1))
+        );
+        let rejected = session_set_flag(directory.clone(), vec![copy.clone()], -1)
+            .await
+            .unwrap();
         assert_eq!(
-            changed[0].after,
-            crate::file_management::CullingValue::Flag(1)
+            (rejected.len(), rejected[0].path.as_str()),
+            (1, copy.as_str())
         );
         assert_eq!(
-            session_flags(directory).await.unwrap(),
-            std::collections::HashMap::from([(source.clone(), 1)])
+            session_flags(directory.clone()).await.unwrap(),
+            std::collections::HashMap::from([(source.clone(), 1), (PathBuf::from(&copy), -1)])
         );
+        // A copy the library does not know (no sidecar either) changes nothing.
+        assert!(
+            session_set_flag(
+                directory.clone(),
+                vec![path.clone(), format!("{path}?vc=fff999")],
+                0
+            )
+            .await
+            .is_err()
+        );
+        assert_eq!(lib.metadata(&asset.id).unwrap().flag, 1);
         assert_eq!(fs::read(source).unwrap(), b"original");
         assert_eq!(fs::read(unregistered).unwrap(), b"unregistered original");
     }

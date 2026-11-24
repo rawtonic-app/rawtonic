@@ -484,6 +484,54 @@ it('lists the folder of photographs an import added without a restart', async ()
   expect(screen.getByText('Capture 43')).toBeTruthy();
 });
 
+it('shows an imported child under an existing root after the import refresh', async () => {
+  let imported = false;
+  mockInvoke.mockImplementation(async (command) => {
+    if (command === 'session_offline') return [];
+    if (command === 'catalog_folders')
+      return {
+        catalog: true,
+        volumes: [
+          {
+            key: 'id:SYS',
+            id: 'SYS',
+            name: 'System',
+            mount_point: '/',
+            online: true,
+            free_bytes: null,
+            total_bytes: null,
+            folders: [],
+            roots: ['/job']
+          }
+        ]
+      };
+    if (command === 'get_pinned_folder_trees')
+      return [folder('/job', 0, [folder('/job/Capture', 2), ...(imported ? [folder('/job/Imported day', 43)] : [])])];
+    return undefined;
+  });
+  const navigate = vi.fn();
+  render(
+    <ContextMenuProvider>
+      <StudioNavigation onNavigate={navigate} folderActions={actions} />
+    </ContextMenuProvider>
+  );
+  const { result } = renderHook(() => useLibraryActions());
+  await act(async () => {});
+  expect(screen.queryByText('Imported day')).toBeNull();
+  imported = true;
+  // runImport announces the commit and refreshes the existing root trees.
+  await act(async () => {
+    window.dispatchEvent(new Event(IMPORTS_CHANGED));
+    await result.current.refreshAllFolderTrees();
+  });
+  expect(screen.getByText('Imported day')).toBeTruthy();
+  expect(screen.getAllByTitle('/job')).toHaveLength(1);
+  expect(screen.getAllByTitle('/job/Imported day')).toHaveLength(1);
+  fireEvent.click(screen.getByTitle('/job/Imported day'));
+  expect(navigate).toHaveBeenCalledWith('/job/Imported day');
+  expect(screen.getByText('Capture')).toBeTruthy();
+});
+
 it('shows startup first and identifies an offline network share with one root', async () => {
   mockInvoke.mockImplementation(async (command) => {
     if (command === 'session_offline') return [];

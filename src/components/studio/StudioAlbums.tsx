@@ -32,6 +32,7 @@ import { FILE_OPERATIONS_CHANGED } from '../../utils/catalogEvents';
 import {
   CATALOG_CHANGED,
   CATALOG_EVENTS,
+  SESSION_ALBUM_PREFIX,
   SESSION_ALBUMS_CHANGED,
   catalogChanged,
   onCatalogChange
@@ -53,9 +54,7 @@ export interface SessionAlbum {
   rules?: Rule;
 }
 
-/** `activeAlbumId` of a session album shown in the grid. */
-export const SESSION_ALBUM_PREFIX = 'session-album:';
-export { SESSION_ALBUMS_CHANGED } from '../../utils/catalogWrites';
+export { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../../utils/catalogWrites';
 
 export type SelectAlbum = (id: string, name: string, paths: string[], preserveEditor?: boolean) => void;
 

@@ -1770,7 +1770,7 @@ export const SHARPEN_VERSION = 8;
 export const LUMA_NOISE_VERSION = 2;
 
 /** The render pipeline fixes new edits start with (`renderVersion`). */
-export const RENDER_VERSION = 18;
+export const RENDER_VERSION = 19;
 
 /** The frame new edits develop (`sourceFrameVersion`,
  * crates/rawdecode/src/source_frame.rs `VERSION`). */
@@ -1828,6 +1828,15 @@ export const CROSS_DEAD_RENDER_VERSION = 18;
  * decides (`image_loader::decode_variant`). */
 export const defectsCross = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
   (adjustments.renderVersion ?? 1) >= CROSS_DEAD_RENDER_VERSION;
+
+/** The render version from which a dead photosite takes the median of three
+ * repairs (crates/engine/src/image_loader.rs `MEDIAN_DEAD_RENDER_VERSION`). */
+export const MEDIAN_DEAD_RENDER_VERSION = 19;
+
+/** Whether a recipe's RAW is developed with that repair, as the backend
+ * decides (`image_loader::decode_variant`). */
+export const defectsMedian = (adjustments: Pick<Partial<Adjustments>, 'renderVersion'>): boolean =>
+  (adjustments.renderVersion ?? 1) >= MEDIAN_DEAD_RENDER_VERSION;
 
 /** The render version from which a RAW's shadows keep their means through
  * the black clip and the demosaic (crates/engine/src/image_loader.rs

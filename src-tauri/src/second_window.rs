@@ -33,7 +33,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager};
@@ -59,17 +59,32 @@ const STATE_EVENT: &str = "second-window-state";
 const STATE_FILE: &str = "second_window.json";
 /// The smallest window kept or restored (logical px).
 const MIN_SIZE: (f64, f64) = (320.0, 240.0);
-/// How long the edit must rest before the window develops its own frame.
+/// How long the edits must rest before the window develops its own frame
+/// when settled frames follow each other closely (a key held, values
+/// typed); after a single edit it develops at once: the wait alone
+/// exceeded the 107 ms settle bar (notes: benchmark-results/swc5-2026-11-24).
 const SETTLE: Duration = Duration::from_millis(120);
-/// The part of the visible size a zoomed region reaches past each side.
-/// Linux: none, as the main window's region frame (VPR1): the page's
-/// lossless frame costs encode, bytes and decode by its pixels (a margin of
-/// a quarter each side is 2.25× of them on every settled edit), and a pan
-/// past the edge cuts the new region from the kept base in milliseconds.
-#[cfg(target_os = "linux")]
+/// The part of the visible size a zoomed region reaches past each side:
+/// none, as the main window's region frame on Linux (VPR1). Each settled
+/// edit develops what is shown (a margin of a quarter each side is 2.25×
+/// its pixels: on Metal ~20 ms of the second window's settle, SWC5; on
+/// Linux the page's lossless frame costs encode, bytes and decode by its
+/// pixels), and a pan past the edge cuts the new region from the kept base
+/// in milliseconds.
 const REGION_MARGIN: f32 = 0.0;
+/// The margin of the region that follows the one shown first when the
+/// window rests ([`wide_worker`]), so that a short pan stays sharp. Linux:
+/// none, as the main window's region frame (VPR1): the page's lossless
+/// frame costs encode, bytes and decode by its pixels, and a pan past the
+/// edge cuts the new region from the kept base in milliseconds.
 #[cfg(not(target_os = "linux"))]
-const REGION_MARGIN: f32 = multi_view::REGION_MARGIN;
+const WIDE_MARGIN: f32 = multi_view::REGION_MARGIN;
+/// How long nothing new must be asked of the window ([`schedule`]) before
+/// the wide region is developed, so that it rarely holds up the region of
+/// a newer edit or pan (one asked while a wide render already holds the
+/// GPU processor waits for it).
+#[cfg(not(target_os = "linux"))]
+const WIDE_REST: Duration = Duration::from_millis(300);
 
 /// The window as kept for the next start. Bounds are logical px (points),
 /// which mean the same on displays of different scale: the outer top left
@@ -588,6 +603,17 @@ enum Want {
 
 struct Job {
     generation: usize,
+    /// Wait [`SETTLE`] first: it follows another job closely.
+    rest: bool,
+}
+
+/// When the worker was last asked ([`schedule`]).
+static LAST_SCHEDULED: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// Whether a job asked at `now` waits for the edits to rest: one asked for
+/// within [`SETTLE`] before it.
+fn rests(last: Option<Instant>, now: Instant) -> bool {
+    last.is_some_and(|last| now.saturating_duration_since(last) < SETTLE)
 }
 
 fn worker(app_handle: &tauri::AppHandle) -> &'static LatestJobSender<Job> {
@@ -598,11 +624,125 @@ fn worker(app_handle: &tauri::AppHandle) -> &'static LatestJobSender<Job> {
     })
 }
 
+/// The region with [`WIDE_MARGIN`] to follow the one shown first, of the
+/// window as it was then.
+#[cfg(not(target_os = "linux"))]
+struct WideJob {
+    path: String,
+    recipe_key: u64,
+    recipe: Arc<serde_json::Value>,
+    area: [f32; 4],
+    zoom: CellZoom,
+}
+
+/// Whether the window still shows what a wide job was asked for: the same
+/// photograph and recipe at the same zoom and centre, in the same area.
+#[cfg(not(target_os = "linux"))]
+fn wide_current(job: &WideJob, inner: &Inner) -> bool {
+    inner
+        .shown
+        .as_ref()
+        .is_some_and(|s| s.path == job.path && s.recipe_key == job.recipe_key)
+        && inner.zoom == Some(job.zoom)
+        && inner.area == job.area
+}
+
+/// Develops the wide region once the window rests, on its own thread as a
+/// background render with a source of its own: the region worker stays
+/// free for the next edit, and its kept source is never evicted.
+#[cfg(not(target_os = "linux"))]
+fn wide_worker(app_handle: &tauri::AppHandle) -> &'static LatestJobSender<WideJob> {
+    static WORKER: OnceLock<LatestJobSender<WideJob>> = OnceLock::new();
+    WORKER.get_or_init(|| {
+        let app = app_handle.clone();
+        gpu_processing::start_latest_job_worker(move |job: WideJob| run_wide(&app, job))
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn run_wide(app_handle: &tauri::AppHandle, job: WideJob) {
+    // Until nothing new was asked of the window for WIDE_REST.
+    loop {
+        let since = lock_recover(&LAST_SCHEDULED).map(|last| last.elapsed());
+        match since {
+            Some(since) if since < WIDE_REST => std::thread::sleep(WIDE_REST - since),
+            _ => break,
+        }
+    }
+    let current = || {
+        lock_recover(&INNER)
+            .as_ref()
+            .is_some_and(|inner| wide_current(&job, inner))
+    };
+    if !is_open() || !current() {
+        return;
+    }
+    let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
+        return;
+    };
+    let started = Instant::now();
+    let region = match multi_view::develop_region(
+        app_handle,
+        &context,
+        &bases().regions,
+        &job.path,
+        job.area,
+        job.zoom,
+        WIDE_MARGIN,
+        (*job.recipe).clone(),
+        region_recipe_tag(job.recipe_key),
+        multi_view::CELL_RENDER,
+    ) {
+        Ok(region) => region,
+        Err(error) => {
+            // The region shown first stays.
+            log::warn!(
+                "[second_window] {}: wide region not developed: {error}",
+                job.path
+            );
+            return;
+        }
+    };
+    let frame = prepare(&region.rgba);
+    let mut guard = lock_recover(&INNER);
+    let Some(inner) = guard.as_mut() else { return };
+    // Nothing new asked meanwhile: an edit, pan or resize since asks for
+    // its own region.
+    if !wide_current(&job, inner)
+        || lock_recover(&LAST_SCHEDULED).is_some_and(|last| last > started)
+    {
+        return;
+    }
+    let background = inner.background;
+    if let Some(display) = inner.display.as_mut() {
+        upload(
+            display,
+            &context,
+            &job.path,
+            region.key,
+            region.extent,
+            CellLayer::Region,
+            region.rgba.dimensions(),
+            frame,
+        );
+        paint(display, &context, background);
+    }
+    log::info!(
+        "[second_window] {}: wide region {}x{} in {:.1} ms",
+        job.path,
+        region.rgba.width(),
+        region.rgba.height(),
+        region.ms
+    );
+}
+
 /// Asks the worker to bring the window's own frames up to date once the
 /// edit rests.
 fn schedule(app_handle: &tauri::AppHandle) {
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
-    worker(app_handle).send(Job { generation });
+    let now = Instant::now();
+    let rest = rests(lock_recover(&LAST_SCHEDULED).replace(now), now);
+    worker(app_handle).send(Job { generation, rest });
 }
 
 /// Whether a whole frame of `pixels` holds what a fit in `area` shows of a
@@ -682,7 +822,9 @@ fn want(inner: &Inner) -> Option<Want> {
 }
 
 fn run(app_handle: &tauri::AppHandle, job: Job) {
-    std::thread::sleep(SETTLE);
+    if job.rest {
+        std::thread::sleep(SETTLE);
+    }
     if GENERATION.load(Ordering::SeqCst) != job.generation || !is_open() {
         return;
     }
@@ -781,7 +923,7 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                 REGION_MARGIN,
                 (*recipe).clone(),
                 tag,
-                multi_view::CELL_RENDER,
+                gpu_processing::SECOND_WINDOW_CALLER,
             ) {
                 Ok(region) => {
                     let frame = prepare(&region.rgba);
@@ -810,6 +952,16 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                             );
                             paint(display, &context, background);
                         }
+                        // The margin for short pans follows when the
+                        // window rests.
+                        #[cfg(not(target_os = "linux"))]
+                        wide_worker(app_handle).send(WideJob {
+                            path: path.clone(),
+                            recipe_key,
+                            recipe: Arc::clone(&recipe),
+                            area,
+                            zoom,
+                        });
                         !inner.whole.is_some_and(|w| w.recipe_key == recipe_key)
                     };
                     // Developed first (REGION_BEFORE_WHOLE): the whole follows.
@@ -1701,6 +1853,60 @@ mod tests {
         let gone = placement(Some(kept), &[main], Some(main)).unwrap();
         assert_eq!((gone.x, gone.width), (605, 1814));
         assert_eq!(placement(None, &[], None), None);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn a_wide_region_is_shown_only_for_the_view_it_was_asked_for() {
+        let zoom = CellZoom {
+            scale: 1.0,
+            center: [0.5, 0.5],
+        };
+        let recipe = Arc::new(serde_json::json!({}));
+        let job = WideJob {
+            path: "a.nef".into(),
+            recipe_key: 3,
+            recipe: Arc::clone(&recipe),
+            area: [0.0, 0.0, 2000.0, 1280.0],
+            zoom,
+        };
+        let inner = |path: &str, recipe_key, zoom, area| Inner {
+            shown: Some(Shown {
+                path: path.into(),
+                recipe_key,
+                recipe: Arc::clone(&recipe),
+                shown: Some([6000.0, 4000.0]),
+            }),
+            zoom: Some(zoom),
+            area,
+            ..Inner::default()
+        };
+        let area = job.area;
+        assert!(wide_current(&job, &inner("a.nef", 3, zoom, area)));
+        // Edited, another photograph, panned, zoomed, resized.
+        assert!(!wide_current(&job, &inner("a.nef", 4, zoom, area)));
+        assert!(!wide_current(&job, &inner("b.nef", 3, zoom, area)));
+        let panned = CellZoom {
+            center: [0.52, 0.5],
+            ..zoom
+        };
+        assert!(!wide_current(&job, &inner("a.nef", 3, panned, area)));
+        let zoomed = CellZoom { scale: 2.0, ..zoom };
+        assert!(!wide_current(&job, &inner("a.nef", 3, zoomed, area)));
+        assert!(!wide_current(
+            &job,
+            &inner("a.nef", 3, zoom, [0.0, 0.0, 1800.0, 1280.0])
+        ));
+    }
+
+    #[test]
+    fn only_an_edit_close_after_another_waits_for_the_edits_to_rest() {
+        let now = Instant::now();
+        assert!(!rests(None, now));
+        assert!(!rests(Some(now - SETTLE), now));
+        assert!(!rests(Some(now - Duration::from_secs(2)), now));
+        assert!(rests(Some(now - SETTLE / 2), now));
+        assert!(rests(Some(now), now));
     }
 
     #[test]

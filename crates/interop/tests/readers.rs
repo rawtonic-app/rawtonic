@@ -523,3 +523,33 @@ fn capture_one_sessions_with_the_same_name_in_two_folders_stay_told_apart() {
         Some(format!("{}#10", real(&second_db).display()).as_str())
     );
 }
+
+// The four numeric values below are real ZIMAGE.ZEXP_DATE records from the
+// Capture One 16 catalog measured by C1R11, not invented timestamps.
+// Against the source EXIF, each is exactly +86400 seconds with its fraction:
+// notes: benchmark-results/ust2-2026-11-24/USE_TEST.md, section 1 (C1R11).
+// Offset-bearing Capture One shifts were not measured in that catalog.
+#[test]
+fn capture_one_catalog_capture_date_keeps_the_fraction_without_inventing_a_zone() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = capture_one_session(dir.path(), "Dates");
+    let conn = Connection::open(&db).unwrap();
+    conn.execute_batch("ALTER TABLE ZIMAGE ADD COLUMN ZEXP_DATE REAL")
+        .unwrap();
+    for (stamp, expected) in [
+        (1473617768.7, "2016-09-11T18:16:08.7"),
+        (1192801472.0, "2007-10-19T13:44:32"),
+        (1373363781.5, "2013-07-09T09:56:21.5"),
+        (1500647486.3, "2017-07-21T14:31:26.3"),
+    ] {
+        conn.execute("UPDATE ZIMAGE SET ZEXP_DATE=? WHERE Z_PK=1", [stamp])
+            .unwrap();
+        let lib = capture_one::read(&db).unwrap();
+        assert_eq!(
+            lib.photos[0].metadata.capture,
+            rawtonic_metadata::CaptureWrite::Set(
+                rawtonic_metadata::XmpDateTime::parse(expected).unwrap()
+            )
+        );
+    }
+}

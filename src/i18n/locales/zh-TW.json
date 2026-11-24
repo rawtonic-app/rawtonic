@@ -1638,6 +1638,7 @@
         "albums": "相簿",
         "captureTime": "拍攝時間",
         "copies": "虛擬副本",
+        "copyFlags": "虛擬副本的旗標",
         "edit": "編輯",
         "eyes": "眼睛檢查",
         "metadata": "中繼資料",
@@ -2089,7 +2090,6 @@
       "hotFolderResumeFailed": "無法繼續監看資料夾：{{error}}",
       "importAiMasksOnOpen_other": "{{count}} 張相片的 AI 遮色片會在「顯影」中開啟或匯出時計算",
       "importCopies_other": "已匯入 {{count}} 個虛擬副本",
-      "importCopiesInAlbums": "相簿只包含照片，不包含虛擬複本——這些複本已作為其照片加入：{{n}}。",
       "importCopiesSkipped_other": "{{count}} 個虛擬副本未匯入",
       "importCropsClipped_other": "{{count}} 個裁切超出相機畫面，已收縮到畫面內",
       "imported_other": "已匯入 {{count}} 張照片（{{withSettings}} 張有調整，{{albums}} 個相簿）",
@@ -2221,6 +2221,7 @@
         "EasyPortrait face parsing (FPN + ResNet-50)": "臉部修飾所用的眼睛輪廓與牙齒（SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin）。已修改：轉換為 ONNX 與 Core ML，以 CC BY-SA 4.0 發布。",
         "Jiff / Unicode CLDR": "Windows 時區名稱與 IANA 識別碼的對照表。",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
+        "kamadak-exif": "EXIF 讀取，包含 Rawtonic 的修正，可讀取超過 64 KiB 的 HEIF EXIF 資料。",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2280,6 +2281,7 @@
       "optimization": "輸入裝置最佳化",
       "optimizationDesc": "選擇您用於平移和縮放畫布的主要輸入裝置。",
       "pressKey": "按下按鍵...（Esc 清除）",
+      "reassignedFrom": "從 {{commands}} 重新指派",
       "resetDefaults": "全部重置為預設值",
       "speed": "速度",
       "title": "滑鼠控制",
@@ -3497,7 +3499,10 @@
         "chooseAndExport": "選擇位置並匯出",
         "choosing": "選擇目標位置…",
         "export": "匯出",
-        "exportWithRecipes_other": "以 {{count}} 個配方匯出"
+        "exportWithRecipes_other": "以 {{count}} 個配方匯出",
+        "saveAs": "另存新檔…",
+        "saveAsHint": "將此照片匯出為你命名、放在你所選資料夾中的檔案",
+        "saveAsOneRecipe": "另存新檔只產生一個檔案：請只勾選一個配方或不勾選"
       },
       "border": {
         "add": "加入邊框",
@@ -3817,6 +3822,8 @@
         "notQueued": "未輸出任何內容：{{error}}",
         "queuedMany_other": "已將 {{count}} 個匯出加入佇列。",
         "queuedOne": "已加入匯出佇列。",
+        "saveAsFormat": "{{name}}：Rawtonic 不匯出 .{{extension}} 檔案。請選擇以 .jpg、.tif、.png、.webp、.jxl 或 .avif 結尾的名稱。",
+        "saveAsOriginal": "{{name}} 是這張照片的原始檔或其附屬檔。另存新檔絕不會覆寫它們：請選擇其他名稱。",
         "unsavedEdits": "無法儲存 {{names}} 的編輯，因此未匯出任何內容。儲存後請重新匯出。"
       },
       "watermark": {
@@ -4542,7 +4549,8 @@
           "sourceType": "數位來源類型（檔案中）",
           "stacked": "在堆疊中",
           "suggestion": "篩選建議",
-          "text": "任何可搜尋的文字"
+          "text": "任何可搜尋的文字",
+          "virtualCopy": "虛擬副本"
         },
         "folderPlaceholder": "資料夾路徑",
         "fromFilter": "儲存為智慧型相簿…",

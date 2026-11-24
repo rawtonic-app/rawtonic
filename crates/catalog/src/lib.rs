@@ -457,6 +457,7 @@ impl Library {
         };
         library.plain_stored_paths()?;
         library.merge_duplicate_roots()?;
+        facts::one_camera_names(&library.conn)?;
         Ok(library)
     }
 
@@ -883,7 +884,103 @@ impl Library {
             let path = self.join_root(root, external, relative);
             Ok((path, row.get(3)?))
         })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        let mut flags: std::collections::HashMap<PathBuf, i8> =
+            rows.collect::<rusqlite::Result<_>>()?;
+        // A virtual copy's own flag, by its address (`<photo>?vc=<copy>`).
+        let mut query = self.conn.prepare(
+            "SELECT a.rel_path,r.path,r.external,v.name,v.flag FROM versions v
+             JOIN assets a ON a.id=v.asset_id JOIN roots r ON r.id=a.root_id
+             WHERE v.is_primary=0 AND v.flag != 0",
+        )?;
+        let rows = query.query_map([], |row| {
+            let relative: String = row.get(0)?;
+            let root: String = row.get(1)?;
+            let external: bool = row.get(2)?;
+            let copy: String = row.get(3)?;
+            let photo = self.join_root(root, external, relative);
+            let path =
+                rawtonic_metadata::photo_ref::PhotoRef::of_path(&photo, Some(&copy)).format();
+            Ok((PathBuf::from(path), row.get(4)?))
+        })?;
+        for row in rows {
+            let (path, flag) = row?;
+            flags.insert(path, flag);
+        }
+        Ok(flags)
+    }
+
+    /// Sets or restores the flags of photographs (`copy` None) and virtual
+    /// copies (a copy's flag is its own, as in Lightroom) atomically,
+    /// returning their exact previous flags. A photograph's flag goes to its
+    /// XMP as before (`set_flag_values`); a copy has no XMP, so only the
+    /// library holds it. A copy that is not recorded, a duplicate or an
+    /// invalid value rolls the whole step back.
+    pub fn set_item_flags(
+        &self,
+        values: &[(String, Option<String>, i8)],
+    ) -> Result<Vec<(String, Option<String>, i8)>, CatalogError> {
+        let mut seen = HashSet::new();
+        for (id, copy, flag) in values {
+            Flag::try_from(*flag)?;
+            ensure!(
+                seen.insert((id, copy)),
+                "Duplicate photograph in flag batch"
+            );
+        }
+        for (id, copy, _) in values {
+            if copy.is_none() {
+                self.adopt_editor_sidecar(id)?;
+            }
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        let mut previous = Vec::new();
+        for (id, copy, flag) in values {
+            match copy {
+                None => {
+                    let mut metadata = self.metadata(id)?;
+                    previous.push((id.clone(), None, metadata.flag));
+                    metadata.flag = *flag;
+                    tx.execute(
+                        "UPDATE metadata SET flag=?,data=?,xmp_status='pending',from_camera=0 WHERE asset_id=?",
+                        params![flag, serde_json::to_string(&metadata)?, id],
+                    )?;
+                }
+                Some(copy) => {
+                    let before: Option<i8> = tx
+                        .query_row(
+                            "SELECT flag FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
+                            params![id, copy],
+                            |r| r.get(0),
+                        )
+                        .optional()?;
+                    let before = before.ok_or_else(|| {
+                        CatalogError::from(anyhow::anyhow!(
+                            "This virtual copy is not recorded in the open library"
+                        ))
+                    })?;
+                    previous.push((id.clone(), Some(copy.clone()), before));
+                    tx.execute(
+                        "UPDATE versions SET flag=? WHERE asset_id=? AND name=? AND is_primary=0",
+                        params![flag, id, copy],
+                    )?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(previous)
+    }
+
+    /// A virtual copy's own flag (0 when it is not recorded).
+    pub fn copy_flag(&self, asset: &str, copy: &str) -> Result<i8, CatalogError> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT flag FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
+                params![asset, copy],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or(0))
     }
 
     /// Commit an entire selection together, preserving ratings, keywords and edits.
@@ -964,7 +1061,8 @@ impl Library {
     /// how many its rules match now; damaged rules: none).
     pub fn collections(&self) -> Result<Vec<Collection>, CatalogError> {
         let mut query = self.conn.prepare(
-            &format!("SELECT c.id,c.name,c.parent,(SELECT COUNT(*) FROM collection_assets ca JOIN assets a ON a.id=ca.asset_id WHERE ca.collection_id=c.id AND {}),c.kind,c.position,c.rules \
+            &format!("SELECT c.id,c.name,c.parent,(SELECT COUNT(*) FROM collection_assets ca JOIN assets a ON a.id=ca.asset_id WHERE ca.collection_id=c.id AND {} \
+             AND (ca.copy='' OR EXISTS(SELECT 1 FROM versions v WHERE v.asset_id=ca.asset_id AND v.name=ca.copy AND v.is_primary=0))),c.kind,c.position,c.rules \
              FROM collections c ORDER BY c.position, c.name COLLATE NOCASE, c.id", self.visible_assets()),
         )?;
         let rows = query.query_map([], |r| {
@@ -982,7 +1080,7 @@ impl Library {
         let mut collections = rows.collect::<rusqlite::Result<Vec<_>>>()?;
         for album in &mut collections {
             if album.kind == SMART {
-                album.count = self.search_count(&Rule::album(&album.id)).unwrap_or(0) as u32;
+                album.count = self.search_item_count(&Rule::album(&album.id)).unwrap_or(0) as u32;
             }
         }
         Ok(collections)
@@ -1022,7 +1120,7 @@ impl Library {
             id: id.clone(),
             name,
             parent: parent.map(str::to_string),
-            count: self.search_count(&Rule::album(&id))? as u32,
+            count: self.search_item_count(&Rule::album(&id))? as u32,
             kind: SMART.to_string(),
             position,
             rules: Some(rules.clone()),
@@ -1200,6 +1298,19 @@ impl Library {
 
     /// Adds assets (already in the album: kept once). All or nothing.
     pub fn add_to_collection(&self, id: &str, assets: &[String]) -> Result<(), CatalogError> {
+        let items: Vec<(String, Option<String>)> =
+            assets.iter().map(|asset| (asset.clone(), None)).collect();
+        self.add_items_to_collection(id, &items)
+    }
+
+    /// Adds photographs (`copy` None) and virtual copies (by their id) to
+    /// an album: a copy is a member by itself, without its photograph, as
+    /// in Lightroom. Already in the album: kept once. All or nothing.
+    pub fn add_items_to_collection(
+        &self,
+        id: &str,
+        items: &[(String, Option<String>)],
+    ) -> Result<(), CatalogError> {
         let tx = self.conn.unchecked_transaction()?;
         let kind: Option<String> = tx
             .query_row("SELECT kind FROM collections WHERE id=?", [id], |r| {
@@ -1213,10 +1324,13 @@ impl Library {
             kind.as_deref() == Some(ALBUM),
             "Only albums hold photographs (groups hold albums, smart albums rules)"
         );
-        for asset in assets {
+        for (asset, copy) in items {
+            if let Some(copy) = copy {
+                ensure!(valid_copy_id(copy), "Not a virtual copy id: {copy}");
+            }
             tx.execute(
-                "INSERT OR IGNORE INTO collection_assets(collection_id,asset_id) VALUES(?,?)",
-                params![id, asset],
+                "INSERT OR IGNORE INTO collection_assets(collection_id,asset_id,copy) VALUES(?,?,?)",
+                params![id, asset, copy.as_deref().unwrap_or("")],
             )?;
         }
         tx.commit()?;
@@ -1224,6 +1338,18 @@ impl Library {
     }
 
     pub fn remove_from_collection(&self, id: &str, assets: &[String]) -> Result<(), CatalogError> {
+        let items: Vec<(String, Option<String>)> =
+            assets.iter().map(|asset| (asset.clone(), None)).collect();
+        self.remove_items_from_collection(id, &items)
+    }
+
+    /// Removes photographs and virtual copies (`add_items_to_collection`)
+    /// from an album; a copy leaves alone, its photograph stays.
+    pub fn remove_items_from_collection(
+        &self,
+        id: &str,
+        items: &[(String, Option<String>)],
+    ) -> Result<(), CatalogError> {
         let tx = self.conn.unchecked_transaction()?;
         let kind: Option<String> = tx
             .query_row("SELECT kind FROM collections WHERE id=?", [id], |r| {
@@ -1234,10 +1360,10 @@ impl Library {
             kind.as_deref() != Some(SMART),
             "A smart album shows the photographs its rules match; change its rules to leave them out"
         );
-        for asset in assets {
+        for (asset, copy) in items {
             tx.execute(
-                "DELETE FROM collection_assets WHERE collection_id=? AND asset_id=?",
-                params![id, asset],
+                "DELETE FROM collection_assets WHERE collection_id=? AND asset_id=? AND copy=?",
+                params![id, asset, copy.as_deref().unwrap_or("")],
             )?;
         }
         tx.commit()?;
@@ -1255,6 +1381,13 @@ impl Library {
     /// query.
     pub fn collection_paths(&self, id: &str) -> Result<Vec<PathBuf>, CatalogError> {
         self.search(&Rule::album(id))
+    }
+
+    /// What the album shows (`search_items`): its photographs, and for a
+    /// smart album the virtual copies its rules match, as
+    /// `<photograph>?vc=<copy>`.
+    pub fn collection_item_paths(&self, id: &str) -> Result<Vec<PathBuf>, CatalogError> {
+        self.search_items(&Rule::album(id))
     }
 
     pub fn primary_version(&self, asset: &str) -> Result<String, CatalogError> {
@@ -2357,7 +2490,8 @@ impl Library {
     /// (`<photo>.<copy>.rrdata`) is derived from it while the file is there.
     /// Its snapshots are the library's (`Library::add_snapshot`); those the
     /// state carries are taken over only when the copy is first recorded
-    /// (a copy's sidecar adopted).
+    /// (a copy's sidecar adopted). A copy first recorded takes its
+    /// photograph's flag, one recorded again (`remove_copy`) its own.
     pub fn save_copy_state(
         &self,
         asset: &str,
@@ -2378,9 +2512,19 @@ impl Library {
         )?;
         if updated == 0 {
             let version = Uuid::new_v4().to_string();
+            // A new copy starts with its photograph's flag, as it starts
+            // with its rating, label and keywords; from then on the flag
+            // is its own (`set_item_flags`). One the library forgot
+            // (`remove_copy`) gets its own back.
             tx.execute(
-                "INSERT INTO versions(id,asset_id,name,is_primary,legacy_state) VALUES(?,?,?,0,?)",
+                "INSERT INTO versions(id,asset_id,name,is_primary,legacy_state,flag) VALUES(?1,?2,?3,0,?4,\
+                 coalesce((SELECT flag FROM forgotten_copies WHERE asset_id=?2 AND copy=?3),\
+                          (SELECT flag FROM metadata WHERE asset_id=?2), 0))",
                 params![version, asset, copy, text],
+            )?;
+            tx.execute(
+                "DELETE FROM forgotten_copies WHERE asset_id=? AND copy=?",
+                params![asset, copy],
             )?;
             snapshots::insert(&tx, &self.directory, &version, &carried)?;
         }
@@ -2419,12 +2563,24 @@ impl Library {
             .collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Forgets a virtual copy (its sidecar was deleted). Returns whether one was recorded.
+    /// Forgets a virtual copy (its sidecar was deleted). Its flag and album
+    /// memberships come back when it is recorded again. Returns whether one
+    /// was recorded.
     pub fn remove_copy(&self, asset: &str, copy: &str) -> Result<bool, CatalogError> {
-        let removed = self.conn.execute(
+        let tx = self.conn.unchecked_transaction()?;
+        // Its flag and album memberships are kept for when it is recorded
+        // again (the Undo of its Trash restores the sidecar); albums list
+        // only recorded copies.
+        tx.execute(
+            "INSERT OR REPLACE INTO forgotten_copies(asset_id,copy,flag)
+             SELECT asset_id,name,flag FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
+            params![asset, copy],
+        )?;
+        let removed = tx.execute(
             "DELETE FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
             params![asset, copy],
         )? > 0;
+        tx.commit()?;
         prune_blobs(&self.conn)?;
         Ok(removed)
     }

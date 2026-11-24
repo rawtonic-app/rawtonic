@@ -1767,6 +1767,7 @@
         "albums": "album",
         "captureTime": "ora di scatto",
         "copies": "copie virtuali",
+        "copyFlags": "contrassegni delle copie virtuali",
         "edit": "modifica",
         "eyes": "controlli degli occhi",
         "metadata": "metadati",
@@ -2274,7 +2275,6 @@
       "importCopies_one": "{{count}} copia virtuale importata",
       "importCopies_many": "{{count}} copie virtuali importate",
       "importCopies_other": "{{count}} copie virtuali importate",
-      "importCopiesInAlbums": "Gli album contengono foto, non copie virtuali: queste copie sono state aggiunte come le loro foto: {{n}}.",
       "importCopiesSkipped_one": "{{count}} copia virtuale non importata",
       "importCopiesSkipped_many": "{{count}} copie virtuali non importate",
       "importCopiesSkipped_other": "{{count}} copie virtuali non importate",
@@ -2454,6 +2454,7 @@
         "EasyPortrait face parsing (FPN + ResNet-50)": "Aperture degli occhi e denti per il ritocco del viso (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Modificato: convertito in ONNX e Core ML, pubblicato sotto CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Corrispondenza tra i nomi dei fusi orari di Windows e gli identificatori IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
+        "kamadak-exif": "Lettura EXIF, con una correzione di Rawtonic che accetta blocchi EXIF HEIF oltre 64 KiB.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2513,6 +2514,7 @@
       "optimization": "Ottimizzazione Dispositivo di Input",
       "optimizationDesc": "Scegli il dispositivo di input principale che utilizzi per la panoramica e lo zoom dell'area di lavoro.",
       "pressKey": "Premi un tasto... (Esc per cancellare)",
+      "reassignedFrom": "Riassegnato da {{commands}}",
       "resetDefaults": "Ripristina Tutto ai Valori Predefiniti",
       "speed": "Velocità",
       "title": "Controlli Mouse",
@@ -3761,7 +3763,10 @@
         "export": "Esporta",
         "exportWithRecipes_one": "Esporta con {{count}} ricetta",
         "exportWithRecipes_many": "Esporta con {{count}} ricette",
-        "exportWithRecipes_other": "Esporta con {{count}} ricette"
+        "exportWithRecipes_other": "Esporta con {{count}} ricette",
+        "saveAs": "Salva con nome…",
+        "saveAsHint": "Esporta questa foto in un file con il nome e la cartella che scegli",
+        "saveAsOneRecipe": "Salva con nome crea un solo file: seleziona una ricetta o nessuna"
       },
       "border": {
         "add": "Aggiungi bordo",
@@ -4099,6 +4104,8 @@
         "queuedMany_many": "{{count}} esportazioni aggiunte alla coda.",
         "queuedMany_other": "{{count}} esportazioni aggiunte alla coda.",
         "queuedOne": "Aggiunto alla coda di esportazione.",
+        "saveAsFormat": "{{name}}: Rawtonic non esporta file .{{extension}}. Scegli un nome che termini con .jpg, .tif, .png, .webp, .jxl o .avif.",
+        "saveAsOriginal": "{{name}} è l'originale di questa foto o il suo file collaterale. Salva con nome non li sovrascrive mai: scegli un altro nome.",
         "unsavedEdits": "Non è stato possibile salvare le modifiche di {{names}}, quindi non è stato esportato nulla. Esporta di nuovo quando sono salvate."
       },
       "watermark": {
@@ -4871,7 +4878,8 @@
           "sourceType": "Origine digitale (nel file)",
           "stacked": "In una pila",
           "suggestion": "Suggerimento di selezione",
-          "text": "Qualsiasi testo ricercabile"
+          "text": "Qualsiasi testo ricercabile",
+          "virtualCopy": "È una copia virtuale"
         },
         "folderPlaceholder": "Percorso della cartella",
         "fromFilter": "Salva come album smart…",

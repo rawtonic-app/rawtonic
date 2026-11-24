@@ -109,13 +109,11 @@ pub struct ImportReport {
     /// Smart collections left out, each with the criterion that has no
     /// counterpart (never imported with other rules or other members).
     pub smart_albums_skipped: Vec<String>,
-    /// Albums with a virtual copy among their members: a Rawtonic album
-    /// holds photographs, so it holds the copy's photograph.
-    pub copies_in_albums: Vec<String>,
     /// Smart albums imported on camera, lens, ISO or capture date: the
     /// catalog fills them as the background pass reads the files, and
-    /// camera words are matched in the name the file states, not as
-    /// Lightroom does, so they can differ from Lightroom's. (Lens rules use
+    /// camera words are matched in the camera's one make and model, not in
+    /// the model alone as Lightroom does, so they can differ from
+    /// Lightroom's. (Lens rules use
     /// Lightroom's own lens name for each photograph, kept by the import.)
     pub smart_albums_by_facts: Vec<String>,
     /// Edits here (photographs' and virtual copies') a repeated import
@@ -341,9 +339,11 @@ fn smart_condition(
             let op = compare(operation).filter(|op| matches!(op, Op::Is | Op::IsNot))?;
             (Field::Label, op, json!(label))
         }
-        // Lightroom's camera name is the maker and the model ("Canon EOS
-        // 600D"); the catalog keeps them apart, so a word is looked for in
-        // either. A whole name has no column to compare with.
+        // Lightroom's camera name is the model as the camera writes it
+        // ("Canon EOS 600D", "NIKON D750", "ILCE-7M3"; measured, SMR5); the
+        // catalog keeps one make and model per camera
+        // (`rawtonic_raw_format::camera_names`), so a word is looked for in
+        // either, and a whole name is that camera's one make and model.
         "camera" => {
             let in_either = |op: Op, words: &str| {
                 [Field::Camera, Field::Make]
@@ -383,6 +383,93 @@ fn smart_condition(
                     combine: Combine::None,
                     rules: in_either(Op::ContainsAny, &text(value)?),
                 }),
+                // Lightroom ignores case; the catalog's "is" does too.
+                "==" | "!=" => {
+                    use rawtonic_raw_format::camera_names;
+                    let name = text(value)?;
+                    let rules = match camera_names::canonical_of_model(&name) {
+                        // The library's one camera for several models its
+                        // files state (Olympus `STYLUS1` and `STYLUS1,1s`):
+                        // Lightroom tells them apart, so the rule would
+                        // take more photographs than in Lightroom; left
+                        // out (named in the import report).
+                        Some((make, model))
+                            if camera_names::stated_names(&make, &model).iter().any(
+                                |(_, file_model)| *file_model != name.trim().to_lowercase(),
+                            ) =>
+                        {
+                            return None;
+                        }
+                        Some((make, model)) => vec![
+                            Rule::Condition {
+                                field: Field::Make,
+                                op: Op::Is,
+                                value: json!(make),
+                            },
+                            Rule::Condition {
+                                field: Field::Camera,
+                                op: Op::Is,
+                                value: json!(model),
+                            },
+                        ],
+                        // Only the library's name for a camera whose files
+                        // state another (`D750` for `NIKON D750`): no
+                        // photograph's model in Lightroom (measured, SMR5).
+                        None if camera_names::is_canonical_model(&name) => vec![Rule::Group {
+                            combine: Combine::Any,
+                            rules: vec![],
+                        }],
+                        // A camera the decoder does not know keeps the
+                        // names its files give.
+                        None => vec![Rule::Condition {
+                            field: Field::Camera,
+                            op: Op::Is,
+                            value: json!(name.trim()),
+                        }],
+                    };
+                    Some(Rule::Group {
+                        combine: if operation == "==" {
+                            Combine::All
+                        } else {
+                            Combine::None
+                        },
+                        rules: if operation == "==" {
+                            rules
+                        } else {
+                            vec![Rule::Group {
+                                combine: Combine::All,
+                                rules,
+                            }]
+                        },
+                    })
+                }
+                // The model's start or end (Lightroom's camera is the EXIF
+                // model; the catalog's camera rule reads the camera's one
+                // model and the models its files state). Left out (named in
+                // the import report) where the two would select different
+                // files: a test that splits one camera here (Olympus
+                // `STYLUS1` / `STYLUS1,1s`) or holds for its one model only.
+                "beginsWith" | "endsWith" => {
+                    let affix = text(value)?;
+                    let folded = affix.trim().to_lowercase();
+                    let begins = operation == "beginsWith";
+                    let agrees =
+                        rawtonic_raw_format::camera_names::model_test_agrees_per_file(|model| {
+                            if begins {
+                                model.starts_with(&folded)
+                            } else {
+                                model.ends_with(&folded)
+                            }
+                        });
+                    if !agrees || folded.is_empty() {
+                        return None;
+                    }
+                    Some(Rule::Condition {
+                        field: Field::Camera,
+                        op: if begins { Op::StartsWith } else { Op::EndsWith },
+                        value: json!(affix),
+                    })
+                }
                 "empty" | "notEmpty" => Some(Rule::Condition {
                     field: Field::Camera,
                     op: if operation == "empty" {
@@ -394,6 +481,23 @@ fn smart_condition(
                 }),
                 _ => None,
             };
+        }
+        // Copy status: virtual copies, or masters (every photograph that is
+        // not a copy; measured, SMR5).
+        "vcStatus" => {
+            let copies = match text(value)?.as_str() {
+                "virtualCopies" => true,
+                "masterImages" => false,
+                _ => return None,
+            };
+            // "is not" as "is" with the other answer, the form the
+            // smart-album editor shows.
+            let copies = match compare(operation)? {
+                Op::Is => copies,
+                Op::IsNot => !copies,
+                _ => return None,
+            };
+            (Field::VirtualCopy, Op::Is, json!(copies))
         }
         // Text of the photograph's own facts: Lightroom's word search and
         // comparisons, as the catalog's.
@@ -762,36 +866,21 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
             if smart.is_some() {
                 report.albums += 1;
             } else if !album.is_group {
-                let members: Vec<String> = album
+                // A virtual copy is a member by itself, as in Lightroom.
+                let items: Vec<(String, Option<String>)> = album
                     .photos
                     .iter()
                     .filter_map(|key| {
-                        let photo = source.photos.iter().find(|p| &p.key == key)?;
-                        let member = assets
-                            .get(photo.copy_of.as_deref().unwrap_or(&photo.key))
-                            .cloned()?;
-                        if photo.copy_of.is_some() {
-                            report.copies_in_albums.push(format!(
-                                "{}: {}{}",
-                                album.name,
-                                photo
-                                    .path
-                                    .file_name()
-                                    .map(|n| n.to_string_lossy().into_owned())
-                                    .unwrap_or_default(),
-                                photo
-                                    .copy_name
-                                    .as_ref()
-                                    .map(|n| format!(" ({n})"))
-                                    .unwrap_or_default()
-                            ));
-                        }
-                        Some(member)
+                        let member = members.get(key.as_str())?;
+                        Some((
+                            member.asset_id.clone(),
+                            (!member.copy.is_empty()).then(|| member.copy.clone()),
+                        ))
                     })
                     .collect();
-                if !members.is_empty() {
+                if !items.is_empty() {
                     catalog
-                        .add_to_collection(&id, &members)
+                        .add_items_to_collection(&id, &items)
                         .map_err(|e| e.to_string())?;
                 }
                 report.albums += 1;
@@ -2383,6 +2472,12 @@ fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, Imp
     if let Some(lens) = &photo.lens {
         catalog.set_imported_lens(&id, lens)?;
     }
+    if let rawtonic_metadata::CaptureWrite::Set(value) = &photo.metadata.capture {
+        if let Some(facts) = rawtonic_ingest::capture::capture_facts(&photo.path) {
+            catalog.record_facts(&id, &facts)?;
+        }
+        catalog.import_wall_capture_time(&id, value)?;
+    }
     let version = catalog.version_for(&id, None)?;
     if matches!(rule, Reimport::Apply | Reimport::Same)
         && let Some(version) = &version
@@ -2518,6 +2613,8 @@ fn import_copy(
     });
     rawtonic_catalog::apply_editor_metadata(&mut state, photo.metadata.clone());
     catalog.save_copy_state(asset, &id, &state)?;
+    // The copy's own pick flag (Lightroom keeps one per copy).
+    catalog.set_item_flags(&[(asset.to_string(), Some(id.clone()), photo.metadata.flag)])?;
     let version = catalog.version_for(asset, Some(&id))?;
     if let Some(version) = &version {
         let stored = catalog
@@ -3940,6 +4037,59 @@ mod tests {
         }
     }
 
+    #[test]
+    fn imported_capture_date_is_an_override_and_camera_facts_survive() {
+        let dir = tempfile::tempdir().unwrap();
+        let lib = Library::create(
+            &dir.path().join("Library"),
+            "Library",
+            rawtonic_catalog::Mode::Catalog,
+        )
+        .unwrap();
+        let path = dir.path().join("photo.NEF");
+        std::fs::write(&path, b"synthetic raw").unwrap();
+        let mut source = photo("1", path, Develop::None, None);
+        source.metadata.capture = rawtonic_metadata::CaptureWrite::Set(
+            rawtonic_metadata::XmpDateTime::parse("2016-09-11T18:16:08.7").unwrap(),
+        );
+        let (id, _) = import_photo(&lib, &source).unwrap();
+        assert!(lib.capture_override(&id).unwrap().is_none());
+        lib.record_facts(
+            &id,
+            &rawtonic_catalog::CaptureFacts {
+                captured: Some("2016-09-10 18:16:08".into()),
+                captured_subsec: Some("7".into()),
+                captured_offset: Some("+02:00".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            lib.capture_override(&id).unwrap().unwrap().local,
+            "2016-09-11 18:16:08"
+        );
+        assert_eq!(
+            lib.capture_override(&id)
+                .unwrap()
+                .unwrap()
+                .offset
+                .as_deref(),
+            Some("+02:00")
+        );
+        let current = lib.capture_override(&id).unwrap();
+        lib.set_capture_times(&[rawtonic_catalog::capture_time::CaptureChange {
+            asset_id: id.clone(),
+            expected: current,
+            new: None,
+        }])
+        .unwrap();
+        assert!(lib.capture_override(&id).unwrap().is_none());
+        assert_eq!(
+            lib.facts(&id).unwrap().unwrap().0.captured.as_deref(),
+            Some("2016-09-10 18:16:08")
+        );
+    }
+
     /// A Capture One session named `<folder>/<name>` (its `.cosessiondb` is
     /// `<folder>/<name>/<name>.cosessiondb`), built with the tables and columns
     /// of a real Capture One 16 session: two variants of `Capture/DSCF0001.RAF`
@@ -4394,7 +4544,6 @@ mod tests {
             report.smart_albums_skipped,
             ["Recently edited: no counterpart for “touchTime” (inLast)"]
         );
-        assert_eq!(report.copies_in_albums, ["Italy: A.NEF"]);
         let asset = catalog.asset_at(&photos.join("A.NEF")).unwrap().unwrap();
         let meta = catalog.metadata(&asset.id).unwrap();
         assert_eq!((meta.rating, meta.label.as_str(), meta.flag), (4, "Red", 1));
@@ -4408,9 +4557,32 @@ mod tests {
         let italy = collections.iter().find(|c| c.name == "Italy").unwrap();
         let trips = collections.iter().find(|c| c.name == "Trips").unwrap();
         assert_eq!(italy.parent.as_deref(), Some(trips.id.as_str()));
+        // The photograph and its virtual copy, each a member by itself.
         assert_eq!(catalog.collection_assets(&italy.id).unwrap().len(), 1);
+        assert_eq!(
+            catalog
+                .collection_item_paths(&italy.id)
+                .unwrap()
+                .iter()
+                .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+            [
+                "A.NEF".to_string(),
+                format!(
+                    "A.NEF?vc={}",
+                    copy_id(
+                        &catalog.asset_at(&photos.join("A.NEF")).unwrap().unwrap().id,
+                        &copy_origin("LR", &source.photos[2]),
+                        0
+                    )
+                )
+            ]
+        );
+        assert_eq!(italy.count, 2);
         let best = collections.iter().find(|c| c.name == "Best picks").unwrap();
-        assert_eq!((best.kind.as_str(), best.count), (SMART, 1));
+        // The photograph and its virtual copy (rated 4 and picked as well,
+        // the copy's own pick) are both in it.
+        assert_eq!((best.kind.as_str(), best.count), (SMART, 2));
         let best_id = best.id.clone();
         assert_eq!(best.parent.as_deref(), Some(trips.id.as_str()));
         assert!(!collections.iter().any(|c| c.name == "Recently edited"));
@@ -4448,7 +4620,7 @@ mod tests {
         let after = catalog.collections().unwrap();
         let best: Vec<_> = after.iter().filter(|c| c.name == "Best picks").collect();
         assert_eq!(best.len(), 2);
-        assert!(best.iter().any(|c| c.id == best_id && c.count == 1));
+        assert!(best.iter().any(|c| c.id == best_id && c.count == 2));
         assert!(best.iter().any(|c| c.id != best_id && c.count == 0));
     }
 
@@ -4988,8 +5160,51 @@ mod tests {
         assert!(one("isoSpeedRating", ">=", text("800")).is_none());
         assert!(one("camera", "words", SmartValue::Number(1.0)).is_none());
         assert!(one("camera", "sideways", text("x")).is_none());
-        // A whole name ("Canon EOS 600D") is not the model the catalog reads.
-        assert!(one("camera", "==", text("Canon EOS 600D")).is_none());
+        // Lightroom's whole name ("Canon EOS 6D") is the camera's one make
+        // and model in the catalog.
+        assert_eq!(
+            one("camera", "==", text("Canon EOS 6D")).unwrap(),
+            json!({"combine": "all", "rules": [
+                {"field": "make", "op": "is", "value": "Canon"},
+                {"field": "camera", "op": "is", "value": "EOS 6D"}]})
+        );
+        // Regional names stay cameras of their own, as in Lightroom.
+        assert!(one("camera", "==", text("Canon EOS 600D")).is_some());
+        // The start or end of the model, which the catalog also finds in
+        // the names a camera's files state (`Canon EOS 6D` of `EOS 6D`).
+        assert_eq!(
+            one("camera", "beginsWith", text("Canon EOS")).unwrap(),
+            json!({"field": "camera", "op": "startsWith", "value": "Canon EOS"})
+        );
+        assert_eq!(
+            one("camera", "endsWith", text("D750")).unwrap(),
+            json!({"field": "camera", "op": "endsWith", "value": "D750"})
+        );
+        // Copy status.
+        assert_eq!(
+            one("vcStatus", "==", text("virtualCopies")).unwrap(),
+            json!({"field": "virtualCopy", "op": "is", "value": true})
+        );
+        assert_eq!(
+            one("vcStatus", "==", text("masterImages")).unwrap(),
+            json!({"field": "virtualCopy", "op": "is", "value": false})
+        );
+        assert_eq!(
+            one("vcStatus", "!=", text("virtualCopies")).unwrap(),
+            json!({"field": "virtualCopy", "op": "is", "value": false})
+        );
+        assert!(one("vcStatus", "==", text("other")).is_none());
+        // A test Lightroom applies to each file's model that would select
+        // other files here is left out.
+        assert!(one("camera", "endsWith", text("1s")).is_none());
+        assert!(one("camera", "beginsWith", text("EOS")).is_none());
+        // One camera in the library for two models Lightroom tells apart.
+        assert!(one("camera", "==", text("STYLUS1")).is_none());
+        assert!(one("camera", "!=", text("STYLUS1,1s")).is_none());
+        // A name only the decoder gives (headerless CHDK `… CRW` files) is
+        // no second model.
+        assert!(one("camera", "==", text("Canon PowerShot G7 X")).is_some());
+        assert!(one("camera", "!=", text("Canon PowerShot S100")).is_some());
     }
 
     /// The translated rules select photographs by the camera, lens, name
@@ -5107,6 +5322,17 @@ mod tests {
         assert_eq!(
             members("camera", "noneOf", text("Canon")),
             ["19c.DNG", "20d.NEF"]
+        );
+        assert_eq!(members("camera", "==", text("canon EOS 6D")), ["18b.CR2"]);
+        assert_eq!(
+            members("camera", "!=", text("Canon EOS 6D")),
+            ["17a.CR2", "19c.DNG", "20d.NEF"]
+        );
+        // Lightroom's camera name is the files' model: `EOS 6D` is none.
+        assert!(members("camera", "==", text("EOS 6D")).is_empty());
+        assert_eq!(
+            members("camera", "!=", text("EOS 6D")),
+            ["17a.CR2", "18b.CR2", "19c.DNG", "20d.NEF"]
         );
         assert_eq!(members("lens", "words", text("TAMRON")), ["18b.CR2"]);
         assert_eq!(

@@ -1851,6 +1851,7 @@
         "albums": "альбомы",
         "captureTime": "время съёмки",
         "copies": "виртуальные копии",
+        "copyFlags": "флажки виртуальных копий",
         "edit": "правка",
         "eyes": "проверки глаз",
         "metadata": "метаданные",
@@ -2386,7 +2387,6 @@
       "importCopies_few": "{{count}} виртуальные копии импортированы",
       "importCopies_many": "{{count}} виртуальных копий импортировано",
       "importCopies_other": "{{count}} виртуальной копии импортировано",
-      "importCopiesInAlbums": "Альбомы содержат фотографии, а не виртуальные копии — эти копии добавлены как их фотографии: {{n}}.",
       "importCopiesSkipped_one": "{{count}} виртуальная копия не импортирована",
       "importCopiesSkipped_few": "{{count}} виртуальные копии не импортированы",
       "importCopiesSkipped_many": "{{count}} виртуальных копий не импортировано",
@@ -2590,6 +2590,7 @@
         "EasyPortrait face parsing (FPN + ResNet-50)": "Разрез глаз и зубы для ретуши лица (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Изменено: преобразовано в ONNX и Core ML, опубликовано под CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Соответствие имён часовых поясов Windows идентификаторам IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
+        "kamadak-exif": "Чтение EXIF с исправлением Rawtonic, принимающим блоки EXIF в HEIF размером более 64 КиБ.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2649,6 +2650,7 @@
       "optimization": "Оптимизация устройств ввода",
       "optimizationDesc": "Выберите основное устройство ввода для перемещения и масштабирования холста.",
       "pressKey": "Нажмите клавишу... (Esc для очистки)",
+      "reassignedFrom": "Переназначено из {{commands}}",
       "resetDefaults": "Сбросить настройки управления",
       "speed": "Скорость",
       "title": "Управление мышью",
@@ -3921,7 +3923,10 @@
         "exportWithRecipes_one": "Экспорт по {{count}} рецепту",
         "exportWithRecipes_few": "Экспорт по {{count}} рецептам",
         "exportWithRecipes_many": "Экспорт по {{count}} рецептам",
-        "exportWithRecipes_other": "Экспорт по {{count}} рецепта"
+        "exportWithRecipes_other": "Экспорт по {{count}} рецепта",
+        "saveAs": "Сохранить как…",
+        "saveAsHint": "Экспортировать это фото в файл с выбранным именем и папкой",
+        "saveAsOneRecipe": "«Сохранить как» создаёт один файл: отметьте один рецепт или ни одного"
       },
       "border": {
         "add": "Добавить рамку",
@@ -4268,6 +4273,8 @@
         "queuedMany_many": "В очередь добавлено {{count}} экспортов.",
         "queuedMany_other": "В очередь добавлено {{count}} экспорта.",
         "queuedOne": "Добавлено в очередь экспорта.",
+        "saveAsFormat": "{{name}}: Rawtonic не экспортирует файлы .{{extension}}. Выберите имя с окончанием .jpg, .tif, .png, .webp, .jxl или .avif.",
+        "saveAsOriginal": "{{name}} — оригинал этого фото или его файл-компаньон. «Сохранить как» никогда их не перезаписывает: выберите другое имя.",
         "unsavedEdits": "Не удалось сохранить правки {{names}}, поэтому ничего не экспортировано. Повторите экспорт, когда они будут сохранены."
       },
       "watermark": {
@@ -5067,7 +5074,8 @@
           "sourceType": "Цифровой источник (в файле)",
           "stacked": "В стопке",
           "suggestion": "Предложение отбора",
-          "text": "Любой текст для поиска"
+          "text": "Любой текст для поиска",
+          "virtualCopy": "Виртуальная копия"
         },
         "folderPlaceholder": "Путь к папке",
         "fromFilter": "Сохранить как смарт-альбом…",

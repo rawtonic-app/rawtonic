@@ -1767,6 +1767,7 @@
         "albums": "àlbums",
         "captureTime": "hora de captura",
         "copies": "còpies virtuals",
+        "copyFlags": "marques de les còpies virtuals",
         "edit": "edició",
         "eyes": "comprovacions d'ulls",
         "metadata": "metadades",
@@ -2274,7 +2275,6 @@
       "importCopies_one": "{{count}} còpia virtual importada",
       "importCopies_many": "{{count}} còpies virtuals importades",
       "importCopies_other": "{{count}} còpies virtuals importades",
-      "importCopiesInAlbums": "Els àlbums contenen fotos, no còpies virtuals: aquestes còpies s’han afegit com les seves fotos: {{n}}.",
       "importCopiesSkipped_one": "{{count}} còpia virtual no importada",
       "importCopiesSkipped_many": "{{count}} còpies virtuals no importades",
       "importCopiesSkipped_other": "{{count}} còpies virtuals no importades",
@@ -2454,6 +2454,7 @@
         "EasyPortrait face parsing (FPN + ResNet-50)": "Obertures dels ulls i dents per al retoc facial (SberDevices: A. Kapitanov, K. Kvanchiani, E. Petrova, K. Efremyan, A. Sautin). Modificat: convertit a ONNX i Core ML, publicat sota CC BY-SA 4.0.",
         "Jiff / Unicode CLDR": "Correspondència entre els noms de zones horàries de Windows i els identificadors IANA.",
         "jxl-oxide": "Opens JPEG XL files (Wonwoo Choi), with a Rawtonic correction for empty Modular streams.",
+        "kamadak-exif": "Lectura d'EXIF, amb una correcció de Rawtonic que accepta blocs EXIF de HEIF de més de 64 KiB.",
         "Lensfun database": "Lens profiles for automatic lens correction (data only; no Lensfun code).",
         "libgphoto2": "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
         "libgphoto2 Rust bindings": "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
@@ -2513,6 +2514,7 @@
       "optimization": "Optimització del dispositiu d'entrada",
       "optimizationDesc": "Trieu el dispositiu d'entrada principal que utilitzeu per desplaçar-vos i fer zoom al llenç.",
       "pressKey": "Premeu una tecla... (Esc per esborrar)",
+      "reassignedFrom": "Reassignat de {{commands}}",
       "resetDefaults": "Restablir-ho tot als valors per defecte",
       "speed": "Velocitat",
       "title": "Controls del ratolí",
@@ -3761,7 +3763,10 @@
         "export": "Exporta",
         "exportWithRecipes_one": "Exporta amb {{count}} recepta",
         "exportWithRecipes_many": "Exporta amb {{count}} receptes",
-        "exportWithRecipes_other": "Exporta amb {{count}} receptes"
+        "exportWithRecipes_other": "Exporta amb {{count}} receptes",
+        "saveAs": "Desa com a…",
+        "saveAsHint": "Exporta aquesta foto a un fitxer amb el nom i la carpeta que trieu",
+        "saveAsOneRecipe": "Desa com a crea un sol fitxer: marqueu una recepta o cap"
       },
       "border": {
         "add": "Afegeix una vora",
@@ -4099,6 +4104,8 @@
         "queuedMany_many": "S'han afegit {{count}} exportacions a la cua.",
         "queuedMany_other": "S'han afegit {{count}} exportacions a la cua.",
         "queuedOne": "S'ha afegit a la cua d'exportació.",
+        "saveAsFormat": "{{name}}: Rawtonic no exporta fitxers .{{extension}}. Trieu un nom acabat en .jpg, .tif, .png, .webp, .jxl o .avif.",
+        "saveAsOriginal": "{{name}} és l'original d'aquesta foto o el seu fitxer auxiliar. Desa com a no els sobreescriu mai: trieu un altre nom.",
         "unsavedEdits": "No s'han pogut desar les edicions de {{names}}, així que no s'ha exportat res. Torneu a exportar quan estiguin desades."
       },
       "watermark": {
@@ -4871,7 +4878,8 @@
           "sourceType": "Origen digital (al fitxer)",
           "stacked": "En una pila",
           "suggestion": "Suggeriment de descart",
-          "text": "Qualsevol text cercable"
+          "text": "Qualsevol text cercable",
+          "virtualCopy": "És una còpia virtual"
         },
         "folderPlaceholder": "Camí de la carpeta",
         "fromFilter": "Desa com a àlbum intel·ligent…",

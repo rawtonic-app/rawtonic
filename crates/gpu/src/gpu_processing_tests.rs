@@ -20883,6 +20883,153 @@ fn regions_render_as_windows_of_the_whole_photograph() {
     );
 }
 
+/// The second window keeps its region's upload and colour noise pyramid
+/// from edit to edit ([`SECOND_WINDOW_CALLER`] with its own image cache and
+/// one source id for every recipe): each edit's region is byte for byte the
+/// one a fresh upload renders, through changes of exposure, of the colour
+/// noise reduction's amount and version (CPU and GPU pyramid) and of the
+/// luminance noise reduction (SWC5).
+#[test]
+#[ignore = "requires a native GPU"]
+fn a_kept_region_source_renders_each_edit_as_a_fresh_upload() {
+    let context = context();
+    let (fw, fh) = (2400, 1800);
+    let image = ramped_chroma_noise_frame(fw, fh);
+    let (x, y, w, h) = (512, 352, 1408, 1088);
+    let crop = image.crop_imm(x, y, w, h);
+    let processor = ProcessorSlot::new(None);
+    let kept = Mutex::new(None);
+    let render =
+        |profile: &serde_json::Value, caller: &str, cache: &Mutex<Option<GpuImageCache>>| {
+            let mut adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+            let measured = measures_noise(&adjustments.global)
+                .then(|| measure_color_noise(&context, &processor, &image, &adjustments, "test"))
+                .transpose()
+                .unwrap()
+                .flatten();
+            adjustments.color_noise_measurement = measured.map(Box::new);
+            adjustments.photo_placement = Some(crate::image_processing::PhotoPlacement {
+                photo_width: fw,
+                photo_height: fh,
+                x,
+                y,
+            });
+            process_and_get_dynamic_image_inner(
+                &context,
+                &processor,
+                cache,
+                RenderSource::Image {
+                    image: &crop,
+                    transform_hash: 7,
+                },
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: Some(Roi {
+                        x: 64,
+                        y: 48,
+                        width: 1280,
+                        height: 992,
+                    }),
+                },
+                caller,
+                RenderOutputPrecision::EightBit,
+                false,
+                None,
+                None,
+                ReadbackShader::Display,
+            )
+            .unwrap()
+            .to_rgba8()
+        };
+    let edits = [
+        json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11, "lumaNoiseReduction": 30 }),
+        json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11, "lumaNoiseReduction": 30, "exposure": 0.7 }),
+        json!({ "colorNoiseReduction": 80, "colorNoiseVersion": 11, "lumaNoiseReduction": 30, "exposure": 0.7 }),
+        json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 10, "lumaNoiseReduction": 30, "exposure": 0.7 }),
+        json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 10, "exposure": -0.4 }),
+        json!({ "colorNoiseReduction": 0, "colorNoiseVersion": 11, "exposure": -0.4 }),
+        json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11, "sharpness": 60 }),
+    ];
+    for (i, profile) in edits.iter().enumerate() {
+        let edited = render(profile, SECOND_WINDOW_CALLER, &kept);
+        assert!(
+            kept.lock().unwrap().is_some(),
+            "edit {i}: the second window's source is kept"
+        );
+        let fresh = render(profile, "test", &Mutex::new(None));
+        let differing = edited
+            .as_raw()
+            .iter()
+            .zip(fresh.as_raw())
+            .filter(|(a, b)| a != b)
+            .count();
+        assert_eq!(
+            differing, 0,
+            "edit {i} ({profile}) differs from a fresh upload"
+        );
+    }
+}
+
+/// [`crop_image`] and [`extend_image_rect`] copy row by row in parallel the
+/// pixels `crop_imm` and an edge extension of its cut give.
+#[test]
+fn parallel_crops_are_the_pixels_of_crop_imm() {
+    let rgb32 = ramped_chroma_noise_frame(301, 203);
+    let images = [
+        rgb32.clone(),
+        DynamicImage::ImageRgba32F(rgb32.to_rgba32f()),
+        DynamicImage::ImageRgb16(rgb32.to_rgb16()),
+        DynamicImage::ImageRgba8(rgb32.to_rgba8()),
+        DynamicImage::ImageLuma8(rgb32.to_luma8()),
+    ];
+    let rects = [
+        (0, 0, 301, 203),
+        (17, 9, 120, 77),
+        (300, 202, 1, 1),
+        (0, 100, 301, 103),
+    ];
+    for image in &images {
+        for (x, y, w, h) in rects {
+            let rect = Roi {
+                x,
+                y,
+                width: w,
+                height: h,
+            };
+            let expected = image.crop_imm(x, y, w, h);
+            let cut = crop_image(image, rect);
+            assert_eq!(cut.color(), expected.color());
+            assert_eq!(
+                cut.as_bytes(),
+                expected.as_bytes(),
+                "{:?} {rect:?}",
+                image.color()
+            );
+            let sides = (3, 0, 5, 2);
+            let grown = extend_image_rect(image, rect, sides);
+            let before = extend_image_rect(
+                &expected,
+                Roi {
+                    x: 0,
+                    y: 0,
+                    width: w,
+                    height: h,
+                },
+                sides,
+            );
+            assert_eq!(grown.color(), before.color());
+            assert_eq!(
+                grown.as_bytes(),
+                before.as_bytes(),
+                "{:?} {rect:?} grown",
+                image.color()
+            );
+        }
+    }
+}
+
 /// Timing of a 100 % region (1167 x 894, a multi-view cell with its reach)
 /// of a 24 MP photograph rendered as an image of its own and as a window
 /// of the photograph (with its edges extended by the render's reach).

@@ -27,7 +27,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 |---|---|---|---|---|
 | `catalog` | SQLite schema, sessions/catalogs, recipes, search | `fs`, `metadata` | `lib`, `query`, `add` | `core:test` |
 | `fs` | file-safety kernel: atomic write, no-clobber publish, temporary and staging files; volume detection | none | `lib`, `no_clobber`, `temp`, `staging`, `volume` | `core:test` |
-| `raw-format` | Photo extensions and camera RAW container classification shared by sidecar ownership and decode routing | `fs` | `classify_cached` | synthetic TIFFs and optional private samples |
+| `raw-format` | Photo extensions and camera RAW container classification shared by sidecar ownership and decode routing; one make and model per camera from rawler's catalogue (`camera_names`, for camera defaults and the catalog's capture facts) | `fs` | `classify_cached`, `camera_names::canonical_names` | synthetic TIFFs and optional private samples |
 | `metadata` | XMP sidecars, provenance, labels, hierarchical keyword paths (levels joined by a pipe, TS twin `src/utils/keywordTree.ts`), photo identity (`PhotoRef`: `<source>?vc=<copy>` codec, TS twin `src/entities/photo/photoRef.ts`, shared vectors) | `fs`, `raw-format`, `recipe` | `lib`, `provenance`, `labels`, `keywords`, `photo_ref` | `core:test` |
 | `fileops` | journaled rename/move/trash, `purge` | `fs` | `lib`, `volume`, `tree` | `core:test`; crash hooks |
 | `naming` | strict filename templates | runtime | `lib` | `core:test` |
@@ -117,7 +117,10 @@ New Rust workspace crates isolate data and file safety.
 - `query`: the library search and smart albums (ADR 0014; rules over text, keywords, culling, file type, camera, lens,
   exposure, dates, albums, folders, compiled to one SQL query; value lists with counts; schema 17 adds `Field::Ai`
   (recipe facts across versions, maintained by SQLite triggers calling `rawtonic_ai_facts`) and `Field::SourceType` (the
-  file’s IPTC Digital Source Type); smart albums are `collections` of kind `smart` with their rules, schema 11);
+  file’s IPTC Digital Source Type); smart albums are `collections` of kind `smart` with their rules, schema 11;
+  virtual copies are items of their own (`search_items`, `COPY_ITEMS`: own rating, label, keywords, flag — schema 35
+  `versions.flag` — and album membership — schema 36 `collection_assets.copy`, '' for the photograph — plus
+  `Field::VirtualCopy`; value lists count them));
 - `facts`: capture facts per photograph (`CaptureFacts`, recorded by verified ingest, a background pass reads the rest:
   `src-tauri/src/library_search.rs`, which also holds the search commands; the camera's own rating becomes the
   photograph's while nobody set its metadata; schema 13 read again what the earlier reader missed, schema 14 the undated
@@ -133,7 +136,10 @@ New Rust workspace crates isolate data and file safety.
   arithmetic keeping fraction digits and UTC offset; the editor state's EXIF map carries the correction on read and
   save; search uses the effective time; app glue `src-tauri/src/capture_time.rs` with preview/plan/apply commands,
   exports take it through `PinnedPhoto::capture` and `rawtonic_export::exif_processing::apply_corrected_capture_time`,
-  UI `CaptureTimeDialog`). The XMP sidecar carries it as `exif:DateTimeOriginal` + `photoshop:DateCreated`
+  UI `CaptureTimeDialog`). Foreign catalog wall times wait in `pending_capture_times` (schema 33) until
+  camera facts are known; equal wall times/fractions create no correction, real shifts keep the camera offset.
+  The comparison and application run in the facts transaction; a photographer’s correction/reset wins.
+  The XMP sidecar carries it as `exif:DateTimeOriginal` + `photoshop:DateCreated`
   (`capture_write` → `rawtonic_metadata::CaptureWrite`; `metadata.xmp_capture`, schema 27, is the value the library
   owns there, so a reset removes only that); a sidecar's differing `exif:DateTimeOriginal` becomes the correction on
   import, Use XMP, adopt and the first facts read (`adopt_sidecar`), compared with the file's whole time (facts keep its
@@ -631,7 +637,9 @@ the decision made before a photo renders (`decide`), the inputs fingerprint and 
 (`export-records.sqlite` in the app data folder: output path → requested path, photo, inputs, size, SHA-256);
 when the requested name is occupied, the same photo's verified numbered sibling can be reused. Requesting that numbered
 name explicitly gives it a separate slot in the records. `output::Publish` writes
-a new file or replaces only the recorded, unchanged previous export (`rawtonic_fs::replace_existing`).
+a new file, replaces only the recorded, unchanged previous export (`rawtonic_fs::replace_existing`), or replaces
+the file the user confirmed in Save As's save panel while it is still as stamped at submission
+(`Publish::Confirmed`, `rawtonic_fs::replace_confirmed`: one atomic rename, never a protected photo or sidecar).
 
 `export` (export settings/geometry/encoders, render pipeline with `RenderEnv`, exif_processing/tiff_exif/xmp_embed with
 `export_metadata_with` + `encode_with_metadata`, `sidecars` (virtual paths, `.rrdata` reading, library walk, export
