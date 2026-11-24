@@ -555,9 +555,9 @@ struct Accumulator {
     den: Vec<f32>,
     cons_rgb: [Plane; 3],
     cons_den: Plane,
-    /// Cells where a frame had samples dropped at full resolution that
-    /// would otherwise have merged (`update_consensus`).
-    touched: Vec<bool>,
+    /// Cells where the frame merged last had samples dropped at full
+    /// resolution that would otherwise have merged (`update_consensus`).
+    dropped: Vec<bool>,
     ghost_union: Option<Plane>,
     /// With ghost removal (set after the reference is merged): where the
     /// reference is clipped, only frames that agree it is that bright are
@@ -586,7 +586,7 @@ impl Accumulator {
             den: vec![0.0; w * h],
             cons_rgb: std::array::from_fn(|_| Plane::new(lw, lh)),
             cons_den: Plane::new(lw, lh),
-            touched: vec![false; lw * lh],
+            dropped: vec![false; lw * lh],
             ghost_union: threshold_ev.map(|_| Plane::new(lw, lh)),
             ref_state: None,
         }
@@ -706,10 +706,11 @@ impl Accumulator {
                 (rejected, dropped)
             })
             .collect();
+        self.dropped.fill(false);
         for (y, (_, dropped)) in rows.iter().enumerate() {
             let ly = y / f;
             for &lx in dropped {
-                self.touched[ly * lw + lx] = true;
+                self.dropped[ly * lw + lx] = true;
             }
         }
         let rejected: Vec<Vec<f32>> = rows.into_iter().map(|(r, _)| r).collect();
@@ -750,10 +751,7 @@ impl Accumulator {
                 low,
                 ghost.as_ref(),
                 ratio,
-                &self.touched,
-                &self.num,
-                &self.den,
-                (wu, hu, f),
+                &self.dropped,
             );
         }
         if is_ref && self.threshold_ev.is_some() {
@@ -786,33 +784,32 @@ impl Accumulator {
 /// Adds a merged frame to the low-res consensus the next frames are compared
 /// with. Each cell gains the frame's box average, weighted by its usable
 /// share and by how much of it was not a ghost (`ratio` × u × (1 − g)).
-/// In `touched` cells, where samples that would have merged were dropped at
-/// full resolution (bright-reference test, clipped-reference rule), the
-/// box average would still carry the dropped samples' colour (a glint that
-/// moved, the wrong moment's water). There the consensus colour becomes the
-/// box average of the full-resolution merge so far (`num`/`den`): every
-/// sample counts with the weight it merged with, dropped ones not at all,
-/// and the cell keeps its whole support, so the next frame's whole-cell
-/// average is still compared like for like (excluding the dropped samples
-/// from the average alone left the clipped or the dark half of a cell
-/// standing for all of it: notes: benchmark-results/mrg3-2026-11-23,
-/// mrg5-2026-11-24). Untouched cells, all of them in a bracket without
-/// motion, are updated as before.
-#[allow(clippy::too_many_arguments)]
+/// In `dropped` cells, where some of the frame's samples that would have
+/// merged were dropped at full resolution (bright-reference test,
+/// clipped-reference rule), its box average would still carry the dropped
+/// samples (a glint that moved, the wrong moment's water), so the frame
+/// does not enter the consensus there at all: the cell keeps the earlier
+/// frames' whole-cell averages, which the next frame's whole-cell average
+/// is compared with like for like. Taking the dropped samples out of the
+/// average alone left the clipped or the dark half of a cell standing for
+/// all of it, and taking the cell from the full-resolution merge instead
+/// carried glints that moved within a cell twice, so a later frame that
+/// matched the reference was taken for a ghost (notes:
+/// benchmark-results/mrg3-2026-11-23, mrg5-2026-11-24). Cells without such
+/// a drop are updated as before.
 fn update_consensus(
     cons_rgb: &mut [Plane; 3],
     cons_den: &mut Plane,
     low: &LowRes,
     ghost: Option<&Plane>,
     ratio: f32,
-    touched: &[bool],
-    num: &[f32],
-    den: &[f32],
-    (w, h, f): (usize, usize, usize),
+    dropped: &[bool],
 ) {
-    let (lw, lh) = (cons_den.w, cons_den.h);
     let inv_ratio = 1.0 / ratio;
-    for i in 0..lw * lh {
+    for i in 0..cons_den.data.len() {
+        if dropped[i] {
+            continue;
+        }
         let mut wgt = low.u.data[i];
         if let Some(g) = ghost {
             wgt *= 1.0 - g.data[i];
@@ -822,33 +819,6 @@ fn update_consensus(
             cons.data[i] += wgt * plane.data[i] * inv_ratio;
         }
         cons_den.data[i] += wgt;
-    }
-    // Same cells as `low_res` (f × f, the last ones cut).
-    let means: Vec<(usize, [f32; 3])> = (0..lw * lh)
-        .into_par_iter()
-        .filter(|&i| touched[i])
-        .filter_map(|i| {
-            let (lx, ly) = (i % lw, i / lw);
-            let mut sum = [0.0f32; 3];
-            let mut n = 0.0f32;
-            for y in ly * f..((ly + 1) * f).min(h) {
-                for x in lx * f..((lx + 1) * f).min(w) {
-                    let d = den[y * w + x];
-                    if d > 0.0 {
-                        for (c, s) in sum.iter_mut().enumerate() {
-                            *s += num[(y * w + x) * 3 + c] / d;
-                        }
-                        n += 1.0;
-                    }
-                }
-            }
-            (n > 0.0).then(|| (i, sum.map(|v| v / n)))
-        })
-        .collect();
-    for (i, mean) in means {
-        for (cons, v) in cons_rgb.iter_mut().zip(mean) {
-            cons.data[i] = v * cons_den.data[i];
-        }
     }
 }
 
@@ -1251,7 +1221,7 @@ mod tests {
             den: a.den.clone(),
             cons_rgb: a.cons_rgb.clone(),
             cons_den: a.cons_den.clone(),
-            touched: a.touched.clone(),
+            dropped: a.dropped.clone(),
             ghost_union: a.ghost_union.clone(),
             ref_state: a.ref_state.clone(),
             ..*a
@@ -1265,55 +1235,100 @@ mod tests {
         })
     }
 
-    /// Sun glints on dark water that moved between a reference and a −1 EV
-    /// frame. Where the reference glints, the frame shows dark water and is
-    /// dropped pixel by pixel (bright-reference test); its glints moved to
-    /// pixels the reference shows dark and the cell averages agree, so the
-    /// coarse ghost map keeps the frame. The consensus the next frame is
-    /// compared with must be what was merged — the dropped dark samples
-    /// out, every pixel of the cell in — not the frame's whole-cell
-    /// average, which still carried the dropped samples.
+    /// Sun glints on dark water that left a −1 EV frame: where the
+    /// reference glints (one pixel in 16), the frame shows dark water and is
+    /// dropped pixel by pixel (bright-reference test), while its whole-cell
+    /// average is close enough to the reference's for the coarse map to keep
+    /// most of the cell. The consensus the next frame is compared with must
+    /// not take in that average, which still carries the dropped samples:
+    /// in those cells it stays the reference's.
     #[test]
     fn dropped_samples_stay_out_of_the_consensus() {
         let (w, h, f) = (64u32, 64u32, 8usize);
         let water = [0.03f32, 0.05, 0.08];
-        let glint = |x: u32, y: u32, phase: u32| (x * 7 + y * 3 + phase).is_multiple_of(11);
-        let at =
-            |phase: u32| move |x: u32, y: u32| if glint(x, y, phase) { [0.5; 3] } else { water };
+        let glint = |x: u32, y: u32| x % 4 == 1 && y % 4 == 2;
+        let reference = move |x: u32, y: u32| if glint(x, y) { [0.5; 3] } else { water };
         let frames = [
-            (exposed(w, h, at(0), 1.0), 1.0),
-            (exposed(w, h, at(5), 0.5), 0.5),
-            (exposed(w, h, at(0), 2.0), 2.0),
+            (exposed(w, h, reference, 1.0), 1.0),
+            (exposed(w, h, |_, _| water, 0.5), 0.5),
+            (exposed(w, h, reference, 2.0), 2.0),
         ];
-        let (acc, _, _) = run(&frames, f, Deghost::Medium);
+        let (acc, ghosts, _) = run(&frames, f, Deghost::Medium);
         let acc = acc.unwrap();
+        let id = Matrix3::identity();
+        let ref_low = low_res(&View::new(&frames[0].0, None), &id, f);
         let (lw, lh) = (acc.cons_den.w, acc.cons_den.h);
-        let mut checked = 0;
+        // Premise: the coarse map keeps part of the frame, so its average
+        // would have entered the consensus.
+        assert!(ghosts[1] < 0.9, "frame dropped whole: {}", ghosts[1]);
         for ly in 1..lh - 1 {
             for lx in 1..lw - 1 {
                 let i = ly * lw + lx;
-                assert!(acc.touched[i], "cell {lx},{ly} not touched");
-                // The full-resolution merge so far, averaged over the cell.
-                let mut mean = [0.0f32; 3];
-                for y in ly * f..(ly + 1) * f {
-                    for x in lx * f..(lx + 1) * f {
-                        let p = y * w as usize + x;
-                        for (c, m) in mean.iter_mut().enumerate() {
-                            *m += acc.num[p * 3 + c] / acc.den[p] / (f * f) as f32;
-                        }
-                    }
-                }
-                for (c, m) in mean.iter().enumerate() {
+                assert!(acc.dropped[i], "cell {lx},{ly}: no sample dropped");
+                for c in 0..3 {
                     let k = acc.cons_rgb[c].data[i] / acc.cons_den.data[i];
+                    let r = ref_low.rgb[c].data[i];
                     assert!(
-                        (k / m).log2().abs() < 0.01,
-                        "cell {lx},{ly} channel {c}: consensus {k} vs merged {m}"
+                        (k / r).log2().abs() < 0.01,
+                        "cell {lx},{ly} channel {c}: consensus {k} vs reference {r}"
                     );
                 }
-                checked += 1;
             }
         }
-        assert!(checked > 0);
+        // The +1 EV frame matches the reference and is no ghost.
+        assert!(ghosts[2] < 0.01, "+1 EV frame ghost share {}", ghosts[2]);
+    }
+
+    /// Review of MRG5 round 1: fine glints that moved within a cell in the
+    /// −1 EV frame, and a +1 EV frame that matches the reference. The full-
+    /// resolution merge holds the glints at both places (the −1 EV frame's
+    /// dark samples under the reference's glints are dropped, its glints
+    /// beside them are not: the reference is dark there), so a consensus
+    /// taken from it penalised the matching +1 EV frame (66 % of its weight)
+    /// and left the moved glints 0.66 EV brighter. The +1 EV frame must
+    /// merge whole, and the pixels be what the per-pixel weights give.
+    #[test]
+    fn glints_moved_within_a_cell_do_not_ghost_the_matching_frame() {
+        let (w, h, f) = (64u32, 64u32, 8usize);
+        let pattern = |x: u32, y: u32, swap: bool| {
+            if (x + y).is_multiple_of(2) != swap {
+                [0.24f32; 3]
+            } else {
+                [0.002; 3]
+            }
+        };
+        let frames = [
+            (exposed(w, h, |x, y| pattern(x, y, false), 1.0), 1.0),
+            (exposed(w, h, |x, y| pattern(x, y, true), 0.5), 0.5),
+            (exposed(w, h, |x, y| pattern(x, y, false), 2.0), 2.0),
+        ];
+        for deghost in [Deghost::Low, Deghost::Medium, Deghost::High] {
+            let (_, ghosts, image) = run(&frames, f, deghost);
+            assert!(
+                ghosts[2] < 0.01,
+                "{deghost:?}: +1 EV ghost share {}",
+                ghosts[2]
+            );
+            // Away from the frame's border cells, where the ghost map's
+            // filters see the edge.
+            for y in 2 * f as u32..h - 2 * f as u32 {
+                for x in 2 * f as u32..w - 2 * f as u32 {
+                    let v = image[(y * w + x) as usize * 3 + 1];
+                    // Reference glint: the reference and the +1 EV frame.
+                    // Moved glint: the −1 EV frame's (weight 0.5) beside the
+                    // reference's (1) and the +1 EV frame's (2) dark water.
+                    let want = if (x + y).is_multiple_of(2) {
+                        0.24
+                    } else {
+                        (0.002 + 0.5 * 0.24 + 2.0 * 0.002) / 3.5
+                    };
+                    assert!(
+                        (v / want).log2().abs() < 0.01,
+                        "{deghost:?} px {x},{y}: {v} vs {want}"
+                    );
+                }
+            }
+        }
     }
 
     /// MRG3 review round 1: in a −2/0/+1 EV bracket without motion, the +1
@@ -1337,7 +1352,7 @@ mod tests {
         ];
         for deghost in [Deghost::Low, Deghost::Medium, Deghost::High] {
             let (acc, ghosts, image) = run(&frames, f, deghost);
-            assert!(!acc.unwrap().touched.iter().any(|&t| t), "{deghost:?}");
+            assert!(!acc.unwrap().dropped.iter().any(|&t| t), "{deghost:?}");
             assert!(ghosts.iter().all(|&g| g < 1e-6), "{deghost:?}: {ghosts:?}");
             for (k, v) in image.iter().enumerate() {
                 let p = k / 3;
