@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The second window at 100 % shows the sharp region about 107 ms after a settled edit on macOS (was about 410 ms): it keeps its region's upload and colour noise pyramid from edit to edit, develops at once after a single edit and only what it shows (as on Linux), with a foreground turn at the GPU. Same pixels as before; exports are unchanged.
+
 - Canon CR3 catalog facts retain capture date and camera information when image data follows the metadata, so import preset `{year}` uses the capture year.
 
 - Capture One catalog imports retain shifted capture times and the camera’s timezone offset, leave equal times uncorrected, and defer unknown camera facts until they can be read.
