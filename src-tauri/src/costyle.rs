@@ -657,11 +657,9 @@ fn entries(content: &str) -> HashMap<String, String> {
 /// highlights the density (Capture One darkens its toned end by 0.2–1.5
 /// times the tint's chroma, by hue). Shadows keep their lightness; Paper
 /// 85 (its highlights tone tints white); Balance moves with the shadows'
-/// saturation, which in Capture One changes where the tones meet.
-const C1_TONING_HUES: [f64; 12] = [
-    0.0, 30.0, 60.0, 90.0, 120.0, 150.0, 180.0, 210.0, 240.0, 270.0, 300.0, 330.0,
-];
-const C1_HIGHLIGHTS: [[f64; 3]; 12] = [
+/// saturation, which in Capture One changes where the tones meet. Rows:
+/// Capture One hues 0°, 30° … 330°.
+const C1_TONE_HIGHLIGHTS: [[f64; 3]; 12] = [
     [-16.5, 1.488, 1.156],
     [2.5, 0.990, 1.036],
     [-1.9, 1.260, 0.178],
@@ -675,7 +673,7 @@ const C1_HIGHLIGHTS: [[f64; 3]; 12] = [
     [4.9, 1.853, 0.756],
     [-6.5, 1.575, 1.007],
 ];
-const C1_SHADOWS: [[f64; 2]; 12] = [
+const C1_TONE_SHADOWS: [[f64; 2]; 12] = [
     [-18.3, 0.592],
     [0.7, 0.393],
     [-3.5, 0.566],
@@ -721,13 +719,13 @@ fn bw_toning(num: &impl Fn(&str) -> Option<f64>) -> Option<Value> {
     let off = || band(rawtonic_recipe::color::ToneBand::DEFAULT_HUE, 0.0, 0.0);
     let highlights = light.map_or_else(off, |(h, s)| {
         band(
-            h + at_c1_hue(&C1_HIGHLIGHTS, h, 0),
-            s * at_c1_hue(&C1_HIGHLIGHTS, h, 1),
-            at_c1_hue(&C1_HIGHLIGHTS, h, 2),
+            h + at_c1_hue(&C1_TONE_HIGHLIGHTS, h, 0),
+            s * at_c1_hue(&C1_TONE_HIGHLIGHTS, h, 1),
+            at_c1_hue(&C1_TONE_HIGHLIGHTS, h, 2),
         )
     });
     let shadows = dark.map_or_else(off, |(h, s)| {
-        band(h + at_c1_hue(&C1_SHADOWS, h, 0), s * at_c1_hue(&C1_SHADOWS, h, 1), 0.0)
+        band(h + at_c1_hue(&C1_TONE_SHADOWS, h, 0), s * at_c1_hue(&C1_TONE_SHADOWS, h, 1), 0.0)
     });
     let balance = match (light, dark) {
         (Some(_), Some((_, s))) => -12.9 - 10.0 * s / 60.0,
