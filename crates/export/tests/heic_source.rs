@@ -75,3 +75,31 @@ fn an_exported_heic_keeps_its_exif_and_is_turned_once() {
         .and_then(|f| f.value.get_uint(0));
     assert!(matches!(orientation, None | Some(1)), "{orientation:?}");
 }
+
+/// Android phones (a Xiaomi HEIC in the field) write EXIF items far over the
+/// 64 KiB a JPEG APP1 segment holds; HEIF has no such limit. Make, Model and
+/// the capture time must still be read.
+#[test]
+fn a_heic_with_more_than_64_kib_of_exif_keeps_its_tags() {
+    let (width, height) = (64, 32);
+    let pixels: Vec<[u16; 3]> = (0..width * height).map(|_| [20000, 30000, 12000]).collect();
+    let big = "x".repeat(150_000);
+    let bytes = encode_heic(
+        width,
+        height,
+        &pixels,
+        "kCGColorSpaceDisplayP3",
+        1,
+        &[
+            ("{TIFF}", "Make", "Rawtonic Test"),
+            ("{TIFF}", "Model", "Big EXIF"),
+            ("{Exif}", "DateTimeOriginal", "2026:11:23 10:20:30"),
+            ("{Exif}", "UserComment", &big),
+        ],
+    );
+    let exif = read_exif(&bytes).expect("EXIF of a HEIC with a large EXIF item");
+    let make = exif
+        .get_field(exif::Tag::Make, exif::In::PRIMARY)
+        .map(|f| f.display_value().to_string());
+    assert_eq!(make.as_deref(), Some("\"Rawtonic Test\""));
+}

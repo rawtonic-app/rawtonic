@@ -167,8 +167,12 @@ pub fn append_exif_to<S: Read + Write + Seek>(
             ExifTagGroup::GPS => &mut gps,
             ExifTagGroup::INTEROP => continue,
         };
+        let is_ifd0 = ifd.get_ifd_type() == ExifTagGroup::GENERIC;
         for tag in ifd.get_tags() {
             if let Some((id, entry)) = metadata_entry(tag, &endian) {
+                if is_ifd0 && describes_source_pixels(id) {
+                    continue;
+                }
                 target.entry(id).or_insert(entry);
             }
         }
@@ -361,6 +365,23 @@ fn pointer_entry(offset: u32, order: ByteOrder) -> Entry {
     }
 }
 
+/// IFD0 tags that describe how the *source's* pixels are stored (tiles,
+/// predictor, sample format, sub-images, JPEG/YCbCr layout). The export's
+/// strips are the encoder's; a stale tile tag next to them makes ImageIO and
+/// other readers refuse the file.
+fn describes_source_pixels(tag: u16) -> bool {
+    matches!(
+        tag,
+        0x13d // Predictor
+            | 0x142..=0x145 // TileWidth, TileLength, TileOffsets, TileByteCounts
+            | 0x14a // SubIFDs
+            | 0x152 // ExtraSamples
+            | 0x153 // SampleFormat
+            | 0x201 | 0x202 // JPEGInterchangeFormat(+Length)
+            | 0x211..=0x213 // YCbCr coefficients, subsampling, positioning
+    )
+}
+
 fn metadata_entry(tag: &ExifTag, endian: &Endian) -> Option<(u16, Entry)> {
     if tag.get_tag_type() != TagType::VALUE || !tag.is_writable() {
         return None;
@@ -511,6 +532,31 @@ mod tests {
         assert!(
             matches!(&latitude.value, exif::Value::Rational(v) if v.len() == 3 && v[2].num == 1234)
         );
+    }
+
+    #[test]
+    fn source_image_structure_tags_never_reach_the_exported_ifd0() {
+        // A source's IFD0 (a HEIC converted from a tiled TIFF, a DNG's
+        // SubIFDs) can carry the layout of *its* pixels; the export is
+        // strips, and ImageIO refuses a TIFF with strips and tile tags.
+        let (mut bytes, pixels) = encoded_tiff();
+        let mut metadata = sample_metadata();
+        for (tag, value) in [(0x142u16, 512u16), (0x143, 512), (0x152, 2)] {
+            metadata.set_tag(ExifTag::UnknownINT16U(
+                vec![value],
+                tag,
+                ExifTagGroup::GENERIC,
+            ));
+        }
+        append_exif(&mut bytes, &metadata, None).unwrap();
+        let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::Tiff)
+            .unwrap()
+            .into_rgb16();
+        assert_eq!(decoded, pixels);
+        let ifd0 = read_ifd0(&mut Cursor::new(&bytes)).unwrap();
+        for tag in [0x142u16, 0x143, 0x144, 0x145, 0x152] {
+            assert!(!ifd0.entries.contains_key(&tag), "tag {tag:#x} copied");
+        }
     }
 
     #[test]

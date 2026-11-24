@@ -25,6 +25,7 @@
 
 ### Fixes
 
+- **HEIC from Android phones keeps its metadata.** A HEIC whose EXIF block is larger than 64 KB (a Xiaomi photo in our tests) lost all of it: no capture time at import, no Make, Model or exposure data in the export. Large EXIF blocks are read now. Exporting a HEIC or other source with a tile layout in its metadata as a TIFF with metadata no longer writes a TIFF macOS and other readers cannot open.
 - Automatic keyword suggestions respect the requested total count, including parent and colour keywords, and keep a stable order.
 
 - Hold Shift while dragging a curve point for finer control; clicks within 12 pixels grab the nearest point, including endpoints.
