@@ -64,14 +64,20 @@ const MIN_SIZE: (f64, f64) = (320.0, 240.0);
 /// typed); after a single edit it develops at once: the wait alone
 /// exceeded the 107 ms settle bar (notes: benchmark-results/swc5-2026-11-24).
 const SETTLE: Duration = Duration::from_millis(120);
-/// The part of the visible size a zoomed region reaches past each side:
-/// none, as the main window's region frame on Linux (VPR1). Each settled
-/// edit develops what is shown (a margin of a quarter each side is 2.25×
-/// its pixels: on Metal ~20 ms of the second window's settle, SWC5; on
-/// Linux the page's lossless frame costs encode, bytes and decode by its
-/// pixels), and a pan past the edge cuts the new region from the kept base
-/// in milliseconds.
+/// The part of the visible size the region a settled edit develops first
+/// reaches past each side: none, so that it shows as soon as it can (a
+/// margin of a quarter each side is 2.25× its pixels: on Metal ~20 ms of
+/// the second window's settle, SWC5).
 const REGION_MARGIN: f32 = 0.0;
+/// The margin of the region that follows it ([`WIDE_REGION`]), so that a
+/// short pan stays sharp. Linux: none, as the main window's region frame
+/// (VPR1): the page's lossless frame costs encode, bytes and decode by its
+/// pixels, and a pan past the edge cuts the new region from the kept base
+/// in milliseconds.
+#[cfg(not(target_os = "linux"))]
+const WIDE_MARGIN: f32 = multi_view::REGION_MARGIN;
+/// Whether a region with [`WIDE_MARGIN`] follows the one shown first.
+const WIDE_REGION: bool = cfg!(not(target_os = "linux"));
 
 /// The window as kept for the next start. Bounds are logical px (points),
 /// which mean the same on displays of different scale: the outer top left
@@ -161,6 +167,10 @@ struct Inner {
     /// first then ([`REGION_BEFORE_WHOLE`]), so the window is not left
     /// without a frame of it.
     region_failed: Option<u64>,
+    /// The extent of the region developed with [`WIDE_MARGIN`] (as the
+    /// display keeps it): while the display shows another, a wide one
+    /// follows.
+    wide: Option<[f32; 4]>,
 }
 
 /// The recipe of the newest preview the main window rendered.
@@ -585,6 +595,8 @@ enum Want {
     Region {
         recipe: Arc<serde_json::Value>,
         zoom: CellZoom,
+        /// With [`WIDE_MARGIN`], after the one shown first.
+        wide: bool,
     },
 }
 
@@ -679,21 +691,40 @@ fn want(inner: &Inner) -> Option<Want> {
         (Some(_), None) => true,
         (None, _) => false,
     };
+    let current_region = region_of(display, &shown.path)
+        .filter(|(key, _)| *key == region_recipe_tag(shown.recipe_key))
+        .and_then(|(_, extent)| extent.region);
     let region_needed = inner.zoom.zip(shown.shown).filter(|&(zoom, size)| {
-        let current = region_of(display, &shown.path)
-            .filter(|(key, _)| *key == region_recipe_tag(shown.recipe_key))
-            .and_then(|(_, extent)| extent.region)
-            .is_some_and(|region| {
-                gpu_processing::multi_view::region_covers(region, inner.area, size, zoom)
-            });
+        let current = current_region.is_some_and(|region| {
+            gpu_processing::multi_view::region_covers(region, inner.area, size, zoom)
+        });
         !current && !whole_current.is_some_and(|w| whole_is_sharp(w, size, zoom))
     });
     let recipe = Arc::clone(&shown.recipe);
+    let wide_needed = wide_follows(region_needed.is_some(), current_region, inner.wide);
+    if let (true, Some(zoom)) = (wide_needed, inner.zoom) {
+        return Some(Want::Region {
+            recipe,
+            zoom,
+            wide: true,
+        });
+    }
     let region_first = REGION_BEFORE_WHOLE && inner.region_failed != Some(shown.recipe_key);
     match next_layer(whole_ok, region_needed.is_some(), region_first)? {
         CellLayer::Whole => Some(Want::Whole { recipe }),
-        CellLayer::Region => region_needed.map(|(zoom, _)| Want::Region { recipe, zoom }),
+        CellLayer::Region => region_needed.map(|(zoom, _)| Want::Region {
+            recipe,
+            zoom,
+            wide: false,
+        }),
     }
+}
+
+/// Whether a region with [`WIDE_MARGIN`] follows: the shown region (of
+/// the current recipe) covers the view but is not the wide one, and no new
+/// region is needed first.
+fn wide_follows(region_needed: bool, current: Option<[f32; 4]>, wide: Option<[f32; 4]>) -> bool {
+    WIDE_REGION && !region_needed && current.is_some_and(|region| wide != Some(region))
 }
 
 fn run(app_handle: &tauri::AppHandle, job: Job) {
@@ -786,8 +817,19 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                 Err(error) => log::warn!("[second_window] {path}: not developed: {error}"),
             }
         }
-        Want::Region { recipe, zoom } => {
+        Want::Region { recipe, zoom, wide } => {
             let tag = region_recipe_tag(recipe_key);
+            // The region shown first takes the second window's turn and its
+            // kept source; the wide one follows as a background render
+            // with a source of its own, so it never evicts the kept one.
+            #[cfg(not(target_os = "linux"))]
+            let (margin, caller) = if wide {
+                (WIDE_MARGIN, multi_view::CELL_RENDER)
+            } else {
+                (REGION_MARGIN, gpu_processing::SECOND_WINDOW_CALLER)
+            };
+            #[cfg(target_os = "linux")]
+            let (margin, caller) = (REGION_MARGIN, gpu_processing::SECOND_WINDOW_CALLER);
             match multi_view::develop_region(
                 app_handle,
                 &context,
@@ -795,10 +837,10 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                 &path,
                 area,
                 zoom,
-                REGION_MARGIN,
+                margin,
                 (*recipe).clone(),
                 tag,
-                gpu_processing::SECOND_WINDOW_CALLER,
+                caller,
             ) {
                 Ok(region) => {
                     let frame = prepare(&region.rgba);
@@ -810,6 +852,9 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                             .as_ref()
                             .is_some_and(|s| s.path == path && s.recipe_key == recipe_key)
                             || inner.zoom.map(|z| z.scale) != Some(zoom.scale)
+                            // A wide region of a view panned since never
+                            // replaces the region shown for the new one.
+                            || (wide && inner.area != area)
                         {
                             return;
                         }
@@ -826,15 +871,22 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                                 frame,
                             );
                             paint(display, &context, background);
+                            inner.wide = if wide {
+                                region_of(display, &path).and_then(|(_, extent)| extent.region)
+                            } else {
+                                None
+                            };
                         }
                         !inner.whole.is_some_and(|w| w.recipe_key == recipe_key)
                     };
-                    // Developed first (REGION_BEFORE_WHOLE): the whole follows.
-                    if whole_old {
+                    // Developed first (REGION_BEFORE_WHOLE): the whole
+                    // follows, after the wide region (WIDE_REGION).
+                    if whole_old || (WIDE_REGION && !wide) {
                         schedule(app_handle);
                     }
                     log::info!(
-                        "[second_window] {path}: region {}x{} in {:.1} ms",
+                        "[second_window] {path}: {}region {}x{} in {:.1} ms",
+                        if wide { "wide " } else { "" },
                         region.rgba.width(),
                         region.rgba.height(),
                         region.ms
@@ -845,7 +897,17 @@ fn run(app_handle: &tauri::AppHandle, job: Job) {
                     let whole_old = {
                         let mut guard = lock_recover(&INNER);
                         let Some(inner) = guard.as_mut() else { return };
-                        inner.region_failed = Some(recipe_key);
+                        if wide {
+                            // The region shown first stays; no other wide
+                            // one is tried for it.
+                            inner.wide = inner
+                                .display
+                                .as_ref()
+                                .and_then(|display| region_of(display, &path))
+                                .and_then(|(_, extent)| extent.region);
+                        } else {
+                            inner.region_failed = Some(recipe_key);
+                        }
                         !inner.whole.is_some_and(|w| w.recipe_key == recipe_key)
                     };
                     // Developed first (REGION_BEFORE_WHOLE): the whole still follows.
@@ -1270,6 +1332,7 @@ pub(crate) async fn after_device_recovered(app_handle: &tauri::AppHandle, contex
         inner.device = Some(Arc::clone(&context.device));
         inner.whole = None;
         inner.region_failed = None;
+        inner.wide = None;
         // Shown again on the new surface (its cell and frames), at the
         // zoom and pan it had.
         if let Some(shown) = inner.shown.take() {
@@ -1718,6 +1781,19 @@ mod tests {
         let gone = placement(Some(kept), &[main], Some(main)).unwrap();
         assert_eq!((gone.x, gone.width), (605, 1814));
         assert_eq!(placement(None, &[], None), None);
+    }
+
+    #[test]
+    fn a_wide_region_follows_the_one_shown_first_once() {
+        let first = Some([10.0, 10.0, 100.0, 80.0]);
+        let wide = Some([-15.0, -10.0, 150.0, 120.0]);
+        // Shown first: the wide one follows (not on Linux).
+        assert_eq!(wide_follows(false, first, None), WIDE_REGION);
+        assert_eq!(wide_follows(false, first, wide), WIDE_REGION);
+        // Shown: nothing follows; a new region first; no region at all.
+        assert!(!wide_follows(false, wide, wide));
+        assert!(!wide_follows(true, first, None));
+        assert!(!wide_follows(false, None, None));
     }
 
     #[test]

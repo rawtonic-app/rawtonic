@@ -1693,7 +1693,16 @@ fn develop_rgba(
         None,
         None,
         ReadbackShader::Display,
-    )?;
+    )
+    .inspect_err(|_| {
+        // A failed render (e.g. out of graphics memory) may leave a source
+        // the GPU never made: the next edit uploads it again.
+        if input.caller == gpu_processing::SECOND_WINDOW_CALLER {
+            *SECOND_WINDOW_SOURCE
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+        }
+    })?;
     Ok(developed.to_rgba8())
 }
 
