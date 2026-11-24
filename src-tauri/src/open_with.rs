@@ -825,6 +825,9 @@ fn plan_edits(
             paths: vec![target.source.clone()],
             output_folder_or_file: target.target.clone(),
             is_explicit_file_path: true,
+            replace_confirmed: false,
+            confirmed_file: None,
+            panel_stamp: None,
             pinned: None,
             ..recipe.clone()
         })

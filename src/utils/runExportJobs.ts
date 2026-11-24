@@ -126,7 +126,7 @@ export async function runExportJobs(
     extension: string,
     name: string,
     recipeName: string
-  ): Promise<{ path: string; isFile: boolean } | null> => {
+  ): Promise<{ path: string; isFile: boolean; panelStamp?: string | null } | null> => {
     const { settings } = exportSettingsFromDraft(job);
     const stem = paths[0]
       .split(/[\\/]/)
@@ -160,7 +160,12 @@ export async function runExportJobs(
     // Export keeps its conflict handling (a numbered name beside them).
     const refused = saveAs ? saveAsRefusal(file, sourceOf(paths[0])) : null;
     if (refused) throw new Error(refused);
-    return { path: file, isFile: true };
+    // Save As: the file there now is the one the panel asked about
+    // replacing (none for a free name); only it is replaced.
+    const panelStamp = saveAs
+      ? await invoke<string | null>(Invokes.SaveAsTargetStamp, { path: file }).catch(() => null)
+      : undefined;
+    return { path: file, isFile: true, ...(saveAs ? { panelStamp: panelStamp ?? null } : {}) };
   };
   const destinationFor = async (
     job: RecipeDraft,
@@ -168,7 +173,7 @@ export async function runExportJobs(
     name: string,
     single: boolean,
     recipeName: string
-  ): Promise<{ path: string; isFile: boolean } | null> => {
+  ): Promise<{ path: string; isFile: boolean; panelStamp?: string | null } | null> => {
     if (saveAs) return fileFor(job, extension, name, recipeName);
     if (job.where === 'output' && session) {
       // The session's Output folder, wherever it is set (G38); one outside
@@ -247,6 +252,12 @@ export async function runExportJobs(
         ),
         outputFolderOrFile: destination.path,
         isExplicitFilePath: destination.isFile,
+        // Save As: the system's save panel asks before naming an existing
+        // file, so the one it asked about is replaced, atomically, while it
+        // is unchanged; the backend still refuses the photo, its sidecar, a
+        // camera RAW or a library's photo. Export's own one-photo dialog
+        // keeps its conflict handling.
+        ...(saveAs ? { replaceConfirmed: true, panelStamp: destination.panelStamp ?? null } : {}),
         baseOriginFolders: originFolders,
         exportSettings: { ...settings, jobName, recipeName: job.recipe?.name ?? '' },
         outputFormat,
