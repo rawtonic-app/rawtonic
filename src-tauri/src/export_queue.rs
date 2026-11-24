@@ -1495,6 +1495,27 @@ mod tests {
         assert_eq!(all.iptc.get("city").map(String::as_str), Some("Kiel"));
     }
 
+    #[test]
+    fn a_recovered_edit_target_keeps_its_generated_marking() {
+        // Recovery and Try again register a finished render from the target
+        // its job kept: one with generated areas is marked by the library
+        // (`open_with::link_render`).
+        let job = |generated: Option<bool>| {
+            let mut target = json!({
+                "source": "/S/Capture/A.NEF", "target": "/S/Capture/A_edit.tif",
+                "library": "/S",
+            });
+            if let Some(generated) = generated {
+                target["generated"] = json!(generated);
+            }
+            json!({"outputFormat": "tiff", "exportSettings": {}, "editTarget": target})
+        };
+        assert!(completed_target(&job(Some(true))).unwrap().generated);
+        assert!(!completed_target(&job(Some(false))).unwrap().generated);
+        // A job of a build before the marking had no generated renders.
+        assert!(!completed_target(&job(None)).unwrap().generated);
+    }
+
     fn running(jobs: &[&str]) -> Arc<Running> {
         Arc::new(Mutex::new(
             jobs.iter()

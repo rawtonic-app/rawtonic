@@ -2272,10 +2272,19 @@ mod tests {
             assert_eq!(lib.derived_from(&unmarked).unwrap().unwrap().id, a.id);
         }
 
-        // Reading the saved file again (Use XMP, the facts pass) and
-        // replacing its metadata leave the marking.
+        // Reading the saved file again (Use XMP, the facts pass), also when
+        // it states another source type now, and replacing its metadata
+        // leave the marking.
         lib.record_facts(&marked, &rawtonic_catalog::CaptureFacts::default())
             .unwrap();
+        lib.record_facts(
+            &marked,
+            &rawtonic_catalog::CaptureFacts {
+                source_type: Some("digitalCapture".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         lib.set_metadata(&marked, &rawtonic_metadata::Metadata::default())
             .unwrap();
         assert!(lib.has_generated_provenance(&marked).unwrap());

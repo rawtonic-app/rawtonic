@@ -61,6 +61,7 @@ fn export_on_budget_stack(source: &Path, output: &Path) {
             capture: None,
             library: None,
             publish: rawtonic_export::output::Publish::New,
+            source_generated: false,
         })
         .unwrap();
 }

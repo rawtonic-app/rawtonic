@@ -69,6 +69,9 @@ pub struct FileExport<'a> {
     /// How the file is published: new (`output` must not exist), or over
     /// the previous export of the photo (Replace if changed).
     pub publish: crate::output::Publish<'a>,
+    /// Its library marked the source as rendered with generated areas
+    /// (`Library::has_generated_provenance`): the export is marked so.
+    pub source_generated: bool,
 }
 
 /// The capture time an app correction left in the source's `.rrdata` EXIF
@@ -379,8 +382,7 @@ impl FileExporter {
                     write: &write,
                     enlarger: self.enlarger.as_deref(),
                     provenance: self.provenance.as_deref(),
-                    // Outside a library (the CLI) no file is known to be one.
-                    source_generated: false,
+                    source_generated: job.source_generated,
                 },
                 &|| Ok(()),
             )

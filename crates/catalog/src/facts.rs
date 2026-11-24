@@ -237,7 +237,7 @@ pub(crate) fn write_facts(
     let written = conn.execute(
         "UPDATE assets SET capture_time=?,capture_subsec=?,capture_offset=?,make=?,camera=?,lens=?,
                 focal_length=?,aperture=?,iso=?,exposure=?,
-                source_type=CASE WHEN generated_provenance=1 AND ?11='' THEN source_type ELSE ?11 END,
+                source_type=CASE WHEN generated_provenance=1 THEN source_type ELSE ?11 END,
                 exposure_mode=?,exposure_bias=?,sequence=?,facts_read=1
          WHERE id=?",
         params![
