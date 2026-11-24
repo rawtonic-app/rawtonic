@@ -388,8 +388,9 @@ fn smart_condition(
                 }),
                 // Lightroom ignores case; the catalog's "is" does too.
                 "==" | "!=" => {
+                    use rawtonic_raw_format::camera_names;
                     let name = text(value)?;
-                    let rules = match rawtonic_raw_format::camera_names::canonical_of_model(&name) {
+                    let rules = match camera_names::canonical_of_model(&name) {
                         Some((make, model)) => vec![
                             Rule::Condition {
                                 field: Field::Make,
@@ -402,6 +403,13 @@ fn smart_condition(
                                 value: json!(model),
                             },
                         ],
+                        // Only the library's name for a camera whose files
+                        // state another (`D750` for `NIKON D750`): no
+                        // photograph's model in Lightroom (measured, SMR5).
+                        None if camera_names::is_canonical_model(&name) => vec![Rule::Group {
+                            combine: Combine::Any,
+                            rules: vec![],
+                        }],
                         // A camera the decoder does not know keeps the
                         // names its files give.
                         None => vec![Rule::Condition {
@@ -5223,6 +5231,12 @@ mod tests {
         assert_eq!(
             members("camera", "!=", text("Canon EOS 6D")),
             ["17a.CR2", "19c.DNG", "20d.NEF"]
+        );
+        // Lightroom's camera name is the files' model: `EOS 6D` is none.
+        assert!(members("camera", "==", text("EOS 6D")).is_empty());
+        assert_eq!(
+            members("camera", "!=", text("EOS 6D")),
+            ["17a.CR2", "18b.CR2", "19c.DNG", "20d.NEF"]
         );
         assert_eq!(members("lens", "words", text("TAMRON")), ["18b.CR2"]);
         assert_eq!(

@@ -702,6 +702,36 @@ impl<'a> Compiler<'a> {
         })
     }
 
+    /// A camera model or maker is / is not `value`. The library stores each
+    /// camera's one name (`facts::camera_names`); a name as a camera's
+    /// files state it (`NIKON D750`, `NIKON CORPORATION`, which rules saved
+    /// before one name per camera hold) is that camera's one name too.
+    fn camera_name(&mut self, field: Field, op: Op, value: &Value) -> Result<String> {
+        use rawtonic_raw_format::camera_names;
+        let name = text_value(value)?;
+        let (column, one) = if field == Field::Camera {
+            (
+                "a.camera",
+                camera_names::canonical_of_model(&name).map(|(_, model)| model),
+            )
+        } else {
+            ("a.make", camera_names::canonical_of_make(&name))
+        };
+        let Some(one) = one.filter(|one| !one.eq_ignore_ascii_case(name.trim())) else {
+            return self.text_column_of(column, op, value, true);
+        };
+        self.push(name);
+        self.push(one);
+        let test = format!(
+            "rawtonic_fold(trim(coalesce({column},''))) IN (rawtonic_fold(?), rawtonic_fold(?))"
+        );
+        Ok(if op == Op::Is {
+            test
+        } else {
+            format!("NOT ({test})")
+        })
+    }
+
     /// `number_column_inner`, false (not NULL) for a photograph without the
     /// value: "none of [ISO ≥ 800]" keeps the photographs without an ISO,
     /// as "no rule holds" says. (Other columns are never NULL; wrapping
@@ -919,6 +949,9 @@ impl<'a> Compiler<'a> {
                     op,
                     value,
                 )
+            }
+            Field::Camera | Field::Make if matches!(op, Op::Is | Op::IsNot) => {
+                self.camera_name(field, op, value)
             }
             Field::Camera => self.text_column_of("a.camera", op, value, true),
             Field::Make => self.text_column_of("a.make", op, value, true),

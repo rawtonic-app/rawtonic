@@ -162,23 +162,54 @@ pub(crate) fn one_camera_names(conn: &Connection) -> Result<()> {
     }
     let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
     let pairs: Vec<(String, String)> = tx
-        .prepare(
-            "SELECT DISTINCT coalesce(make,''), coalesce(camera,'') FROM assets \
-             WHERE coalesce(make,'')!='' AND coalesce(camera,'')!=''",
-        )?
+        .prepare("SELECT DISTINCT make, camera FROM assets WHERE make!='' AND camera!=''")?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    for (make, model) in pairs {
-        let (Some(one_make), Some(one_model)) =
-            camera_names(Some(make.clone()), Some(model.clone()))
-        else {
-            continue;
-        };
-        if one_make != make || one_model != model {
+    let renames: Vec<_> = pairs
+        .into_iter()
+        .filter_map(|(make, model)| {
+            let (Some(one_make), Some(one_model)) =
+                camera_names(Some(make.clone()), Some(model.clone()))
+            else {
+                return None;
+            };
+            (one_make != make || one_model != model).then_some((make, model, one_make, one_model))
+        })
+        .collect();
+    if !renames.is_empty() {
+        // The text index's update trigger finds a photograph's entry by a
+        // full scan; for a whole archive of renamed photographs it is
+        // dropped for this step and the renamed entries are written anew
+        // in one pass, with the trigger's text (migration 0011).
+        let trigger: Option<String> = tx
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='assets_au'",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        tx.execute_batch(
+            "CREATE TEMP TABLE renamed_cameras(id TEXT PRIMARY KEY); DROP TRIGGER IF EXISTS assets_au;",
+        )?;
+        for (make, model, one_make, one_model) in &renames {
+            tx.execute(
+                "INSERT OR IGNORE INTO temp.renamed_cameras(id) SELECT id FROM assets WHERE make=? AND camera=?",
+                params![make, model],
+            )?;
             tx.execute(
                 "UPDATE assets SET make=?,camera=? WHERE make=? AND camera=?",
                 params![one_make, one_model, make, model],
             )?;
+        }
+        tx.execute_batch(
+            "DELETE FROM asset_search WHERE asset_id IN (SELECT id FROM temp.renamed_cameras);
+             INSERT INTO asset_search(asset_id, content)
+              SELECT id, rawtonic_fold(rel_path || ' ' || search_text || ' ' || make || ' ' || camera || ' ' || lens)
+              FROM assets WHERE id IN (SELECT id FROM temp.renamed_cameras);
+             DROP TABLE temp.renamed_cameras;",
+        )?;
+        if let Some(trigger) = trigger {
+            tx.execute_batch(&trigger)?;
         }
     }
     tx.execute(

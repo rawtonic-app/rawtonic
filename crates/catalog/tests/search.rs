@@ -1927,6 +1927,22 @@ fn a_bodys_raw_and_jpeg_are_one_camera() {
         );
     };
     check(&lib);
+    // Albums saved with the names a camera's files state, as the lists
+    // offered them before one name per camera.
+    let jpeg_camera = lib
+        .create_smart_collection(
+            "NIKON D750",
+            None,
+            &rule(json!({"field":"camera","op":"is","value":"NIKON D750"})),
+        )
+        .unwrap();
+    let jpeg_make = lib
+        .create_smart_collection(
+            "not NIKON CORPORATION",
+            None,
+            &rule(json!({"field":"make","op":"isNot","value":"NIKON CORPORATION"})),
+        )
+        .unwrap();
     drop(lib);
     // As a library recorded them before: each file's own names, no naming.
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
@@ -1945,5 +1961,49 @@ fn a_bodys_raw_and_jpeg_are_one_camera() {
     )
     .unwrap();
     drop(db);
-    check(&Library::open(&d.path().join("Job")).unwrap());
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    check(&lib);
+    assert_eq!(
+        names(lib.collection_paths(&jpeg_camera.id).unwrap()),
+        ["DSC_0001.JPG", "DSC_0001.NEF"]
+    );
+    assert_eq!(
+        names(lib.collection_paths(&jpeg_make.id).unwrap()),
+        ["IMG_0002.CR2", "IMG_0002.JPG", "phone.HEIC"]
+    );
+    // The text index holds the new names, and still follows later facts.
+    assert!(
+        found(
+            &lib,
+            json!({"field":"text","op":"contains","value":"corporation"})
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        found(
+            &lib,
+            json!({"field":"text","op":"contains","value":"nikon d750"})
+        ),
+        ["DSC_0001.JPG", "DSC_0001.NEF"]
+    );
+    let phone = lib
+        .asset_at(&lib.directory.join("Capture/phone.HEIC"))
+        .unwrap()
+        .unwrap();
+    lib.record_facts(
+        &phone.id,
+        &CaptureFacts {
+            make: Some("Apple".into()),
+            model: Some("iPhone 98".into()),
+            ..CaptureFacts::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        found(
+            &lib,
+            json!({"field":"text","op":"contains","value":"iphone 98"})
+        ),
+        ["phone.HEIC"]
+    );
 }

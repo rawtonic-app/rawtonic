@@ -40,21 +40,60 @@ pub fn file_names(make: &str, model: &str) -> &'static [(String, String)] {
 /// model alone); none when no catalogued camera or more than one does.
 pub fn canonical_of_model(model: &str) -> Option<(String, String)> {
     let model = model.trim().to_lowercase();
-    let mut found: Option<&(String, String)> = None;
-    for ((_, file_model), one) in &catalog_names().one {
-        if *file_model == model {
-            match found {
-                Some(other)
-                    if !one.0.eq_ignore_ascii_case(&other.0)
-                        || !one.1.eq_ignore_ascii_case(&other.1) =>
-                {
-                    return None;
-                }
-                _ => found = Some(one),
-            }
-        }
+    let names = catalog_names()
+        .one
+        .iter()
+        .filter(|((_, file_model), _)| *file_model == model)
+        .map(|(_, one)| one);
+    let one = most_common(
+        names
+            .clone()
+            .map(|(make, model)| format!("{make}\u{1f}{model}")),
+    )?;
+    let (make, model) = one.split_once('\u{1f}')?;
+    // One camera: its names differ at most in case.
+    names
+        .into_iter()
+        .all(|(m, n)| m.eq_ignore_ascii_case(make) && n.eq_ignore_ascii_case(model))
+        .then(|| (make.to_string(), model.to_string()))
+}
+
+/// The one make (`canonical_names`) of the cameras whose files state
+/// `make` (`NIKON CORPORATION` → `Nikon`); none when no catalogued camera
+/// does or they disagree beyond case.
+pub fn canonical_of_make(make: &str) -> Option<String> {
+    let make = make.trim().to_lowercase();
+    let makes: Vec<&String> = catalog_names()
+        .one
+        .iter()
+        .filter(|((file_make, _), _)| *file_make == make)
+        .map(|(_, one)| &one.0)
+        .collect();
+    let one = most_common(makes.iter().map(|m| m.to_string()))?;
+    makes
+        .iter()
+        .all(|m| m.eq_ignore_ascii_case(&one))
+        .then_some(one)
+}
+
+/// The spelling most names have (the catalogue spells a few makes both
+/// ways), the first in byte order among equals: the same every run.
+fn most_common(names: impl Iterator<Item = String>) -> Option<String> {
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    for name in names {
+        *counts.entry(name).or_default() += 1;
     }
-    found.cloned()
+    counts
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
+        .map(|(name, _)| name)
+}
+
+/// Whether `model` is the one model name (`canonical_names`) of a
+/// catalogued camera, ignoring case.
+pub fn is_canonical_model(model: &str) -> bool {
+    let model = model.trim().to_lowercase();
+    catalog_names().all.keys().any(|(_, one)| *one == model)
 }
 
 /// A digest of the decoder's camera naming data (every catalogue entry's
@@ -158,6 +197,14 @@ mod tests {
         );
         assert_eq!(canonical_of_model("Canon EOS 6D").unwrap().1, "EOS 6D");
         assert_eq!(canonical_of_model("No Such Camera"), None);
+        assert_eq!(canonical_of_model("D750"), None);
+        assert!(is_canonical_model("d750"));
+        assert!(!is_canonical_model("NIKON D750"));
+        assert_eq!(
+            canonical_of_make("NIKON CORPORATION").as_deref(),
+            Some("Nikon")
+        );
+        assert_eq!(canonical_of_make("SONY").as_deref(), Some("Sony"));
         assert!(
             file_names("Nikon", "D750")
                 .iter()
