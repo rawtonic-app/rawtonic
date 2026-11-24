@@ -25,6 +25,18 @@ it('gives a newly assigned key to its new command and clears the default owner',
   expect(useSettingsStore.getState().keybindReassigned.virtual_copy).toEqual(['stack_group']);
 });
 
+it('clears reassignment notices when a displaced command changes and on reset', async () => {
+  vi.mocked(invoke).mockResolvedValue(undefined);
+  useSettingsStore.setState({ appSettings: { keybinds: {} } as AppSettings, keybindReassigned: {} });
+  await useSettingsStore.getState().assignKeybind('virtual_copy', ['ctrl', 'KeyG']);
+  await useSettingsStore.getState().assignKeybind('stack_group', ['ctrl', 'KeyF12']);
+  expect(useSettingsStore.getState().keybindReassigned.virtual_copy).toBeUndefined();
+  await useSettingsStore.getState().assignKeybind('stack_group', ['ctrl', 'KeyG']);
+  expect(useSettingsStore.getState().keybindReassigned.stack_group).toEqual(['virtual_copy']);
+  await useSettingsStore.getState().handleSettingsChange({ keybinds: {} } as AppSettings);
+  expect(useSettingsStore.getState().keybindReassigned).toEqual({});
+});
+
 it('sends a save at once, and the next only after the earlier one finished', async () => {
   const finish: Array<(value?: unknown) => void> = [];
   const fail: Array<(reason: unknown) => void> = [];

@@ -1079,4 +1079,5 @@ it('dispatches the newly assigned shortcut instead of the old default', async ()
   expect(copy).toHaveBeenCalledOnce();
   expect(group).not.toHaveBeenCalled();
   unregister();
+  useSettingsStore.setState({ appSettings: { keybinds: {} } as AppSettings, keybindReassigned: {} });
 });

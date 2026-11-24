@@ -115,8 +115,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         displaced.push(def.action);
       }
     }
-    set({ keybindReassigned: { ...get().keybindReassigned, [action]: displaced } });
-    await get().handleSettingsChange({ ...settings, keybinds });
+    const affected = new Set([action, ...displaced]);
+    const notices = Object.fromEntries(
+      Object.entries(get().keybindReassigned).filter(
+        ([owner, previous]) => !affected.has(owner) && !previous.some((id) => affected.has(id))
+      )
+    );
+    const saving = get().handleSettingsChange({ ...settings, keybinds });
+    set({ keybindReassigned: { ...notices, [action]: displaced } });
+    await saving;
   },
   appSettings: null,
   supportedTypes: null,
@@ -132,7 +139,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
   setAppSettings: (settings) => {
     applyInterfaceShade(settings?.interfaceShade);
-    set({ appSettings: settings });
+    set({ appSettings: settings, keybindReassigned: {} });
   },
 
   setSupportedTypes: (types) => set({ supportedTypes: types }),
@@ -148,7 +155,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       searchCriteria?: unknown;
     };
     applyInterfaceShade(newSettings.interfaceShade);
-    set({ appSettings: newSettings });
+    const previous = get().appSettings?.keybinds;
+    const notices = Object.fromEntries(
+      Object.entries(get().keybindReassigned).filter(([owner, taken]) =>
+        [owner, ...taken].every((id) => JSON.stringify(previous?.[id]) === JSON.stringify(newSettings.keybinds?.[id]))
+      )
+    );
+    set({ appSettings: newSettings, keybindReassigned: notices });
 
     try {
       await saveSettings(settingsToSave);

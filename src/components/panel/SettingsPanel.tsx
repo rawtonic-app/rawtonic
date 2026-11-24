@@ -241,7 +241,10 @@ const KeybindRow = ({
           <span role="status" className="text-xs text-yellow-400">
             {t('settings.controls.reassignedFrom', {
               commands: reassignedFrom
-                .map((action) => t(KEYBIND_DEFINITIONS.find((d) => d.action === action)!.description as ParseKeys))
+                .flatMap((action) => {
+                  const definition = KEYBIND_DEFINITIONS.find((d) => d.action === action);
+                  return definition ? [t(definition.description as ParseKeys)] : [];
+                })
                 .join(', ')
             })}
           </span>
