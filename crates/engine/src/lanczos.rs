@@ -653,6 +653,9 @@ mod tests {
             ((300, 200), (1, 1)),
             ((7, 5), (3, 11)),
             ((1, 9), (4, 2)),
+            // Two full bands of output rows and one of a single row, from a
+            // reduction as large as a 24 MP camera JPEG's to a grid tile.
+            ((1203, 1586), (97, 33)),
         ];
         for (seed, ((width, height), (new_width, new_height))) in sizes.into_iter().enumerate() {
             for image in images(width, height, seed as u64) {
