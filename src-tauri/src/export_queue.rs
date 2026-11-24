@@ -75,6 +75,16 @@ pub struct ExportRequest {
     pub display_label: Option<String>,
     pub output_folder_or_file: String,
     pub is_explicit_file_path: bool,
+    /// Save As: the file named was chosen in the system's save panel, which
+    /// asks before naming an existing file, so one there was confirmed to
+    /// be replaced (`confirmed_file`).
+    #[serde(default)]
+    pub replace_confirmed: bool,
+    /// The file at `output_folder_or_file` as it was when the export was
+    /// submitted with `replace_confirmed`: only that file is replaced
+    /// (`export_images_batch` sets it, never the interface).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed_file: Option<rawtonic_fs::FileStamp>,
     pub base_origin_folders: Vec<String>,
     pub export_settings: ExportSettings,
     pub output_format: String,
@@ -1198,6 +1208,7 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
         targets.push(ExportTarget {
             output_folder_or_file: request.output_folder_or_file.clone(),
             is_explicit_file_path: request.is_explicit_file_path,
+            confirmed: request.confirmed_file,
             base_origin_folders: request.base_origin_folders.clone(),
             export_settings: request.export_settings.clone(),
             output_format: request.output_format.clone(),
@@ -1792,6 +1803,8 @@ mod tests {
                 edit_with: Some(run.clone()),
                 output_folder_or_file: format!("{path}.tif"),
                 is_explicit_file_path: true,
+                replace_confirmed: false,
+                confirmed_file: None,
                 ..request(std::slice::from_ref(path), Some(&catalog))
             };
             let (_dir, queue) = test_queue();

@@ -223,6 +223,8 @@ pub async fn queue_proof_sheet(
         display_label: Some(format!("{stem} (proof sheet)")),
         output_folder_or_file: staging.to_string_lossy().into_owned(),
         is_explicit_file_path: false,
+        replace_confirmed: false,
+        confirmed_file: None,
         base_origin_folders: Vec::new(),
         export_settings: cell_settings(&layout, request.watermark, request.output_sharpening),
         output_format: "jpg".into(),

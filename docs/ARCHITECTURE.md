@@ -634,7 +634,9 @@ the decision made before a photo renders (`decide`), the inputs fingerprint and 
 (`export-records.sqlite` in the app data folder: output path → requested path, photo, inputs, size, SHA-256);
 when the requested name is occupied, the same photo's verified numbered sibling can be reused. Requesting that numbered
 name explicitly gives it a separate slot in the records. `output::Publish` writes
-a new file or replaces only the recorded, unchanged previous export (`rawtonic_fs::replace_existing`).
+a new file, replaces only the recorded, unchanged previous export (`rawtonic_fs::replace_existing`), or replaces
+the file the user confirmed in Save As's save panel while it is still as stamped at submission
+(`Publish::Confirmed`, `rawtonic_fs::replace_confirmed`: one atomic rename, never a protected photo or sidecar).
 
 `export` (export settings/geometry/encoders, render pipeline with `RenderEnv`, exif_processing/tiff_exif/xmp_embed with
 `export_metadata_with` + `encode_with_metadata`, `sidecars` (virtual paths, `.rrdata` reading, library walk, export

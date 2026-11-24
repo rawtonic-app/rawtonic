@@ -756,16 +756,59 @@ fn save_image_with_metadata(
     )
 }
 
-/// How a recipe's file is published: new, or over `previous`, the
-/// recorded previous export of `source` (Replace if changed).
+/// How a recipe's file is published: new, over the recorded previous
+/// export of `source` (Replace if changed), or over the file the user
+/// confirmed replacing in Save As, never over a `protected` one.
 fn publish_with<'a>(
-    previous: Option<&'a Recorded>,
+    replacing: Option<&'a Replacing>,
     source: &'a str,
+    protected: &'a dyn Fn(&Path) -> bool,
 ) -> rawtonic_export::output::Publish<'a> {
-    match previous {
-        Some(previous) => rawtonic_export::output::Publish::Replace { previous, source },
-        None => rawtonic_export::output::Publish::New,
+    use rawtonic_export::output::Publish;
+    match replacing {
+        Some(Replacing::Previous(previous)) => Publish::Replace { previous, source },
+        Some(Replacing::Confirmed(stamp)) => Publish::Confirmed {
+            stamp: *stamp,
+            protected,
+        },
+        None => Publish::New,
     }
+}
+
+/// Whether Save As must not replace `path` even when the user confirmed it:
+/// the photo `source` itself, a file beside it named after it that no
+/// export format names (a sidecar: `DSC_0001.xmp`, `DSC_0001.NEF.rrdata`),
+/// or a photo of a library (`is_original`: listed by one, or edited with a
+/// sidecar). Names compare without case, as on macOS and Windows volumes.
+pub(crate) fn save_as_protected(
+    path: &Path,
+    source: &Path,
+    is_original: &dyn Fn(&Path) -> bool,
+) -> bool {
+    let lower = |p: &Path| p.to_string_lossy().to_lowercase();
+    if lower(path) == lower(source) {
+        return true;
+    }
+    let same_folder = path.parent().map(lower) == source.parent().map(lower);
+    let name = path.file_name().map(|n| n.to_string_lossy().to_lowercase());
+    let source_name = source
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase());
+    let source_stem = source
+        .file_stem()
+        .map(|n| n.to_string_lossy().to_lowercase());
+    let named_after = matches!((&name, &source_name, &source_stem), (Some(name), Some(full), Some(stem))
+        if name.starts_with(&format!("{full}.")) || name.starts_with(&format!("{stem}.")));
+    let image = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .is_some_and(|e| {
+            [
+                "jpg", "jpeg", "tif", "tiff", "png", "webp", "jxl", "avif", "cube",
+            ]
+            .contains(&e.as_str())
+        });
+    (same_folder && named_after && !image) || is_original(path)
 }
 
 /// The app's record of the files its exports wrote (for Replace if
@@ -1153,6 +1196,9 @@ pub(crate) fn lower_thread_priority() {}
 pub(crate) struct ExportTarget {
     pub output_folder_or_file: String,
     pub is_explicit_file_path: bool,
+    /// Save As over an existing file the user confirmed replacing: that
+    /// file as it was then (`ExportRequest::confirmed_file`).
+    pub confirmed: Option<rawtonic_fs::FileStamp>,
     pub base_origin_folders: Vec<String>,
     pub export_settings: ExportSettings,
     pub output_format: String,
@@ -1896,14 +1942,14 @@ pub(crate) fn target_inputs_hash(photo_inputs: &Value, target: &ExportTarget) ->
 /// (the recipe's "If a file exists" choice, `rawtonic_export::existing_files`).
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Planned {
-    /// Write the file at `path`: a new one, or over the previous export of
-    /// the photo recorded as `replace`. `kept`: why Replace if changed
+    /// Write the file at `path`: a new one, or over `replace` (the previous
+    /// export of the photo, or the file confirmed in Save As). `kept`: why Replace if changed
     /// kept another file at the recipe's name and numbered this one
     /// ([`Outcome::KeptBoth`], [`Outcome::KeptOriginal`]).
     Write {
         path: std::path::PathBuf,
         slot: std::path::PathBuf,
-        replace: Option<Recorded>,
+        replace: Option<Replacing>,
         kept: Option<Outcome>,
     },
     /// Not exported: the file at `path` stays as it is.
@@ -1911,6 +1957,15 @@ pub(crate) enum Planned {
         path: std::path::PathBuf,
         outcome: Outcome,
     },
+}
+
+/// The existing file a planned write replaces.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Replacing {
+    /// The photo's previous export recorded so (Replace if changed).
+    Previous(Recorded),
+    /// The file the user confirmed replacing in Save As, as it was then.
+    Confirmed(rawtonic_fs::FileStamp),
 }
 
 impl Planned {
@@ -2035,6 +2090,28 @@ pub(crate) fn plan_output_path<'a>(
     // their names beside it, as a folder export does: a mask image of
     // another export there numbers the whole family before anything is
     // written, instead of failing after the main file was published.
+    // Save As over a file the user confirmed replacing in the save panel:
+    // that file, while it is still as it was then, is replaced whatever
+    // "If a file exists" says (the panel asked). Never the photo, its
+    // sidecar or a library's photo; with separate mask files only when
+    // none of theirs is in the way (those were not asked about).
+    if named_file && let Some(confirmed) = target.confirmed {
+        if save_as_protected(&slot, source_path, history.is_original) {
+            return Err(format!(
+                "{} is a photo or one of its files; Save As does not replace it",
+                slot.display()
+            ));
+        }
+        let masks_free = family(&slot).iter().skip(1).all(|path| !occupied(path));
+        if masks_free && rawtonic_fs::FileStamp::of_file(&slot).is_ok_and(|now| now == confirmed) {
+            return Ok(Planned::Write {
+                path: slot.clone(),
+                slot,
+                replace: Some(Replacing::Confirmed(confirmed)),
+                kept: None,
+            });
+        }
+    }
     let exists = family(&slot).iter().any(|path| occupied(path));
     let (mut output_path, decision) = history.decide(
         policy,
@@ -2057,7 +2134,7 @@ pub(crate) fn plan_output_path<'a>(
             });
         }
         Decision::Write => (None, None),
-        Decision::Replace(recorded) => (Some(recorded), None),
+        Decision::Replace(recorded) => (Some(Replacing::Previous(recorded)), None),
         Decision::Number { reported } => {
             let (stem, extension) = if explicit {
                 (
@@ -2343,6 +2420,9 @@ fn export_photo(
         records: &records,
         is_original: &|path| crate::session_bridge::is_library_photo(path, &known_libraries),
     };
+    // What Save As never replaces, even confirmed (checked again right
+    // before the file is swapped in).
+    let protected = |path: &Path| save_as_protected(path, original_path, history.is_original);
     // Named as before for every choice: the name may need the capture date
     // or facts (read from the original when the snapshot has none).
     let file_date = pinned.naming_date(original_path);
@@ -2513,7 +2593,7 @@ fn export_photo(
             )?;
             ensure_export_not_cancelled(cancellation_token)?;
             let previous = replacing(target);
-            let written = publish_with(previous.as_ref(), photo)
+            let written = publish_with(previous.as_ref(), photo, &protected)
                 .write_with(output_path, |file| {
                     std::io::Write::write_all(file, &cube_bytes)
                 })
@@ -2753,7 +2833,8 @@ fn export_photo(
              _extension: &str,
              encoded: rawtonic_export::export_processing::EncodedExport| {
                 let miss = encoded.size_limit_miss();
-                let file = publish_with(previous.as_ref(), photo).write_export(path, encoded)?;
+                let file = publish_with(previous.as_ref(), photo, &protected)
+                    .write_export(path, encoded)?;
                 *lock_recover(&written) = Some(file);
                 if let Some(miss) = miss {
                     match &targets[target].tracking {
@@ -2926,6 +3007,8 @@ pub async fn export_images(
             display_label: None,
             output_folder_or_file,
             is_explicit_file_path,
+            replace_confirmed: false,
+            confirmed_file: None,
             base_origin_folders,
             export_settings,
             output_format,
@@ -3018,7 +3101,50 @@ pub async fn export_images_batch(
         // Pinned here, from the library, never as the interface says.
         request.pinned = None;
     }
+    let settings = crate::state::settings::current(&app_handle);
+    let requests = tauri::async_runtime::spawn_blocking(move || {
+        let known = known_libraries(&settings);
+        let is_original = |path: &Path| crate::session_bridge::is_library_photo(path, &known);
+        for request in &mut requests {
+            confirm_replace(request, &is_original)?;
+        }
+        Ok::<_, String>(requests)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     crate::export_queue::enqueue_all(&app_handle, requests).await
+}
+
+/// Save As: stamps the file the user confirmed replacing in the system's
+/// save panel as it is now (`ExportRequest::confirmed_file`), so the export
+/// replaces only that file. A name that is free confirms nothing (a file
+/// put there later is not replaced). The photo, its sidecar or a library's
+/// photo is refused with a message before anything is queued. Any other
+/// request, and a stamp the interface sent, confirms nothing.
+pub(crate) fn confirm_replace(
+    request: &mut crate::export_queue::ExportRequest,
+    is_original: &dyn Fn(&Path) -> bool,
+) -> Result<(), String> {
+    request.confirmed_file = None;
+    if !(request.replace_confirmed && request.is_explicit_file_path && request.paths.len() == 1) {
+        return Ok(());
+    }
+    let path = Path::new(&request.output_folder_or_file);
+    match path.symlink_metadata() {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        _ => {}
+    }
+    let (source, _) = parse_virtual_path(&request.paths[0]);
+    if save_as_protected(path, &source, is_original) {
+        return Err(format!(
+            "{} is a photo or one of its files; Save As does not replace it",
+            path.display()
+        ));
+    }
+    let stamp = rawtonic_fs::FileStamp::of_file(path)
+        .map_err(|e| format!("{} cannot be replaced: {e}", path.display()))?;
+    request.confirmed_file = Some(stamp);
+    Ok(())
 }
 
 /// Fails before any render when exports could not be written to `folder`
@@ -3203,6 +3329,7 @@ fn headless_targets(
         .map(|recipe| ExportTarget {
             output_folder_or_file: session.output.clone(),
             is_explicit_file_path,
+            confirmed: None,
             base_origin_folders: vec![session.source.clone()],
             export_settings: recipe.settings,
             output_format: recipe.format,
@@ -4373,6 +4500,7 @@ mod tests {
         let target = |format: &str, settings: serde_json::Value| ExportTarget {
             output_folder_or_file: dir.path().to_string_lossy().into_owned(),
             is_explicit_file_path: false,
+            confirmed: None,
             base_origin_folders: Vec::new(),
             export_settings: serde_json::from_value(settings).unwrap(),
             output_format: format.to_string(),
@@ -4469,6 +4597,7 @@ mod tests {
         let target = |template: &str| ExportTarget {
             output_folder_or_file: dir.path().to_string_lossy().into_owned(),
             is_explicit_file_path: false,
+            confirmed: None,
             base_origin_folders: Vec::new(),
             export_settings: serde_json::from_value(serde_json::json!({
                 "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
@@ -4541,6 +4670,7 @@ mod tests {
         let target = ExportTarget {
             output_folder_or_file: dir.path().to_string_lossy().into_owned(),
             is_explicit_file_path: false,
+            confirmed: None,
             base_origin_folders: Vec::new(),
             export_settings: serde_json::from_value(serde_json::json!({
                 "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
@@ -4594,6 +4724,224 @@ mod tests {
     /// publication as a folder export: a file that appears there after
     /// planning is never written over, and the bytes equal the folder
     /// export's with the same settings.
+    /// Save As over a file the user confirmed replacing in the save panel:
+    /// that file, still as it was, is replaced atomically whatever "If a
+    /// file exists" says, by the same bytes a folder export writes; one
+    /// changed since is not; the photo, its sidecar and a library's photo
+    /// are refused; a folder export ignores any confirmation.
+    #[test]
+    fn save_as_replaces_only_the_file_the_user_confirmed() {
+        use super::{Planned, Replacing, confirm_replace};
+        use rawtonic_export::existing_files::Outcome;
+        use rawtonic_export::export_processing::encode_export;
+
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.CR3");
+        rawtonic_fs::atomic_write(&raw, b"original RAW").unwrap();
+        let sidecar = dir.path().join("a.xmp");
+        rawtonic_fs::atomic_write(&sidecar, b"<xmp/>").unwrap();
+        let library_photo = dir.path().join("b.jpg");
+        rawtonic_fs::atomic_write(&library_photo, b"a library's JPEG").unwrap();
+        let delivery = dir.path().join("delivery");
+        std::fs::create_dir(&delivery).unwrap();
+        let print = delivery.join("print.jpg");
+        std::fs::write(&print, b"another program's print").unwrap();
+        let is_original = |path: &std::path::Path| path == library_photo;
+        let request = |file: &std::path::Path,
+                       confirmed: bool|
+         -> crate::export_queue::ExportRequest {
+            serde_json::from_value(serde_json::json!({
+                "paths": [raw.to_str().unwrap()], "outputFolderOrFile": file.to_str().unwrap(),
+                "isExplicitFilePath": true, "replaceConfirmed": confirmed,
+                "baseOriginFolders": [], "exportSettings": {"jpegQuality": 83, "keepMetadata": false, "stripGps": false},
+                "outputFormat": "jpg", "currentEditPath": null, "currentEditAdjustments": null,
+                "library": "noLibrary",
+            }))
+            .unwrap()
+        };
+        let stamp_of = |file: &std::path::Path| {
+            let mut asked = request(file, true);
+            confirm_replace(&mut asked, &is_original).map(|()| asked.confirmed_file)
+        };
+        let settings = |choice: &str| {
+            serde_json::from_value(serde_json::json!({
+                "jpegQuality": 83, "keepMetadata": false, "stripGps": false,
+                "nameTemplate": "{orig_base}", "destinationType": "customFolder",
+                "preserveFolders": false, "subfolder": "", "existingFiles": choice,
+            }))
+            .unwrap()
+        };
+        let target = |file: &std::path::Path, choice: &str, confirmed| ExportTarget {
+            output_folder_or_file: file.to_string_lossy().into_owned(),
+            is_explicit_file_path: true,
+            confirmed,
+            base_origin_folders: Vec::new(),
+            export_settings: settings(choice),
+            output_format: "jpg".to_string(),
+            tracking: None,
+        };
+        let date = jiff::Timestamp::now();
+        let plan = |target: &ExportTarget, masks: usize| {
+            let used = std::sync::Mutex::new(std::collections::HashSet::new());
+            let item = PhotoItem {
+                global_index: 0,
+                image_path_str: raw.to_str().unwrap(),
+                appearance_count: 1,
+                explicit_vc: None,
+                total_paths: 1,
+            };
+            super::plan_output_path(
+                target,
+                &item,
+                &raw,
+                &date,
+                None,
+                masks,
+                &used,
+                "a.CR3\nkey",
+                || "inputs",
+                &History {
+                    records: &|| None,
+                    is_original: &is_original,
+                },
+                true,
+            )
+        };
+        let encode = |target: &ExportTarget| {
+            let mut image = image::RgbImage::new(16, 8);
+            for (x, y, pixel) in image.enumerate_pixels_mut() {
+                *pixel = image::Rgb([(x * 15) as u8, (y * 30) as u8, 128]);
+            }
+            encode_export(
+                image::DynamicImage::ImageRgb8(image),
+                &target.output_format,
+                &target.export_settings,
+                None,
+            )
+            .unwrap()
+        };
+        let protected = |path: &std::path::Path| super::save_as_protected(path, &raw, &is_original);
+
+        // Without the panel's confirmation, or at a free name, nothing is
+        // confirmed; a stamp the interface sends is dropped.
+        let mut unconfirmed = request(&print, false);
+        unconfirmed.confirmed_file = Some(rawtonic_fs::FileStamp::of_file(&print).unwrap());
+        confirm_replace(&mut unconfirmed, &is_original).unwrap();
+        assert_eq!(unconfirmed.confirmed_file, None);
+        assert_eq!(stamp_of(&delivery.join("free.jpg")).unwrap(), None);
+
+        // Confirmed: replaced whatever the recipe's choice, reported so.
+        let confirmed = stamp_of(&print).unwrap();
+        assert!(confirmed.is_some());
+        for choice in ["keepBoth", "skip", "replaceIfChanged", "ask"] {
+            let planned = plan(&target(&print, choice, confirmed), 0).unwrap();
+            assert_eq!(planned.path(), print, "{choice}");
+            assert_eq!(planned.outcome(), Outcome::Replaced, "{choice}");
+        }
+        let save_as = target(&print, "keepBoth", confirmed);
+        let Planned::Write { replace, .. } = plan(&save_as, 0).unwrap() else {
+            unreachable!()
+        };
+        assert!(matches!(replace, Some(Replacing::Confirmed(_))));
+        // Changed between planning and the swap (a sync client): refused,
+        // the file stays as it is and no temporary file is left.
+        std::fs::write(&print, b"retouched meanwhile, longer").unwrap();
+        assert!(
+            super::publish_with(replace.as_ref(), "a.CR3\nkey", &protected)
+                .write_export(&print, encode(&save_as))
+                .is_err()
+        );
+        assert_eq!(
+            std::fs::read(&print).unwrap(),
+            b"retouched meanwhile, longer"
+        );
+        // Changed since it was confirmed: not replaced; the recipe's choice
+        // applies as to any file found there (Keep both numbers it).
+        assert_eq!(
+            plan(&save_as, 0).unwrap().path(),
+            delivery.join("print_1.jpg")
+        );
+
+        // Confirmed again and swapped in: the folder export's bytes.
+        let save_as = target(&print, "keepBoth", stamp_of(&print).unwrap());
+        let planned = plan(&save_as, 0).unwrap();
+        let Planned::Write { replace, .. } = &planned else {
+            unreachable!()
+        };
+        super::publish_with(replace.as_ref(), "a.CR3\nkey", &protected)
+            .write_export(&print, encode(&save_as))
+            .unwrap();
+        let folder = ExportTarget {
+            output_folder_or_file: delivery.to_string_lossy().into_owned(),
+            is_explicit_file_path: false,
+            ..target(&print, "keepBoth", None)
+        };
+        let folder_output = plan(&folder, 0).unwrap();
+        assert_eq!(folder_output.path(), delivery.join("a.jpg"));
+        super::publish_with(None, "a.CR3\nkey", &|_| false)
+            .write_export(folder_output.path(), encode(&folder))
+            .unwrap();
+        assert_eq!(
+            std::fs::read(&print).unwrap(),
+            std::fs::read(delivery.join("a.jpg")).unwrap()
+        );
+        let mut names: Vec<_> = std::fs::read_dir(&delivery)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names, ["a.jpg", "print.jpg"]);
+
+        // A folder export ignores a confirmation: its file is numbered.
+        let stamp = rawtonic_fs::FileStamp::of_file(&delivery.join("a.jpg")).unwrap();
+        for (choice, outcome) in [
+            ("keepBoth", Outcome::Written),
+            ("skip", Outcome::SkippedExists),
+            ("replaceIfChanged", Outcome::KeptBoth),
+        ] {
+            let folder = ExportTarget {
+                confirmed: Some(stamp),
+                ..ExportTarget {
+                    export_settings: settings(choice),
+                    ..folder.clone()
+                }
+            };
+            assert_eq!(plan(&folder, 0).unwrap().outcome(), outcome, "{choice}");
+        }
+
+        // With separate mask files, a mask file in the way was not asked
+        // about: the whole family is numbered instead.
+        std::fs::write(delivery.join("print_mask_0_alpha.png"), b"mask").unwrap();
+        let masked = ExportTarget {
+            export_settings: rawtonic_export::export_processing::ExportSettings {
+                export_masks: true,
+                ..settings("keepBoth")
+            },
+            ..target(&print, "keepBoth", stamp_of(&print).unwrap())
+        };
+        assert_eq!(
+            plan(&masked, 1).unwrap().path(),
+            delivery.join("print_1.jpg")
+        );
+
+        // The photo, its sidecar and a library's photo: refused, confirmed
+        // or not, at submission and when planned.
+        for own in [&raw, &sidecar, &library_photo] {
+            let error = stamp_of(own).unwrap_err();
+            assert!(error.contains("does not replace"), "{error}");
+            let stamp = rawtonic_fs::FileStamp::of_file(own).unwrap();
+            assert!(plan(&target(own, "keepBoth", Some(stamp)), 0).is_err());
+            assert!(
+                super::publish_with(Some(&Replacing::Confirmed(stamp)), "a.CR3\nkey", &protected)
+                    .write_with(own, |file| std::io::Write::write_all(file, b"jpeg"))
+                    .is_err()
+            );
+        }
+        assert_eq!(std::fs::read(&raw).unwrap(), b"original RAW");
+        assert_eq!(std::fs::read(&sidecar).unwrap(), b"<xmp/>");
+        assert_eq!(std::fs::read(&library_photo).unwrap(), b"a library's JPEG");
+    }
+
     #[test]
     fn save_as_publishes_the_named_file_without_clobbering_like_a_folder_export() {
         use rawtonic_export::export_processing::encode_export;
@@ -4611,6 +4959,7 @@ mod tests {
         let folder_target = ExportTarget {
             output_folder_or_file: delivery.to_string_lossy().into_owned(),
             is_explicit_file_path: false,
+            confirmed: None,
             base_origin_folders: Vec::new(),
             export_settings: serde_json::from_value(settings).unwrap(),
             output_format: "jpg".to_string(),
@@ -4620,6 +4969,7 @@ mod tests {
         let save_as = ExportTarget {
             output_folder_or_file: named.to_string_lossy().into_owned(),
             is_explicit_file_path: true,
+            confirmed: None,
             ..folder_target.clone()
         };
         let date = jiff::Timestamp::now();
@@ -4656,7 +5006,7 @@ mod tests {
         // the worker's publication refuses it and leaves it as it is.
         std::fs::write(&named, b"other program").unwrap();
         assert!(
-            super::publish_with(None, key)
+            super::publish_with(None, key, &|_| false)
                 .write_export(&output, encode(&save_as))
                 .is_err()
         );
@@ -4664,12 +5014,12 @@ mod tests {
         std::fs::remove_file(&named).unwrap();
 
         // Free again: written, byte for byte the folder export's file.
-        super::publish_with(None, key)
+        super::publish_with(None, key, &|_| false)
             .write_export(&plan(&save_as), encode(&save_as))
             .unwrap();
         let folder_output = plan(&folder_target);
         assert_eq!(folder_output, delivery.join("a.jpg"));
-        super::publish_with(None, key)
+        super::publish_with(None, key, &|_| false)
             .write_export(&folder_output, encode(&folder_target))
             .unwrap();
         assert_eq!(
@@ -4770,6 +5120,7 @@ mod tests {
         let mut target = ExportTarget {
             output_folder_or_file: dir.path().to_string_lossy().into_owned(),
             is_explicit_file_path: false,
+            confirmed: None,
             base_origin_folders: Vec::new(),
             export_settings: serde_json::from_value(serde_json::json!({
                 "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
@@ -4854,6 +5205,7 @@ mod tests {
         let target = |choice: &str, template: &str| ExportTarget {
             output_folder_or_file: dir.path().to_string_lossy().into_owned(),
             is_explicit_file_path: false,
+            confirmed: None,
             base_origin_folders: Vec::new(),
             export_settings: serde_json::from_value(serde_json::json!({
                 "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
@@ -4966,7 +5318,7 @@ mod tests {
         else {
             unreachable!()
         };
-        let written = super::publish_with(Some(previous), raw_key)
+        let written = super::publish_with(Some(previous), raw_key, &|_| false)
             .write_with(&own, |file| std::io::Write::write_all(file, b"export v2"))
             .unwrap();
         assert_eq!(std::fs::read(&own).unwrap(), b"export v2");
@@ -4979,9 +5331,15 @@ mod tests {
         );
         // A key of another photo at that path publishes nothing.
         assert!(
-            super::publish_with(Some(&records.get(&own).unwrap().unwrap()), "other\nkey")
-                .write_with(&own, |file| std::io::Write::write_all(file, b"x"))
-                .is_err()
+            super::publish_with(
+                Some(&super::Replacing::Previous(
+                    records.get(&own).unwrap().unwrap()
+                )),
+                "other\nkey",
+                &|_| false
+            )
+            .write_with(&own, |file| std::io::Write::write_all(file, b"x"))
+            .is_err()
         );
         assert_eq!(std::fs::read(&own).unwrap(), b"export v2");
         // Another photo named onto it: kept both.
@@ -5033,6 +5391,7 @@ mod tests {
         let target = |template: &str, start: u32, masks: bool| ExportTarget {
             output_folder_or_file: dir.path().to_string_lossy().into_owned(),
             is_explicit_file_path: false,
+            confirmed: None,
             base_origin_folders: Vec::new(),
             export_settings: serde_json::from_value(serde_json::json!({
                 "jpegQuality": 90, "keepMetadata": false, "stripGps": false,

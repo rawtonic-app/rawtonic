@@ -247,6 +247,11 @@ export async function runExportJobs(
         ),
         outputFolderOrFile: destination.path,
         isExplicitFilePath: destination.isFile,
+        // Save As: the system's save panel asks before naming an existing
+        // file, so one there is replaced, atomically; the backend stamps it
+        // and still refuses the photo, its sidecar or a library's photo.
+        // Export's own one-photo dialog keeps its conflict handling.
+        ...(saveAs ? { replaceConfirmed: true } : {}),
         baseOriginFolders: originFolders,
         exportSettings: { ...settings, jobName, recipeName: job.recipe?.name ?? '' },
         outputFormat,

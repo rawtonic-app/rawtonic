@@ -230,6 +230,9 @@ describe('Save As (one photo, a file the photographer names)', () => {
       paths: ['/p/a.NEF'],
       outputFolderOrFile: '/Delivery/client a.jpg',
       isExplicitFilePath: true,
+      // The save panel asked before naming an existing file: one there is
+      // replaced (the backend stamps it and refuses the photo's own files).
+      replaceConfirmed: true,
       outputFormat: 'jpg'
     });
     const settings = request.exportSettings as Record<string, unknown>;
@@ -245,6 +248,15 @@ describe('Save As (one photo, a file the photographer names)', () => {
     // Everything else is the dialog's settings as they are.
     const { destinationType: _d, preserveFolders: _p, subfolder: _s, ...rest } = job.settings;
     expect(settings).toMatchObject(rest);
+  });
+
+  it('asks nothing more for "If a file exists: Ask": the save panel already asked', async () => {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    named('a.jpg');
+    vi.mocked(save).mockResolvedValueOnce('/Delivery/a.jpg');
+    expect(await runExportJobs([planFor({ existingFiles: 'ask' })], ['/p/a.NEF'], { saveAs: true })).toBe(1);
+    expect(vi.mocked(invoke).mock.calls.some(([command]) => command === 'plan_export_collisions')).toBe(false);
+    expect(requests()[0]).toMatchObject({ replaceConfirmed: true, exportSettings: { existingFiles: 'keepBoth' } });
   });
 
   it('exports in the format of a typed image extension', async () => {
@@ -316,6 +328,7 @@ describe('Save As (one photo, a file the photographer names)', () => {
       isExplicitFilePath: true,
       outputFormat: 'jpg'
     });
+    expect(requests()[0].replaceConfirmed).toBeFalsy();
     expect(vi.mocked(save).mock.calls[0][0]?.filters).toEqual([{ name: 'JPG', extensions: ['jpg', 'jpeg'] }]);
   });
 
