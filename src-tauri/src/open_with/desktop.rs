@@ -1193,6 +1193,47 @@ mod tests {
     }
 
     #[test]
+    fn config_and_middle_data_mime_associations_apply_at_their_own_scope() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = tmp.path().join("config");
+        let user = tmp.path().join("user");
+        let local = tmp.path().join("local");
+        let system = tmp.path().join("system");
+        fs::create_dir(&config).unwrap();
+        for (dir, id) in [(&user, "user"), (&local, "local"), (&system, "system")] {
+            fs::create_dir_all(dir.join("applications")).unwrap();
+            rawtonic_fs::atomic_write(
+                &dir.join(format!("applications/{id}.desktop")),
+                entry_text("MimeType=image/tiff;image/png;\n"),
+            )
+            .unwrap();
+        }
+        rawtonic_fs::atomic_write(
+            &local.join("applications/mimeapps.list"),
+            "[Removed Associations]\nimage/tiff=user.desktop;local.desktop;system.desktop;\n",
+        )
+        .unwrap();
+        rawtonic_fs::atomic_write(
+            &config.join("mimeapps.list"),
+            "[Removed Associations]\nimage/png=user.desktop;local.desktop;system.desktop;\n",
+        )
+        .unwrap();
+        let dirs = Dirs {
+            data: vec![user, local, system],
+            config: vec![config],
+            ..Dirs::default()
+        };
+        let entries = all_entries(&dirs, &[], &[]);
+        assert_eq!(entries.len(), 3);
+        let associations = Associations::read(&dirs);
+        let (tiff, _) = apps_for_family(&["image/tiff".into()], &entries, &associations);
+        let ids: Vec<_> = tiff.iter().map(|app| app.id.as_str()).collect();
+        assert_eq!(ids, ["user.desktop"]);
+        let (png, _) = apps_for_family(&["image/png".into()], &entries, &associations);
+        assert!(png.is_empty());
+    }
+
+    #[test]
     fn reads_entries_from_the_directories_most_specific_first() {
         let tmp = tempfile::tempdir().unwrap();
         let (user, system) = (tmp.path().join("user"), tmp.path().join("sys"));
