@@ -92,7 +92,10 @@ thread_local! {
 /// (a Library tile's lookup or render) asks for its photo's and its
 /// master's recipe several times, each a read over a network share
 /// (PXV2/CRD6: ~19 ms per read on a LAN share). Nested scopes share the
-/// outer one; nothing outlives the outermost scope, also on a panic.
+/// outer one; nothing this thread kept outlives the outermost scope, also
+/// on a panic. Across scopes (the folder listing's, then each tile's), a
+/// sidecar is read again only when its stamp changed (`read_stamped`).
+/// Outside any scope a sidecar is always read from its file.
 pub fn with_sidecars_kept<R>(f: impl FnOnce() -> R) -> R {
     struct Scope(bool);
     impl Drop for Scope {
@@ -114,6 +117,28 @@ pub fn with_sidecars_kept<R>(f: impl FnOnce() -> R) -> R {
     f()
 }
 
+thread_local! {
+    /// Inside `with_sidecars_read_fresh`: sidecars are read from their file
+    /// and kept for the scopes that follow.
+    static FRESH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Like `with_sidecars_kept`, but each sidecar is read from its file (not
+/// taken from an earlier scope), and the text is kept for the scopes that
+/// follow while its stamp is unchanged: the folder listing reads what is
+/// on the share each time a folder is opened, and the grid's tile lookups
+/// and renders after it take that read (GRD1).
+pub fn with_sidecars_read_fresh<R>(f: impl FnOnce() -> R) -> R {
+    struct Fresh(bool);
+    impl Drop for Fresh {
+        fn drop(&mut self) {
+            FRESH.with(|fresh| fresh.set(self.0));
+        }
+    }
+    let _fresh = Fresh(FRESH.with(|fresh| fresh.replace(true)));
+    with_sidecars_kept(f)
+}
+
 /// The text of the sidecar at `path` (None when missing or unreadable),
 /// read once per `with_sidecars_kept` scope.
 pub fn read_sidecar_text(path: &Path) -> Option<Arc<str>> {
@@ -121,15 +146,14 @@ pub fn read_sidecar_text(path: &Path) -> Option<Arc<str>> {
 }
 
 fn read_text(path: &Path) -> SidecarText {
-    if let Some(kept) = KEPT.with(|kept| kept.borrow().as_ref().and_then(|m| m.get(path).cloned()))
-    {
+    let Some(kept) = KEPT.with(|kept| kept.borrow().as_ref().map(|m| m.get(path).cloned())) else {
+        // Outside a scope: the file as it is.
+        return read_from_disk(path);
+    };
+    if let Some(kept) = kept {
         return kept;
     }
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(Arc::from(text))),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e.kind()),
-    };
+    let text = read_stamped(path);
     KEPT.with(|kept| {
         if let Some(map) = kept.borrow_mut().as_mut() {
             map.insert(path.to_path_buf(), text.clone());
@@ -138,9 +162,120 @@ fn read_text(path: &Path) -> SidecarText {
     text
 }
 
+fn read_from_disk(path: &Path) -> SidecarText {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(Arc::from(text))),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.kind()),
+    }
+}
+
+/// Sidecar texts read inside a scope, by path, with the stamp (size,
+/// modification time, file identity) the file had just before it was read
+/// (GRD1): the folder listing reads every sidecar, then the grid's lookup
+/// and each tile render ask for the same ones; over a network share each
+/// open is a round trip (GRD1: 11–15 ms on Wi-Fi, CRD6: ~22 ms per read on
+/// a LAN share), a stat comes from the client's attribute cache. A sidecar
+/// whose stamp changed (an edit here or in another program) is read again.
+struct StampedTexts {
+    texts: HashMap<PathBuf, (rawtonic_fs::FileStamp, Arc<str>, u64)>,
+    bytes: usize,
+    tick: u64,
+}
+
+/// Bound of the kept texts: about 3500 sidecars of 9 KB; a larger one
+/// (many brush strokes) is not kept at all.
+const STAMPED_BYTES: usize = 32 << 20;
+const STAMPED_LARGEST: usize = 1 << 20;
+
+fn stamped() -> std::sync::MutexGuard<'static, StampedTexts> {
+    static TEXTS: std::sync::OnceLock<std::sync::Mutex<StampedTexts>> = std::sync::OnceLock::new();
+    TEXTS
+        .get_or_init(|| {
+            std::sync::Mutex::new(StampedTexts {
+                texts: HashMap::new(),
+                bytes: 0,
+                tick: 0,
+            })
+        })
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+impl StampedTexts {
+    fn get(&mut self, path: &Path, stamp: &rawtonic_fs::FileStamp) -> Option<Arc<str>> {
+        self.tick += 1;
+        let tick = self.tick;
+        let entry = self.texts.get_mut(path)?;
+        if entry.0 != *stamp {
+            return None;
+        }
+        entry.2 = tick;
+        Some(entry.1.clone())
+    }
+
+    fn insert(&mut self, path: &Path, stamp: rawtonic_fs::FileStamp, text: Arc<str>) {
+        self.remove(path);
+        if text.len() > STAMPED_LARGEST {
+            return;
+        }
+        self.tick += 1;
+        self.bytes += text.len();
+        self.texts
+            .insert(path.to_path_buf(), (stamp, text, self.tick));
+        if self.bytes > STAMPED_BYTES {
+            // Least recently used first, down to three quarters.
+            let mut ticks: Vec<_> = self.texts.iter().map(|(p, e)| (e.2, p.clone())).collect();
+            ticks.sort_unstable();
+            for (_, path) in ticks {
+                if self.bytes <= STAMPED_BYTES / 4 * 3 {
+                    break;
+                }
+                self.remove(&path);
+            }
+        }
+    }
+
+    fn remove(&mut self, path: &Path) {
+        if let Some((_, text, _)) = self.texts.remove(path) {
+            self.bytes -= text.len();
+        }
+    }
+}
+
+/// The text at `path`, from the kept texts while its stamp is unchanged.
+/// The stamp is taken before the read: a file changed between the two is
+/// kept under its older stamp and so read again next time.
+fn read_stamped(path: &Path) -> SidecarText {
+    let stamp = match rawtonic_fs::FileStamp::read(path) {
+        Ok(stamp) => stamp,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            stamped().remove(path);
+            return Ok(None);
+        }
+        Err(_) => {
+            stamped().remove(path);
+            return read_from_disk(path);
+        }
+    };
+    if !FRESH.with(std::cell::Cell::get)
+        && let Some(text) = stamped().get(path, &stamp)
+    {
+        return Ok(Some(text));
+    }
+    let text = read_from_disk(path);
+    match &text {
+        Ok(Some(text)) => stamped().insert(path, stamp, text.clone()),
+        // Gone or unreadable now: no earlier text stands for it.
+        _ => stamped().remove(path),
+    }
+    text
+}
+
 /// Forgets a kept sidecar text after the app wrote that sidecar, so the
 /// rest of the scope reads what was written.
 pub fn forget_kept_sidecar(path: &Path) {
+    stamped().remove(path);
     KEPT.with(|kept| {
         if let Some(map) = kept.borrow_mut().as_mut() {
             map.remove(path);
@@ -165,23 +300,19 @@ pub fn read_sidecar_snapshot(
     sidecar_path: &Path,
     library: Option<&Path>,
 ) -> (ImageMetadata, bool, SidecarText) {
-    let kept = is_kept(sidecar_path);
     let read = read_sidecar_parsed(sidecar_path, library);
     // What the caller writes back must be the sidecar as it is now, not a
-    // text this thread kept while another saved the photo: read it again.
-    if read.1 && kept {
+    // text kept while another thread or program saved the photo: read it
+    // again from the file.
+    if read.1 && in_scope() {
         forget_kept_sidecar(sidecar_path);
         return read_sidecar_parsed(sidecar_path, library);
     }
     read
 }
 
-fn is_kept(path: &Path) -> bool {
-    KEPT.with(|kept| {
-        kept.borrow()
-            .as_ref()
-            .is_some_and(|map| map.contains_key(path))
-    })
+fn in_scope() -> bool {
+    KEPT.with(|kept| kept.borrow().is_some())
 }
 
 fn read_sidecar_parsed(
@@ -478,6 +609,15 @@ mod tests {
 mod kept_sidecar_tests {
     use super::*;
 
+    fn set_mtime(path: &std::path::Path, time: std::time::SystemTime) {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+    }
+
     #[test]
     fn a_scope_reads_each_sidecar_once_and_sees_its_own_writes() {
         let dir = tempfile::tempdir().unwrap();
@@ -509,6 +649,81 @@ mod kept_sidecar_tests {
             Some("{\"rating\":3}")
         );
         assert_eq!(read_sidecar_text(&dir.path().join("missing.rrdata")), None);
+    }
+
+    /// GRD1: the listing's read serves the grid's lookups and tile renders
+    /// in later scopes while the sidecar's stamp is unchanged; any change
+    /// of size, time or file is read again.
+    #[test]
+    fn a_later_scope_reads_a_sidecar_again_only_when_its_stamp_changed() {
+        let dir = tempfile::tempdir().unwrap();
+        let sidecar = dir.path().join("c.ARW.rrdata");
+        let read = || with_sidecars_kept(|| read_sidecar_text(&sidecar));
+        std::fs::write(&sidecar, "{\"rating\":1}").unwrap();
+        let listed = std::fs::metadata(&sidecar).unwrap().modified().unwrap();
+        assert_eq!(read().as_deref(), Some("{\"rating\":1}"));
+        // Same size, same file, its time put back: nothing tells it changed,
+        // so it is not read (each read is a round trip on a share).
+        std::fs::write(&sidecar, "{\"rating\":2}").unwrap();
+        set_mtime(&sidecar, listed);
+        assert_eq!(read().as_deref(), Some("{\"rating\":1}"));
+        // Outside a scope, and in a fresh scope (the listing): the file as
+        // it is, which the next scope then takes.
+        assert_eq!(
+            read_sidecar_text(&sidecar).as_deref(),
+            Some("{\"rating\":2}")
+        );
+        assert_eq!(
+            with_sidecars_read_fresh(|| read_sidecar_text(&sidecar)).as_deref(),
+            Some("{\"rating\":2}")
+        );
+        std::fs::write(&sidecar, "{\"rating\":1}").unwrap();
+        set_mtime(&sidecar, listed);
+        assert_eq!(read().as_deref(), Some("{\"rating\":2}"));
+        // Another time: read again.
+        set_mtime(&sidecar, listed + std::time::Duration::from_secs(2));
+        assert_eq!(read().as_deref(), Some("{\"rating\":1}"));
+        // Another size at the same time: read again.
+        std::fs::write(&sidecar, "{\"rating\":3 }").unwrap();
+        set_mtime(&sidecar, listed + std::time::Duration::from_secs(2));
+        assert_eq!(read().as_deref(), Some("{\"rating\":3 }"));
+        // Another file put in its place, same size and time: read again
+        // (Unix; Windows stamps by size and time).
+        let other = dir.path().join("other");
+        std::fs::write(&other, "{\"rating\":4 }").unwrap();
+        set_mtime(&other, listed + std::time::Duration::from_secs(2));
+        std::fs::rename(&other, &sidecar).unwrap();
+        #[cfg(unix)]
+        assert_eq!(read().as_deref(), Some("{\"rating\":4 }"));
+        // Written by the app: forgotten, read again.
+        std::fs::write(&sidecar, "{\"rating\":5 }").unwrap();
+        set_mtime(&sidecar, listed + std::time::Duration::from_secs(2));
+        forget_kept_sidecar(&sidecar);
+        assert_eq!(read().as_deref(), Some("{\"rating\":5 }"));
+        // Unreadable when the folder is opened again: the earlier text is
+        // not taken afterwards either.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let readable = std::fs::metadata(&sidecar).unwrap().permissions();
+            std::fs::set_permissions(&sidecar, std::fs::Permissions::from_mode(0o000)).unwrap();
+            if std::fs::read(&sidecar).is_err() {
+                assert_eq!(
+                    with_sidecars_read_fresh(|| read_sidecar_text(&sidecar)),
+                    None
+                );
+                std::fs::set_permissions(&sidecar, readable.clone()).unwrap();
+                std::fs::write(&sidecar, "{\"rating\":6 }").unwrap();
+                set_mtime(&sidecar, listed + std::time::Duration::from_secs(2));
+                assert_eq!(read().as_deref(), Some("{\"rating\":6 }"));
+            } else {
+                // Running as root: permissions do not stop the read.
+                std::fs::set_permissions(&sidecar, readable).unwrap();
+            }
+        }
+        // Removed: none.
+        std::fs::remove_file(&sidecar).unwrap();
+        assert_eq!(read(), None);
     }
 
     #[test]

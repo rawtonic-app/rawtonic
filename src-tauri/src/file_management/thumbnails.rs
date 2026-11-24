@@ -147,6 +147,8 @@ fn uses_tone_sliders(adjustments: &serde_json::Value) -> bool {
 /// Two copies of one session folder share an id: their photographs at one
 /// path are the same file then, and a changed one has another time stamp.
 fn cache_label(path_str: &str, source: &Path) -> String {
+    #[cfg(test)]
+    LABEL_READS.with(|reads| reads.set(reads.get() + 1));
     #[derive(serde::Deserialize)]
     struct Id {
         id: String,
@@ -160,6 +162,71 @@ fn cache_label(path_str: &str, source: &Path) -> String {
             Some(format!("library\0{id}\0{}", relative.to_string_lossy()))
         })
         .unwrap_or_else(|| path_str.to_string())
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How often this thread asked `cache_label` (it stats a library's
+    /// manifests beside the photo).
+    static LABEL_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// A photo's cache label and source time (`label_and_mtime`).
+type LookupFacts = (String, Option<u64>);
+
+thread_local! {
+    /// Inside `with_lookup_facts`: each photo's cache label and source
+    /// time, asked once for all the keys of one lookup.
+    static LOOKUP_FACTS: std::cell::RefCell<Option<HashMap<String, LookupFacts>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `f` with the cache label and source time of each photo read once:
+/// a lookup computes up to seven keys of one photo, and each asked again
+/// stats the original and looks for a library's manifests beside it (GRD2,
+/// a never-edited RAW on a share: 8 stats of the original and 71 of
+/// manifests per lookup, 2 and 46 with this; each a round trip when the
+/// share's attribute cache is cold).
+fn with_lookup_facts<R>(f: impl FnOnce() -> R) -> R {
+    struct Scope(bool);
+    impl Drop for Scope {
+        fn drop(&mut self) {
+            if self.0 {
+                LOOKUP_FACTS.with(|facts| facts.borrow_mut().take());
+            }
+        }
+    }
+    // The outermost scope owns the facts and drops them at its end.
+    let _scope = Scope(LOOKUP_FACTS.with(|facts| {
+        let mut facts = facts.borrow_mut();
+        let outermost = facts.is_none();
+        if outermost {
+            *facts = Some(HashMap::new());
+        }
+        outermost
+    }));
+    f()
+}
+
+/// `cache_label` and `source_mtime` of `path_str`, once per
+/// `with_lookup_facts` scope.
+fn label_and_mtime(path_str: &str, source: &Path) -> LookupFacts {
+    let known = LOOKUP_FACTS.with(|facts| {
+        facts
+            .borrow()
+            .as_ref()
+            .and_then(|facts| facts.get(path_str).cloned())
+    });
+    if let Some(known) = known {
+        return known;
+    }
+    let facts = (cache_label(path_str, source), source_mtime(source));
+    LOOKUP_FACTS.with(|kept| {
+        if let Some(kept) = kept.borrow_mut().as_mut() {
+            kept.insert(path_str.to_string(), facts.clone());
+        }
+    });
+    facts
 }
 
 /// Whether a tile of `source` is developed from a Standard proxy that still
@@ -286,10 +353,11 @@ fn thumbnail_hash_with(
 ) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
-    let img_mod_time = source_mtime(&source_path)?;
+    let (label, img_mod_time) = label_and_mtime(path_str, &source_path);
+    let img_mod_time = img_mod_time?;
 
     let mut hasher = blake3::Hasher::new();
-    hasher.update(cache_label(path_str, &source_path).as_bytes());
+    hasher.update(label.as_bytes());
     hasher.update(&img_mod_time.to_le_bytes());
     hasher.update(adjustments_bytes);
     let adjustments = serde_json::from_slice::<serde_json::Value>(adjustments_bytes).ok();
@@ -1667,9 +1735,10 @@ fn embedded_thumbnail_hash(path_str: &str) -> Option<String> {
     if !is_raw_file(&source) {
         return None;
     }
+    let (label, mtime) = label_and_mtime(path_str, &source);
     let mut hash = blake3::Hasher::new();
-    hash.update(cache_label(path_str, &source).as_bytes());
-    hash.update(&source_mtime(&source)?.to_le_bytes());
+    hash.update(label.as_bytes());
+    hash.update(&mtime?.to_le_bytes());
     hash.update(b"embedded-raw-orientation-v1");
     // Cut to the camera's crop where the JPEG shows the whole frame
     // (`embedded_in_camera_crop`; Fujifilm aspect ratios, 2026-11-19).
@@ -1717,6 +1786,19 @@ fn keep_tile_of_unavailable_original(
     new: String,
     old: impl FnOnce() -> Vec<String>,
 ) -> String {
+    // The cached tiles first: they are local, and asking whether the
+    // original is available opens it (GRD1/GRD2: 7–25 ms per tile on a
+    // Wi-Fi share). Without an old tile to keep the answer is `new` either
+    // way, so the original is only asked about when one is there.
+    if thumbnail_files_exist(directory, &new) {
+        return new;
+    }
+    let Some(old) = old()
+        .into_iter()
+        .find(|old| *old != new && thumbnail_files_exist(directory, old))
+    else {
+        return new;
+    };
     // A proxy of another variant or frame cannot show this recipe, and none
     // is developed for an evicted cloud original (`get_or_generate`
     // develops nothing without downloading it): its old tile stays.
@@ -1724,14 +1806,10 @@ fn keep_tile_of_unavailable_original(
         || (!is_cloud_placeholder(source)
             && !proxy_lacks_camera_defaults(&rawtonic_engine::develop_defaults::current(), recipe)
             && crate::preview_proxy::stands_for_by_recipe(source, recipe) == Some(true))
-        || thumbnail_files_exist(directory, &new)
     {
         return new;
     }
-    old()
-        .into_iter()
-        .find(|old| *old != new && thumbnail_files_exist(directory, old))
-        .unwrap_or(new)
+    old
 }
 
 /// A never-edited ORF whose original is unavailable keeps the tile an
@@ -1745,18 +1823,17 @@ fn orf_tile_while_offline(
     new: String,
     before: impl FnOnce() -> Option<String>,
 ) -> String {
-    // Looked at only for an ORF whose tile is missing (each lookup's cost).
+    // Looked at only for an ORF whose tile is missing (each lookup's cost),
+    // and the original (an open) only when the earlier tile is there.
     let orf = source
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("orf"));
-    if !orf
-        || thumbnail_files_exist(directory, &new)
-        || crate::preview_proxy::source_available(source)
-    {
+    if !orf || thumbnail_files_exist(directory, &new) {
         return new;
     }
     before()
         .filter(|before| *before != new && thumbnail_files_exist(directory, before))
+        .filter(|_| !crate::preview_proxy::source_available(source))
         .unwrap_or(new)
 }
 
@@ -1870,6 +1947,19 @@ impl ThumbnailCacheEntry {
     }
 
     fn lookup(
+        path_str: &str,
+        thumb_cache_dir: &Path,
+        settings: &AppSettings,
+        queue_metadata: impl FnOnce(PathBuf, PathBuf),
+    ) -> Option<Self> {
+        with_lookup_facts(|| {
+            crate::preview_proxy::with_availability_kept(|| {
+                Self::lookup_keys(path_str, thumb_cache_dir, settings, queue_metadata)
+            })
+        })
+    }
+
+    fn lookup_keys(
         path_str: &str,
         thumb_cache_dir: &Path,
         settings: &AppSettings,
@@ -2611,6 +2701,198 @@ mod kept_sidecar_tests {
         });
         // Outside a job, the file as it is.
         assert!(super::thumbnail_metadata(&source, &sidecar).is_none());
+    }
+}
+
+#[cfg(test)]
+mod share_lookup_tests {
+
+    fn set_mtime(path: &std::path::Path, time: std::time::SystemTime) {
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+    }
+    /// A cached developed tile is found without opening its original (GRD1:
+    /// an open is a server round trip on a share, 7–25 ms per tile on
+    /// Wi-Fi); the folder listing reads the sidecar from its file and the
+    /// lookup after it takes that read while the sidecar is unchanged; an
+    /// edit made meanwhile is read and asks for a new tile.
+    #[test]
+    fn a_cached_tile_is_looked_up_without_opening_its_original_or_reading_its_sidecar_again() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.NEF");
+        std::fs::write(&source, b"raw").unwrap();
+        let sidecar = temp.path().join("photo.NEF.rrdata");
+        std::fs::write(
+            &sidecar,
+            br#"{"version":1,"rating":3,"adjustments":{"exposure":0.5}}"#,
+        )
+        .unwrap();
+        let listed = std::fs::metadata(&sidecar).unwrap().modified().unwrap();
+        let path = source.to_str().unwrap();
+        let cache = temp.path().join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        let settings = crate::AppSettings::default();
+        let lookup = || {
+            rawtonic_export::sidecars::with_sidecars_kept(|| {
+                super::ThumbnailCacheEntry::lookup(path, &cache, &settings, |_, _| {
+                    panic!("no cloud sidecar")
+                })
+                .unwrap()
+            })
+        };
+        let list = || {
+            crate::file_management::listing::resolve_image_metadata(
+                &source, &sidecar, false, &settings,
+            )
+            .rating
+        };
+        let rewrite_unchanged = |rating: u8| {
+            std::fs::write(
+                &sidecar,
+                format!(r#"{{"version":1,"rating":{rating},"adjustments":{{"exposure":0.5}}}}"#),
+            )
+            .unwrap();
+            set_mtime(&sidecar, listed);
+        };
+        let entry = lookup();
+        assert_eq!(entry.rating, Some(3));
+        for tile in [&entry.small, &entry.medium] {
+            std::fs::write(tile, b"cached tile").unwrap();
+        }
+
+        // Same size, same file, time put back: nothing tells it changed.
+        // Opening the folder again reads the file all the same.
+        rewrite_unchanged(6);
+        assert_eq!(list(), 6, "the listing took an earlier read");
+
+        // The lookup after it takes the listing's read, and finds the
+        // cached tile without opening the original.
+        rewrite_unchanged(4);
+        crate::preview_proxy::SOURCE_OPENS.with(|opens| opens.set(0));
+        let cached = lookup();
+        assert_eq!(cached.rating, Some(6), "the sidecar was read again");
+        assert!(cached.cached().is_some());
+        assert_eq!(
+            crate::preview_proxy::SOURCE_OPENS.with(std::cell::Cell::get),
+            0,
+            "the original was opened"
+        );
+
+        // Edited meanwhile (a new time): read, and a new tile is asked for.
+        std::fs::write(
+            &sidecar,
+            br#"{"version":1,"rating":4,"adjustments":{"exposure":0.7}}"#,
+        )
+        .unwrap();
+        set_mtime(&sidecar, listed + std::time::Duration::from_secs(2));
+        let edited = lookup();
+        assert_eq!(edited.rating, Some(4));
+        assert!(edited.cached().is_none());
+    }
+
+    /// An edited photo with a Standard preview whose tile is still to be
+    /// made: its keys (the current one and those an older tile may have)
+    /// each ask whether the preview stands for the recipe, and that asks
+    /// whether the original is available; one lookup opens it once at most
+    /// (GRD2 review: up to four more opens per tile on a share).
+    #[test]
+    fn a_lookup_asks_once_whether_the_original_is_available() {
+        let temp = tempfile::tempdir().unwrap();
+        let session = temp.path().join("Job");
+        std::fs::create_dir_all(session.join("Capture")).unwrap();
+        std::fs::write(session.join("session.json"), "{}").unwrap();
+        std::fs::write(session.join("session.sqlite"), "").unwrap();
+        let source = session.join("Capture").join("A.NEF");
+        std::fs::write(&source, b"raw").unwrap();
+        std::fs::write(
+            source.with_file_name("A.NEF.rrdata"),
+            br#"{"version":1,"rating":2,"adjustments":{"exposure":0.5}}"#,
+        )
+        .unwrap();
+        let image = image::DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(
+            8,
+            6,
+            image::Rgb([0.5, 0.4, 0.3]),
+        ));
+        crate::preview_proxy::write_for_test(&source, &image, 8);
+        let cache = temp.path().join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        let settings = crate::AppSettings::default();
+        crate::preview_proxy::SOURCE_OPENS.with(|opens| opens.set(0));
+        let entry = rawtonic_export::sidecars::with_sidecars_kept(|| {
+            super::ThumbnailCacheEntry::lookup(
+                source.to_str().unwrap(),
+                &cache,
+                &settings,
+                |_, _| panic!("no cloud sidecar"),
+            )
+            .unwrap()
+        });
+        assert!(entry.cached().is_none());
+        assert_eq!(entry.rating, Some(2));
+        assert!(
+            crate::preview_proxy::SOURCE_OPENS.with(std::cell::Cell::get) <= 1,
+            "opens {}",
+            crate::preview_proxy::SOURCE_OPENS.with(std::cell::Cell::get)
+        );
+        // Outside a lookup the original is asked as it is now.
+        std::fs::remove_file(&source).unwrap();
+        assert!(!crate::preview_proxy::source_available(&source));
+    }
+
+    /// A never-edited RAW's tile is its camera preview, cached under its
+    /// own key: looking it up opens the original neither while the tile is
+    /// still to be made nor once it is cached (GRD2: one open per lookup,
+    /// two for an ORF, 18 ms each on a Wi-Fi share), as long as no older
+    /// tile could stand in for an unavailable original; the keys it asks
+    /// for share one look for a library beside the photo.
+    #[test]
+    fn a_never_edited_raw_is_looked_up_without_opening_its_original() {
+        let temp = tempfile::tempdir().unwrap();
+        let cache = temp.path().join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        let settings = crate::AppSettings::default();
+        for name in ["photo.NEF", "photo.ORF"] {
+            let source = temp.path().join(name);
+            std::fs::write(&source, b"raw").unwrap();
+            let path = source.to_str().unwrap();
+            let lookup = || {
+                crate::preview_proxy::SOURCE_OPENS.with(|opens| opens.set(0));
+                super::LABEL_READS.with(|reads| reads.set(0));
+                let entry = rawtonic_export::sidecars::with_sidecars_kept(|| {
+                    super::ThumbnailCacheEntry::lookup(path, &cache, &settings, |_, _| {
+                        panic!("no cloud sidecar")
+                    })
+                    .unwrap()
+                });
+                // Its label (a library's manifests looked for beside it)
+                // once for all the keys asked.
+                assert_eq!(super::LABEL_READS.with(std::cell::Cell::get), 1);
+                let opens = crate::preview_proxy::SOURCE_OPENS.with(std::cell::Cell::get);
+                (entry, opens)
+            };
+            let (missing, opens) = lookup();
+            assert!(missing.cached().is_none());
+            assert_eq!(
+                opens, 0,
+                "{name}: the original was opened for a tile to make"
+            );
+            let embedded = super::embedded_thumbnail_hash(path).unwrap();
+            for size in ["small", "medium"] {
+                std::fs::write(cache.join(format!("{embedded}_{size}.jpg")), b"tile").unwrap();
+            }
+            let (cached, opens) = lookup();
+            assert!(cached.cached().is_some());
+            assert!(cached.small.ends_with(format!("{embedded}_small.jpg")));
+            assert_eq!(
+                opens, 0,
+                "{name}: the original was opened for a cached tile"
+            );
+        }
     }
 }
 

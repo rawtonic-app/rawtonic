@@ -416,8 +416,18 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
     if (typeof file === 'string') set({ watermarkPath: file });
   };
 
-  const run = async () => {
-    if (!paths.length || choosing || (!checked.length && formInvalid) || unsignable.length) return;
+  // Save As names one file: one photo and one recipe (or the form).
+  // The form's subfolder does not apply to it, so only its other checks hold it.
+  const canSaveAs = paths.length === 1 && planned.length === 1;
+  // A ticked recipe shown in the form exports the form only while all of it
+  // is valid (`recipeDraft`), so then the subfolder counts too.
+  const saveAsInvalid = checked.some((r) => r.id === editing)
+    ? formInvalid
+    : !checked.length &&
+      (watermarkMissing || !validNamingTemplate(draft.template, 'export') || !validSequenceStart(draft.sequenceStart));
+  const run = async (saveAs = false) => {
+    if (!paths.length || choosing || unsignable.length) return;
+    if (saveAs ? !canSaveAs || saveAsInvalid : !checked.length && formInvalid) return;
     setChoosing(true);
     try {
       // Signed with the certificate the panel showed: the queue refuses
@@ -428,7 +438,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
           ? { ...job, settings: { ...job.settings, provenance: { ...job.settings.provenance, signer } } }
           : job
       );
-      if (await runExportJobs(jobs, paths)) onStarted?.();
+      if (await runExportJobs(jobs, paths, { saveAs })) onStarted?.();
     } finally {
       setChoosing(false);
     }
@@ -1360,6 +1370,19 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
         {busy && (
           <button type="button" onClick={() => void cancel()} disabled={state.status === Status.Cancelling}>
             {t('studio.export.actions.cancel')}
+          </button>
+        )}
+        {paths.length === 1 && (
+          // Lightroom's and Capture One's single-file export: the native save
+          // dialog names the file and its folder (notes: parity-gaps/G43).
+          <button
+            type="button"
+            className="studio-export-save-as"
+            onClick={() => void run(true)}
+            disabled={choosing || !canSaveAs || saveAsInvalid || unsignable.length > 0}
+            title={canSaveAs ? t('studio.export.actions.saveAsHint') : t('studio.export.actions.saveAsOneRecipe')}
+          >
+            {t('studio.export.actions.saveAs')}
           </button>
         )}
         <button
