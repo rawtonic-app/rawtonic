@@ -27,8 +27,10 @@
 //! Rawtonic in its output's (or for a curve in ProPhoto's): the same for
 //! greys. Above 0 Capture One's own (global) Exposure rolls the highlights
 //! off from about half the range instead of clipping (C1R16 point 6): the
-//! import uses the law with its clip there too (no shoulder fitted), and the
-//! import report says so.
+//! import uses the law with its clip there too (no shoulder fitted). That
+//! difference is documented (CHANGELOG, notes), not reported per photo: the
+//! import report names only the photos whose Exposure keeps Rawtonic's
+//! response (`Kept`).
 use crate::input_profile::{SOURCE_TONE_SAMPLES, SourceTone};
 use rawtonic_recipe::masks;
 use rawtonic_recipe::tone;
@@ -40,9 +42,14 @@ pub const ENCODED_EV_PER_STOP: f64 = 1.0 / 1.8;
 /// Points of a curve for a file in another profile than sRGB.
 const PROFILE_CURVE_POINTS: usize = 16;
 
+/// Bytes of a JPEG read for its profile: the decoder buffers the file it is
+/// given and reads only the headers, where the profile's APP2 segments are.
+const JPEG_HEADER_BYTES: u64 = 1 << 20;
+
 /// How the renderer reads the non-RAW file at `path` (`SourceTone`); `None`
 /// where the import cannot tell (unreadable, AVIF/HEIF, linear-light
-/// sources), and the Exposure then stays Rawtonic's.
+/// sources), and the Exposure then stays Rawtonic's. Reads the file's
+/// headers only.
 pub fn source_tone_of(path: &Path) -> Option<SourceTone> {
     use std::io::Read;
     let mut head = Vec::with_capacity(4096);
@@ -54,24 +61,54 @@ pub fn source_tone_of(path: &Path) -> Option<SourceTone> {
     if crate::avif::is_avif(&head) || crate::heif::is_heif(&head) {
         return None;
     }
-    let reader = image::ImageReader::open(path)
-        .ok()?
-        .with_guessed_format()
-        .ok()?;
+    let format = image::guess_format(&head).ok()?;
     if matches!(
-        reader.format(),
-        None | Some(image::ImageFormat::OpenExr | image::ImageFormat::Hdr)
+        format,
+        image::ImageFormat::OpenExr | image::ImageFormat::Hdr
     ) {
         return None;
     }
-    let mut decoder = reader.into_decoder().ok()?;
-    match image::ImageDecoder::icc_profile(&mut decoder)
-        .ok()
-        .flatten()
-    {
-        Some(icc) => Some(crate::input_profile::source_tone(&icc)),
-        None => Some(SourceTone::AsRead),
-    }
+    let icc = if format == image::ImageFormat::Jpeg {
+        let mut prefix = Vec::new();
+        std::fs::File::open(path)
+            .ok()?
+            .take(JPEG_HEADER_BYTES)
+            .read_to_end(&mut prefix)
+            .ok()?;
+        match icc_of(std::io::Cursor::new(prefix), format) {
+            Some(icc) => icc,
+            // Headers longer than the prefix: the whole file.
+            None => icc_of(
+                std::io::BufReader::new(std::fs::File::open(path).ok()?),
+                format,
+            )?,
+        }
+    } else {
+        icc_of(
+            std::io::BufReader::new(std::fs::File::open(path).ok()?),
+            format,
+        )?
+    };
+    Some(match icc {
+        Some(icc) => crate::input_profile::source_tone(&icc),
+        None => SourceTone::AsRead,
+    })
+}
+
+/// The embedded profile of an image in `format` read from `source`;
+/// `None` when its headers cannot be read.
+fn icc_of(
+    source: impl std::io::BufRead + std::io::Seek,
+    format: image::ImageFormat,
+) -> Option<Option<Vec<u8>>> {
+    let mut decoder = image::ImageReader::with_format(source, format)
+        .into_decoder()
+        .ok()?;
+    Some(
+        image::ImageDecoder::icc_profile(&mut decoder)
+            .ok()
+            .flatten(),
+    )
 }
 
 fn srgb_decode(v: f64) -> f64 {
@@ -359,6 +396,46 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The profile is read from the file's headers: a JPEG (from its first
+    /// MiB), PNG and TIFF with an embedded profile, and files without one.
+    #[test]
+    fn files_are_read_for_their_profile() {
+        use image::ImageEncoder;
+        let dir = tempfile::tempdir().unwrap();
+        let pixels = vec![128u8; 16 * 16 * 3];
+        let adobe = crate::icc_profile::for_space(OutputColorSpace::AdobeRgb);
+        let write = |name: &str, icc: Option<&[u8]>| {
+            let path = dir.path().join(name);
+            let file = std::io::BufWriter::new(std::fs::File::create(&path).unwrap());
+            if name.ends_with(".jpg") {
+                let mut e = image::codecs::jpeg::JpegEncoder::new_with_quality(file, 90);
+                if let Some(icc) = icc {
+                    e.set_icc_profile(icc.to_vec()).unwrap();
+                }
+                e.write_image(&pixels, 16, 16, image::ExtendedColorType::Rgb8)
+                    .unwrap();
+            } else {
+                let mut e = image::codecs::png::PngEncoder::new(file);
+                if let Some(icc) = icc {
+                    e.set_icc_profile(icc.to_vec()).unwrap();
+                }
+                e.write_image(&pixels, 16, 16, image::ExtendedColorType::Rgb8)
+                    .unwrap();
+            }
+            path
+        };
+        for name in ["a.jpg", "a.png"] {
+            let tagged = write(&format!("adobe-{name}"), Some(adobe));
+            assert!(
+                matches!(source_tone_of(&tagged), Some(SourceTone::Power(g)) if (g - 563.0 / 256.0).abs() < 1e-3),
+                "{name}"
+            );
+            let plain = write(&format!("plain-{name}"), None);
+            assert_eq!(source_tone_of(&plain), Some(SourceTone::AsRead), "{name}");
+        }
+        assert_eq!(source_tone_of(&dir.path().join("missing.jpg")), None);
     }
 
     #[test]
