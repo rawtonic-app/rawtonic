@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Lightroom imports bring the whole keyword list too: keywords no photo carries are kept in the Keyword List with their hierarchy, and names holding `,`, `;`, `>`, `<` or `"` stay one keyword. The import check names what has no counterpart here instead of dropping it silently: keywords Lightroom leaves out of exports (Rawtonic exports them), keywords exported without their parents, person keywords (imported as keywords) and names holding `|` (imported as levels); synonyms are counted as not imported.
+
 - HDR HEIF and AVIF photos (PQ or HLG, such as a Canon HDR PQ HIF) no longer clip everything brighter than diffuse white in the SDR edit: from 0.75 of diffuse white up to the HDR reference peak (1000 cd/m²) the highlights roll off smoothly into white, so clouds, lamps and speculars keep their detail. Diffuse white (203 cd/m²) now shows at 0.945 of white (241 of 255) instead of white, tones below the roll-off are unchanged, and the brighter values stay in the photo, so lowering Exposure, Highlights or Whites brings them back. On an iPhone HDR scene re-encoded as PQ and HLG, clipped pixels fall from 12 % to 0 %. New edits and never-edited photos get it (`renderVersion` 20); saved edits and all other photos render as before.
 
 - The bulk Capture One crop action uses count-neutral English and Polish labels, including when only one photo needs the action.

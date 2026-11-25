@@ -43,7 +43,8 @@ pub fn read(catalog: &Path) -> Result<Library> {
     let scratch = tempfile::tempdir()?;
     let conn = open_copy(catalog, scratch.path())?;
 
-    let keywords = keyword_paths(&conn)?;
+    let list = keyword_list(&conn)?;
+    let keywords = &list.paths;
     let mut photo_keywords: HashMap<i64, Vec<String>> = HashMap::new();
     {
         let mut q = conn.prepare("SELECT image, tag FROM AgLibraryKeywordImage")?;
@@ -219,6 +220,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
 
     let mut albums = Vec::new();
     let mut not_read = NotRead::default();
+    let keyword_library = keyword_library(&list, &mut not_read);
     let mut members: HashMap<i64, Vec<String>> = HashMap::new();
     {
         let mut q = conn.prepare(
@@ -322,7 +324,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
         photos,
         albums,
         stacks,
-        keywords: Vec::new(),
+        keywords: keyword_library,
         not_read,
     })
 }
@@ -371,19 +373,56 @@ fn folder_stacks(conn: &rusqlite::Connection) -> Result<Vec<Stack>> {
         .collect())
 }
 
-/// Every keyword's path from the top ("Places|Italy|Rome"); Lightroom's
-/// root keyword has no name and is left out.
-fn keyword_paths(conn: &rusqlite::Connection) -> Result<HashMap<i64, String>> {
-    let mut q = conn.prepare("SELECT id_local, name, parent FROM AgLibraryKeyword")?;
-    let nodes: HashMap<i64, (Option<String>, Option<i64>)> = q
-        .query_map([], |r| {
-            Ok((
-                r.get::<_, i64>(0)?,
-                (r.get::<_, Option<String>>(1)?, r.get::<_, Option<i64>>(2)?),
-            ))
-        })?
-        .collect::<rusqlite::Result<_>>()?;
+/// Lightroom's keyword list (`AgLibraryKeyword`, a tree under a root
+/// without a name).
+struct Keywords {
+    /// Every keyword's path from the top ("Places|Italy|Rome") by id; the
+    /// root is left out.
+    paths: HashMap<i64, String>,
+    /// Ids with "Include on Export" off.
+    not_exported: Vec<i64>,
+    /// Ids with "Export Containing Keywords" off.
+    without_parents: Vec<i64>,
+    /// Person keywords (`keywordType = 'person'`).
+    persons: Vec<i64>,
+    /// Ids whose own name holds `|`.
+    with_separator: Vec<i64>,
+    /// Every keyword's names from the top, as Lightroom holds them.
+    levels: HashMap<i64, Vec<String>>,
+    /// Synonyms (`AgLibraryKeywordSynonym`).
+    synonyms: usize,
+}
+
+/// Reads the keyword list. Catalogs without the export flags or the synonym
+/// table (older schemas) have none of them.
+fn keyword_list(conn: &rusqlite::Connection) -> Result<Keywords> {
+    type Row = (i64, Option<String>, Option<i64>, i64, i64, Option<String>);
+    let full = "SELECT id_local, name, parent, includeOnExport, includeParents, keywordType
+                FROM AgLibraryKeyword";
+    let rows: Vec<Row> = match conn.prepare(full) {
+        Ok(mut q) => q
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get::<_, Option<i64>>(3)?.unwrap_or(1),
+                    r.get::<_, Option<i64>>(4)?.unwrap_or(1),
+                    r.get(5)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<_>>()?,
+        Err(_) => conn
+            .prepare("SELECT id_local, name, parent FROM AgLibraryKeyword")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, 1, 1, None)))?
+            .collect::<rusqlite::Result<_>>()?,
+    };
+    let nodes: HashMap<i64, (Option<String>, Option<i64>)> = rows
+        .iter()
+        .map(|(id, name, parent, ..)| (*id, (name.clone(), *parent)))
+        .collect();
     let mut paths = HashMap::new();
+    let mut levels = HashMap::new();
     for (&id, (name, _)) in &nodes {
         if name.as_deref().is_none_or(str::is_empty) {
             continue;
@@ -403,8 +442,67 @@ fn keyword_paths(conn: &rusqlite::Connection) -> Result<HashMap<i64, String>> {
         }
         parts.reverse();
         paths.insert(id, parts.join("|"));
+        levels.insert(id, parts);
     }
-    Ok(paths)
+    let named = |pick: &dyn Fn(&Row) -> bool| -> Vec<i64> {
+        rows.iter()
+            .filter(|r| paths.contains_key(&r.0) && pick(r))
+            .map(|r| r.0)
+            .collect()
+    };
+    let synonyms = conn
+        .query_row(
+            "SELECT count(*) FROM AgLibraryKeywordSynonym s
+             JOIN AgLibraryKeyword k ON k.id_local = s.keyword
+             WHERE trim(coalesce(s.name, '')) <> ''",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0) as usize;
+    Ok(Keywords {
+        not_exported: named(&|r| r.3 == 0),
+        without_parents: named(&|r| r.4 == 0),
+        persons: named(&|r| r.5.as_deref() == Some("person")),
+        with_separator: named(&|r| r.1.as_deref().is_some_and(|n| n.contains('|'))),
+        paths,
+        levels,
+        synonyms,
+    })
+}
+
+/// The keyword list for the import (KWL1): every path, parents and unused
+/// terms included, and the keywords whose Lightroom attributes Rawtonic has
+/// no counterpart for, by path (sorted).
+fn keyword_library(list: &Keywords, not_read: &mut NotRead) -> Vec<String> {
+    use rawtonic_metadata::keywords::normalize;
+    let sorted = |ids: &[i64]| {
+        let mut out: Vec<String> = ids
+            .iter()
+            .filter_map(|id| list.paths.get(id))
+            .map(|p| normalize(p))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    };
+    not_read.keyword_synonyms = list.synonyms;
+    not_read.keywords_not_exported = sorted(&list.not_exported);
+    not_read.keywords_exported_without_parents = sorted(&list.without_parents);
+    not_read.person_keywords = sorted(&list.persons);
+    // A name holding `|` (Rawtonic's level separator, also Lightroom's in
+    // `lr:hierarchicalSubject`) arrives as levels.
+    // Shown as Lightroom names them, so the literal name stays recognisable
+    // beside a real `pipe ▸ term` hierarchy it now shares a path with.
+    let mut literal: Vec<Vec<String>> = list
+        .with_separator
+        .iter()
+        .filter_map(|id| list.levels.get(id).cloned())
+        .collect();
+    literal.sort();
+    literal.dedup();
+    not_read.keywords_with_level_separator = literal;
+    let ids: Vec<i64> = list.paths.keys().copied().collect();
+    sorted(&ids)
 }
 
 /// A smart collection's rules (`s = { { criteria = …, operation = …,

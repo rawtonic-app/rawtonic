@@ -296,6 +296,112 @@ fn lightroom_smart_collections_carry_their_rules() {
     );
 }
 
+// KWL1: the keyword list of a scratch catalog made in Lightroom Classic 15.6
+// (rows, flags and synonyms as Lightroom stored them, notes
+// benchmark-results/kwl1-2026-11-25): unused terms and parents arrive,
+// names holding `,` `;` `>` `<` `"` stay one level, and what Rawtonic has no
+// counterpart for is listed, not dropped silently.
+#[test]
+fn lightroom_keyword_list_keeps_unused_terms_and_lists_what_has_no_counterpart() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = lightroom_catalog(dir.path(), dir.path());
+    let conn = Connection::open(&cat).unwrap();
+    conn.execute_batch(
+        r#"DROP TABLE AgLibraryKeyword;
+         DELETE FROM AgLibraryKeywordImage;
+         CREATE TABLE AgLibraryKeyword (id_local INTEGER PRIMARY KEY, id_global UNIQUE NOT NULL,
+           dateCreated NOT NULL DEFAULT '', genealogy NOT NULL DEFAULT '', imageCountCache DEFAULT -1,
+           includeOnExport INTEGER NOT NULL DEFAULT 1, includeParents INTEGER NOT NULL DEFAULT 1,
+           includeSynonyms INTEGER NOT NULL DEFAULT 1, keywordType, lastApplied, lc_name, name,
+           parent INTEGER);
+         CREATE TABLE AgLibraryKeywordSynonym (id_local INTEGER PRIMARY KEY,
+           keyword INTEGER NOT NULL DEFAULT 0, lc_name, name);
+         INSERT INTO AgLibraryKeyword (id_local, id_global, includeOnExport, includeParents,
+           includeSynonyms, keywordType, name, parent) VALUES
+           (43,'k43',1,1,1,NULL,NULL,NULL),
+           (369,'k369',1,1,1,NULL,'Places',43),(371,'k371',1,1,1,NULL,'Europe',369),
+           (373,'k373',1,1,1,NULL,'Italy',371),(375,'k375',1,1,1,NULL,'Rome',373),
+           (379,'k379',1,1,1,NULL,'France',371),(381,'k381',1,1,1,NULL,'unused_solo',43),
+           (383,'k383',1,1,0,NULL,'Dog',43),(389,'k389',0,1,1,NULL,'private_term',43),
+           (391,'k391',0,1,1,NULL,'Clients',43),(393,'k393',1,0,1,NULL,'Acme',391),
+           (395,'k395',1,1,1,'person','Jane Doe',43),(397,'k397',1,1,1,NULL,'comma,term',43),
+           (399,'k399',1,1,1,NULL,'semi;colon',43),(401,'k401',1,1,1,NULL,'angle>term',43),
+           (403,'k403',1,1,1,NULL,'lt<term',43),(405,'k405',1,1,1,NULL,'pipe|term',43),
+           (407,'k407',1,1,1,NULL,'slash/term',43),(409,'k409',1,1,1,NULL,'quote"term',43),
+           (411,'k411',1,1,1,NULL,'Rome, Italy',369),
+           (413,'k413',1,1,1,NULL,'pipe',43),(415,'k415',1,1,1,NULL,'term',413);
+         INSERT INTO AgLibraryKeywordSynonym VALUES(377,375,'roma','Roma'),(385,383,'hound','Hound'),
+           (387,383,'canine','Canine');
+         INSERT INTO AgLibraryKeywordImage VALUES(1,1,375),(2,1,383),(3,2,397),(4,2,389),(5,2,393);"#,
+    )
+    .unwrap();
+    drop(conn);
+    let lib = lightroom::read(&cat).unwrap();
+    // The photographs' keywords as before: one path each.
+    let held = |key: &str| {
+        let mut k = lib
+            .photos
+            .iter()
+            .find(|p| p.key == key)
+            .unwrap()
+            .metadata
+            .keywords
+            .clone();
+        k.sort();
+        k
+    };
+    assert_eq!(held("1"), ["Dog", "Places|Europe|Italy|Rome"]);
+    assert_eq!(held("2"), ["Clients|Acme", "comma,term", "private_term"]);
+    // The keyword list whole: unused terms and every parent, literal names
+    // one level each (a `|` is Rawtonic's level separator: two levels, the
+    // same path as the real hierarchy `pipe ▸ term`).
+    assert_eq!(
+        lib.keywords,
+        [
+            "Clients",
+            "Clients|Acme",
+            "Dog",
+            "Jane Doe",
+            "Places",
+            "Places|Europe",
+            "Places|Europe|France",
+            "Places|Europe|Italy",
+            "Places|Europe|Italy|Rome",
+            "Places|Rome, Italy",
+            "angle>term",
+            "comma,term",
+            "lt<term",
+            "pipe",
+            "pipe|term",
+            "private_term",
+            "quote\"term",
+            "semi;colon",
+            "slash/term",
+            "unused_solo",
+        ]
+    );
+    // No counterpart here: listed by name for the import check.
+    let n = &lib.not_read;
+    assert_eq!(n.keyword_synonyms, 3);
+    assert_eq!(n.keywords_not_exported, ["Clients", "private_term"]);
+    assert_eq!(n.keywords_exported_without_parents, ["Clients|Acme"]);
+    assert_eq!(n.person_keywords, ["Jane Doe"]);
+    // The literal name as Lightroom holds it, not the shared path.
+    assert_eq!(n.keywords_with_level_separator, [["pipe|term"]]);
+}
+
+// A catalog without Lightroom's keyword flags or synonym table (the older
+// schema the other tests build) still gives its keyword list.
+#[test]
+fn lightroom_keyword_list_of_an_older_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = lightroom_catalog(dir.path(), dir.path());
+    let lib = lightroom::read(&cat).unwrap();
+    assert_eq!(lib.keywords, ["Places", "Places|Rome"]);
+    assert_eq!(lib.not_read.keyword_synonyms, 0);
+    assert!(lib.not_read.keywords_not_exported.is_empty());
+}
+
 #[test]
 fn an_open_lightroom_catalog_is_refused() {
     let dir = tempfile::tempdir().unwrap();
