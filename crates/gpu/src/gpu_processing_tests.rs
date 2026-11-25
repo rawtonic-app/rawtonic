@@ -2893,11 +2893,6 @@ fn cached_detail_of_sharpening_7_and_8_matches_inline_detail_and_follows_the_ton
             "colorNoiseReduction": 25});
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         adjustments.global.noise_level = 0.01;
-        for i in 0..49 {
-            adjustments.global.profile_curve[i / 4][i % 4] = -12.0 + i as f32 * 0.25;
-        }
-        adjustments.global.profile_curve[15][3] = 3.0;
-        prepare_preview_pipeline(&processor, preview_features(&adjustments));
         let render = |adjustments: &AllAdjustments, inline: bool| {
             processor
                 .force_inline_detail
@@ -2936,6 +2931,29 @@ fn cached_detail_of_sharpening_7_and_8_matches_inline_detail_and_follows_the_ton
                 .store(false, Ordering::Relaxed);
             pixels
         };
+        // Keep the default profile curve covered before selecting a custom curve.
+        prepare_preview_pipeline(&processor, preview_features(&adjustments));
+        let default_cached = render(&adjustments, false);
+        assert!(
+            processor
+                .blur_cache
+                .lock()
+                .unwrap()
+                .tiles
+                .iter()
+                .any(|tile| tile.detail.is_some()),
+            "the default-curve detail stage was cached"
+        );
+        assert_eq!(
+            default_cached,
+            render(&adjustments, true),
+            "cached and inline default-curve response {version} (Masking {masking}) differ"
+        );
+        for i in 0..49 {
+            adjustments.global.profile_curve[i / 4][i % 4] = -12.0 + i as f32 * 0.25;
+        }
+        adjustments.global.profile_curve[15][3] = 3.0;
+        prepare_preview_pipeline(&processor, preview_features(&adjustments));
         let cached = render(&adjustments, false);
         assert!(
             processor
