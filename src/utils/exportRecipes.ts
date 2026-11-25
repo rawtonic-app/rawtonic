@@ -142,6 +142,8 @@ export const DEFAULT_RECIPE_DRAFT: RecipeDraft = {
   resizeValue2: 2000,
   dontEnlarge: true,
   superResolution: false,
+  // Decided when Super Resolution is ticked (the machine's default).
+  superResolutionQuality: undefined,
   metadata: true,
   stripGps: true,
   keepCreatorContact: false,

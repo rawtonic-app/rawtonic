@@ -4276,7 +4276,7 @@
           "quality": "Jakość",
           "qualityFast": "Szybka",
           "qualityFull": "Pełna",
-          "qualityHint": "Szybka powiększa każdą część zdjęcia raz zamiast uśredniać cztery obrócone kopie: około cztery razy szybciej, różnice widoczne tylko przy porównaniu pikseli.",
+          "qualityHint": "Szybka powiększa każdą część zdjęcia raz zamiast uśredniać cztery obrócone kopie: jedna czwarta pracy, różnice widoczne tylko przy porównaniu pikseli.",
           "ready": "Model superrozdzielczości gotowy ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

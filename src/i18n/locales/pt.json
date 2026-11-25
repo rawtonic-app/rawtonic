@@ -4106,7 +4106,7 @@
           "quality": "Qualidade",
           "qualityFast": "Rápida",
           "qualityFull": "Completa",
-          "qualityHint": "Rápida amplia cada parte da foto uma única vez em vez de fazer a média de quatro cópias rodadas: cerca de quatro vezes mais rápido, com diferenças visíveis apenas ao comparar píxeis.",
+          "qualityHint": "Rápida amplia cada parte da foto uma única vez em vez de fazer a média de quatro cópias rodadas: um quarto do trabalho, com diferenças visíveis apenas ao comparar píxeis.",
           "ready": "Modelo de super-resolução pronto ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

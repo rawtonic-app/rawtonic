@@ -3935,7 +3935,7 @@
           "quality": "Quality",
           "qualityFast": "Fast",
           "qualityFull": "Full",
-          "qualityHint": "Fast enlarges each part of the photo once instead of averaging four turned copies: about four times quicker, with differences visible only in pixel comparisons.",
+          "qualityHint": "Fast enlarges each part of the photo once instead of averaging four turned copies: a quarter of the work, with differences visible only in pixel comparisons.",
           "ready": "Super Resolution model ready ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

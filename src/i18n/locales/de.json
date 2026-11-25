@@ -3935,7 +3935,7 @@
           "quality": "Qualität",
           "qualityFast": "Schnell",
           "qualityFull": "Voll",
-          "qualityHint": "Schnell vergrößert jeden Teil des Fotos einmal, statt vier gedrehte Kopien zu mitteln: etwa viermal schneller, Unterschiede nur im Pixelvergleich sichtbar.",
+          "qualityHint": "Schnell vergrößert jeden Teil des Fotos einmal, statt vier gedrehte Kopien zu mitteln: ein Viertel der Arbeit, Unterschiede nur im Pixelvergleich sichtbar.",
           "ready": "Super-Resolution-Modell bereit ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

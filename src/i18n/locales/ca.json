@@ -4106,7 +4106,7 @@
           "quality": "Qualitat",
           "qualityFast": "Ràpida",
           "qualityFull": "Completa",
-          "qualityHint": "Ràpida amplia cada part de la foto una sola vegada en lloc de fer la mitjana de quatre còpies girades: unes quatre vegades més ràpid, amb diferències visibles només comparant píxels.",
+          "qualityHint": "Ràpida amplia cada part de la foto una sola vegada en lloc de fer la mitjana de quatre còpies girades: una quarta part de la feina, amb diferències visibles només comparant píxels.",
           "ready": "Model de superresolució a punt ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

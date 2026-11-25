@@ -364,7 +364,7 @@ struct ExportArgs {
     #[arg(long)]
     super_resolution: bool,
     /// Super Resolution's quality: `full` averages each tile's four
-    /// rotations, `fast` enlarges it once (about four times faster), as the
+    /// rotations, `fast` enlarges it once (a quarter of the work), as the
     /// app's export recipe.
     #[arg(long, value_enum, default_value_t = SuperResolutionQualityArg::Full)]
     super_resolution_quality: SuperResolutionQualityArg,

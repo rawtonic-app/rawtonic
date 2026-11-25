@@ -809,8 +809,11 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
                 type="checkbox"
                 checked={draft.superResolution}
                 onChange={(e) => {
-                  // Ticked again after a failure: try to fetch the model again.
-                  if (e.target.checked && superResolution?.error) setSuperResolution(null);
+                  // Ticked again after a failure (the model's or the Fast
+                  // files'): try to fetch them again.
+                  if (e.target.checked && (superResolution?.error || superResolution?.fastError)) {
+                    setSuperResolution(null);
+                  }
                   set({ superResolution: e.target.checked });
                 }}
               />

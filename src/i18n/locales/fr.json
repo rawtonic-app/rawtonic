@@ -4106,7 +4106,7 @@
           "quality": "Qualité",
           "qualityFast": "Rapide",
           "qualityFull": "Complète",
-          "qualityHint": "Rapide agrandit chaque partie de la photo une seule fois au lieu de faire la moyenne de quatre copies tournées : environ quatre fois plus vite, différences visibles seulement en comparant les pixels.",
+          "qualityHint": "Rapide agrandit chaque partie de la photo une seule fois au lieu de faire la moyenne de quatre copies tournées : un quart du travail, différences visibles seulement en comparant les pixels.",
           "ready": "Modèle de super résolution prêt ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

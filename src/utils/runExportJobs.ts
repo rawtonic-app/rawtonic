@@ -102,13 +102,6 @@ export async function runExportJobs(
   // Save As names one file: one photo, one recipe.
   if (saveAs && (paths.length !== 1 || planned.length !== 1)) return 0;
   if (saveAs) planned = planned.map(saveAsExport);
-  // Super Resolution's model and its Fast files, fetched before the queue
-  // (the File menu's recipes too, not only the Export dialog): the export
-  // workers use installed models only. A failure shows in the export's own
-  // error for that photo.
-  if (planned.some((job) => job.draft.superResolution)) {
-    await invoke(Invokes.PrepareSuperResolution).catch(() => undefined);
-  }
   const t = i18n.t.bind(i18n);
   // Pin the library and folders now. Finish the writes (including the open
   // photo's slider draft) so Ask and the queue can both read the saved
@@ -121,6 +114,15 @@ export async function runExportJobs(
   const jobName = readJobName(session);
   const status = useProcessStore.getState().exportState.status;
   const queued = status === Status.Exporting || status === Status.Cancelling;
+  // Super Resolution's model and its Fast files, fetched before the queue
+  // (the File menu's recipes too, not only the Export dialog): the export
+  // workers use installed models only. After the library, folders and job
+  // were pinned above, so a library opened during a first download does not
+  // change where this export goes. A failure shows in the export's own
+  // error for that photo.
+  if (planned.some((job) => job.draft.superResolution)) {
+    await invoke(Invokes.PrepareSuperResolution).catch(() => undefined);
+  }
   const changeRecipes = (change: (current: ExportPreset[]) => ExportPreset[]) => {
     const store = useSettingsStore.getState();
     if (!store.appSettings) return;
