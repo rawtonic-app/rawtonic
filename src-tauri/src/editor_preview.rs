@@ -1059,6 +1059,10 @@ pub(crate) async fn update_wgpu_transform(
         {
             let geometry = display.pending_geometry.as_mut();
             geometry.unwrap_or(&mut display.geometry).crop_selection = payload.crop_selection;
+            // A stand-in after a lost device stays in the moving selection.
+            if display.follow_primary_stand_in() {
+                display.render(&context.device, &context.queue);
+            }
         } else if let Some(display) = display_lock.as_mut() {
             let rect = [payload.x, payload.y, payload.width, payload.height];
             let geometry = gpu_processing::DisplayGeometry {
@@ -1081,6 +1085,7 @@ pub(crate) async fn update_wgpu_transform(
                 display.pending_geometry = None;
                 display.geometry = geometry;
                 display.apply_geometry();
+                display.follow_primary_stand_in();
             }
             display.latest_transform.clip = [
                 payload.clip_x,

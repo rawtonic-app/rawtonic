@@ -2500,18 +2500,42 @@ pub struct DisplayGeometry {
     pub crop_selection: Option<[f32; 4]>,
 }
 
-/// Where a frame placed by `geometry` shows the photograph as developed
-/// (cropped and turned, as its cached thumbnail shows it): the normal
-/// frame's rect; in the crop-editing frame (`uncropped`) the crop
-/// selection within the uncropped photograph (G74 DVL6: with the Crop tool
-/// open the primary was blank after a lost device). None without one.
-pub fn primary_placement_of(geometry: &DisplayGeometry, uncropped: bool) -> Option<[f32; 4]> {
+/// Where the live frame shows the photograph as developed (cropped and
+/// turned, as its cached thumbnail shows it), window device px: the normal
+/// frame's rect, or in the crop-editing frame the crop selection.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct PrimaryPlacement {
+    pub rect: [f32; 4],
+    /// The crop selection (the Crop tool is open), not the frame's rect.
+    pub in_selection: bool,
+}
+
+impl PrimaryPlacement {
+    /// The same kind of place in `geometry` (the webview moved the frame
+    /// or the crop selection): None when it has none.
+    pub fn on(&self, geometry: &DisplayGeometry) -> Option<Self> {
+        primary_placement_of(geometry, self.in_selection)
+    }
+}
+
+/// Where a frame placed by `geometry` shows the photograph as developed:
+/// the normal frame's rect; in the crop-editing frame (`uncropped`) the
+/// crop selection within the uncropped photograph (G74 DVL6: with the Crop
+/// tool open the primary was blank after a lost device). None without one.
+pub fn primary_placement_of(
+    geometry: &DisplayGeometry,
+    uncropped: bool,
+) -> Option<PrimaryPlacement> {
     if uncropped {
         geometry.crop_selection
     } else {
         Some(geometry.rect)
     }
     .filter(|rect| rect[2] > 0.0 && rect[3] > 0.0)
+    .map(|rect| PrimaryPlacement {
+        rect,
+        in_selection: uncropped,
+    })
 }
 
 impl DisplayGeometry {
@@ -3460,10 +3484,17 @@ impl WgpuDisplay {
     /// (cropped) photograph now (window device px), for its cached
     /// thumbnail on a new display after a lost device: None when no frame
     /// shows the primary (`primary_placement_of`).
-    pub fn primary_placement(&self) -> Option<[f32; 4]> {
+    pub fn primary_placement(&self) -> Option<PrimaryPlacement> {
         (self.multi.is_active() && self.live_frame_shown())
             .then(|| primary_placement_of(&self.geometry, self.frame_uncropped))
             .flatten()
+    }
+
+    /// Moves the primary's stand-in after a lost device with the frame or
+    /// crop selection it stands for (a pan, a crop drag): whether it moved.
+    pub fn follow_primary_stand_in(&mut self) -> bool {
+        let geometry = self.geometry;
+        self.multi.follow_stand_in(&geometry)
     }
 
     fn live_frame_shown(&self) -> bool {
@@ -3728,7 +3759,7 @@ impl WgpuDisplay {
         width: u32,
         height: u32,
         rgba: &[u8],
-        primary_placed: Option<[f32; 4]>,
+        primary_placed: Option<PrimaryPlacement>,
         shown: impl FnOnce() -> Option<[f32; 2]>,
     ) -> bool {
         let mut multi = std::mem::take(&mut self.multi);
@@ -16025,15 +16056,27 @@ mod display_geometry_tests {
             crop_rotation: 0.1,
             crop_selection: Some([50.0, 40.0, 200.0, 150.0]),
         };
-        assert_eq!(
-            primary_placement_of(&geometry, false),
-            Some([10.0, 20.0, 300.0, 200.0])
-        );
+        let rect = |uncropped| primary_placement_of(&geometry, uncropped).map(|p| p.rect);
+        assert_eq!(rect(false), Some([10.0, 20.0, 300.0, 200.0]));
         // Cropping (G74 DVL6): the selection, where the cropped photograph
         // is, not the uncropped frame's box.
+        assert_eq!(rect(true), Some([50.0, 40.0, 200.0, 150.0]));
+        // A stand-in follows the kind of place it was put at.
+        let selection = primary_placement_of(&geometry, true).unwrap();
+        let moved = DisplayGeometry {
+            crop_selection: Some([60.0, 40.0, 190.0, 150.0]),
+            ..geometry
+        };
         assert_eq!(
-            primary_placement_of(&geometry, true),
-            Some([50.0, 40.0, 200.0, 150.0])
+            selection.on(&moved).map(|p| p.rect),
+            Some([60.0, 40.0, 190.0, 150.0])
+        );
+        assert_eq!(
+            primary_placement_of(&geometry, false)
+                .unwrap()
+                .on(&moved)
+                .map(|p| p.rect),
+            Some([10.0, 20.0, 300.0, 200.0])
         );
         let empty = DisplayGeometry {
             rect: [0.0; 4],

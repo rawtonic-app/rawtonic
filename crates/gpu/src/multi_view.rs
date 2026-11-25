@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use super::DisplayTransform;
+use super::{DisplayGeometry, DisplayTransform, PrimaryPlacement};
 
 /// A cell of the multi view: the photograph at `path` is shown contained and
 /// centred in `area` (device pixels, window coordinates).
@@ -76,7 +76,7 @@ pub(crate) struct CellTexture {
     /// showed the developed photograph (window device px; while cropping
     /// the crop selection), drawn there until the new live frame shows the
     /// cell.
-    placed: Option<[f32; 4]>,
+    placed: Option<PrimaryPlacement>,
     _texture: wgpu::Texture,
     width: u32,
     height: u32,
@@ -620,7 +620,7 @@ impl MultiView {
         width: u32,
         height: u32,
         rgba: &[u8],
-        primary_placed: Option<[f32; 4]>,
+        primary_placed: Option<PrimaryPlacement>,
         shown: impl FnOnce() -> Option<[f32; 2]>,
     ) -> bool {
         // The primary is drawn live. After a lost device its live frame is
@@ -931,8 +931,9 @@ impl MultiView {
     fn placement(&self, path: &str, area: [f32; 4], texture: &CellTexture) -> [f32; 4] {
         // Contained in it: a thumbnail made before the latest crop never
         // shows stretched.
-        if let Some(rect) = texture.placed {
-            return fit_rect(rect, texture.width as f32, texture.height as f32);
+        if let Some(placed) = texture.placed {
+            let [x, y, w, h] = placed.rect;
+            return fit_rect([x, y, w, h], texture.width as f32, texture.height as f32);
         }
         match (self.drawn_zoom(path), texture.extent) {
             (Some(zoom), Some(extent)) => zoomed_rect(area, extent, zoom),
@@ -953,6 +954,29 @@ impl MultiView {
         match layer {
             CellLayer::Whole => area,
             CellLayer::Region => intersect(area, self.placement(path, area, texture)),
+        }
+    }
+
+    /// Moves the primary's stand-in (after a lost device) to the same kind
+    /// of place in `geometry`, so it stays on the photograph while the
+    /// webview pans or the crop selection is dragged: whether it moved.
+    pub(crate) fn follow_stand_in(&mut self, geometry: &DisplayGeometry) -> bool {
+        let Some(texture) = self
+            .primary
+            .as_deref()
+            .and_then(|path| self.textures.get_mut(path))
+        else {
+            return false;
+        };
+        let Some(placed) = texture.placed else {
+            return false;
+        };
+        match placed.on(geometry) {
+            Some(moved) if moved != placed => {
+                texture.placed = Some(moved);
+                true
+            }
+            _ => false,
         }
     }
 
@@ -1587,7 +1611,10 @@ mod tests {
                 10,
                 8,
                 &magenta,
-                placed,
+                placed.map(|rect| PrimaryPlacement {
+                    rect,
+                    in_selection: false,
+                }),
                 || None,
             )
         };
@@ -1753,7 +1780,7 @@ mod tests {
             .flat_map(|y| bullseye[(y * 32 + 8) * 4..(y * 32 + 24) * 4].to_vec())
             .collect();
         let placed = primary_placement_of(&geometry, true);
-        assert_eq!(placed, geometry.crop_selection);
+        assert_eq!(placed.map(|p| p.rect), geometry.crop_selection);
         let mut multi = layout(None);
         assert!(multi.stand_in(
             &gpu.device,
@@ -1779,6 +1806,41 @@ mod tests {
         // Outside the selection only the background (the crop tool shades
         // it); the thumbnail has nothing of the cropped-away photograph.
         assert!(close(pixel(&after, 10, 50), [35, 35, 35]));
+        // A crop edge dragged while it shows: it stays in the selection.
+        let dragged = DisplayGeometry {
+            crop_selection: Some([26.0, 26.0, 30.0, 48.0]),
+            ..geometry
+        };
+        assert!(multi.follow_stand_in(&dragged));
+        assert!(!multi.follow_stand_in(&dragged), "moved once");
+        let after = present(&gpu, &multi, None);
+        assert!(
+            close(pixel(&after, 65, 50), [35, 35, 35]),
+            "not past the edge"
+        );
+        assert!(close(pixel(&after, 41, 50), [0, 255, 255]));
+        // A pan without the Crop tool moves a frame's stand-in with it.
+        let mut panned = layout(None);
+        let at_frame = primary_placement_of(&geometry, false);
+        assert!(panned.stand_in(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "primary",
+            16,
+            16,
+            &cropped,
+            at_frame,
+            || None,
+        ));
+        let moved = DisplayGeometry {
+            rect: [4.0, 24.0, 48.0, 48.0],
+            ..geometry
+        };
+        assert!(panned.follow_stand_in(&moved));
+        let after = present(&gpu, &panned, None);
+        assert!(close(pixel(&after, 28, 48), [0, 255, 255]));
+        assert!(close(pixel(&after, 60, 48), [35, 35, 35]));
         // A thumbnail from before the latest crop (another shape) is
         // contained in the selection, never stretched.
         let mut multi = layout(None);
