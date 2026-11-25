@@ -41,8 +41,10 @@ pub const CORE_ML_MIXED_PACKAGE: &str = "nlmf_mixed640.mlpackage";
 pub const ONNX_MODEL: &str = "nlmf.onnx";
 /// AI Denoise's Fast quality: Rawtonic's U-Net (9.6 M parameters) distilled
 /// from MatchFilter on RawNIND frames, the same `[8, T, T] → [4, T, T]`
-/// contract on 512 px tiles with a 32 px halo, about 17× less CPU time per
-/// photo (notes: benchmark-results/dst1-2026-11-25). ONNX on every platform.
+/// contract on 512 px tiles with a 32 px halo: 17× less CPU time projected
+/// from per-tile timings, 13–15× measured in 24 MP exports on a loaded
+/// 6-core desktop (notes: benchmark-results/dst1-2026-11-25,
+/// dst2-2026-11-25). ONNX on every platform.
 pub const FAST_ONNX_MODEL: &str = "fast_denoise_v1.onnx";
 /// The Fast network's tile edge and halo in packed pixels, as it was
 /// exported and measured.

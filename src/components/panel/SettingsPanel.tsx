@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   Cpu,
   ExternalLink as ExternalLinkIcon,
@@ -123,6 +123,15 @@ interface ProcessingSettings {
 }
 
 const EXECUTE_TIMEOUT = 3000;
+
+/** Processing settings that take effect after Save & Relaunch. */
+const RESTART_PROCESSING_KEYS = [
+  'processingBackend',
+  'linuxGpuOptimization',
+  'aiGpu',
+  'useWgpuRenderer',
+  'thumbnailWorkerThreads'
+] as const satisfies readonly (keyof ProcessingSettings)[];
 
 /** Each interface language in its own name. */
 const LANGUAGE_NAMES: Record<string, string> = {
@@ -484,8 +493,12 @@ export default function SettingsPanel({
   const customAiTags = Array.from(new Set<string>(appSettings?.customAiTags || []));
   const taggingShortcuts = Array.from(new Set<string>(appSettings?.taggingShortcuts || []));
 
+  // Processing choices staged for Save & Relaunch stay staged when another
+  // setting is saved meanwhile (the saved settings come back here).
+  const stagedProcessing = useRef({ settings: processingSettings, restartRequired });
+  stagedProcessing.current = { settings: processingSettings, restartRequired };
   useEffect(() => {
-    setProcessingSettings({
+    const saved: ProcessingSettings = {
       editorPreviewResolution: appSettings?.editorPreviewResolution || 1920,
       smallThumbnailResolution: appSettings?.smallThumbnailResolution || 480,
       mediumThumbnailResolution: appSettings?.mediumThumbnailResolution || 1280,
@@ -500,8 +513,13 @@ export default function SettingsPanel({
       rawPreprocessingSharpening: appSettings?.rawPreprocessingSharpening ?? 0.35,
       applyPreprocessingToNonRaws: appSettings?.applyPreprocessingToNonRaws ?? false,
       useAppleRaw9: appSettings?.useAppleRaw9 ?? false
-    });
-    setRestartRequired(false);
+    };
+    const staged = stagedProcessing.current;
+    const kept = staged.restartRequired
+      ? RESTART_PROCESSING_KEYS.filter((key) => staged.settings[key] !== saved[key])
+      : [];
+    setProcessingSettings({ ...saved, ...Object.fromEntries(kept.map((key) => [key, staged.settings[key]])) });
+    setRestartRequired(kept.length > 0);
   }, [appSettings]);
 
   useEffect(() => {
@@ -529,13 +547,7 @@ export default function SettingsPanel({
   ) => {
     setProcessingSettings((prev) => ({ ...prev, [key]: value }));
 
-    if (
-      key === 'processingBackend' ||
-      key === 'linuxGpuOptimization' ||
-      key === 'aiGpu' ||
-      key === 'useWgpuRenderer' ||
-      key === 'thumbnailWorkerThreads'
-    ) {
+    if ((RESTART_PROCESSING_KEYS as readonly string[]).includes(key)) {
       setRestartRequired(true);
     } else {
       await onSettingsChange({ ...appSettings, [key]: value });

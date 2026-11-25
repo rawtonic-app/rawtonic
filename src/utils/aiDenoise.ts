@@ -37,15 +37,24 @@ export const aiDenoiseQualityOf = (adjustments: { aiDenoiseQuality?: string | nu
  * AI Denoise on (from 0) in a recipe without `aiDenoiseQuality`, the
  * computer's default for new edits (`ai_denoise_default_quality`; null while
  * unknown: nothing, which renders Full). A recipe that already uses AI Denoise
- * keeps what it renders, and a chosen quality is never replaced.
+ * keeps what it renders: turned off without the key, it gets 'full' written,
+ * so turning it on again renders Full as before. A chosen quality, or one the
+ * change itself sets or removes (`patch`, e.g. the Noise reduction reset), is
+ * never replaced.
  */
 export function withAiDenoiseQualityOnTurnOn<T extends { aiDenoise?: number; aiDenoiseQuality?: AiDenoiseQuality }>(
   previous: { aiDenoise?: number },
   next: T,
-  machineDefault: AiDenoiseQuality | null
+  machineDefault: AiDenoiseQuality | null,
+  patch: object = next
 ): T {
-  const turnedOn = (previous.aiDenoise ?? 0) <= 0 && (next.aiDenoise ?? 0) > 0;
-  if (!turnedOn || next.aiDenoiseQuality || !machineDefault) return next;
+  if (next.aiDenoiseQuality || (patch !== next && 'aiDenoiseQuality' in patch)) return next;
+  const before = previous.aiDenoise ?? 0;
+  const after = next.aiDenoise ?? 0;
+  // An edit that used AI Denoise without the key rendered Full: turned off,
+  // it says so, so turning it on again brings back Full, not the default.
+  if (before > 0 && after <= 0) return { ...next, aiDenoiseQuality: 'full' };
+  if (before > 0 || after <= 0 || !machineDefault) return next;
   return { ...next, aiDenoiseQuality: machineDefault };
 }
 
@@ -318,15 +327,15 @@ export const warpPlanesMatter = (
   (image?.isRaw === true && (image.isDecoded === false || !!image.offline) && mayHoldDngOpcodes(image.path));
 
 /**
- * How a recipe develops the RAW before any adjustment (AI Denoise amount and
- * version, colour noise filter, dead-photosite test, black handling and,
+ * How a recipe develops the RAW before any adjustment (AI Denoise amount,
+ * version and quality, colour noise filter, dead-photosite test, black handling and,
  * where they change the decode (`warpPlanes`, `warpPlanesMatter`), its
  * lens warp's planes), as a string: equal for
  * recipes whose renders can share one source. Empty for other photographs,
  * whose source does not depend on it.
  */
 export function developmentSignature(
-  adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> &
+  adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion' | 'aiDenoiseQuality'> &
     Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction' | 'renderVersion'> & {
       sectionVisibility?: Record<string, boolean | undefined>;
     },
@@ -347,6 +356,8 @@ export function developmentSignature(
     defectsBlack(adjustments),
     defectsCross(adjustments),
     defectsMedian(adjustments),
-    ...(warpPlanes ? [cameraPlaneWarp(adjustments)] : [])
+    ...(warpPlanes ? [cameraPlaneWarp(adjustments)] : []),
+    // Full (also a recipe without the key) keeps the signature it had.
+    ...(amount > 0 && aiDenoiseQualityOf(adjustments) === 'fast' ? ['fast'] : [])
   ]);
 }

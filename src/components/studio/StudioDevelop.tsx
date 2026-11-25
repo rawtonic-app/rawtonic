@@ -1126,7 +1126,12 @@ export default function StudioDevelop() {
               m.id === layer.id ? { ...m, adjustments: { ...m.adjustments, ...patch } } : m
             )
           }
-        : withAiDenoiseQualityOnTurnOn(prev, withNewGrainStructure(prev, { ...prev, ...patch }), aiDenoiseDefault)
+        : withAiDenoiseQualityOnTurnOn(
+            prev,
+            withNewGrainStructure(prev, { ...prev, ...patch }),
+            aiDenoiseDefault,
+            patch
+          )
     );
   // The quality control shows the recipe's; a recipe already using AI Denoise
   // without one renders Full; otherwise what turning it on will give.

@@ -256,10 +256,11 @@ async fn load_fast(
 /// The AI Denoise quality (`aiDenoiseQuality`) a photo gets when AI Denoise
 /// is first turned on, by the preference (`ai_denoise_default_quality`):
 /// "full" or "fast" as chosen; otherwise Fast where MatchFilter would run
-/// on the processor (`matchfilter_on_cpu`; a 24 MP export takes about 8 min
-/// on a 6-core desktop and 19–25 min on a Radeon 680M laptop, against
-/// about 1.3 min with Fast; notes: benchmark-results/dst1-2026-11-25), else
-/// Full. The choice is stored in the recipe, so exports never depend on the
+/// on the processor (`matchfilter_on_cpu`; its denoising took 664 s of a
+/// 24 MP export on a loaded 6-core desktop against 43–51 s with Fast, and a
+/// Radeon 680M laptop exports in 19–25 min, about 1.3 min with Fast
+/// projected; notes: benchmark-results/dst1-2026-11-25, dst2-2026-11-25),
+/// else Full. The choice is stored in the recipe, so exports never depend on the
 /// machine.
 pub fn default_quality(
     preference: Option<&str>,
@@ -274,26 +275,29 @@ pub fn default_quality(
     }
 }
 
-/// Whether MatchFilter runs on the processor in this process: never on
-/// macOS (Core ML, on the GPU); elsewhere when every model stays on the CPU
-/// (`keep_models_on_cpu`, GPU AI off, a forced CPU) or no GPU provider
-/// offers a device for it.
-fn matchfilter_on_cpu() -> bool {
+/// Whether MatchFilter (`models/nlmf.onnx`) runs on the processor in this
+/// process: never on macOS (Core ML, on the GPU); elsewhere when every
+/// model stays on the CPU (`keep_models_on_cpu`, GPU AI off, a forced CPU)
+/// or it would not run on a GPU (`rawtonic_onnx::runs_on_gpu`: no GPU
+/// provider offers a device, or MatchFilter's check there rejected it).
+fn matchfilter_on_cpu(models: &Path) -> bool {
     if cfg!(target_os = "macos") {
         return false;
     }
     rawtonic_onnx::models_run_on_cpu_only()
-        || !rawtonic_onnx::has_gpu_for(rawtonic_onnx::ModelKind::Denoise)
+        || !rawtonic_onnx::runs_on_gpu(
+            &models.join(rawtonic_denoise::ONNX_MODEL),
+            rawtonic_onnx::ModelKind::Denoise,
+        )
 }
 
-/// `default_quality` for this machine and preference.
+/// `default_quality` of Automatic on this machine. The editor resolves a
+/// chosen preference itself (it holds the choice before it is saved).
 #[tauri::command]
 pub async fn ai_denoise_default_quality(app_handle: tauri::AppHandle) -> Result<String, String> {
-    let preference = crate::state::settings::current(&app_handle)
-        .ai_denoise_default_quality
-        .clone();
+    let models = crate::ai_processing::models_dir(&app_handle).map_err(|e| e.to_string())?;
     tokio::task::spawn_blocking(move || {
-        default_quality(preference.as_deref(), matchfilter_on_cpu).to_string()
+        default_quality(None, || matchfilter_on_cpu(&models)).to_string()
     })
     .await
     .map_err(|e| e.to_string())

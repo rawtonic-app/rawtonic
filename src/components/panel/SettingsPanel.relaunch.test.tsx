@@ -1,6 +1,6 @@
 import '../../i18n';
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import i18n from 'i18next';
 import { invoke } from '@tauri-apps/api/core';
@@ -55,6 +55,30 @@ it('Save & Relaunch keeps the app open, says why and offers the button again whe
   vi.mocked(invoke).mockImplementation(() => Promise.resolve([]));
   await user.click(screen.getByRole('button', { name: i18n.t('settings.processing.saveRelaunch') }));
   await vi.waitFor(() => expect(relaunch).toHaveBeenCalledTimes(1));
+});
+
+it('keeps a processing change staged for Save & Relaunch when another setting is saved meanwhile', async () => {
+  vi.mocked(invoke).mockImplementation(() => Promise.resolve([]));
+  useSettingsStore.setState({ appSettings: { useWgpuRenderer: true } as AppSettings });
+  const user = userEvent.setup();
+  render(<Wired />);
+  await user.click(screen.getByRole('button', { name: i18n.t('settings.categories.processing') }));
+  await user.click(screen.getByLabelText(i18n.t('settings.processing.wgpuLabel')));
+  expect(screen.getByRole('button', { name: i18n.t('settings.processing.saveRelaunch') })).toBeTruthy();
+  // Another setting (the AI Denoise quality for new edits) is saved.
+  await act(async () => {
+    useSettingsStore.setState({
+      appSettings: { useWgpuRenderer: true, aiDenoiseDefaultQuality: 'fast' } as AppSettings
+    });
+  });
+  expect((screen.getByLabelText(i18n.t('settings.processing.wgpuLabel')) as HTMLInputElement).checked).toBe(false);
+  await user.click(screen.getByRole('button', { name: i18n.t('settings.processing.saveRelaunch') }));
+  await vi.waitFor(() => expect(relaunch).toHaveBeenCalledTimes(1));
+  const saved = vi
+    .mocked(invoke)
+    .mock.calls.filter(([command]) => command === Invokes.SaveSettings)
+    .at(-1);
+  expect(saved?.[1]).toMatchObject({ settings: { useWgpuRenderer: false, aiDenoiseDefaultQuality: 'fast' } });
 });
 
 it('Save & Relaunch reports a settings write that never finishes instead of waiting for it', async () => {

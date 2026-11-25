@@ -95,6 +95,17 @@ describe('aiDenoiseToApply', () => {
       withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 50, aiDenoiseQuality: 'full' as const }, 'fast')
     ).toEqual({ aiDenoise: 50, aiDenoiseQuality: 'full' });
     expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 50 }, null)).toEqual({ aiDenoise: 50 });
+    // A recipe from before the key turned off says Full, so turning it on
+    // again renders Full, not this computer's default.
+    const off = withAiDenoiseQualityOnTurnOn({ aiDenoise: 40 }, { aiDenoise: 0 }, 'fast');
+    expect(off).toEqual({ aiDenoise: 0, aiDenoiseQuality: 'full' });
+    expect(withAiDenoiseQualityOnTurnOn(off, { ...off, aiDenoise: 40 }, 'fast')).toEqual({
+      aiDenoise: 40,
+      aiDenoiseQuality: 'full'
+    });
+    // A change that removes the key itself (the Noise reduction reset) keeps it removed.
+    const reset = { aiDenoise: 0, aiDenoiseQuality: undefined };
+    expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 40 }, { ...reset }, 'fast', reset)).toEqual(reset);
     expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 0, exposure: 1 }, 'fast')).toEqual({
       aiDenoise: 0,
       exposure: 1
@@ -548,6 +559,15 @@ describe('sourceDevelopToApply', () => {
 });
 
 describe('developmentSignature', () => {
+  it('tells Fast apart from Full with AI Denoise on, and Full from a recipe without the key not', () => {
+    const at = (extra: object) => developmentSignature({ aiDenoise: 50, aiDenoiseVersion: 5, ...extra }, true);
+    expect(at({ aiDenoiseQuality: 'fast' })).not.toBe(at({ aiDenoiseQuality: 'full' }));
+    expect(at({ aiDenoiseQuality: 'full' })).toBe(at({}));
+    const off = (q: 'fast' | 'full') =>
+      developmentSignature({ aiDenoise: 0, aiDenoiseVersion: 5, aiDenoiseQuality: q }, true);
+    expect(off('fast')).toBe(off('full'));
+  });
+
   const recipe = { aiDenoise: 0, aiDenoiseVersion: 1, colorNoiseVersion: 2 };
   it("tells a lens warp's planes apart only where they change the decode", () => {
     const v13 = { ...recipe, renderVersion: 13 };
