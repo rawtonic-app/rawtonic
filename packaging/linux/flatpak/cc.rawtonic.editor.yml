@@ -1,5 +1,4 @@
 # Flatpak manifest for Rawtonic: repackages the release AppImage (see
-# NOT TO BE PUBLISHED with the alpha.19 pin: that release sends an update request inside a Flatpak (release gate in packaging/linux/README.md).
 # packaging/linux/README.md for why, how it was checked, and what Flathub
 # would additionally need). Build and run:
 #   flatpak-builder --user --install-deps-from=flathub --force-clean --install build-dir cc.rawtonic.editor.yml
@@ -47,8 +46,8 @@ modules:
       - install -Dm644 /app/rawtonic/usr/lib/Rawtonic/resources/licenses/THIRD_PARTY_LICENSES.txt /app/share/licenses/cc.rawtonic.editor/THIRD_PARTY_LICENSES.txt
     sources:
       - type: file
-        url: https://github.com/rawtonic-app/rawtonic/releases/download/v0.1.0-alpha.19/Rawtonic_0.1.0-alpha.19_amd64.AppImage
-        sha256: 77982af8c4ab20ed907dafa1086d295fa0d66525548cbadb5fa3bce68de63b97
+        url: https://github.com/rawtonic-app/rawtonic/releases/download/v0.1.0-alpha.20/Rawtonic_0.1.0-alpha.20_amd64.AppImage
+        sha256: 422c0a03b6472fdc60ea45a226e51220ce87841edab75db0c3da797a59ec42be
         dest-filename: Rawtonic.AppImage
       - type: script
         dest-filename: rawtonic.sh

@@ -1,14 +1,13 @@
 # Maintainer: Rawtonic contributors <https://github.com/rawtonic-app/rawtonic>
-# NOT TO BE PUBLISHED with the alpha.19 pin: that release lacks the AppDir path fix (release gate in packaging/linux/README.md).
 #
 # rawtonic-bin: repackages the release AppImage for pacman. See
 # packaging/linux/README.md for why a -bin package, how it was checked, and
 # what publishing to the AUR needs (the maintainer's AUR account).
 pkgname=rawtonic-bin
-# Rawtonic's version 0.1.0-alpha.19 with pacman's rules: no hyphen, and
+# Rawtonic's version 0.1.0-alpha.20 with pacman's rules: no hyphen, and
 # "alpha" glued to the number so vercmp sorts it before 0.1.0 (checked below).
-pkgver=0.1.0alpha.19
-_tag=v0.1.0-alpha.19
+pkgver=0.1.0alpha.20
+_tag=v0.1.0-alpha.20
 pkgrel=1
 pkgdesc='Non-destructive RAW photo editor with native GPU rendering (prebuilt release)'
 arch=('x86_64')
@@ -27,7 +26,7 @@ provides=('rawtonic')
 conflicts=('rawtonic')
 options=('!strip' '!debug')
 source=("Rawtonic_${_tag#v}_amd64.AppImage::${url}/releases/download/${_tag}/Rawtonic_${_tag#v}_amd64.AppImage")
-sha256sums=('77982af8c4ab20ed907dafa1086d295fa0d66525548cbadb5fa3bce68de63b97')
+sha256sums=('422c0a03b6472fdc60ea45a226e51220ce87841edab75db0c3da797a59ec42be')
 noextract=("Rawtonic_${_tag#v}_amd64.AppImage")
 
 prepare() {
