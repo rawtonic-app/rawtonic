@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Faster Shadows and Highlights drags on photos with their own tone curve (DNG profiles and camera profiles with a curve): tone version 23's anchors read the curve's segments the CPU finds once per render instead of searching the 48-entry curve for every pixel. Metal, 2560 × 1707 preview with readback: a Shadows drag costs +0.1 ms p50 over version 22 (was +4.4–5.5 ms; p50 12.9–16.2 → 8.7–9.8 ms in four runs on a shared host), Highlights +0.0 ms (was +1.1–1.4 ms). Exports and previews are byte-identical.
+- Faster Shadows and Highlights drags on photos with their own tone curve (DNG profiles and camera profiles with a curve): tone version 23's anchors read the curve's segments the CPU finds once per render instead of searching the 48-entry curve for every pixel. Metal, 2560 × 1707 preview with readback: a Shadows drag costs +0.1 ms p50 over version 22 (was +4.4–5.5 ms; p50 12.9–16.2 → 8.7–9.8 ms in four runs on a shared host), Highlights +0.0 ms (was +1.1–1.4 ms). Exports and previews are byte-identical on Metal (326 preservation exports, 90 tone version 23 exports, 192 GPU renders); Vulkan and DirectX were not compared.
 
 - CLI exports find catalog photos through the app’s recent libraries or `--catalog`, retaining their saved edits, catalog metadata, corrected capture times and sticky AI-generated-content marking after an external editor strips XMP; ambiguous ownership requires an explicit choice.
 

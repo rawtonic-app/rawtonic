@@ -624,6 +624,23 @@ fn anchor_v23_reads_its_own_curve_segments_without_a_scan() {
             }
         }
     }
+    // The detail cache does not follow the segments (a Highlights drag
+    // across 0 writes and clears them), only the curve.
+    let mut adjustments = get_all_adjustments_from_json(
+        &json!({"highlights": -40, "toneVersion": 23}),
+        true,
+        Some(1),
+    );
+    adjustments.global.tonemapper_mode = 3;
+    for (k, v) in curves[1].iter().enumerate() {
+        adjustments.global.profile_curve[k / 4][k % 4] = *v;
+    }
+    adjustments.global.profile_curve[15][3] = 1.0;
+    let before = DetailKey::of(&adjustments.global);
+    set_anchor_v23_segments(&mut adjustments);
+    assert!(DetailKey::of(&adjustments.global) == before);
+    adjustments.global.profile_curve[0][1] += 0.5;
+    assert!(DetailKey::of(&adjustments.global) != before);
     // Recipes without the anchor keep their uniforms.
     let mut adjustments =
         get_all_adjustments_from_json(&json!({"shadows": 40, "toneVersion": 22}), true, Some(1));

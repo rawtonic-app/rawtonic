@@ -5695,11 +5695,18 @@ impl DetailKey {
         // (shader.wgsl `sharpen_v7_tone_weight`): its baseline exposure and
         // the profile's curve.
         key[36] = global.baseline_exposure.to_bits();
-        for (slot, value) in key[37..101]
+        // Not the anchors' curve segments (`set_anchor_v23_segments`): the
+        // detail stage does not read them, and a Highlights drag across 0
+        // would otherwise rebuild the cached detail.
+        let anchors = ANCHOR_V23_SEGMENTS..ANCHOR_V23_SEGMENTS + ANCHOR_V23_DISPLAY.len();
+        for (index, (slot, value)) in key[37..101]
             .iter_mut()
             .zip(global.profile_curve.iter().flatten())
+            .enumerate()
         {
-            *slot = value.to_bits();
+            if !anchors.contains(&index) {
+                *slot = value.to_bits();
+            }
         }
         key[..36].copy_from_slice(&[
             global.luma_noise_reduction.to_bits(),
