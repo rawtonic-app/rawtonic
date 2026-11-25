@@ -1011,6 +1011,64 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
   for (const [name, listener] of listeners) window.removeEventListener(name, listener);
 });
 
+// KWL1: Lightroom keyword attributes with no counterpart here are named in
+// the import check, never dropped silently.
+it('names the Lightroom keywords whose export, person or name attributes do not come over', async () => {
+  const user = userEvent.setup();
+  localStorage.clear();
+  const catalog = { ...summary, manifest: { ...summary.manifest, mode: 'catalog' } };
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) =>
+    command === 'session_create' || command === 'session_summary'
+      ? catalog
+      : command === 'library_import_preview'
+        ? {
+            name: 'KWL1',
+            kind: 'lightroom',
+            photos: 2,
+            copies: 0,
+            edited: 0,
+            albums: 0,
+            keywords: 19,
+            roots: [],
+            notRead: {
+              smartAlbums: 0,
+              localAdjustments: 0,
+              unlocated: 0,
+              keywordSynonyms: 3,
+              keywordsNotExported: ['Clients', 'private_term'],
+              keywordsExportedWithoutParents: ['Clients|Acme'],
+              personKeywords: ['Jane Doe'],
+              keywordsWithLevelSeparator: ['pipe|term']
+            }
+          }
+        : base(command, args)
+  );
+  render(
+    <ContextMenuProvider>
+      <SessionWorkspace onNavigate={vi.fn(async () => {})} />
+    </ContextMenuProvider>
+  );
+  await user.click(screen.getByRole('button', { name: 'Create a session' }));
+  await user.type(screen.getByLabelText('Session name'), 'Acme');
+  await user.click(screen.getByRole('button', { name: 'Location' }));
+  await user.click(screen.getByRole('button', { name: 'Create session' }));
+  await waitFor(() => expect(screen.getByTitle('/jobs/Acme')).toBeTruthy());
+  await user.click(screen.getByTitle('/jobs/Acme'));
+  await user.click(await screen.findByRole('menuitem', { name: /Import from Lightroom/ }));
+  await user.type(screen.getByLabelText('Library to import'), '/LR/KWL1.lrcat');
+  await user.click(screen.getByRole('button', { name: 'Check' }));
+  expect(await screen.findByText(/19 keywords in the keyword list, 3 keyword synonyms \(not imported\)/)).toBeTruthy();
+  expect(
+    screen.getByText('Keywords Lightroom leaves out of exports (Rawtonic exports them): Clients, private_term')
+  ).toBeTruthy();
+  expect(
+    screen.getByText('Keywords Lightroom exports without their parents (Rawtonic exports every level): Clients > Acme')
+  ).toBeTruthy();
+  expect(screen.getByText('Person keywords (imported as keywords; Rawtonic has no people): Jane Doe')).toBeTruthy();
+  expect(screen.getByText('Keyword names holding | (imported as levels): pipe > term')).toBeTruthy();
+});
+
 it('offers "Apply Capture One straightening and crop" for photos an earlier import did not read, never by itself', async () => {
   const user = userEvent.setup();
   localStorage.clear();

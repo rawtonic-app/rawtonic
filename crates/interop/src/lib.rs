@@ -148,6 +148,24 @@ pub struct NotRead {
     /// Synonyms in the keyword library (Capture One's): Rawtonic has no
     /// synonyms, and a synonym is not made a keyword of its own.
     pub keyword_synonyms: usize,
+    /// Keywords the other editor leaves out of exported files (Lightroom's
+    /// "Include on Export" off), by path. Rawtonic has no such switch: they
+    /// come over, and an export that keeps keywords writes them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords_not_exported: Vec<String>,
+    /// Keywords the other editor exports without their parents (Lightroom's
+    /// "Export Containing Keywords" off), by path: Rawtonic writes every
+    /// level.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords_exported_without_parents: Vec<String>,
+    /// Person keywords (Lightroom's): they come over as keywords; Rawtonic
+    /// has no people.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub person_keywords: Vec<String>,
+    /// Keywords whose own name holds `|`, Rawtonic's level separator (and
+    /// Lightroom's in `lr:hierarchicalSubject`): they arrive as levels.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords_with_level_separator: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

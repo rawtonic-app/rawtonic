@@ -68,6 +68,7 @@ import { holdSavedView, isInside, samePath, savedView, settleSavedView, type Sav
 import { outermost, relativePathBelow, type CatalogFoldersView } from '../../utils/catalogFolders';
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, openMissingView, watchVolumes } from '../../utils/offline';
 import { watchXmpSidecars } from '../../utils/xmpCheck';
+import { typedKeyword } from '../../utils/keywordTree';
 import { requestAutoAdvance } from '../../utils/photoStepping';
 import { importEndView, watchUserActivity, type UserActivity } from '../../utils/importInteraction';
 import { hotFolderCommand } from '../../utils/hotFolderCommands';
@@ -403,8 +404,28 @@ interface ImportPreview {
   albums: number;
   keywords: number;
   roots: { folder: string; photos: number; found: number }[];
-  notRead: { smartAlbums: number; localAdjustments: number; unlocated: number; keywordSynonyms: number };
+  notRead: {
+    smartAlbums: number;
+    localAdjustments: number;
+    unlocated: number;
+    keywordSynonyms: number;
+    /** Lightroom keyword attributes Rawtonic has no counterpart for (KWL1),
+     * by path; absent when none. */
+    keywordsNotExported?: string[];
+    keywordsExportedWithoutParents?: string[];
+    personKeywords?: string[];
+    keywordsWithLevelSeparator?: string[];
+  };
 }
+
+/** The import check's lines for keywords whose other-editor attributes do
+ * not come over (KWL1), each naming its keywords as typed here. */
+const KEYWORD_NOTES = [
+  'keywordsNotExported',
+  'keywordsExportedWithoutParents',
+  'personKeywords',
+  'keywordsWithLevelSeparator'
+] as const;
 
 interface ImportReport {
   imported: number;
@@ -2628,6 +2649,22 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                       .join(t('session.import.separator'))
                   })}
                 </p>
+                {KEYWORD_NOTES.some((field) => importPreview.notRead[field]?.length) && (
+                  <ul className="session-import-keyword-notes">
+                    {KEYWORD_NOTES.map((field) => {
+                      const paths = importPreview.notRead[field] ?? [];
+                      // At most ten names in the line; all of them on hover.
+                      const names = paths.map(typedKeyword);
+                      return paths.length ? (
+                        <li key={field} title={names.join(', ')}>
+                          {t(`session.import.${field}`, {
+                            names: names.slice(0, 10).join(', ') + (names.length > 10 ? ', …' : '')
+                          })}
+                        </li>
+                      ) : null;
+                    })}
+                  </ul>
+                )}
                 <ul>
                   {importPreview.roots.map((root) => (
                     <li key={root.folder}>
