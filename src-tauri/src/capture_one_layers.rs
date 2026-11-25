@@ -108,6 +108,11 @@ fn adjustments(layer: &Layer) -> (Map<String, Value>, Vec<String>) {
     (out, left_out)
 }
 
+/// The layer's settings as the Rawtonic layer adjustments they become.
+pub fn translated(layer: &Layer) -> Map<String, Value> {
+    adjustments(layer).0
+}
+
 fn is_neutral(value: &Value) -> bool {
     match value {
         Value::Null => true,
