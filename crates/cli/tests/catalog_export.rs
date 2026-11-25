@@ -1,4 +1,5 @@
 //! Catalog exports use the same pinned inputs and encoder as desktop exports.
+//! Run explicitly on a GPU host: cargo test -p rawtonic-cli --test catalog_export -- --ignored
 use rawtonic_catalog::{Library, Mode};
 use rawtonic_export::export_processing::{ExportSettings, TiffBitDepth};
 use rawtonic_export::file_export::{FileExport, FileExporter};
@@ -35,6 +36,7 @@ fn settings() -> ExportSettings {
 }
 
 #[test]
+#[ignore = "needs a GPU, as the shared app export does"]
 fn catalog_export_matches_the_shared_app_export() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("external.tiff");
