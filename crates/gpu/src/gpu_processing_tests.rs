@@ -542,6 +542,128 @@ fn anchor_v23_levels_are_the_default_curves() {
 }
 
 #[test]
+fn anchor_v23_reads_its_own_curve_segments_without_a_scan() {
+    // A file's own curve: the anchors read the segments the CPU found
+    // (`set_anchor_v23_segments`) instead of scanning the curve's 48
+    // segments for every pixel (notes: benchmark-results/hsb2-2026-11-25).
+    let shader = include_str!("shaders/shader.wgsl");
+    let start = shader.find("fn anchor_v23_level(").unwrap();
+    let body = &shader[start..start + shader[start..].find("\n}\n").unwrap()];
+    assert!(
+        !body.contains("cr_curve_level") && !body.contains("for ("),
+        "anchor_v23_level scans the curve:\n{body}"
+    );
+    let constant = |name: &str| -> f32 {
+        let key = format!("const {name}: f32 = ");
+        let start = shader.find(&key).unwrap() + key.len();
+        shader[start..start + shader[start..].find(';').unwrap()]
+            .parse()
+            .unwrap()
+    };
+    assert_eq!(
+        ANCHOR_V23_DISPLAY,
+        [
+            constant("SH_V23_FROM"),
+            constant("SH_V23_FROM") - constant("SH_V23_WIDTH"),
+            constant("SH_V20_TO"),
+            constant("HL_V23_FROM"),
+            0.0,
+        ]
+    );
+    assert!(shader.contains(&format!(
+        "const ANCHOR_V23_SEGMENTS: u32 = {ANCHOR_V23_SEGMENTS}u;"
+    )));
+    // The segment is the scan's (`cr_curve_level`): the last value at or
+    // below the display level, from 1 on, at most 47; for a curve whose
+    // anchors lie on the toe, the shoulder, past white and on a flat run.
+    let scan = |curve: &[f32; 49], display: f32| {
+        let mut i = 0;
+        for k in 0..48 {
+            if curve[k + 1] <= display {
+                i = k + 1;
+            }
+        }
+        i.min(47)
+    };
+    let curves: [[f32; 49]; 3] = [
+        std::array::from_fn(|k| -12.0 + 0.25 * k as f32),
+        std::array::from_fn(|k| (-14.0 + 0.3 * k as f32).min(-0.5)),
+        std::array::from_fn(|k| -6.0 + 0.1 * k as f32),
+    ];
+    for curve in curves {
+        for (flag, set) in [
+            (1.0, true),
+            (3.0, true),
+            (4.0, true),
+            (2.0, false),
+            (5.0, false),
+        ] {
+            let mut adjustments = get_all_adjustments_from_json(
+                &json!({"shadows": 40, "toneVersion": 23}),
+                true,
+                Some(1),
+            );
+            adjustments.global.tonemapper_mode = 3;
+            for (k, v) in curve.iter().enumerate() {
+                adjustments.global.profile_curve[k / 4][k % 4] = *v;
+            }
+            adjustments.global.profile_curve[15][3] = flag;
+            set_anchor_v23_segments(&mut adjustments);
+            for (slot, display) in ANCHOR_V23_DISPLAY.iter().enumerate() {
+                let k = ANCHOR_V23_SEGMENTS + slot;
+                let expected = if set {
+                    scan(&curve, *display) as f32
+                } else {
+                    0.0
+                };
+                assert_eq!(
+                    adjustments.global.profile_curve[k / 4][k % 4],
+                    expected,
+                    "flag {flag}, slot {slot}"
+                );
+            }
+        }
+    }
+    // The detail cache does not follow the segments (a Highlights drag
+    // across 0 writes and clears them), only the curve.
+    let mut adjustments = get_all_adjustments_from_json(
+        &json!({"highlights": -40, "toneVersion": 23}),
+        true,
+        Some(1),
+    );
+    adjustments.global.tonemapper_mode = 3;
+    for (k, v) in curves[1].iter().enumerate() {
+        adjustments.global.profile_curve[k / 4][k % 4] = *v;
+    }
+    adjustments.global.profile_curve[15][3] = 1.0;
+    let before = DetailKey::of(&adjustments.global);
+    set_anchor_v23_segments(&mut adjustments);
+    let segments: Vec<f32> = (0..ANCHOR_V23_DISPLAY.len())
+        .map(|slot| {
+            let k = ANCHOR_V23_SEGMENTS + slot;
+            adjustments.global.profile_curve[k / 4][k % 4]
+        })
+        .collect();
+    let expected: Vec<f32> = ANCHOR_V23_DISPLAY
+        .iter()
+        .map(|display| scan(&curves[1], *display) as f32)
+        .collect();
+    assert_eq!(segments, expected);
+    assert!(segments.iter().any(|segment| *segment != 0.0));
+    assert!(DetailKey::of(&adjustments.global) == before);
+    adjustments.global.profile_curve[0][1] += 0.5;
+    assert!(DetailKey::of(&adjustments.global) != before);
+    // Recipes without the anchor keep their uniforms.
+    let mut adjustments =
+        get_all_adjustments_from_json(&json!({"shadows": 40, "toneVersion": 22}), true, Some(1));
+    adjustments.global.tonemapper_mode = 3;
+    adjustments.global.profile_curve[15][3] = 1.0;
+    let before = adjustments.global.profile_curve;
+    set_anchor_v23_segments(&mut adjustments);
+    assert_eq!(adjustments.global.profile_curve, before);
+}
+
+#[test]
 fn anchor_version_23_compiles_only_for_its_recipes() {
     // The anchor applies only under the Camera Raw look, so the tests run
     // under it.
@@ -16867,7 +16989,14 @@ fn tone_version_23_anchor_drag_render_time() {
         height,
         &whites_v10_levels(width, height, true),
     );
-    for slider in ["shadows", "highlights"] {
+    // Curve flag 2: the default curve; 1: a file's own curve (its anchors
+    // read their segments, `set_anchor_v23_segments`).
+    for (slider, flag) in [
+        ("shadows", 2.0),
+        ("highlights", 2.0),
+        ("shadows", 1.0),
+        ("highlights", 1.0),
+    ] {
         let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
         for block in 0..24 {
             let version = 22 + (block % 2) as u64;
@@ -16878,7 +17007,7 @@ fn tone_version_23_anchor_drag_render_time() {
                     -20 - 8 * step
                 };
                 let recipe = json!({ slider: amount, "toneVersion": version });
-                let adjustments = raw_look_adjustments(&recipe, (3, 2.0));
+                let adjustments = raw_look_adjustments(&recipe, (3, flag));
                 let start = std::time::Instant::now();
                 let _ = readback_pixels(
                     &processor,
@@ -16897,7 +17026,7 @@ fn tone_version_23_anchor_drag_render_time() {
         for (k, t) in times.iter_mut().enumerate() {
             t.sort_by(|a, b| a.partial_cmp(b).unwrap());
             eprintln!(
-                "{slider} version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
+                "{slider} curve flag {flag} version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
                 22 + k,
                 t[t.len() / 2],
                 t[t.len() * 9 / 10],

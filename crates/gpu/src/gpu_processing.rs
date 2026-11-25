@@ -5699,11 +5699,18 @@ impl DetailKey {
         // (shader.wgsl `sharpen_v7_tone_weight`): its baseline exposure and
         // the profile's curve.
         key[36] = global.baseline_exposure.to_bits();
-        for (slot, value) in key[37..101]
+        // Not the anchors' curve segments (`set_anchor_v23_segments`): the
+        // detail stage does not read them, and a Highlights drag across 0
+        // would otherwise rebuild the cached detail.
+        let anchors = ANCHOR_V23_SEGMENTS..ANCHOR_V23_SEGMENTS + ANCHOR_V23_DISPLAY.len();
+        for (index, (slot, value)) in key[37..101]
             .iter_mut()
             .zip(global.profile_curve.iter().flatten())
+            .enumerate()
         {
-            *slot = value.to_bits();
+            if !anchors.contains(&index) {
+                *slot = value.to_bits();
+            }
         }
         key[..36].copy_from_slice(&[
             global.luma_noise_reduction.to_bits(),
@@ -5888,6 +5895,39 @@ fn anchor_v23(adjustments: &AllAdjustments) -> bool {
     adjustments.global.tonemapper_mode == 3
         && ToneVersion::from_uniform(adjustments.global.tone_version).pixel_anchor()
         && (shadows_v20(adjustments) || highlights_v14(adjustments))
+}
+
+/// Display levels (EV) of tone version 23's anchors, by slot (shader.wgsl
+/// `anchor_v23_level`): SH_V23_FROM, SH_V23_FROM − SH_V23_WIDTH, SH_V20_TO,
+/// HL_V23_FROM, white.
+const ANCHOR_V23_DISPLAY: [f32; 5] = [-4.5, -6.5, -0.5, -2.5, 0.0];
+/// Profile curve value of slot 0's segment (shader `ANCHOR_V23_SEGMENTS`),
+/// after the curve's 49 values.
+const ANCHOR_V23_SEGMENTS: usize = 49;
+
+/// For a file's own tone curve (`profile_curve[15].w` 1, 3 or 4), the
+/// curve segment each anchor of tone version 23 lies on, as
+/// `cr_curve_level`'s table scan finds it: the shader then reads it instead
+/// of scanning the 48 segments for every pixel (notes:
+/// benchmark-results/hsb2-2026-11-25/REPORT.md). Other recipes keep their
+/// uniforms.
+fn set_anchor_v23_segments(adjustments: &mut AllAdjustments) {
+    let flag = adjustments.global.profile_curve[15][3];
+    let own_curve = (flag > 0.5 && flag < 1.5) || (flag > 2.5 && flag < 4.5);
+    if !own_curve || !anchor_v23(adjustments) {
+        return;
+    }
+    let curve = adjustments.global.profile_curve;
+    let value = |k: usize| curve[k / 4][k % 4];
+    for (slot, display) in ANCHOR_V23_DISPLAY.iter().enumerate() {
+        let segment = (1..=48)
+            .rev()
+            .find(|&k| value(k) <= *display)
+            .unwrap_or(0)
+            .min(47);
+        let k = ANCHOR_V23_SEGMENTS + slot;
+        adjustments.global.profile_curve[k / 4][k % 4] = segment as f32;
+    }
 }
 
 /// Whether the recipe raises Shadows with tone version 20's bounds, on the
@@ -11675,6 +11715,7 @@ impl GpuProcessor {
             // e814aa962 (Timon Käch, AGPL-3.0).
             request.adjustments.uniforms.global.has_lut = 0;
         }
+        set_anchor_v23_segments(&mut request.adjustments.uniforms);
         let tile_size = self.render_tile_size(&request.adjustments);
         if chroma.is_none() {
             // No chroma pyramid: the cross-bilateral colour noise reduction.
