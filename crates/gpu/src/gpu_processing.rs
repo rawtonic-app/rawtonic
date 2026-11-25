@@ -6733,28 +6733,83 @@ impl Drop for SmallSlot {
 }
 
 /// Waits for the small compile slot and takes it: a compile made ahead on
-/// this thread (`AheadCompile`) after every other small compile waiting.
+/// this thread (`AheadCompile`) after every other small compile waiting,
+/// unless a frame waits for what it compiles (`Wanted`).
 fn small_slot() -> SmallSlot {
-    let ahead = AHEAD_COMPILE.with(std::cell::Cell::get);
+    let ahead = compiles_ahead_here();
+    let wanted = WANTED_HERE.with(|wanted| wanted.borrow().clone());
     let mut state = SMALL_SLOT.lock().unwrap_or_else(|e| e.into_inner());
-    if !ahead {
-        state.waiting += 1;
-    }
-    while state.taken || (ahead && state.waiting > 0) {
+    // Counted among the compiles waiting: one not made ahead, or one a
+    // frame came to wait for.
+    let mut counted = false;
+    loop {
+        if !counted && (!ahead || wanted.as_ref().is_some_and(|wanted| wanted.is_set())) {
+            state.waiting += 1;
+            counted = true;
+        }
+        if !state.taken && (counted || state.waiting == 0) {
+            break;
+        }
         state = SMALL_SLOT_FREED
             .wait(state)
             .unwrap_or_else(|e| e.into_inner());
     }
-    if !ahead {
+    if counted {
         state.waiting -= 1;
     }
     state.taken = true;
     SmallSlot
 }
 
+/// Whether this thread compiles ahead of use (`AheadCompile`).
+fn compiles_ahead_here() -> bool {
+    AHEAD_COMPILE.with(std::cell::Cell::get)
+}
+
 thread_local! {
     /// Set while this thread compiles ahead of use (`AheadCompile`).
     static AHEAD_COMPILE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// What this thread compiles now, if a frame may come to wait for it
+    /// (`WantedHere`).
+    static WANTED_HERE: std::cell::RefCell<Option<Arc<Wanted>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Whether a compile not made ahead waits for a pipeline that compiles
+/// ahead of use: that compile then takes the small slot as one a frame
+/// waits for (`small_slot`).
+#[derive(Default)]
+struct Wanted(std::sync::atomic::AtomicBool);
+
+impl Wanted {
+    fn set(&self) {
+        if !self.0.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            // Under the slot's lock, so a compile that waits for the slot
+            // sees it at its next look.
+            let _state = SMALL_SLOT.lock().unwrap_or_else(|e| e.into_inner());
+            SMALL_SLOT_FREED.notify_all();
+        }
+    }
+
+    fn is_set(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// While it lives, this thread's small compiles are of the pipeline `Wanted`
+/// stands for.
+struct WantedHere(Option<Arc<Wanted>>);
+
+impl WantedHere {
+    fn new(wanted: Arc<Wanted>) -> Self {
+        Self(WANTED_HERE.with(|here| here.replace(Some(wanted))))
+    }
+}
+
+impl Drop for WantedHere {
+    fn drop(&mut self) {
+        WANTED_HERE.with(|here| *here.borrow_mut() = self.0.take());
+    }
 }
 
 /// While it lives, this thread's small compiles are made ahead of use:
@@ -10833,8 +10888,8 @@ impl GpuProcessor {
     /// has asked for by then go first and as compiles a frame waits for
     /// (`small_slot`), the others ahead of use: on a cold Radeon 680M the
     /// pass a never-edited RAW's frames read (response 8) could come second,
-    /// 10 s after the first frame, and a drag 3.5 s after that frame ran at
-    /// 37 ms a frame instead of 13 (G76/WQA4, WCC6).
+    /// 7–10 s after the first frame, so a drag 3.5 s after that frame still
+    /// computed the detail stage inline (37 ms a frame; G76/WQA4, WCC6).
     fn detail_pipelines_after_start(
         &self,
         slots: &[usize],

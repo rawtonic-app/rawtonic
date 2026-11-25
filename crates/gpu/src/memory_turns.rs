@@ -444,10 +444,11 @@ mod tests {
     fn a_held_idle_compile_goes_before_runs_made_ahead() {
         let turns = turns();
         turns.compile_waits();
-        let ahead = start_run(&turns, AiRun::Ahead);
         let asked = start_run(&turns, AiRun::Asked);
         assert_eq!(asked.recv_timeout(SOON), Ok(true));
         turns.run_ended(AiRun::Asked);
+        turns.compile_waits();
+        let ahead = start_run(&turns, AiRun::Ahead);
         for _ in 0..4 {
             assert!(
                 ahead.recv_timeout(COMPILE_WAITS / 2).is_err(),

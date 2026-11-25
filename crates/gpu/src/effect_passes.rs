@@ -86,10 +86,20 @@ pub(super) fn here() -> bool {
 /// A pass's variants: each compiles once, without holding up the others
 /// (a frame's finish pass must not wait for the one with grain that
 /// compiles ahead).
-type Pipelines<K> = Mutex<
-    std::collections::HashMap<K, Arc<std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>>>,
->;
+type Pipelines<K> = Mutex<std::collections::HashMap<K, Arc<PipelineCell>>>;
 
+/// One variant of a pass, and whether a compile not made ahead waits for it
+/// (`Wanted`).
+#[derive(Default)]
+struct PipelineCell {
+    pipeline: std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>,
+    wanted: Arc<Wanted>,
+}
+
+/// The variant's pipeline, compiled by the first caller. A frame that finds
+/// it compiling ahead of use (`compile_ahead`) makes that compile one a
+/// frame waits for: it no longer gives the small slot away (`small_slot`;
+/// a drag's grain field pass waited behind other compiles, G76/WCC5 review).
 fn pipeline_of<K: std::hash::Hash + Eq>(
     pipelines: &Pipelines<K>,
     key: K,
@@ -102,7 +112,14 @@ fn pipeline_of<K: std::hash::Hash + Eq>(
             .entry(key)
             .or_default(),
     );
-    cell.get_or_init(create).clone()
+    if let Some(pipeline) = cell.pipeline.get() {
+        return pipeline.clone();
+    }
+    if !compiles_ahead_here() {
+        cell.wanted.set();
+    }
+    let _wanted = WantedHere::new(Arc::clone(&cell.wanted));
+    cell.pipeline.get_or_init(create).clone()
 }
 
 /// The passes' variants and the tiles between them, of one processor.

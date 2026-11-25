@@ -1816,8 +1816,49 @@ mod tests {
         ahead.join().unwrap();
         frame.join().unwrap();
         // Alone, a compile made ahead takes the slot at once.
-        let _ahead = super::super::AheadCompile::new();
-        drop(super::super::small_slot());
+        {
+            let _ahead = super::super::AheadCompile::new();
+            drop(super::super::small_slot());
+        }
+        // A frame that comes to wait for a pipeline compiling ahead makes
+        // that compile one a frame waits for: it no longer gives way.
+        let held = super::super::small_slot();
+        let wanted = Arc::new(super::super::Wanted::default());
+        let (sender, taken) = std::sync::mpsc::channel();
+        let ahead = {
+            let wanted = Arc::clone(&wanted);
+            std::thread::spawn(move || {
+                let _ahead = super::super::AheadCompile::new();
+                let _wanted = super::super::WantedHere::new(wanted);
+                let slot = super::super::small_slot();
+                sender.send(()).unwrap();
+                drop(slot);
+            })
+        };
+        // Another compile waits for the slot and holds it for good.
+        let other = std::thread::spawn(|| {
+            let slot = super::super::small_slot();
+            std::thread::sleep(Duration::from_millis(1500));
+            drop(slot);
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while super::super::SMALL_SLOT.lock().unwrap().waiting == 0 {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        wanted.set();
+        // Both now count as waiting; the holder lets go.
+        while super::super::SMALL_SLOT.lock().unwrap().waiting < 2 {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(held);
+        other.join().unwrap();
+        taken
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the wanted compile takes the slot");
+        ahead.join().unwrap();
+        assert_eq!(super::super::SMALL_SLOT.lock().unwrap().waiting, 0);
     }
 
     /// Under a compile limit the start's plan and its detail-cache passes
