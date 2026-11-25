@@ -15,9 +15,9 @@ src=$(sed -n 's/^source=("\([^:]*\)::.*/\1/p' /pkg/PKGBUILD); src=$(bash -c "$(s
 chown -R builder /home/builder/pkg
 cd /home/builder/pkg
 log "vercmp (expect -1, -1, 1)"
-vercmp 0.1.0alpha.19 0.1.0 | tee -a /out/summary.txt
-vercmp 0.1.0alpha.19 0.1.0alpha.20 | tee -a /out/summary.txt
-vercmp 0.1.0alpha.19 0.1.0alpha.17.1 | tee -a /out/summary.txt
+vercmp 0.1.0alpha.20 0.1.0 | tee -a /out/summary.txt
+vercmp 0.1.0alpha.20 0.1.0alpha.21 | tee -a /out/summary.txt
+vercmp 0.1.0alpha.20 0.1.0alpha.19 | tee -a /out/summary.txt
 log "makepkg -s (declared dependencies only)"
 sudo -u builder makepkg -s --noconfirm >/out/makepkg.log 2>&1 || { log "FAIL makepkg"; tail -30 /out/makepkg.log; exit 1; }
 cp -n "$src" /cache/ 2>/dev/null || true
@@ -50,12 +50,12 @@ magic=$(head -c 2 /home/tester/out.jpg 2>/dev/null | od -An -tx1 | tr -d ' ')
 log "export exit $code, $size bytes, magic $magic"
 [ "$code" -eq 0 ] && [ "$size" -gt 100000 ] && [ "$magic" = ffd8 ] || fail "export"
 cp /home/tester/out.jpg /out/ 2>/dev/null
-log "headless export with relative paths from the home folder (informational for releases up to alpha.19)"
+log "headless export with relative paths from the home folder (required since alpha.20)"
 cp "$photo" /home/tester/rel.raw; chown tester /home/tester/rel.raw
 (cd /home/tester && sudo -u tester env HOME=/home/tester timeout 600 xvfb-run -a rawtonic export rel.raw --output rel-out.jpg --format jpeg >/out/export-relative.log 2>&1; echo "exit $?, $(stat -c %s rel-out.jpg 2>/dev/null || echo 0) bytes") | tee /out/relative.txt | tee -a /out/summary.txt
 # Releases up to alpha.19 ignore OWD without APPIMAGE: a known failure there.
 # Set RELATIVE_EXPORT=required (docker -e) for a release that has the fix.
-if [ "${RELATIVE_EXPORT:-known-gap}" = required ]; then grep -q "^exit 0," /out/relative.txt || fail "relative-path export"; else log "relative-path export not asserted (known gap before the release with the AppDir fix)"; fi
+if [ "${RELATIVE_EXPORT:-required}" = required ]; then grep -q "^exit 0," /out/relative.txt || fail "relative-path export"; else log "relative-path export not asserted (known gap before the release with the AppDir fix)"; fi
 (cd /in && sha256sum -c --quiet /out/in.sha256) && log "original unchanged" || fail "original changed"
 tail -5 /out/export.log | tee -a /out/summary.txt
 log "GUI start (30 s under Xvfb, then screenshot, then close)"
