@@ -1,8 +1,8 @@
 -- The sensor layout of each RAW photograph as read from its file's own
 -- bytes (`sensor_kinds`, `sensor_kind::SensorKind`): 'bayer' or 'xTrans',
 -- never a guess (a read that cannot tell stores nothing). `fingerprint` is
--- the file's when it was read; the kind counts only while the registered
--- file still has it, and a change of the registered size, time or
+-- the file's when it was read; a later read of the photograph's file
+-- replaces the row, and a change of the registered size, time or
 -- fingerprint (folder sync, relink, a save in place) drops it at once.
 -- Only Develop's controls use it while the file is offline: renders and
 -- exports read the sensor from the file.

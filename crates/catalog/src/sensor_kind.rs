@@ -2,8 +2,10 @@
 //! bytes (`sensor_kinds`, schema 38), so Develop shows the controls that fit
 //! the sensor while the file is offline. The catalog reads no file for it:
 //! the app passes the kind its sensor read verified, with the fingerprint of
-//! the file it read. A read that could not tell the layout is not passed, so
-//! nothing stored is a guess. Renders and exports never use the stored kind;
+//! the file it read; each read replaces the one before, and a change of the
+//! registered file drops it. A read that could not tell the layout is not
+//! passed, so nothing stored is a guess; one of another file than the
+//! recorded read forgets it. Renders and exports never use the stored kind;
 //! they read the sensor from the file.
 use crate::{CatalogError, Library};
 use rusqlite::{OptionalExtension, params};
@@ -35,9 +37,11 @@ impl SensorKind {
 }
 
 impl Library {
-    /// Records `kind` for asset `id`, read from a file whose fingerprint
-    /// (`crate::fingerprint`) was `fingerprint`, when that is the file the
-    /// library has registered for it. Returns whether it was recorded.
+    /// Records `kind` for asset `id`, read from its file when that file's
+    /// fingerprint (`crate::fingerprint`) was `fingerprint`: the latest
+    /// read replaces any earlier one, also when the file was changed in
+    /// place without the library registering it yet. Returns whether asset
+    /// `id` exists.
     pub fn record_sensor_kind(
         &self,
         id: &str,
@@ -46,24 +50,37 @@ impl Library {
     ) -> Result<bool, CatalogError> {
         Ok(self.conn.execute(
             "INSERT INTO sensor_kinds(asset_id,kind,fingerprint)
-             SELECT ?1,?2,?3 WHERE EXISTS(SELECT 1 FROM assets WHERE id=?1 AND fingerprint=?3)
+             SELECT ?1,?2,?3 WHERE EXISTS(SELECT 1 FROM assets WHERE id=?1)
              ON CONFLICT(asset_id) DO UPDATE SET kind=excluded.kind,fingerprint=excluded.fingerprint",
             params![id, kind.name(), fingerprint],
         )? == 1)
     }
 
-    /// Asset `id`'s recorded sensor layout, while its registered file is
-    /// still the one that was read.
-    pub fn sensor_kind(&self, id: &str) -> Result<Option<SensorKind>, CatalogError> {
-        let name: Option<String> = self
+    /// Asset `id`'s latest recorded sensor layout (none since its
+    /// registered file changed), with the fingerprint of the file it was
+    /// read from.
+    pub fn sensor_read(&self, id: &str) -> Result<Option<(SensorKind, String)>, CatalogError> {
+        let row: Option<(String, String)> = self
             .conn
             .query_row(
-                "SELECT s.kind FROM sensor_kinds s JOIN assets a ON a.id=s.asset_id
-                 WHERE s.asset_id=? AND s.fingerprint=a.fingerprint",
+                "SELECT kind,fingerprint FROM sensor_kinds WHERE asset_id=?",
                 [id],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
-        Ok(name.as_deref().and_then(SensorKind::from_name))
+        Ok(row.and_then(|(kind, fingerprint)| Some((SensorKind::from_name(&kind)?, fingerprint))))
+    }
+
+    /// Forgets asset `id`'s recorded layout: its file is another one now,
+    /// whose read could not tell the layout.
+    pub fn forget_sensor_kind(&self, id: &str) -> Result<(), CatalogError> {
+        self.conn
+            .execute("DELETE FROM sensor_kinds WHERE asset_id=?", [id])?;
+        Ok(())
+    }
+
+    /// Asset `id`'s latest recorded sensor layout ([`Library::sensor_read`]).
+    pub fn sensor_kind(&self, id: &str) -> Result<Option<SensorKind>, CatalogError> {
+        Ok(self.sensor_read(id)?.map(|(kind, _)| kind))
     }
 }

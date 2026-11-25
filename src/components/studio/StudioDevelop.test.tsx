@@ -145,6 +145,25 @@ describe('Develop tool contracts', () => {
       expect(useEditorStore.getState().adjustments).toMatchObject({ aiDenoise: 43, aiDenoiseVersion: expected });
     }
   );
+  it('keeps AI Denoise waiting while an offline photo asks for its remembered sensor', async () => {
+    const original = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation((name, args) =>
+      name === Invokes.RawSensorKind ? new Promise(() => {}) : original(name, args)
+    );
+    onTestFinished(() => {
+      vi.mocked(invoke).mockImplementation(original);
+    });
+    useEditorStore.setState((state) => ({
+      selectedImage: { ...state.selectedImage!, offline: 'standard', isDecoded: true },
+      adjustments: { ...state.adjustments, aiDenoise: 20, aiDenoiseVersion: 3 }
+    }));
+    mount();
+    fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Detail' }));
+    openGroups();
+    await act(async () => {});
+    expect((screen.getByRole('textbox', { name: 'AI Denoise value' }) as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByRole('combobox', { name: 'AI Denoise quality' })).toBeNull();
+  });
   it('accepts adjustments only after the selected source and metadata are ready', () => {
     useEditorStore.setState((state) => ({ selectedImage: { ...state.selectedImage!, isReady: false } }));
     const before = useEditorStore.getState().adjustments;

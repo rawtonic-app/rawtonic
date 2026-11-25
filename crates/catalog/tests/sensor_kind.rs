@@ -55,19 +55,30 @@ fn a_kind_read_from_the_registered_file_is_kept() {
 }
 
 #[test]
-fn a_read_of_another_file_than_the_registered_one_is_not_kept() {
+fn a_read_of_the_file_changed_in_place_replaces_the_kind() {
     let d = tempfile::tempdir().unwrap();
-    let (lib, ids, paths) = session(d.path(), &["A.RAF"]);
-    // The file was replaced on disk; the library still has the old one.
+    let (lib, ids, paths) = session(d.path(), &["A.DNG"]);
+    let old = fingerprint(&paths[0]).unwrap();
+    assert!(
+        lib.record_sensor_kind(&ids[0], SensorKind::XTrans, &old)
+            .unwrap()
+    );
+    // Another file at the same name; the library has not registered it yet.
     fs::write(&paths[0], b"another camera's file").unwrap();
     let now = fingerprint(&paths[0]).unwrap();
     assert!(
-        !lib.record_sensor_kind(&ids[0], SensorKind::XTrans, &now)
+        lib.record_sensor_kind(&ids[0], SensorKind::Bayer, &now)
             .unwrap()
     );
+    assert_eq!(
+        lib.sensor_read(&ids[0]).unwrap(),
+        Some((SensorKind::Bayer, now))
+    );
+    // A replacement whose read cannot tell is forgotten, not kept as the old one.
+    lib.forget_sensor_kind(&ids[0]).unwrap();
     assert_eq!(lib.sensor_kind(&ids[0]).unwrap(), None);
     assert!(
-        !lib.record_sensor_kind("no-such-asset", SensorKind::Bayer, &now)
+        !lib.record_sensor_kind("no-such-asset", SensorKind::Bayer, &old)
             .unwrap()
     );
 }

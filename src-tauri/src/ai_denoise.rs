@@ -393,26 +393,30 @@ pub async fn option_for(
 }
 
 /// Probe the sensor of a photo, including virtual copies of it, for
-/// Develop's controls. A readable file is read, and a kind it verifies is
-/// remembered by the photo's session or catalog (in the background, so the
-/// answer does not wait for the write); an offline file is not read, and
-/// the kind remembered for it answers (Unknown without one). Renders and
-/// exports never use the remembered kind (`sensor_kind`).
+/// Develop's controls. A readable file is read, and its session or catalog
+/// remembers the answer (in the background, so the answer does not wait for
+/// the write); an offline file is not read, and the kind remembered for it
+/// answers (Unknown without one). Renders and exports never use the
+/// remembered kind (`sensor_kind`).
 #[tauri::command]
 pub async fn raw_sensor_kind(path: String) -> SensorKind {
     let (source, _) = crate::file_management::parse_virtual_path(&path);
     tokio::task::spawn_blocking(move || {
+        let probe = rawtonic_rawdecode::raw_processing::sensor_kind_at;
         let library = crate::session_bridge::library_dir_for(&source);
         if !crate::preview_proxy::source_available(&source) {
             return library.map_or(SensorKind::Unknown, |library| {
                 remembered_sensor_kind(&library, &source)
             });
         }
-        let (kind, verified) =
-            read_sensor_kind(&source, rawtonic_rawdecode::raw_processing::sensor_kind_at);
-        if let (Some(library), Some((verified, fingerprint))) = (library, verified) {
+        // A photograph no library manages is read once, with nothing to remember.
+        let Some(library) = library else {
+            return probe(&source);
+        };
+        let (kind, read) = read_sensor_kind(&source, probe);
+        if let Some(fingerprint) = read {
             tauri::async_runtime::spawn_blocking(move || {
-                if let Err(e) = remember_sensor_kind(&library, &source, verified, &fingerprint) {
+                if let Err(e) = remember_sensor_kind(&library, &source, kind, &fingerprint) {
                     log::warn!("Sensor of {}: not remembered: {e}", source.display());
                 }
             });
@@ -423,51 +427,65 @@ pub async fn raw_sensor_kind(path: String) -> SensorKind {
     .unwrap_or(SensorKind::Unknown)
 }
 
-/// `probe`'s answer for the file at `source`, and the kind to remember with
-/// the fingerprint of the file it was read from: only a Bayer or X-Trans
-/// answer, and only when the file was the same before and after the read.
+/// `probe`'s answer for the file at `source`, with the fingerprint of the
+/// file it read when that was the same before and after the read (else the
+/// answer is not remembered).
 fn read_sensor_kind(
     source: &Path,
     probe: impl FnOnce(&Path) -> SensorKind,
-) -> (SensorKind, Option<(StoredSensorKind, String)>) {
+) -> (SensorKind, Option<String>) {
     let before = rawtonic_catalog::fingerprint(source).ok();
     let kind = probe(source);
+    let read =
+        before.filter(|before| rawtonic_catalog::fingerprint(source).ok().as_ref() == Some(before));
+    (kind, read)
+}
+
+/// Records what a read of the photograph at `source` gave, from the file
+/// whose fingerprint was `fingerprint`, in the library at `library`: a
+/// Bayer or X-Trans answer replaces the recorded one; an Unknown answer
+/// keeps a kind read from the same file (the read failed this time) and
+/// forgets one of another file. Writes nothing when nothing changes (a
+/// photo opened again).
+fn remember_sensor_kind(
+    library: &Path,
+    source: &Path,
+    kind: SensorKind,
+    fingerprint: &str,
+) -> Result<(), String> {
     let verified = match kind {
         SensorKind::Bayer => Some(StoredSensorKind::Bayer),
         SensorKind::XTrans => Some(StoredSensorKind::XTrans),
         SensorKind::Unknown => None,
     };
-    let remember = verified
-        .zip(before)
-        .filter(|(_, before)| rawtonic_catalog::fingerprint(source).ok().as_ref() == Some(before));
-    (kind, remember)
-}
-
-/// Records `kind` for the photograph at `source` in the library at
-/// `library`, unless it holds that already (a photo opened again writes
-/// nothing). The library keeps it only for the file it has registered.
-fn remember_sensor_kind(
-    library: &Path,
-    source: &Path,
-    kind: StoredSensorKind,
-    fingerprint: &str,
-) -> Result<(), String> {
-    let known = rawtonic_catalog::Library::open(library)
-        .ok()
-        .and_then(|lib| {
-            let asset = lib.asset_at(source).ok()??;
-            Some(lib.sensor_kind(&asset.id).ok()? == Some(kind) && asset.fingerprint == fingerprint)
-        })
-        .unwrap_or(false);
-    if known {
+    let unchanged = |lib: &rawtonic_catalog::Library| -> Result<Option<String>, String> {
+        let Some(asset) = lib.asset_at(source).map_err(|e| e.to_string())? else {
+            return Ok(None);
+        };
+        let recorded = lib.sensor_read(&asset.id).map_err(|e| e.to_string())?;
+        let same_file = recorded
+            .as_ref()
+            .is_some_and(|(_, read)| read == fingerprint);
+        let done = match verified {
+            Some(kind) => same_file && recorded.is_some_and(|(stored, _)| stored == kind),
+            None => recorded.is_none() || same_file,
+        };
+        Ok((!done).then_some(asset.id))
+    };
+    let lib = rawtonic_catalog::Library::open(library).map_err(|e| e.to_string())?;
+    if unchanged(&lib)?.is_none() {
         return Ok(());
     }
+    drop(lib);
     crate::session_bridge::with_library_blocking(library, |lib| {
-        if let Some(asset) = lib.asset_at(source).map_err(|e| e.to_string())? {
-            lib.record_sensor_kind(&asset.id, kind, fingerprint)
-                .map_err(|e| e.to_string())?;
+        let Some(id) = unchanged(lib)? else {
+            return Ok(());
+        };
+        match verified {
+            Some(kind) => lib.record_sensor_kind(&id, kind, fingerprint).map(drop),
+            None => lib.forget_sensor_kind(&id),
         }
-        Ok(())
+        .map_err(|e| e.to_string())
     })
 }
 
@@ -502,62 +520,58 @@ mod tests {
         let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
         let capture = lib.directory.join("Capture");
         std::fs::create_dir_all(&capture).unwrap();
-        let (xtrans, bayer, unread) = (
+        let (xtrans, bayer, unread, replaced) = (
             capture.join("A.RAF"),
             capture.join("B.NEF"),
             capture.join("C.RAF"),
+            capture.join("D.DNG"),
         );
-        for path in [&xtrans, &bayer, &unread] {
+        for path in [&xtrans, &bayer, &unread, &replaced] {
             std::fs::write(path, path.to_string_lossy().as_bytes()).unwrap();
             lib.add_asset(path).unwrap();
         }
         let directory = lib.directory.clone();
         drop(lib);
-        for (path, answer) in [
-            (&xtrans, SensorKind::XTrans),
-            (&bayer, SensorKind::Bayer),
-            (&unread, SensorKind::Unknown),
-        ] {
-            let (kind, verified) = read_sensor_kind(path, |_| answer);
+        let read = |path: &std::path::Path, answer: SensorKind| {
+            let (kind, fingerprint) = read_sensor_kind(path, |_| answer);
             assert_eq!(kind, answer);
-            assert_eq!(verified.is_some(), answer != SensorKind::Unknown);
-            if let Some((verified, fingerprint)) = verified {
-                remember_sensor_kind(&directory, path, verified, &fingerprint).unwrap();
-            }
-        }
+            remember_sensor_kind(&directory, path, kind, &fingerprint.unwrap()).unwrap();
+        };
+        read(&xtrans, SensorKind::XTrans);
+        read(&bayer, SensorKind::Bayer);
+        read(&unread, SensorKind::Unknown);
+        read(&replaced, SensorKind::XTrans);
+        // A failed read of the same file keeps what was read before.
+        read(&xtrans, SensorKind::Unknown);
+        // The file replaced in place (the library has not registered it):
+        // its own read counts, and one that cannot tell forgets the old kind.
+        std::fs::write(&bayer, b"edited elsewhere, now X-Trans").unwrap();
+        read(&bayer, SensorKind::XTrans);
+        std::fs::write(&replaced, b"replaced by an unreadable file").unwrap();
+        read(&replaced, SensorKind::Unknown);
         // A read during which the file changed is not remembered.
-        let (_, verified) = read_sensor_kind(&unread, |path| {
+        let (_, fingerprint) = read_sensor_kind(&unread, |path| {
             std::fs::write(path, b"replaced while it was read").unwrap();
             SensorKind::Bayer
         });
-        assert!(verified.is_none());
+        assert!(fingerprint.is_none());
         // Offline: the files are gone, the library answers.
-        for path in [&xtrans, &bayer, &unread] {
+        for path in [&xtrans, &bayer, &unread, &replaced] {
             std::fs::remove_file(path).unwrap();
         }
+        let offline = |path: &std::path::Path| remembered_sensor_kind(&directory, path);
+        assert_eq!(offline(&xtrans), SensorKind::XTrans);
+        assert_eq!(offline(&bayer), SensorKind::XTrans);
+        assert_eq!(offline(&unread), SensorKind::Unknown);
+        assert_eq!(offline(&replaced), SensorKind::Unknown);
         assert_eq!(
-            remembered_sensor_kind(&directory, &xtrans),
-            SensorKind::XTrans
-        );
-        assert_eq!(
-            remembered_sensor_kind(&directory, &bayer),
-            SensorKind::Bayer
-        );
-        assert_eq!(
-            remembered_sensor_kind(&directory, &unread),
-            SensorKind::Unknown
-        );
-        assert_eq!(
-            remembered_sensor_kind(&directory, &capture.join("unregistered.RAF")),
+            offline(&capture.join("unregistered.RAF")),
             SensorKind::Unknown
         );
         // The answer reaches the frontend in its contract's shape.
         let wire: Vec<String> =
             serde_json::from_str(include_str!("../../src/contracts/rawSensorKind.json")).unwrap();
-        assert_eq!(
-            serde_json::to_value(remembered_sensor_kind(&directory, &xtrans)).unwrap(),
-            wire[1]
-        );
+        assert_eq!(serde_json::to_value(offline(&xtrans)).unwrap(), wire[1]);
     }
 
     #[test]
