@@ -135,6 +135,14 @@ fn label_from_tag(tag: i64) -> String {
 }
 
 pub fn read(session_db: &Path) -> Result<Library> {
+    read_with_mask_observer(session_db, |_| {})
+}
+
+/// Like `read`, with a callback before opening each distinct mask file.
+pub fn read_with_mask_observer(
+    session_db: &Path,
+    mut observe_mask: impl FnMut(&Path),
+) -> Result<Library> {
     let session = session_db
         .parent()
         .context("The session database has no folder")?
@@ -350,6 +358,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
                 .into_iter()
                 .find_map(|p| {
                     let parsed = mask_files.entry(p.clone()).or_insert_with(|| {
+                        observe_mask(&p);
                         std::fs::read(&p).ok().and_then(|d| MaskFile::parse(&d))
                     });
                     parsed.as_ref().filter(|f| f.has(&uuid)).cloned()

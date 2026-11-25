@@ -1957,6 +1957,7 @@
       "albums_one": "{{count}} álbum",
       "albums_many": "{{count}} álbuns",
       "albums_other": "{{count}} álbuns",
+      "catalogChanged": "O catálogo foi alterado desde a última verificação. Verifique-o novamente.",
       "check": "Verificar",
       "chooseSource": "Escolher a biblioteca a importar",
       "copies_one": "{{count}} cópia virtual",

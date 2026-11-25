@@ -1806,6 +1806,7 @@
     },
     "import": {
       "albums_other": "{{count}} 个相册",
+      "catalogChanged": "目录在检查后已更改。请重新检查。",
       "check": "检查",
       "chooseSource": "选择要导入的图库",
       "copies_other": "{{count}} 个虚拟副本",

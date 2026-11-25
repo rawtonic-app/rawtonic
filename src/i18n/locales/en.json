@@ -1861,6 +1861,7 @@
     "import": {
       "albums_one": "{{count}} album",
       "albums_other": "{{count}} albums",
+      "catalogChanged": "The catalog changed since it was checked. Check it again.",
       "check": "Check",
       "chooseSource": "Choose the library to import",
       "copies_one": "{{count}} virtual copy",

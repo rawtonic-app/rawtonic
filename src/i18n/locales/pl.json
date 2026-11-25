@@ -2052,6 +2052,7 @@
       "albums_few": "{{count}} albumy",
       "albums_many": "{{count}} albumów",
       "albums_other": "{{count}} albumu",
+      "catalogChanged": "Katalog zmienił się od ostatniego sprawdzenia. Sprawdź go ponownie.",
       "check": "Sprawdź",
       "chooseSource": "Wybierz bibliotekę do zaimportowania",
       "copies_one": "{{count}} kopia wirtualna",

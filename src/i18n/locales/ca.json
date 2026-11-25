@@ -1957,6 +1957,7 @@
       "albums_one": "{{count}} àlbum",
       "albums_many": "{{count}} àlbums",
       "albums_other": "{{count}} àlbums",
+      "catalogChanged": "El catàleg ha canviat des de la darrera comprovació. Torna’l a comprovar.",
       "check": "Comprova",
       "chooseSource": "Tria la biblioteca que s’importarà",
       "copies_one": "{{count}} còpia virtual",
