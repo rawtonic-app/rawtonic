@@ -62,6 +62,11 @@ export interface RecipeDraft {
   dontEnlarge: boolean;
   /** Enlarge 2× with the AI model before the resize (Super Resolution). */
   superResolution: boolean;
+  /** Super Resolution's quality: Full averages each tile's four rotations,
+   * Fast enlarges it once (about four times quicker). Undefined in a new
+   * recipe until the dialog picks the machine's default (Fast where the
+   * model runs on the processor); recipes saved before the choice are Full. */
+  superResolutionQuality?: 'full' | 'fast';
   metadata: boolean;
   stripGps: boolean;
   keepCreatorContact?: boolean;
@@ -244,6 +249,8 @@ export function presetFromDraft(draft: RecipeDraft, id: string, name: string, ba
     resizeValue2: draft.resizeValue2,
     dontEnlarge: draft.dontEnlarge,
     superResolution: draft.superResolution,
+    // Saved only when Fast, so recipes from before keep their bytes (Full).
+    superResolutionQuality: draft.superResolution && draft.superResolutionQuality === 'fast' ? 'fast' : undefined,
     keepMetadata: draft.metadata,
     stripGps: draft.stripGps,
     keepCreatorContact: !!draft.keepCreatorContact,
@@ -314,6 +321,8 @@ export function draftFromPreset(preset: ExportPreset): RecipeDraft {
     resizeValue2: (preset.resizeValue2 ?? 0) > 0 ? preset.resizeValue2! : d.resizeValue2,
     dontEnlarge: preset.dontEnlarge ?? d.dontEnlarge,
     superResolution: !!preset.superResolution,
+    superResolutionQuality:
+      preset.superResolutionQuality === 'fast' ? 'fast' : preset.superResolution ? 'full' : undefined,
     metadata: !!preset.keepMetadata,
     stripGps: !!preset.stripGps,
     keepCreatorContact: !!preset.keepCreatorContact,
@@ -384,6 +393,10 @@ export function exportSettingsFromDraft(draft: RecipeDraft): { settings: ExportS
       stripGps: draft.stripGps,
       keepCreatorContact: !!draft.keepCreatorContact,
       superResolution: draft.superResolution,
+      // Full (the backend's default) is not sent: its settings hash stays.
+      ...(draft.superResolution && draft.superResolutionQuality === 'fast'
+        ? { superResolutionQuality: 'fast' as const }
+        : {}),
       // Kept for every format: one that cannot carry a manifest fails its
       // export rather than leaving without it (the panel says so first).
       ...(draft.provenance ? { provenance: { includeAuthor: draft.provenanceAuthor } } : {}),

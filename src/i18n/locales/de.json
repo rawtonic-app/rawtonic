@@ -2304,7 +2304,7 @@
       "build": "dieser Build",
       "copyright": "Copyright © 2026 Rawtonic-Mitwirkende. Teile Copyright Timon Käch und die RapidRAW-Mitwirkenden.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super-Resolution beim Export (Philip Hofmann). Geändert: nach ONNX und Core ML umgewandelt, Mittel aus vier Drehungen jeder Kachel (in der CPU-Konvertierung nacheinander, in der Einzeldurchlauf-CPU-Konvertierung ein Durchlauf ohne Mittel; in der GPU-Konvertierung fp16-Gewichte und -Berechnung).",
+        "2xBHI_small_compact_pretrain": "Super-Resolution beim Export (Philip Hofmann). Geändert: nach ONNX und Core ML umgewandelt, Mittel aus vier Drehungen jeder Kachel (in der CPU-Konvertierung nacheinander, in den Konvertierungen für die schnelle Qualität ein Durchlauf ohne Mittel; in der GPU-Konvertierung fp16-Gewichte und -Berechnung).",
         "avif-parse": "Liest den AVIF-Container.",
         "BiRefNet": "Motiv- und Hintergrundmasken (Peng Zheng und andere).",
         "ConvNeXt UperNet": "Himmels- und Landschaftsmasken (Meta, ADE20K).",
@@ -3924,9 +3924,14 @@
         "resize": "Größe anpassen",
         "superResolution": {
           "failed": "Super-Resolution ist nicht verfügbar: {{error}}",
+          "fastFailed": "Die schnelle Qualität ist nicht verfügbar: {{error}}",
           "hint": "Vergrößert jedes Foto mit einem KI-Modell auf die doppelte Breite und Höhe, vor Größenänderung und Schärfen. Originale werden nie verändert.",
           "label": "Super-Resolution (2×, KI)",
           "preparing": "Super-Resolution-Modell wird vorbereitet …",
+          "quality": "Qualität",
+          "qualityFast": "Schnell",
+          "qualityFull": "Voll",
+          "qualityHint": "Schnell vergrößert jeden Teil des Fotos einmal, statt vier gedrehte Kopien zu mitteln: etwa viermal schneller, Unterschiede nur im Pixelvergleich sichtbar.",
           "ready": "Super-Resolution-Modell bereit ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

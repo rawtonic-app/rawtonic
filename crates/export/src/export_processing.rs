@@ -181,6 +181,12 @@ pub struct ExportSettings {
     /// before the resize, border and output sharpening ([`Enlarger`]).
     #[serde(default)]
     pub super_resolution: bool,
+    /// Super Resolution's quality: Full averages each tile's four
+    /// right-angle rotations, Fast enlarges it once (a quarter of the work;
+    /// on every backend). Recipes without the key are Full and keep their
+    /// settings hash (`existing_files::settings_for_hash`): not written then.
+    #[serde(default, skip_serializing_if = "SuperResolutionQuality::is_full")]
+    pub super_resolution_quality: SuperResolutionQuality,
     /// Sign a provenance manifest (C2PA) into the file with the user's
     /// signing identity (`ExportOutput::provenance`); None (the default):
     /// no manifest, the file as before.
@@ -1120,19 +1126,35 @@ pub struct RenderEnv<'a> {
     pub render_inputs: Option<&'a crate::render_inputs::RenderInputs>,
 }
 
+/// Super Resolution's quality (`ExportSettings::super_resolution_quality`).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SuperResolutionQuality {
+    /// The four right-angle rotations of each tile enlarged and averaged.
+    #[default]
+    Full,
+    /// Each tile enlarged once: 0.07 dB PSNR below Full on 34 crops of 17
+    /// RAWs, LPIPS 0.001 better, nothing visible at 100 % (notes:
+    /// benchmark-results/srr1-2026-11-25/REPORT.md).
+    Fast,
+}
+
+impl SuperResolutionQuality {
+    pub fn is_full(&self) -> bool {
+        *self == Self::Full
+    }
+}
+
 /// Enlarges a rendered export 2× for Super Resolution: the app and the CLI
 /// run the AI model (`rawtonic-superres`) behind it. `image` is the render
 /// in its output encoding; the result has exactly twice its width and
-/// height and the same pixel type. `one_pass_on_cpu`: the photo's recipe
-/// is from `renderVersion` 20 (`SINGLE_PASS_SUPER_RESOLUTION_RENDER_VERSION`),
-/// so on ONNX Runtime's CPU provider each tile is enlarged once instead of
-/// averaging its four rotations (`rawtonic_superres::Rotations`).
-/// `cancelled` may stop it between tiles.
+/// height and the same pixel type, at the recipe's `quality`. `cancelled`
+/// may stop it between tiles.
 pub trait Enlarger: Send + Sync {
     fn enlarge_2x(
         &self,
         image: DynamicImage,
-        one_pass_on_cpu: bool,
+        quality: SuperResolutionQuality,
         cancelled: &dyn Fn() -> Result<(), String>,
     ) -> Result<DynamicImage, String>;
 }
@@ -1148,13 +1170,10 @@ pub fn super_resolution_size(width: u32, height: u32, settings: &ExportSettings)
 
 /// Super Resolution of a rendered export, when the settings ask for it:
 /// before the resize, border and output sharpening, so they apply to the
-/// enlarged photo as they would to a larger original. `recipe` is the
-/// photo's develop recipe (its `renderVersion` picks the enlargement on the
-/// CPU, [`Enlarger`]).
+/// enlarged photo as they would to a larger original.
 pub fn enlarge_for_export(
     image: DynamicImage,
     settings: &ExportSettings,
-    recipe: &Value,
     enlarger: Option<&dyn Enlarger>,
     cancelled: &dyn Fn() -> Result<(), String>,
 ) -> Result<DynamicImage, String> {
@@ -1170,9 +1189,7 @@ pub fn enlarge_for_export(
             "Super Resolution would make {target_w} × {target_h} pixels, more than an export can hold"
         ));
     }
-    let one_pass_on_cpu = rawtonic_engine::recipe_versions::RenderVersion::effective(recipe)
-        .single_pass_super_resolution_on_cpu();
-    let enlarged = enlarger.enlarge_2x(image, one_pass_on_cpu, cancelled)?;
+    let enlarged = enlarger.enlarge_2x(image, settings.super_resolution_quality, cancelled)?;
     if enlarged.dimensions() != (target_w, target_h) {
         return Err(format!(
             "Super Resolution returned {:?} instead of {target_w} × {target_h} pixels",
@@ -1189,11 +1206,10 @@ pub fn enlarge_for_export(
 pub fn finish_rendered_export(
     image: DynamicImage,
     settings: &ExportSettings,
-    recipe: &Value,
     enlarger: Option<&dyn Enlarger>,
     cancelled: &dyn Fn() -> Result<(), String>,
 ) -> Result<(DynamicImage, ExportGeometry), String> {
-    let image = enlarge_for_export(image, settings, recipe, enlarger, cancelled)?;
+    let image = enlarge_for_export(image, settings, enlarger, cancelled)?;
     apply_export_geometry_and_watermark(image, settings)
 }
 
@@ -1771,14 +1787,9 @@ pub fn save_rendered_export(
     #[cfg(feature = "performance-profiling")]
     let geometry_stage = crate::performance::PerformanceStage::new("export_geometry");
     let rendered_size = processed.dimensions();
-    let final_image = finish_rendered_export(
-        processed,
-        export_settings,
-        js_adjustments,
-        output.enlarger,
-        cancelled,
-    )
-    .map(|(image, _)| image)?;
+    let final_image =
+        finish_rendered_export(processed, export_settings, output.enlarger, cancelled)
+            .map(|(image, _)| image)?;
     #[cfg(feature = "performance-profiling")]
     drop(geometry_stage);
     cancelled()?;
@@ -3806,16 +3817,11 @@ mod super_resolution_tests {
         wrong: bool,
     }
 
-    /// A saved recipe from before `renderVersion` 20.
-    fn saved_v19() -> Value {
-        serde_json::json!({"exposure": 0.5, "renderVersion": 19})
-    }
-
     impl Enlarger for Doubler {
         fn enlarge_2x(
             &self,
             image: DynamicImage,
-            _one_pass_on_cpu: bool,
+            _quality: SuperResolutionQuality,
             cancelled: &dyn Fn() -> Result<(), String>,
         ) -> Result<DynamicImage, String> {
             cancelled()?;
@@ -3837,13 +3843,9 @@ mod super_resolution_tests {
     fn older_settings_and_recipes_export_at_the_photos_size() {
         let settings = settings(false);
         assert!(!settings.super_resolution);
-        let out = enlarge_for_export(
-            photo(),
-            &settings,
-            &saved_v19(),
-            Some(&Doubler { wrong: false }),
-            &|| Ok(()),
-        )
+        let out = enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: false }), &|| {
+            Ok(())
+        })
         .unwrap();
         assert_eq!(out.dimensions(), (30, 20));
         assert_eq!(compute_export_output_size(30, 20, &settings), (30, 20));
@@ -3852,13 +3854,9 @@ mod super_resolution_tests {
     #[test]
     fn super_resolution_doubles_before_the_resize() {
         let mut settings = settings(true);
-        let out = enlarge_for_export(
-            photo(),
-            &settings,
-            &saved_v19(),
-            Some(&Doubler { wrong: false }),
-            &|| Ok(()),
-        )
+        let out = enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: false }), &|| {
+            Ok(())
+        })
         .unwrap();
         assert_eq!(out.dimensions(), (60, 40));
         assert!(matches!(out, DynamicImage::ImageRgb16(_)));
@@ -3876,26 +3874,18 @@ mod super_resolution_tests {
     #[test]
     fn super_resolution_without_its_model_or_with_a_wrong_result_fails() {
         let settings = settings(true);
-        let missing =
-            enlarge_for_export(photo(), &settings, &saved_v19(), None, &|| Ok(())).unwrap_err();
+        let missing = enlarge_for_export(photo(), &settings, None, &|| Ok(())).unwrap_err();
         assert!(missing.contains("not installed"), "{missing}");
-        let wrong = enlarge_for_export(
-            photo(),
-            &settings,
-            &saved_v19(),
-            Some(&Doubler { wrong: true }),
-            &|| Ok(()),
-        )
+        let wrong = enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: true }), &|| {
+            Ok(())
+        })
         .unwrap_err();
         assert!(wrong.contains("instead of 60 × 40"), "{wrong}");
-        let cancelled = enlarge_for_export(
-            photo(),
-            &settings,
-            &saved_v19(),
-            Some(&Doubler { wrong: false }),
-            &|| Err("Export cancelled".to_string()),
-        )
-        .unwrap_err();
+        let cancelled =
+            enlarge_for_export(photo(), &settings, Some(&Doubler { wrong: false }), &|| {
+                Err("Export cancelled".to_string())
+            })
+            .unwrap_err();
         assert_eq!(cancelled, "Export cancelled");
     }
 
@@ -3926,37 +3916,50 @@ mod super_resolution_tests {
         assert!(xmp.contains("DigitalSourceType"), "{xmp}");
     }
 
-    /// Records the enlargement each call asked for.
-    struct Recorder(std::sync::Mutex<Vec<bool>>);
+    /// Records the quality each enlargement was asked for.
+    struct Recorder(std::sync::Mutex<Vec<SuperResolutionQuality>>);
 
     impl Enlarger for Recorder {
         fn enlarge_2x(
             &self,
             image: DynamicImage,
-            one_pass_on_cpu: bool,
+            quality: SuperResolutionQuality,
             _cancelled: &dyn Fn() -> Result<(), String>,
         ) -> Result<DynamicImage, String> {
-            self.0.lock().unwrap().push(one_pass_on_cpu);
+            self.0.lock().unwrap().push(quality);
             let (w, h) = image.dimensions();
             Ok(image.resize_exact(2 * w, 2 * h, image::imageops::FilterType::Nearest))
         }
     }
 
     #[test]
-    fn recipes_from_render_version_20_ask_for_one_pass_on_the_cpu() {
-        let settings = settings(true);
+    fn the_recipes_quality_reaches_the_enlarger_and_full_is_not_written() {
+        use crate::existing_files::settings_for_hash;
+        let mut settings = settings(true);
+        let before = settings_for_hash(&settings);
+        // Recipes saved before the choice: Full, and the same hash as before.
+        assert_eq!(
+            settings.super_resolution_quality,
+            SuperResolutionQuality::Full
+        );
+        assert!(before.get("superResolutionQuality").is_none());
         let recorder = Recorder(std::sync::Mutex::new(Vec::new()));
-        let recipes = [
-            saved_v19(),
-            serde_json::json!({"exposure": 0.5}),
-            serde_json::json!({"exposure": 0.5, "renderVersion": 20}),
-            // A never-edited photo develops as a new edit.
-            Value::Null,
-        ];
-        for recipe in &recipes {
-            enlarge_for_export(photo(), &settings, recipe, Some(&recorder), &|| Ok(())).unwrap();
-        }
-        assert_eq!(*recorder.0.lock().unwrap(), [false, false, true, true]);
+        enlarge_for_export(photo(), &settings, Some(&recorder), &|| Ok(())).unwrap();
+        let fast: ExportSettings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 90, "keepMetadata": true, "stripGps": false,
+            "filenameTemplate": null, "watermark": null, "resize": null,
+            "superResolution": true, "superResolutionQuality": "fast",
+        }))
+        .unwrap();
+        enlarge_for_export(photo(), &fast, Some(&recorder), &|| Ok(())).unwrap();
+        assert_eq!(
+            *recorder.0.lock().unwrap(),
+            [SuperResolutionQuality::Full, SuperResolutionQuality::Fast]
+        );
+        // Fast is part of the settings an export record compares.
+        assert_ne!(settings_for_hash(&fast), before);
+        settings.super_resolution_quality = SuperResolutionQuality::Fast;
+        assert_eq!(settings_for_hash(&settings), settings_for_hash(&fast));
     }
 
     #[test]
@@ -3966,22 +3969,10 @@ mod super_resolution_tests {
         let mut settings = settings(true);
         settings.export_masks = true;
         let enlarger = Doubler { wrong: false };
-        let (main, main_geometry) = finish_rendered_export(
-            photo(),
-            &settings,
-            &saved_v19(),
-            Some(&enlarger),
-            &|| Ok(()),
-        )
-        .unwrap();
-        let (layer, layer_geometry) = finish_rendered_export(
-            photo(),
-            &settings,
-            &saved_v19(),
-            Some(&enlarger),
-            &|| Ok(()),
-        )
-        .unwrap();
+        let (main, main_geometry) =
+            finish_rendered_export(photo(), &settings, Some(&enlarger), &|| Ok(())).unwrap();
+        let (layer, layer_geometry) =
+            finish_rendered_export(photo(), &settings, Some(&enlarger), &|| Ok(())).unwrap();
         assert_eq!(main.dimensions(), (60, 40));
         assert_eq!(layer.dimensions(), main.dimensions());
         assert_eq!((layer_geometry.photo_w, layer_geometry.photo_h), (60, 40));

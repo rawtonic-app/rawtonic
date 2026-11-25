@@ -990,6 +990,7 @@ pub fn cell_settings(
         subfolder: None,
         output_sharpening,
         super_resolution: false,
+        super_resolution_quality: Default::default(),
         provenance: None,
         existing_files: Default::default(),
         max_file_kb: None,

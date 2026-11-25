@@ -998,13 +998,10 @@ fn export_masks_for_image(
 
             // The same finishing as the main file (Super Resolution included),
             // so the layer's image and alpha match its size.
-            let (with_options, geometry) = finish_rendered_export(
-                processed,
-                export_settings,
-                js_adjustments,
-                enlarger,
-                &|| ensure_export_not_cancelled(cancellation_token),
-            )?;
+            let (with_options, geometry) =
+                finish_rendered_export(processed, export_settings, enlarger, &|| {
+                    ensure_export_not_cancelled(cancellation_token)
+                })?;
 
             let alpha_scaled = imageops::resize(
                 &mask_bitmaps[i],
@@ -3419,6 +3416,7 @@ fn headless_targets(
         subfolder: None,
         output_sharpening: None,
         super_resolution: false,
+        super_resolution_quality: Default::default(),
         provenance: None,
         existing_files: session.existing_files,
         max_file_kb: None,
@@ -4084,7 +4082,7 @@ mod tests {
             fn enlarge_2x(
                 &self,
                 image: DynamicImage,
-                _one_pass_on_cpu: bool,
+                _quality: rawtonic_export::export_processing::SuperResolutionQuality,
                 cancelled: &dyn Fn() -> Result<(), String>,
             ) -> Result<DynamicImage, String> {
                 cancelled()?;
@@ -4126,14 +4124,9 @@ mod tests {
             settings.super_resolution = enabled;
             settings.export_masks = true;
             let output = temp.path().join(format!("main-{enabled}.png"));
-            let (main, _) = finish_rendered_export(
-                photo.clone(),
-                &settings,
-                &adjustments,
-                Some(&Doubler),
-                &|| Ok(()),
-            )
-            .unwrap();
+            let (main, _) =
+                finish_rendered_export(photo.clone(), &settings, Some(&Doubler), &|| Ok(()))
+                    .unwrap();
             save_image_with_metadata(
                 main,
                 &output,

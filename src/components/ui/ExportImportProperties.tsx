@@ -104,6 +104,8 @@ export interface ExportSettings {
   outputSharpening?: { amount: number; radius: number; threshold: number } | null;
   /** Enlarge 2× with the AI model before the resize (Super Resolution). */
   superResolution?: boolean;
+  /** Super Resolution's quality; absent = Full. */
+  superResolutionQuality?: 'full' | 'fast';
   /** Sign a provenance manifest (C2PA) into each file; absent or null = off. */
   provenance?: {
     includeAuthor: boolean;
@@ -189,6 +191,8 @@ export interface ExportPreset {
   resizeValue2?: number;
   dontEnlarge: boolean;
   superResolution?: boolean;
+  /** Super Resolution's quality, `fast` when chosen; absent = Full. */
+  superResolutionQuality?: 'full' | 'fast';
   enablePad?: boolean;
   padRatioWidth?: number;
   padRatioHeight?: number;
