@@ -250,7 +250,10 @@ pub fn start_device(
     crate::gpu_processing::set_short_submissions(short_submissions(&adapter.get_info()));
     // There each submission's own GPU time is logged when it passes the
     // watchdog budget (`gpu_submit`); elsewhere the time from queuing it.
-    if crate::gpu_processing::short_submissions() {
+    // QA builds can ask for the timing everywhere (`qa_log_requested`).
+    if crate::gpu_processing::short_submissions()
+        || rawtonic_rawdecode::gpu_submit::qa_log_requested()
+    {
         rawtonic_rawdecode::gpu_submit::time_on_gpu(&device);
     } else {
         rawtonic_rawdecode::gpu_submit::stop_timing();

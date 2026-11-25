@@ -11,6 +11,7 @@ default = []
 performance-profiling = [
     "wgpu/counters",
     "rawtonic-engine/performance-profiling",
+    "rawtonic-rawdecode/performance-profiling",
     "rawtonic-runtime/performance-profiling",
 ]
 
