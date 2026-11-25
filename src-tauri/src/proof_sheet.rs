@@ -112,7 +112,8 @@ impl ProofSheetRequest {
             .enumerate()
             .map(|(offset, (path, pinned))| {
                 generated |=
-                    rawtonic_engine::image_loader::has_generated_areas(&pinned.adjustments);
+                    rawtonic_engine::image_loader::has_generated_areas(&pinned.adjustments)
+                        || pinned.generated_source;
                 let Some(template) = template else {
                     return Ok(String::new());
                 };
@@ -322,7 +323,7 @@ mod tests {
             error: None,
             attempts: 1,
             outcome: None,
-            size_limit_miss: None,
+            size_limit_misses: Vec::new(),
             started_ms: None,
             finished_ms: None,
         }

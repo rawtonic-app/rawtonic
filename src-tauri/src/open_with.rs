@@ -18,7 +18,7 @@
 //! disabled.
 use crate::app_settings::ExportPreset;
 use crate::export_queue::ExportRequest;
-use crate::ipc::{CommandError, ErrorCode};
+use crate::ipc::CommandError;
 use crate::state::develop::{DevelopSession, Scope};
 use rawtonic_catalog::Library;
 use rawtonic_export::sidecars::parse_virtual_path;
@@ -112,6 +112,11 @@ pub struct EditTarget {
     /// copy's own rating, label and keywords.
     #[serde(default)]
     pub metadata: Option<rawtonic_metadata::Metadata>,
+    /// The render holds areas a generative model made (its export marks
+    /// them, `PinnedPhoto::marks_generated`): the library marks it for good
+    /// when it registers it (`Library::mark_generated_provenance`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub generated: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -746,16 +751,10 @@ pub async fn edit_with_start(
     });
     let state = app.clone();
     let (targets, jobs) = tauri::async_runtime::spawn_blocking(move || {
-        let develop = state.state::<DevelopSession>();
         plan_edits(
             paths,
             recipe,
             crate::export_queue::app_queue(&state.state::<crate::state::export::ExportState>()),
-            &|adjustments| {
-                let mut adjustments = adjustments.clone();
-                crate::adjustment_utils::normalize_editor_recipe(&develop, &mut adjustments);
-                rawtonic_engine::image_loader::has_generated_areas(&adjustments)
-            },
         )
     })
     .await
@@ -785,12 +784,6 @@ pub fn edit_with_interrupted(
     crate::export_queue::take_interrupted_edits(&exports)
 }
 
-/// The error `plan_edits` starts with when a photograph has areas a
-/// generative model made: its render would hand them to another program
-/// whose saves need not keep the AI marking, so Edit With is not offered
-/// for it yet (the frontend says so; Open With hands over the original).
-pub const GENERATED_AREAS: &str = "generated-areas";
-
 /// What a render's queued snapshot says about it (`plan_edits`).
 #[derive(Clone)]
 struct Snapshotted {
@@ -804,14 +797,17 @@ struct Snapshotted {
 /// metadata are snapshotted from the library the request was submitted
 /// from (`ExportRequest::library`), and the render takes only that. The
 /// render is registered in the library of that snapshot, with the metadata
-/// it embeds. Refused as a whole, before anything is queued or written, if
-/// one has generated areas (`generated`, on its snapshotted recipe) or no
-/// name can be reserved for it.
+/// it embeds. A render of a photo with generated areas is marked as any
+/// export of it (IPTC Digital Source Type in its XMP), and its target says
+/// so (`EditTarget::generated`, also in the one kept for recovery), so its
+/// library marks it for good when it registers it ([`link_render`]): it
+/// stays marked when the other program saves the file without the marking.
+/// Refused as a whole, before anything is queued or written, if no name
+/// can be reserved for one.
 fn plan_edits(
     paths: Vec<String>,
     mut recipe: ExportRequest,
     queue: &Mutex<Option<rawtonic_export::queue::ExportQueue>>,
-    generated: &dyn Fn(&serde_json::Value) -> bool,
 ) -> Result<(Vec<EditTarget>, Vec<String>), CommandError> {
     // An edit is a newly rendered file, even for saved recipes that preserve dates.
     recipe.export_settings.preserve_timestamps = false;
@@ -832,49 +828,21 @@ fn plan_edits(
             ..recipe.clone()
         })
         .collect();
-    let names: Vec<String> = targets
-        .iter()
-        .map(|target| {
-            let (file, _) = parse_virtual_path(&target.source);
-            file.file_name()
-                .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
-        })
-        .collect();
-    // The photographs with generated areas, when they refused the request.
-    let refused_for_generated = std::cell::RefCell::new(None::<Vec<String>>);
     let (jobs, snapshots) = crate::export_queue::queue_inspected(
         queue,
         requests,
         &|photo| Snapshotted {
-            generated: generated(&photo.adjustments),
+            generated: photo.marks_generated(&recipe.export_settings),
             owner: photo.owner.clone(),
             metadata: photo.metadata.clone(),
         },
-        &|snapshots| {
-            let refused: Vec<&str> = snapshots
-                .iter()
-                .zip(&names)
-                .filter(|(photos, _)| photos.iter().any(|photo| photo.generated))
-                .map(|(_, name)| name.as_str())
-                .collect();
-            if refused.is_empty() {
-                Ok(())
-            } else {
-                *refused_for_generated.borrow_mut() =
-                    Some(refused.iter().map(|name| name.to_string()).collect());
-                Err(format!("{GENERATED_AREAS}: {}", refused.join(", ")))
-            }
-        },
-    )
-    .map_err(|message| match refused_for_generated.take() {
-        Some(names) => CommandError::new(ErrorCode::GeneratedAreas, message)
-            .with_detail("names", serde_json::json!(names)),
-        None => CommandError::from(message),
-    })?;
+        &|_| Ok(()),
+    )?;
     for (target, photos) in targets.iter_mut().zip(snapshots) {
         if let Some(photo) = photos.into_iter().next() {
             target.library = photo.owner;
             target.metadata = recipe.embedded_library_metadata(photo.metadata);
+            target.generated = photo.generated;
         }
     }
     Ok((targets, jobs))
@@ -926,6 +894,7 @@ fn plan_targets(
                 source,
                 target: target.to_string_lossy().into_owned(),
                 metadata: None,
+                generated: false,
             })
         })
         .collect()
@@ -933,12 +902,14 @@ fn plan_targets(
 
 /// Registers `render` in `lib` with `metadata` (`EditTarget::metadata`)
 /// and stacks it with the photograph of `source` (a virtual copy stacks
-/// with its photograph).
+/// with its photograph). A render with `generated` areas is marked so for
+/// good (`Library::mark_generated_provenance`), also on a repeated link.
 pub fn link_render(
     lib: &Library,
     source: &str,
     render: &Path,
     metadata: Option<&rawtonic_metadata::Metadata>,
+    generated: bool,
 ) -> anyhow::Result<()> {
     let (file, _) = parse_virtual_path(source);
     let original = match lib.asset_at(&file)? {
@@ -971,6 +942,9 @@ pub fn link_render(
             edit
         }
     };
+    if generated {
+        lib.mark_generated_provenance(&edit.id, rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI)?;
+    }
     let member = rawtonic_catalog::stacks::Member::photo(&top.id);
     let added = rawtonic_catalog::stacks::Member::photo(&edit.id);
     if let Some(before) = lib.stack_of(&member)? {
@@ -1082,6 +1056,7 @@ pub(crate) fn link_renders(items: &[EditTarget]) -> EditWithResult {
                         &item.source,
                         Path::new(&item.target),
                         item.metadata.as_ref(),
+                        item.generated,
                     )
                     .map_err(|e| format!("{}: {e:#}", item.target))
                 })
@@ -1802,7 +1777,6 @@ mod tests {
             vec![source.to_string_lossy().into_owned()],
             recipe,
             &queue.queue,
-            &|_| false,
         )
         .unwrap();
         let render = PathBuf::from(&targets[0].target);
@@ -1865,9 +1839,9 @@ mod tests {
             false,
         )
         .unwrap();
-        link_render(&lib, &a.to_string_lossy(), &render, None).unwrap();
+        link_render(&lib, &a.to_string_lossy(), &render, None, false).unwrap();
         // Recovery may repeat the link after the external launch failed.
-        link_render(&lib, &a.to_string_lossy(), &render, None).unwrap();
+        link_render(&lib, &a.to_string_lossy(), &render, None, false).unwrap();
         let stack = lib.stacks().unwrap().remove(0);
         assert_eq!(stack.id, expanded.id);
         assert!(!stack.collapsed);
@@ -1900,7 +1874,6 @@ mod tests {
             vec![source.to_string_lossy().into_owned()],
             tiff_recipe(None, Some(&a.directory)),
             &queue.queue,
-            &|_| false,
         )
         .unwrap();
 
@@ -1956,7 +1929,6 @@ mod tests {
             vec![format!("{}?vc=9b8208", source.display())],
             tiff_recipe(None, Some(&dir)),
             &queue.queue,
-            &|_| false,
         )
         .unwrap();
         // Read at the click: a change of the copy afterwards does not count.
@@ -1978,6 +1950,7 @@ mod tests {
             &targets[0].source,
             &render,
             targets[0].metadata.as_ref(),
+            targets[0].generated,
         )
         .unwrap();
 
@@ -1991,13 +1964,13 @@ mod tests {
         // Its keywords as the export embeds them (`copy_metadata`).
         assert_eq!(got.keywords, ["print", "ai-tag"]);
         // Recovery of the same derived render is idempotent and keeps its metadata.
-        link_render(&lib, &source.to_string_lossy(), &render, None).unwrap();
+        link_render(&lib, &source.to_string_lossy(), &render, None, false).unwrap();
         assert_eq!(lib.metadata(&edit.id).unwrap(), got);
         // A different photograph registered at the name is never taken over.
         let unrelated = capture.join("unrelated.tif");
         fs::write(&unrelated, b"photo").unwrap();
         lib.add_asset(&unrelated).unwrap();
-        assert!(link_render(&lib, &source.to_string_lossy(), &unrelated, None).is_err());
+        assert!(link_render(&lib, &source.to_string_lossy(), &unrelated, None, false).is_err());
     }
 
     /// A photograph of a new session with the creator's contact details,
@@ -2049,7 +2022,6 @@ mod tests {
             vec![source.to_string_lossy().into_owned()],
             recipe,
             &queue.queue,
-            &|_| false,
         )
         .unwrap();
         // The target kept for recovery and Try again holds the same.
@@ -2062,6 +2034,7 @@ mod tests {
             &targets[0].source,
             &render,
             targets[0].metadata.as_ref(),
+            targets[0].generated,
         )
         .unwrap();
         let edit = lib.asset_at(&render).unwrap().unwrap();
@@ -2164,7 +2137,7 @@ mod tests {
         // and its sidecar was synced so.
         let render = dir.join("Capture/A_edit.tiff");
         fs::write(&render, b"tiff").unwrap();
-        link_render(&lib, &source.to_string_lossy(), &render, Some(&full)).unwrap();
+        link_render(&lib, &source.to_string_lossy(), &render, Some(&full), false).unwrap();
         let edit = lib.asset_at(&render).unwrap().unwrap();
         lib.sync_xmp(&edit.id).unwrap();
         // The user retitled the render and tagged it since.
@@ -2184,6 +2157,7 @@ mod tests {
                 false,
                 full.clone(),
             ),
+            generated: false,
         };
         repair_render_metadata(&target, &full).unwrap();
         // Idempotent: a second recovery changes nothing more.
@@ -2234,68 +2208,120 @@ mod tests {
     }
 
     #[test]
-    fn photographs_with_generated_areas_are_not_edited_with_another_program() {
-        let generated = |adjustments: &serde_json::Value| {
-            rawtonic_engine::image_loader::has_generated_areas(adjustments)
-        };
+    fn a_render_with_generated_areas_keeps_its_marking_in_the_library() {
+        use rawtonic_catalog::Mode;
         let patches = serde_json::json!({"aiPatches": [{"visible": true, "patchData": {"color": "iVBORw0K", "mask": "iVBORw0K"}}]});
         let tmp = tempfile::tempdir().unwrap();
-        let plain = tmp.path().join("A.jpg");
-        let patched = tmp.path().join("B.jpg");
+        let root = tmp.path().canonical().unwrap();
+        fs::create_dir(root.join("Photos")).unwrap();
+        let plain = root.join("Photos/A.jpg");
+        let patched = root.join("Photos/B.jpg");
         fs::write(&plain, b"jpeg").unwrap();
         fs::write(&patched, b"jpeg").unwrap();
-        fs::write(
-            tmp.path().join("B.jpg.rrdata"),
-            serde_json::to_vec(&serde_json::json!({
-                "version": 1, "rating": 0, "adjustments": patches,
-            }))
-            .unwrap(),
+        let lib = Library::create(&root.join("C"), "C", Mode::Catalog).unwrap();
+        let a = lib.add_asset(&plain).unwrap();
+        let b = lib.add_asset(&patched).unwrap();
+        lib.save_editor_state(
+            &b.id,
+            &serde_json::json!({"version": 1, "rating": 0, "adjustments": patches}),
         )
         .unwrap();
         let path = |p: &Path| p.to_string_lossy().into_owned();
         let queue = Queue::new();
-        let error = plan_edits(
-            vec![path(&plain), path(&patched)],
-            tiff_recipe(None, None),
-            &queue.queue,
-            &generated,
-        )
-        .unwrap_err();
-        assert_eq!(error.message, format!("{GENERATED_AREAS}: B.jpg"));
-        assert_eq!(error.code, crate::ipc::ErrorCode::GeneratedAreas);
-        assert_eq!(
-            serde_json::to_value(&error).unwrap()["names"],
-            serde_json::json!(["B.jpg"])
-        );
-        // The open photograph is checked with the editor's recipe, which
-        // its render takes, not with the one saved last.
-        let error = plan_edits(
-            vec![path(&plain)],
-            tiff_recipe(Some((&plain, patches.clone())), None),
-            &queue.queue,
-            &generated,
-        )
-        .unwrap_err();
-        assert_eq!(error.message, format!("{GENERATED_AREAS}: A.jpg"));
-        assert_eq!(error.code, crate::ipc::ErrorCode::GeneratedAreas);
-        // Nothing queued or written.
-        assert_eq!(queue.jobs(), 0);
-        assert_eq!(fs::read_dir(tmp.path()).unwrap().count(), 3);
+        let composite = "compositeWithTrainedAlgorithmicMedia";
+        let mut marked = String::new();
+        // Also when the recipe strips the metadata.
+        for keep in [true, false] {
+            let mut recipe = tiff_recipe(None, Some(&lib.directory));
+            recipe.export_settings.keep_metadata = keep;
+            recipe.edit_with = Some(crate::export_queue::EditWithRun {
+                id: format!("click-{keep}"),
+                program: "Editor".into(),
+                photos: vec![path(&plain), path(&patched)],
+            });
+            let (targets, jobs) =
+                plan_edits(vec![path(&plain), path(&patched)], recipe, &queue.queue).unwrap();
+            assert_eq!((targets.len(), jobs.len()), (2, 2));
+            assert_eq!(
+                (targets[0].generated, targets[1].generated),
+                (false, true),
+                "keep {keep}"
+            );
+            // The target kept for recovery and Try again says the same.
+            for (target, job) in targets.iter().zip(&jobs) {
+                assert_eq!(queue.request(job).edit_target.as_ref(), Some(target));
+            }
 
-        // The editor's recipe at the click is what renders, whatever it
-        // is changed to afterwards.
-        let (targets, jobs) = plan_edits(
-            vec![path(&plain)],
-            tiff_recipe(Some((&plain, serde_json::json!({"exposure": 0.5}))), None),
-            &queue.queue,
-            &generated,
+            // Another program saves over the renders without any XMP.
+            for target in &targets {
+                fs::write(&target.target, b"tiff").unwrap();
+            }
+            let result = link_renders(&targets);
+            assert_eq!((result.linked, result.problems.len()), (2, 0));
+            let lib = Library::open(&lib.directory).unwrap();
+            let edit =
+                |target: &EditTarget| lib.asset_at(Path::new(&target.target)).unwrap().unwrap().id;
+            let source_type = |id: &str| lib.facts(id).unwrap().unwrap().0.source_type;
+            marked = edit(&targets[1]);
+            assert!(lib.has_generated_provenance(&marked).unwrap());
+            assert_eq!(source_type(&marked).as_deref(), Some(composite));
+            let unmarked = edit(&targets[0]);
+            assert!(!lib.has_generated_provenance(&unmarked).unwrap());
+            assert_eq!(source_type(&unmarked), None);
+            assert_eq!(lib.derived_from(&marked).unwrap().unwrap().id, b.id);
+            assert_eq!(lib.derived_from(&unmarked).unwrap().unwrap().id, a.id);
+        }
+
+        // Reading the saved file again (Use XMP, the facts pass), also when
+        // it states another source type now, and replacing its metadata
+        // leave the marking.
+        lib.record_facts(&marked, &rawtonic_catalog::CaptureFacts::default())
+            .unwrap();
+        lib.record_facts(
+            &marked,
+            &rawtonic_catalog::CaptureFacts {
+                source_type: Some("digitalCapture".into()),
+                ..Default::default()
+            },
         )
         .unwrap();
-        assert_eq!((targets.len(), jobs.len(), queue.jobs()), (1, 1, 1));
+        lib.set_metadata(&marked, &rawtonic_metadata::Metadata::default())
+            .unwrap();
+        assert!(lib.has_generated_provenance(&marked).unwrap());
         assert_eq!(
-            queue.snapshot(&jobs[0]).adjustments,
-            serde_json::json!({"exposure": 0.5})
+            lib.facts(&marked)
+                .unwrap()
+                .unwrap()
+                .0
+                .source_type
+                .as_deref(),
+            Some(composite)
         );
+        // Its own exports (here Edit With again) are marked, whatever its
+        // recipe, and so is their render.
+        let render = lib.asset(&marked).unwrap().path;
+        let (targets, jobs) = plan_edits(
+            vec![path(&render)],
+            tiff_recipe(None, Some(&lib.directory)),
+            &queue.queue,
+        )
+        .unwrap();
+        assert!(queue.snapshot(&jobs[0]).generated_source);
+        assert!(targets[0].generated);
+
+        // The open photograph is checked with the editor's recipe, which
+        // its render takes, not with the one saved last.
+        let (targets, jobs) = plan_edits(
+            vec![path(&plain)],
+            tiff_recipe(Some((&plain, patches.clone())), Some(&lib.directory)),
+            &queue.queue,
+        )
+        .unwrap();
+        assert!(targets[0].generated);
+        assert!(!queue.snapshot(&jobs[0]).generated_source);
+        assert_eq!(queue.snapshot(&jobs[0]).adjustments, patches);
+        // Every render was queued: none is refused for its generated areas.
+        assert_eq!(queue.jobs(), 6);
     }
 
     #[test]
@@ -2360,29 +2386,33 @@ mod tests {
         assert_eq!(watched.saved_in(), [(file, Some(library))]);
     }
 
-    /// LaunchServices on this Mac (needs the system's Preview).
+    /// LaunchServices on this Mac (needs the system's Preview): the lists
+    /// Edit With shows for its renders (JPEG, TIFF) and Open With for a RAW.
     #[cfg(target_os = "macos")]
     #[test]
     #[ignore]
-    fn macos_lists_the_programs_for_a_jpeg() {
+    fn macos_lists_the_programs_for_a_jpeg_a_tiff_and_a_raw() {
         let tmp = tempfile::tempdir().unwrap();
-        let file = tmp.path().join("probe.jpg");
-        fs::write(&file, b"").unwrap();
-        let (apps, default) = platform::apps_for(&[file.as_path()]);
-        assert!(
-            apps.iter().any(|a| a.path.ends_with("/Preview.app")),
-            "{apps:?}"
-        );
-        assert!(apps.iter().all(|a| {
-            a.icon
-                .as_deref()
-                .is_some_and(|i| i.starts_with("data:image/png;base64,"))
-        }));
-        assert!(default.is_some());
-        let names: Vec<_> = apps
-            .iter()
-            .map(|a| (&a.name, a.icon.as_ref().map(|i| i.len())))
-            .collect();
-        eprintln!("default {default:?}; {names:?}");
+        for name in ["probe.jpg", "probe.tiff", "probe.NEF"] {
+            let file = tmp.path().join(name);
+            fs::write(&file, b"").unwrap();
+            let (apps, default) = platform::apps_for(&[file.as_path()]);
+            // LaunchServices lists only the programs that claim a RAW's own
+            // type when one does (Rawtonic claims each), not Preview, which
+            // claims all camera RAW images.
+            let raw = name.ends_with(".NEF");
+            assert!(
+                raw || apps.iter().any(|a| a.path.ends_with("/Preview.app")),
+                "{name}: {apps:?}"
+            );
+            assert!(apps.iter().all(|a| {
+                a.icon
+                    .as_deref()
+                    .is_some_and(|i| i.starts_with("data:image/png;base64,"))
+            }));
+            assert!(default.is_some(), "{name}");
+            let names: Vec<_> = apps.iter().map(|a| (&a.name, &a.path)).collect();
+            eprintln!("{name}: default {default:?}; {names:?}");
+        }
     }
 }

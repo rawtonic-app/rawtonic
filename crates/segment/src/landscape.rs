@@ -417,6 +417,46 @@ mod tests {
         assert_eq!(landscape_mask_grid(&ground, &[Sky], 2), plane(0));
     }
 
+    fn write_evaluation_png(
+        path: &Path,
+        encode: impl FnOnce(&mut std::fs::File) -> image::ImageResult<()>,
+    ) -> anyhow::Result<()> {
+        let mut staged = rawtonic_fs::temp::file_for(path)?;
+        encode(staged.as_file_mut())?;
+        staged.as_file().sync_all()?;
+        rawtonic_fs::no_clobber::persist_atomic(staged, path)?;
+        rawtonic_fs::sync_dir(path.parent().unwrap_or(Path::new(".")))?;
+        Ok(())
+    }
+
+    #[test]
+    fn evaluation_png_is_complete_or_absent_and_never_replaces_a_file() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mask.png");
+        let failed = write_evaluation_png(&path, |file| {
+            file.write_all(b"partial PNG")?;
+            Err(std::io::Error::other("encoder failed").into())
+        });
+        assert!(failed.is_err());
+        assert!(
+            !path.exists(),
+            "an encoder failure must leave no published file"
+        );
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
+        let image =
+            image::DynamicImage::ImageLuma8(image::GrayImage::from_pixel(2, 2, image::Luma([123])));
+        write_evaluation_png(&path, |file| image.write_to(file, image::ImageFormat::Png)).unwrap();
+        assert_eq!(image::open(&path).unwrap().to_luma8(), image.to_luma8());
+        let original = std::fs::read(&path).unwrap();
+        assert!(
+            write_evaluation_png(&path, |file| image.write_to(file, image::ImageFormat::Png))
+                .is_err()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
     /// Tool: landscape part masks as the app computes them, for evaluation.
     /// `LANDSCAPE_MODEL` (the ONNX file), `LANDSCAPE_FILES` (`;`-separated
     /// 8-bit photos), `LANDSCAPE_OUT` (writes new files `<stem>.<part>.png`;
@@ -441,14 +481,11 @@ mod tests {
                 // A new file only: never over an input or an earlier result
                 // (two inputs with one stem stop here).
                 let path = out.join(format!("{stem}.{}.png", part.key()));
-                let file = std::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&path)
-                    .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-                landscape_mask((image.width(), image.height()), &p, &[part], version)
-                    .write_to(&mut std::io::BufWriter::new(file), image::ImageFormat::Png)
-                    .unwrap();
+                write_evaluation_png(&path, |file| {
+                    landscape_mask((image.width(), image.height()), &p, &[part], version)
+                        .write_to(file, image::ImageFormat::Png)
+                })
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
                 eprintln!("{stem} {} {} ms", part.key(), t.elapsed().as_millis());
             }
             eprintln!("{stem} network {net} ms");

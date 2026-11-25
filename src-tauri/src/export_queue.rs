@@ -337,6 +337,7 @@ pub(crate) fn queue_inspected<T: Clone>(
                     request.edit_target = Some(crate::open_with::EditTarget {
                         source: request.paths[0].clone(),
                         target: request.output_folder_or_file.clone(),
+                        generated: photo.marks_generated(&request.export_settings),
                         library: photo.owner,
                         metadata: request.embedded_library_metadata(photo.metadata),
                     });
@@ -517,11 +518,17 @@ impl Tracking {
             q.item_outcome(&self.job, index, outcome, output)
         });
     }
-    /// A photo's JPEG stayed above its file size limit at the lowest
+    /// A file of a photo stayed above its JPEG size limit at the lowest
     /// quality: the smallest file was written.
-    pub fn size_limit_miss(&self, index: usize, miss: rawtonic_export::size_limit::SizeLimitMiss) {
+    pub fn size_limit_miss(
+        &self,
+        index: usize,
+        notice: rawtonic_export::size_limit::SizeLimitNotice,
+    ) {
         let exports = self.app.state::<ExportState>();
-        with_queue(&exports, |q| q.item_size_limit_miss(&self.job, index, miss));
+        with_queue(&exports, |q| {
+            q.item_size_limit_miss(&self.job, index, notice)
+        });
     }
     /// A photo in progress moved on to `stage`.
     pub fn stage(&self, index: usize, stage: Stage, fraction: Option<f32>) {
@@ -1494,6 +1501,27 @@ mod tests {
         assert_eq!(all.iptc.get("city").map(String::as_str), Some("Kiel"));
     }
 
+    #[test]
+    fn a_recovered_edit_target_keeps_its_generated_marking() {
+        // Recovery and Try again register a finished render from the target
+        // its job kept: one with generated areas is marked by the library
+        // (`open_with::link_render`).
+        let job = |generated: Option<bool>| {
+            let mut target = json!({
+                "source": "/S/Capture/A.NEF", "target": "/S/Capture/A_edit.tif",
+                "library": "/S",
+            });
+            if let Some(generated) = generated {
+                target["generated"] = json!(generated);
+            }
+            json!({"outputFormat": "tiff", "exportSettings": {}, "editTarget": target})
+        };
+        assert!(completed_target(&job(Some(true))).unwrap().generated);
+        assert!(!completed_target(&job(Some(false))).unwrap().generated);
+        // A job of a build before the marking had no generated renders.
+        assert!(!completed_target(&job(None)).unwrap().generated);
+    }
+
     fn running(jobs: &[&str]) -> Arc<Running> {
         Arc::new(Mutex::new(
             jobs.iter()
@@ -2361,7 +2389,7 @@ mod tests {
             error: None,
             attempts: 1,
             outcome: None,
-            size_limit_miss: None,
+            size_limit_misses: Vec::new(),
             started_ms: None,
             finished_ms: None,
         };

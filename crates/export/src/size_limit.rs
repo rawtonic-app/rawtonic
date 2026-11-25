@@ -3,6 +3,7 @@
 //! binary search over the quality scale.
 
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 /// One kilobyte of the limit: 1000 bytes, as the upload limits of agencies
 /// and websites count it.
@@ -21,11 +22,38 @@ pub struct SizeLimitMiss {
 }
 
 impl SizeLimitMiss {
-    /// The notice the export result shows (English, as the other log
-    /// texts; the app words it from the numbers).
+    /// The notice for the file this miss concerns.
+    pub fn for_file(self, file: &Path) -> SizeLimitNotice {
+        SizeLimitNotice {
+            file: file.to_path_buf(),
+            limit_bytes: self.limit_bytes,
+            bytes: self.bytes,
+        }
+    }
+}
+
+/// A file that stayed above its size limit, named: what the export queue,
+/// the activity centre and the CLI tell the photographer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SizeLimitNotice {
+    /// The file that was written (a photo's main file or one of its mask files).
+    pub file: PathBuf,
+    pub limit_bytes: u64,
+    /// The size of that file, the smallest possible.
+    pub bytes: u64,
+}
+
+impl SizeLimitNotice {
+    /// The notice's text (English, as the other log texts; the app words it
+    /// from the numbers).
     pub fn describe(&self) -> String {
         format!(
-            "File size limit {} KB not reachable: the smallest file is {} KB",
+            "{}: could not reach {} KB; saved the smallest file ({} KB)",
+            self.file.file_name().map_or_else(
+                || self.file.to_string_lossy(),
+                |name| name.to_string_lossy()
+            ),
             self.limit_bytes.div_ceil(BYTES_PER_KB),
             self.bytes.div_ceil(BYTES_PER_KB)
         )
@@ -163,8 +191,8 @@ mod tests {
         let miss = fit.miss(1000).unwrap();
         assert_eq!((miss.limit_bytes, miss.bytes), (1000, 2100));
         assert_eq!(
-            miss.describe(),
-            "File size limit 1 KB not reachable: the smallest file is 3 KB"
+            miss.for_file(Path::new("/out/IMG_0001.jpg")).describe(),
+            "IMG_0001.jpg: could not reach 1 KB; saved the smallest file (3 KB)"
         );
         assert!(fit_to_limit(100_000, fake).unwrap().miss(100_000).is_none());
     }

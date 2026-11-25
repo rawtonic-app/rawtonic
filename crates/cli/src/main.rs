@@ -16,6 +16,7 @@ use std::{
     time::Instant,
 };
 
+mod export_library;
 mod fingerprint;
 mod search_bench;
 
@@ -291,6 +292,9 @@ struct ProofSheetArgs {
 
 #[derive(clap::Args)]
 struct ExportArgs {
+    /// Select the library managing these photos instead of automatic discovery.
+    #[arg(long)]
+    catalog: Option<PathBuf>,
     /// A photo, or a folder exported with its subfolders.
     source: PathBuf,
     /// For a photo the output file (its extension chooses the format); for a
@@ -493,6 +497,24 @@ fn models_dir(models: Option<PathBuf>) -> Result<PathBuf> {
         ..rawtonic_onnx::settings()
     });
     Ok(models)
+}
+
+fn app_data_dir() -> Result<PathBuf> {
+    let home = PathBuf::from(
+        std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .context("No home directory; use --catalog")?,
+    );
+    let base = if cfg!(target_os = "macos") {
+        home.join("Library/Application Support")
+    } else if cfg!(target_os = "windows") {
+        PathBuf::from(std::env::var_os("APPDATA").context("No APPDATA; use --catalog")?)
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".local/share"))
+    };
+    Ok(base.join("cc.rawtonic.editor"))
 }
 
 fn resolve_models_dir(models: Option<PathBuf>) -> Result<PathBuf> {
@@ -1215,6 +1237,7 @@ fn export(args: ExportArgs) -> Result<()> {
         ExportSettings, TiffBitDepth, relative_export_dir_for_preserved_folders,
     };
     let ExportArgs {
+        catalog,
         source,
         output,
         on_conflict,
@@ -1392,6 +1415,63 @@ fn export(args: ExportArgs) -> Result<()> {
         }));
     }
 
+    let mut known = if catalog.is_some() {
+        Vec::new()
+    } else {
+        export_library::registered(&app_data_dir()?.join("settings.json"))?
+    };
+    let owners: std::collections::HashMap<PathBuf, Option<PathBuf>> = named
+        .iter()
+        .map(|(photo, _, _)| {
+            let source = parse_virtual_path(photo).0;
+            export_library::owner(&source, catalog.as_deref(), &known).map(|owner| (source, owner))
+        })
+        .collect::<Result<_>>()?;
+    // Pin the catalog inputs before rendering, as the app does. Read failures
+    // cannot silently discard metadata or a capture correction.
+    let mut managed = std::collections::HashMap::new();
+    for (source, owner) in &owners {
+        if let Some(owner) = owner {
+            let lib = Library::open(owner)?;
+            let asset = lib
+                .asset_at(source)?
+                .context("Managed photo disappeared from its library")?;
+            managed.insert(
+                source.clone(),
+                (
+                    lib.metadata(&asset.id)?,
+                    lib.capture_override(&asset.id)?
+                        .map(|time| time.exif_fields()),
+                    lib.editor_state(&asset.id)?,
+                    lib.has_generated_provenance(&asset.id)?,
+                ),
+            );
+        }
+    }
+    if let Some(selected) = &catalog {
+        known.push(selected.clone());
+    }
+    let is_library_photo = |path: &Path| {
+        is_library_photo(path)
+            || export_library::owner(path, None, &known).map_or(true, |owner| owner.is_some())
+    };
+    let library_of = |source: &Path| owners.get(source).cloned().flatten();
+    let photo_metadata = |photo: &str, source: &Path, sidecar: &Path| {
+        let metadata = managed.get(source)?.0.clone();
+        Some(if rawtonic_metadata::photo_ref::is_copy(photo) {
+            let copy = rawtonic_export::sidecars::read_sidecar_file(sidecar, None).0;
+            rawtonic_catalog::copy_metadata(metadata, copy.rating, copy.tags.as_deref())
+        } else {
+            metadata
+        })
+    };
+    let corrected_capture = |source: &Path| match managed.get(source) {
+        Some((_, capture, _, _)) => capture.clone(),
+        None => rawtonic_export::file_export::sidecar_capture(source),
+    };
+
+    let generated_provenance = |source: &Path| managed.get(source).is_some_and(|entry| entry.3);
+
     let started = Instant::now();
     // First: it loads the Lensfun database, which preparing the recipes
     // (face retouch: lens defaults and lens parameters of recipes saved
@@ -1404,7 +1484,27 @@ fn export(args: ExportArgs) -> Result<()> {
         .iter()
         .map(|(photo, _, _)| match &recipe {
             Some(recipe) => Some(recipe.clone()),
-            None => Some(editor_recipe(&parse_virtual_path(photo).1)),
+            None => {
+                let (source, sidecar) = parse_virtual_path(photo);
+                let state = (!rawtonic_metadata::photo_ref::is_copy(photo))
+                    .then(|| managed.get(&source))
+                    .flatten()
+                    .and_then(|(_, _, state, _)| state.clone())
+                    .and_then(|state| {
+                        serde_json::from_value::<rawtonic_engine::image_processing::ImageMetadata>(
+                            state,
+                        )
+                        .ok()
+                    });
+                Some(state.map(|state| state.adjustments).unwrap_or_else(|| {
+                    rawtonic_export::sidecars::read_sidecar_file(
+                        &sidecar,
+                        library_of(&source).as_deref(),
+                    )
+                    .0
+                    .adjustments
+                }))
+            }
         })
         .collect();
     let recipes = match &face_retouch {
@@ -1482,6 +1582,7 @@ fn export(args: ExportArgs) -> Result<()> {
                 .map(|lut| existing_files::file_fingerprint(std::path::Path::new(lut)));
             let mut parts = serde_json::json!({
                 "catalog": photo_metadata(photo, &path, &sidecar),
+                "sourceGenerated": generated_provenance(&path),
                 "capture": corrected_capture(&path),
                 "source": rawtonic_catalog::fingerprint(&path).ok(),
                 "lutFile": lut_file,
@@ -1653,6 +1754,7 @@ fn export(args: ExportArgs) -> Result<()> {
                     catalog: catalog.clone(),
                     capture: capture.clone(),
                     library: library.as_deref(),
+                    source_generated: generated_provenance(&source),
                     publish: match (replace, &photo_keys[named_index]) {
                         (Some(previous), Some(photo_key)) => {
                             rawtonic_export::output::Publish::Replace {
@@ -1719,15 +1821,22 @@ fn export(args: ExportArgs) -> Result<()> {
                         "jpg" | "jpeg"
                     )
                 {
-                    let miss = rawtonic_export::size_limit::SizeLimitMiss {
+                    let notice = rawtonic_export::size_limit::SizeLimitMiss {
                         limit_bytes: limit,
                         bytes: file.size,
-                    };
-                    eprintln!("Rawtonic: {}: {}", output.display(), miss.describe());
+                    }
+                    .for_file(output);
+                    let message = notice.describe();
+                    cli_eprintln!("Rawtonic: {message}");
                     size_limit_missed
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
-                        .push(serde_json::json!({"output": output, "limitBytes": limit, "bytes": file.size}));
+                        .push(serde_json::json!({
+                            "output": notice.file,
+                            "limitBytes": notice.limit_bytes,
+                            "bytes": notice.bytes,
+                            "message": message,
+                        }));
                 }
                 Ok(output.clone())
             }
@@ -1876,7 +1985,8 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
         );
         generated |= recipe
             .as_ref()
-            .is_some_and(rawtonic_engine::image_loader::has_generated_areas);
+            .is_some_and(rawtonic_engine::image_loader::has_generated_areas)
+            || generated_provenance(&source);
         let library = library_of(&source);
         if let Some(resource) = recipe
             .as_ref()
@@ -1898,6 +2008,7 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
             base: rawtonic_engine::image_loader::BaseImageOptions::default(),
             catalog: metadata,
             capture: corrected_capture(&source),
+            source_generated: generated_provenance(&source),
             library: library.as_deref(),
             publish: rawtonic_export::output::Publish::New,
         });
@@ -2083,6 +2194,18 @@ fn corrected_capture(
     let lib = Library::open(&session).ok()?;
     let asset = lib.asset_at(source).ok()??;
     Some(lib.capture_override(&asset.id).ok()??.exif_fields())
+}
+/// Whether the session of `source` marked it as a file Rawtonic rendered
+/// with generated areas (an Edit With render), as the app reads it for its
+/// exports. A catalog's photograph anywhere is not found from its path.
+fn generated_provenance(source: &std::path::Path) -> bool {
+    rawtonic_catalog::session_for(source)
+        .and_then(|session| Library::open(&session).ok())
+        .and_then(|lib| {
+            let asset = lib.asset_at(source).ok()??;
+            lib.has_generated_provenance(&asset.id).ok()
+        })
+        .unwrap_or(false)
 }
 /// The catalog metadata of a source inside a session, as the app writes it.
 fn catalog_metadata(source: &std::path::Path) -> Option<rawtonic_metadata::Metadata> {

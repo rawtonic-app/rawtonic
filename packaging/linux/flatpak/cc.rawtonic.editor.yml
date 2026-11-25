@@ -1,0 +1,64 @@
+# Flatpak manifest for Rawtonic: repackages the release AppImage (see
+# NOT TO BE PUBLISHED with the alpha.19 pin: that release sends an update request inside a Flatpak (release gate in packaging/linux/README.md).
+# packaging/linux/README.md for why, how it was checked, and what Flathub
+# would additionally need). Build and run:
+#   flatpak-builder --user --install-deps-from=flathub --force-clean --install build-dir cc.rawtonic.editor.yml
+#   flatpak run cc.rawtonic.editor
+app-id: cc.rawtonic.editor
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+command: rawtonic
+finish-args:
+  # Windowing and GPU (Vulkan through the runtime's Mesa; NVIDIA needs the
+  # matching org.freedesktop.Platform.GL.nvidia-* extension, which Flatpak
+  # offers to install).
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  # Photos: the file chooser portal grants whatever the user picks; the
+  # Pictures folder is open without asking, and so are camera cards.
+  - --filesystem=xdg-pictures
+  - --filesystem=/run/media
+  # Network only for what the user starts: AI model downloads, problem reports
+  # through the relay, links opened in the browser (PRIVACY.md). The update
+  # check is switched off inside Flatpak (it detects FLATPAK_ID); Flatpak
+  # delivers the updates.
+  - --share=network
+  # Not granted: USB devices, so tethering (the rawtonic-tether helper) cannot
+  # reach a camera inside the sandbox yet (packaging/linux/README.md).
+modules:
+  - name: rawtonic
+    buildsystem: simple
+    build-commands:
+      # The AppImage's own squashfs unpacked: needs no FUSE and starts no part
+      # of the app.
+      - chmod +x Rawtonic.AppImage && ./Rawtonic.AppImage --appimage-extract >/dev/null
+      - cp -a squashfs-root /app/rawtonic
+      - chmod -R u+rwX,go+rX /app/rawtonic
+      - install -Dm755 rawtonic.sh /app/bin/rawtonic
+      - sed -i 's/^Exec=.*/Exec=rawtonic %f/' cc.rawtonic.editor.desktop
+      - install -Dm644 cc.rawtonic.editor.desktop /app/share/applications/cc.rawtonic.editor.desktop
+      - install -Dm644 cc.rawtonic.editor.metainfo.xml /app/share/metainfo/cc.rawtonic.editor.metainfo.xml
+      - install -Dm644 /app/rawtonic/usr/share/icons/hicolor/128x128/apps/rawtonic-app.png /app/share/icons/hicolor/128x128/apps/cc.rawtonic.editor.png
+      - install -Dm644 /app/rawtonic/usr/share/icons/hicolor/32x32/apps/rawtonic-app.png /app/share/icons/hicolor/32x32/apps/cc.rawtonic.editor.png
+      - install -Dm644 /app/rawtonic/usr/lib/Rawtonic/resources/licenses/AGPL-3.0.txt /app/share/licenses/cc.rawtonic.editor/AGPL-3.0.txt
+      - install -Dm644 /app/rawtonic/usr/lib/Rawtonic/resources/licenses/THIRD_PARTY_LICENSES.txt /app/share/licenses/cc.rawtonic.editor/THIRD_PARTY_LICENSES.txt
+    sources:
+      - type: file
+        url: https://github.com/rawtonic-app/rawtonic/releases/download/v0.1.0-alpha.19/Rawtonic_0.1.0-alpha.19_amd64.AppImage
+        sha256: 77982af8c4ab20ed907dafa1086d295fa0d66525548cbadb5fa3bce68de63b97
+        dest-filename: Rawtonic.AppImage
+      - type: script
+        dest-filename: rawtonic.sh
+        commands:
+          # AppRun changes into the AppDir; the folder the command ran in goes
+          # along as OWD, as the AppImage runtime does.
+          - OWD=$PWD
+          - export OWD
+          - exec /app/rawtonic/AppRun "$@"
+      - type: file
+        path: ../cc.rawtonic.editor.desktop
+      - type: file
+        path: ../cc.rawtonic.editor.metainfo.xml

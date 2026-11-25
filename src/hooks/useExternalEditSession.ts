@@ -10,6 +10,9 @@ import { debouncedSave } from './useEditorActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { submittedFrom } from '../utils/runExportJobs';
 import { photoWritesAndStepsSettled } from '../utils/photoWrites';
+import { notify } from '../activity/notify';
+import i18n from 'i18next';
+import { useActivityStore } from '../store/useActivityStore';
 
 /**
  * Handles files handed to the app from outside (OS "open with" and the
@@ -51,7 +54,19 @@ export function useExternalEditSession(
       }
       const directory = await invoke<boolean>(Invokes.LaunchPathIsDirectory, { path: initialFileToOpen });
       if (directory === true) showFolderRef.current(initialFileToOpen);
-      else handleImageSelectRef.current(initialFileToOpen);
+      // macOS offers the app for every camera RAW type it knows
+      // (tauri.macos.conf.json), a few of which it cannot read yet: such a
+      // file is named at once instead of being decoded. Without an answer
+      // the photo opens as before and its decode reports any failure.
+      else if (await invoke<boolean>(Invokes.LaunchPathIsPhoto, { path: initialFileToOpen }).catch(() => true))
+        handleImageSelectRef.current(initialFileToOpen);
+      else {
+        const name = initialFileToOpen.split(/[\\/]/).pop() ?? initialFileToOpen;
+        // No paths: the notice's Show photos would list the file it refused.
+        notify.error(i18n.t('notifications.unsupportedFormat', { name }), { detail: initialFileToOpen });
+        // The user's own open failed: the activity centre opens on its notice.
+        useActivityStore.getState().setOpen(true);
+      }
     })();
   }, [initialFileToOpen, startupLibraryReady]);
 

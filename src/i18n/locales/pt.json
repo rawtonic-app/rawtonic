@@ -95,6 +95,7 @@
       "interrupted": "Exportação interrompida: {{label}}",
       "nothingExported": "Nada foi exportado — {{existing}} ({{label}})",
       "running": "A exportar {{label}}",
+      "sizeLimitMissed": "Limite de tamanho de arquivo não atingido: {{label}}",
       "waiting": "A aguardar exportação: {{label}}"
     },
     "eyes": {
@@ -563,7 +564,6 @@
       "closeLibraryFirst": "Feche a sessão ou o catálogo aberto para tentar de novo: estas fotos foram editadas fora de uma biblioteca.",
       "defaultRecipe": "Receita padrão",
       "failed": "Editar com falhou: {{error}}",
-      "generatedAreas": "Editar com ainda não está disponível para fotografias com áreas geradas: {{names}}",
       "interrupted": "«Editar com» em {{app}} foi interrompido ao fechar o Rawtonic. Tente novamente para renderizar as fotos outra vez.",
       "label": "Editar com",
       "notLinked": "Renderizado, mas não adicionado à biblioteca: {{error}}",
@@ -1442,7 +1442,8 @@
     "quitCancelled": "O Rawtonic permaneceu aberto porque o salvamento não foi concluído. As alterações pendentes continuam sendo salvas.",
     "quitSaving": "Salvando as alterações antes de sair do Rawtonic…",
     "quitSavingPhotos": "Salvando as alterações antes de sair do Rawtonic… ({{done}}/{{total}})",
-    "region": "Notificações"
+    "region": "Notificações",
+    "unsupportedFormat": "Não é possível abrir {{name}}: o Rawtonic ainda não suporta este formato de ficheiro."
   },
   "offline": {
     "badge": "Offline",
@@ -4009,7 +4010,6 @@
           "rendering": "Renderizando e gravando…",
           "replaced": "Exportação anterior substituída",
           "selecting": "Calculando as seleções com IA…",
-          "sizeLimitMissed": "Menor arquivo gravado: {{size}} KB, acima do limite de {{limit}} KB",
           "skippedExists": "Pulada: existe um arquivo com este nome",
           "skippedUnchanged": "Pulada: sem alterações desde a última exportação",
           "waiting": "Aguardando"
@@ -4024,6 +4024,8 @@
         "retry": "Tentar novamente",
         "running": "Exportando ({{done}} de {{total}} exportadas)",
         "show": "Mostrar",
+        "sizeLimitMissed": "{{file}}: não foi possível atingir {{limit}} KB; o menor arquivo foi salvo ({{size}} KB)",
+        "sizeLimitNotices": "Arquivos acima do limite de tamanho",
         "start": "Iniciar",
         "startQueue": "Iniciar a fila",
         "title": "Fila de exportação",
@@ -6119,6 +6121,7 @@
       "moveToApplications": "Para atualizar o Rawtonic a partir daqui, mova-o primeiro para a pasta Aplicações."
     },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "flatpak": "As atualizações desta cópia vêm do Flatpak. Execute «flatpak update cc.rawtonic.editor» ou use a sua loja de software; o Rawtonic não procura atualizações por si.",
     "inAppDetail": "O Rawtonic transfere a atualização do GitHub e verifica a sua assinatura. Nada é substituído até reiniciar.",
     "install": "Instalar atualização",
     "installing": "A instalar a atualização… O Rawtonic reinicia dentro de momentos.",

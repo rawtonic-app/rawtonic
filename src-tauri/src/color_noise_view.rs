@@ -74,12 +74,15 @@ fn note_build_time(ms_per_24mp: f64) -> bool {
 /// Whether render inputs are built here: while no build was too slow and
 /// the system is not short of memory.
 pub(crate) fn enabled() -> bool {
+    enabled_without_pressure() && crate::memory_pressure::level_now().is_none()
+}
+fn enabled_without_pressure() -> bool {
     // Profiling builds can switch it off for A/B timing runs.
     #[cfg(feature = "performance-profiling")]
     if std::env::var_os("RAWTONIC_NO_COLOR_NOISE_VIEW").is_some() {
         return false;
     }
-    !TOO_SLOW.load(Ordering::Relaxed) && crate::memory_pressure::level_now().is_none()
+    !TOO_SLOW.load(Ordering::Relaxed)
 }
 
 /// The event telling the editor that the open photograph's render input is in
@@ -544,7 +547,31 @@ pub(crate) fn shown_corrected_base(
     base: &Arc<DynamicImage>,
     shown: &Weak<DynamicImage>,
 ) -> Option<Arc<DynamicImage>> {
-    if !enabled() || !applies(adjustments, recipe, is_raw) {
+    shown_corrected_base_at_pressure(
+        crate::memory_pressure::level_now(),
+        view,
+        adjustments,
+        recipe,
+        source,
+        is_raw,
+        base,
+        shown,
+    )
+}
+
+// The pressure level is an input so frame/probe tests do not depend on the host.
+#[allow(clippy::too_many_arguments)]
+fn shown_corrected_base_at_pressure(
+    pressure: Option<crate::memory_pressure::Level>,
+    view: &ColorNoiseView,
+    adjustments: &AllAdjustments,
+    recipe: &serde_json::Value,
+    source: &Arc<DynamicImage>,
+    is_raw: bool,
+    base: &Arc<DynamicImage>,
+    shown: &Weak<DynamicImage>,
+) -> Option<Arc<DynamicImage>> {
+    if pressure.is_some() || !enabled_without_pressure() || !applies(adjustments, recipe, is_raw) {
         return None;
     }
     let key = Key::of(&adjustments.global, recipe, is_raw);
@@ -1097,7 +1124,8 @@ mod tests {
         let corrected = image(200, 133);
         let shown = |amount| {
             let shown = view.shown_mark();
-            shown_corrected_base(
+            shown_corrected_base_at_pressure(
+                None,
                 &view,
                 &all(amount),
                 &recipe(amount),
@@ -1157,7 +1185,8 @@ mod tests {
         assert!(shown(50).is_none());
         let other = image(200, 133);
         assert!(
-            shown_corrected_base(
+            shown_corrected_base_at_pressure(
+                None,
                 &view,
                 &all(25),
                 &recipe(25),
@@ -1223,7 +1252,8 @@ mod tests {
         // What a pick pass returns: the base it samples.
         let pick = || {
             view.with_shown_mark(|shown| {
-                shown_corrected_base(
+                shown_corrected_base_at_pressure(
+                    None,
                     &view,
                     &all(25),
                     &recipe(25),
@@ -1238,12 +1268,32 @@ mod tests {
         view.note_frame();
         view.note_shown(Some(&shown_base));
         assert!(Arc::ptr_eq(&pick().unwrap(), &shown_base));
+        for pressure in [
+            crate::memory_pressure::Level::Warn,
+            crate::memory_pressure::Level::Critical,
+        ] {
+            assert!(
+                shown_corrected_base_at_pressure(
+                    Some(pressure),
+                    &view,
+                    &all(25),
+                    &recipe(25),
+                    &source,
+                    true,
+                    &base,
+                    &Arc::downgrade(&shown_base)
+                )
+                .is_none()
+            );
+        }
+
         // While a frame nobody sees renders, with a corrected base of its
         // own (a draft-sized one the view kept too) and a pick before, in and
         // after it, every pick samples the shown frame's base.
         let in_pass = view
             .with_shown_mark(|shown| {
-                let first = shown_corrected_base(
+                let first = shown_corrected_base_at_pressure(
+                    None,
                     &view,
                     &all(25),
                     &recipe(25),

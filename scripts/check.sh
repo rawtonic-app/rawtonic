@@ -167,6 +167,7 @@ fi
 run "scripts: changelog gate test" python3 scripts/changelog_gate_test.py
 run "scripts: ship.sh test" sh scripts/ship_test.sh
 run "scripts: macOS packaging test" python3 scripts/package_macos_test.py
+run "scripts: macOS file types test" python3 scripts/macos_file_types_test.py
 run "scripts: verified review input" python3 scripts/review/test_verified_diff.py
 run "scripts: earlier review round" python3 scripts/review/test_earlier_round.py
 run "scripts: release helpers" python3 scripts/release/test_release.py

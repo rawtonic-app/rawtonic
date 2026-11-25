@@ -1384,6 +1384,10 @@ pub struct ExportOutput<'a> {
     /// The identity provenance manifests are signed with, when the user set
     /// one up; an export asking for a manifest fails without it.
     pub provenance: Option<&'a crate::c2pa::SigningIdentity>,
+    /// The source is a file Rawtonic rendered with generated areas (its
+    /// library marked it, `Library::has_generated_provenance`): the export
+    /// is marked as containing generated content whatever its own recipe.
+    pub source_generated: bool,
 }
 
 /// The source pixels of one export: refuses a RAW shown only through its
@@ -1483,6 +1487,7 @@ fn export_file_metadata(
     output: &ExportOutput,
     (width, height): (u32, u32),
 ) -> Option<crate::exif_processing::ExportMetadata> {
+    let generated = generated || output.source_generated;
     let metadata = crate::exif_processing::export_metadata_with(
         source_path_str,
         extension,
@@ -4648,6 +4653,7 @@ mod encoding_input_tests {
                 write: &write,
                 enlarger: None,
                 provenance: None,
+                source_generated: false,
             };
             save_export_image(
                 DynamicImage::new_rgb8(4, 4),
@@ -4704,6 +4710,7 @@ mod encoding_input_tests {
             write: &write,
             enlarger: None,
             provenance: None,
+            source_generated: false,
         };
         save_export_image(
             DynamicImage::new_rgb8(4, 4),
@@ -4719,6 +4726,69 @@ mod encoding_input_tests {
             image::guess_format(&bytes).unwrap(),
             image::ImageFormat::Png
         );
+    }
+
+    /// A source its library marked as rendered with generated areas (an
+    /// Edit With render, `ExportOutput::source_generated`) is exported with
+    /// the AI marking although its own recipe has none: with or without its
+    /// metadata, and when its metadata cannot be embedded (the marking
+    /// alone is written then).
+    #[test]
+    fn a_source_with_generated_provenance_is_exported_marked() {
+        let long = "C".repeat(70_000);
+        for (format, keep, copyright) in [
+            ("png", false, "(c) Ada"),
+            ("png", true, "(c) Ada"),
+            ("jpg", false, long.as_str()),
+        ] {
+            let catalog = || {
+                Some(rawtonic_metadata::Metadata {
+                    creator: "Ada".into(),
+                    copyright: copyright.into(),
+                    ..Default::default()
+                })
+            };
+            let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+                "jpegQuality": 85, "keepMetadata": keep, "stripGps": false,
+            }))
+            .unwrap();
+            for source_generated in [false, true] {
+                let written = Arc::new(std::sync::Mutex::new(None));
+                let write = {
+                    let written = written.clone();
+                    move |_: &Path, _: &str, encoded: EncodedExport| {
+                        *written.lock().unwrap() = Some(encoded.into_bytes()?);
+                        Ok(())
+                    }
+                };
+                let path = std::path::PathBuf::from(format!("/nowhere/render.{format}"));
+                let output = ExportOutput {
+                    path: &path,
+                    format,
+                    exif_sidecar: &|| None,
+                    catalog: &catalog,
+                    write: &write,
+                    enlarger: None,
+                    provenance: None,
+                    source_generated,
+                };
+                save_export_image(
+                    DynamicImage::new_rgb8(4, 4),
+                    "/nowhere/render.tiff",
+                    &settings,
+                    false,
+                    &output,
+                )
+                .unwrap();
+                let bytes = written.lock().unwrap().take().unwrap();
+                let text = String::from_utf8_lossy(&bytes);
+                assert_eq!(
+                    text.contains(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI),
+                    source_generated,
+                    "{format}, keep {keep}"
+                );
+            }
+        }
     }
 }
 
@@ -5109,6 +5179,7 @@ mod tiff_rows_tests {
                 write: &|path, _, encoded| crate::output::write_new_export(path, encoded),
                 enlarger: None,
                 provenance: None,
+                source_generated: false,
             },
         )
         .unwrap();

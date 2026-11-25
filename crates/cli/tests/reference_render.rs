@@ -100,6 +100,7 @@ fn the_reference_render_is_the_cli_export() {
             capture: None,
             library: None,
             publish: rawtonic_export::output::Publish::New,
+            source_generated: false,
         })
         .unwrap()
         .to_rgb16();

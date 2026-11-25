@@ -78,6 +78,7 @@
       "interrupted": "輸出已中斷：{{label}}",
       "nothingExported": "沒有匯出任何照片 — {{existing}} ({{label}})",
       "running": "正在輸出 {{label}}",
+      "sizeLimitMissed": "未達到檔案大小上限：{{label}}",
       "waiting": "等待輸出：{{label}}"
     },
     "eyes": {
@@ -523,7 +524,6 @@
       "closeLibraryFirst": "請關閉目前開啟的工作階段或目錄後再試：這些相片是在資料庫之外編輯的。",
       "defaultRecipe": "預設配方",
       "failed": "編輯失敗：{{error}}",
-      "generatedAreas": "含有生成區域的照片暫不支援編輯方式：{{names}}",
       "interrupted": "結束 Rawtonic 時，在 {{app}} 中的「用其他應用程式編輯」被中斷。重試可再次算繪這些照片。",
       "label": "編輯方式",
       "notLinked": "已算圖，但未加入圖庫：{{error}}",
@@ -1371,7 +1371,8 @@
     "quitCancelled": "儲存尚未完成，Rawtonic 保持開啟。待處理的變更仍在儲存中。",
     "quitSaving": "正在儲存變更，隨後結束 Rawtonic…",
     "quitSavingPhotos": "正在儲存變更，隨後結束 Rawtonic…（{{done}}/{{total}}）",
-    "region": "通知"
+    "region": "通知",
+    "unsupportedFormat": "無法開啟 {{name}}：Rawtonic 尚不支援此檔案格式。"
   },
   "offline": {
     "badge": "離線",
@@ -3733,7 +3734,6 @@
           "rendering": "正在算繪並寫入…",
           "replaced": "已取代先前的匯出",
           "selecting": "正在計算 AI 選取範圍…",
-          "sizeLimitMissed": "已寫入最小檔案：{{size}} KB，超過 {{limit}} KB 的上限",
           "skippedExists": "已略過：已有同名檔案",
           "skippedUnchanged": "已略過：自上次匯出後未變更",
           "waiting": "等待中"
@@ -3746,6 +3746,8 @@
         "retry": "重試",
         "running": "正在匯出（已匯出 {{done}}/{{total}}）",
         "show": "顯示",
+        "sizeLimitMissed": "{{file}}：無法達到 {{limit}} KB；已儲存最小的檔案（{{size}} KB）",
+        "sizeLimitNotices": "超過大小上限的檔案",
         "start": "開始",
         "startQueue": "啟動佇列",
         "title": "匯出佇列",
@@ -5746,6 +5748,7 @@
       "moveToApplications": "若要在此更新 Rawtonic，請先將其移到「應用程式」資料夾。"
     },
     "fileWithSize": "{{file}}（{{size}} MB）",
+    "flatpak": "此副本的更新透過 Flatpak 提供。請執行「flatpak update cc.rawtonic.editor」或使用軟體中心；Rawtonic 本身不會要求更新。",
     "inAppDetail": "Rawtonic 從 GitHub 下載更新並檢查其簽章。重新啟動前不會取代任何內容。",
     "install": "安裝更新",
     "installing": "正在安裝更新… Rawtonic 即將重新啟動。",

@@ -62,6 +62,7 @@ fn export(
             capture: None,
             library,
             publish: rawtonic_export::output::Publish::New,
+            source_generated: false,
         })
         .unwrap();
     fs::read(output).unwrap()
