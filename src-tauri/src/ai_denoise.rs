@@ -261,8 +261,7 @@ async fn load_fast(
 /// Radeon 680M laptop exports in 19–25 min, about 1.3 min with Fast
 /// projected; notes: benchmark-results/dst1-2026-11-25, dst2-2026-11-25),
 /// else Full. The choice is stored in the recipe, so every machine exports
-/// the photo with the same network (on a GPU provider within the provider
-/// check's tolerance of the CPU's result).
+/// the photo with the same network.
 pub fn default_quality(
     preference: Option<&str>,
     matchfilter_on_cpu: impl FnOnce() -> bool,
