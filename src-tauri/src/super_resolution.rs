@@ -134,9 +134,6 @@ async fn model(
             ),
         }
     }
-    if download && model.uses_cpu() {
-        model = attach_cpu_single(app_handle, &models_dir, model).await?;
-    }
     log::info!(
         "Super Resolution: model loaded on {} in {} ms",
         model.backend_name(),
@@ -146,15 +143,13 @@ async fn model(
     Ok(Some(slot.insert(Arc::new(model)).clone()))
 }
 
-/// Downloads (when missing) and adds the single-rotation CPU graph
-/// (`CPU_SINGLE_ONNX_FILE`, 2.4 MB) to a model that runs on the CPU, so
-/// recipes from `renderVersion` 20 enlarge each tile once there. Optional:
-/// without it the CPU runs the four-rotation average.
-async fn attach_cpu_single(
-    app_handle: &tauri::AppHandle,
-    models_dir: &std::path::Path,
-    model: Model,
-) -> anyhow::Result<Model> {
+/// Downloads the single-rotation CPU graph (`CPU_SINGLE_ONNX_FILE`,
+/// 2.4 MB) beside an ONNX model when it is missing: recipes from
+/// `renderVersion` 20 need it wherever a photo runs on the CPU (also after
+/// a GPU failure), and fail with a clear error without it. Tried on every
+/// preparation, so a download that failed offline is retried when Export
+/// opens again; the model loads it from disk when first needed.
+async fn fetch_cpu_single(app_handle: &tauri::AppHandle, models_dir: &std::path::Path) {
     if let Err(error) = download_verified(
         app_handle,
         models_dir,
@@ -165,23 +160,9 @@ async fn attach_cpu_single(
     .await
     {
         log::warn!(
-            "Optional Super Resolution single-pass CPU graph unavailable; the CPU averages four rotations: {error:#}"
-        );
-        return Ok(model);
-    }
-    let path = models_dir.join(rawtonic_superres::CPU_SINGLE_ONNX_FILE);
-    let (model, attached) = tokio::task::spawn_blocking(move || {
-        let mut model = model;
-        let attached = model.attach_cpu_single_graph(&path);
-        (model, attached)
-    })
-    .await?;
-    if let Err(error) = attached {
-        log::warn!(
-            "Optional Super Resolution single-pass CPU graph could not load; the CPU averages four rotations: {error:#}"
+            "Super Resolution single-pass CPU graph unavailable; photos edited from renderVersion 20 cannot be enlarged on the CPU until it downloads: {error:#}"
         );
     }
-    Ok(model)
 }
 
 /// Reloads of the loaded model take turns (`refreshed`), apart from the
@@ -305,6 +286,11 @@ pub async fn prepare_super_resolution(app_handle: tauri::AppHandle) -> Result<St
         .await
         .map_err(|e| format!("Super Resolution model unavailable: {e:#}"))?
         .ok_or_else(|| "Super Resolution model unavailable".to_string())?;
+    if model.uses_onnx() {
+        let models_dir = get_models_dir(&app_handle)
+            .map_err(|e| format!("Super Resolution model unavailable: {e:#}"))?;
+        fetch_cpu_single(&app_handle, &models_dir).await;
+    }
     Ok(model.backend_name())
 }
 
