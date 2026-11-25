@@ -71,8 +71,8 @@ fn main() -> Result<()> {
         bytes.extend_from_slice(&v.to_le_bytes());
     }
     // Never over an existing file (a mistyped path must not replace the
-    // mosaic or a RAW): a temporary file beside it, published only if the
-    // name is free.
+    // mosaic or a RAW): a synced temporary file beside it, published only if
+    // the name is free (rawtonic-fs), then the folder synced.
     let target = Path::new(&args[4]);
     let dir = target
         .parent()
@@ -80,8 +80,9 @@ fn main() -> Result<()> {
         .unwrap_or(Path::new("."));
     let mut staged = tempfile::NamedTempFile::new_in(dir)?;
     std::io::Write::write_all(&mut staged, &bytes)?;
-    staged
-        .persist_noclobber(target)
-        .map_err(|e| anyhow::anyhow!("{} not written: {}", target.display(), e.error))?;
+    staged.as_file().sync_all()?;
+    rawtonic_fs::no_clobber::persist_atomic(staged, target)
+        .with_context(|| format!("{} not written", target.display()))?;
+    rawtonic_fs::sync_dir(dir)?;
     Ok(())
 }

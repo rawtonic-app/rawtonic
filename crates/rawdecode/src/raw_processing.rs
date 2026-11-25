@@ -412,7 +412,8 @@ fn develop_internal(
         };
         match result {
             Some(Ok(())) => log::info!("Mosaic denoised (amount {:.2})", denoise.amount),
-            Some(Err(e)) => return Err(e.context("Mosaic denoising failed")),
+            // The cause in the message too: callers often show only it.
+            Some(Err(e)) => return Err(anyhow::anyhow!("Mosaic denoising failed: {e:#}")),
             None => log::info!(
                 "Mosaic denoising skipped: not a 2 x 2 Bayer mosaic, or an X-Trans one this denoiser does not take"
             ),
@@ -940,8 +941,13 @@ pub fn warp_planes_matter_at(path: &std::path::Path) -> bool {
 /// Whether the RAW in `source` is an X-Trans mosaic, the sensors whose AI
 /// Denoise is `MosaicDenoiser::denoise_xtrans`: a 6 × 6 RGB CFA of X-Trans
 /// counts (`mosaic_denoise::xtrans_pattern`) and no Super CCD layout. Reads
-/// the file's tags only (no samples); false for files rawler cannot read.
+/// the file's tags only (no samples), and only of the formats that can hold
+/// an X-Trans mosaic (`may_be_xtrans`); false for others and for files
+/// rawler cannot read.
 pub fn is_xtrans(source: &RawSource) -> bool {
+    if !may_be_xtrans(source) {
+        return false;
+    }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let Ok(decoder) = rawler::get_decoder(source) else {
             return false;
@@ -962,10 +968,29 @@ pub fn is_xtrans(source: &RawSource) -> bool {
     .unwrap_or(false)
 }
 
+/// Whether `source` is of a format that can hold an X-Trans mosaic, by its
+/// first bytes and name, without a decoder: Fujifilm's RAF and DNG (which
+/// converted RAFs are). Other formats are never opened by a decoder for the
+/// question, as some decoders (Sigma's X3F, Minolta's MRW) read the whole
+/// file when they are made.
+fn may_be_xtrans(source: &RawSource) -> bool {
+    let head = source.subview(0, 16).unwrap_or_default();
+    let tiff = head.starts_with(b"II*\0") || head.starts_with(b"MM\0*");
+    let dng = source
+        .path()
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("dng"));
+    head.starts_with(b"FUJIFILMCCD-RAW") || (tiff && dng)
+}
+
 /// `is_xtrans` of the file at `path`, mapped without reading ahead
-/// (`RawSource::new_lazy`): only the pages its tags are on are read, which
-/// matters on network shares.
+/// (`RawSource::new_lazy`): only the pages its first bytes and tags are on
+/// are read, which matters on network shares. An evicted cloud file is not
+/// opened (that would download it): false.
 pub fn is_xtrans_at(path: &std::path::Path) -> bool {
+    if rawtonic_fs::is_cloud_placeholder(path) {
+        return false;
+    }
     RawSource::new_lazy(path).is_ok_and(|source| is_xtrans(&source))
 }
 
@@ -2888,5 +2913,32 @@ mod nikon_high_efficiency_tests {
             ),
             "{error:#}"
         );
+    }
+}
+
+#[cfg(test)]
+mod xtrans_probe_tests {
+    use super::*;
+
+    fn source(head: &[u8], name: &str) -> RawSource {
+        let mut bytes = head.to_vec();
+        bytes.resize(4096, 0);
+        RawSource::new_from_slice(&bytes).with_path(name)
+    }
+
+    #[test]
+    fn only_raf_and_dng_files_are_opened_for_the_x_trans_question() {
+        assert!(may_be_xtrans(&source(b"FUJIFILMCCD-RAW 0201", "a.RAF")));
+        assert!(may_be_xtrans(&source(b"II*\0\x08\0\0\0", "a.dng")));
+        assert!(may_be_xtrans(&source(b"MM\0*\0\0\0\x08", "a.DNG")));
+        // Other TIFF-based RAWs and formats whose decoders read the whole
+        // file when made are not.
+        assert!(!may_be_xtrans(&source(b"II*\0\x08\0\0\0", "a.NEF")));
+        assert!(!may_be_xtrans(&source(b"FOVb", "a.X3F")));
+        assert!(!may_be_xtrans(&source(b"\0MRM", "a.MRW")));
+        assert!(!may_be_xtrans(&source(b"", "empty.raf")));
+        // A header that only looks like a RAF: no X-Trans answer, no panic.
+        assert!(!is_xtrans(&source(b"FUJIFILMCCD-RAW 0201", "a.RAF")));
+        assert!(!is_xtrans_at(std::path::Path::new("missing/photo.RAF")));
     }
 }

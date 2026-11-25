@@ -3,7 +3,8 @@
 //! app's render path): version 6 denoises with the X-Trans network, fresh,
 //! cached and freshly computed again in another cache give the same bytes,
 //! the quality setting does not apply, an edit from before version 6 renders
-//! without AI Denoise as it always did, and the RAW is never changed. Opt-in,
+//! without AI Denoise as it always did, a wrong model for a version-6 edit
+//! fails the export clearly, and the RAW is never changed. Opt-in,
 //! as it needs an X-Trans RAF, the network and ONNX Runtime:
 //!
 //! RAWTONIC_XTRANS_RAF=/path/photo.RAF RAWTONIC_MODELS=/path/models \
@@ -48,6 +49,38 @@ fn export(
         String::from_utf8_lossy(&output.stderr)
     );
     std::fs::read(out).unwrap()
+}
+
+/// A 16-bit TIFF export's settings, as the CLI's.
+fn export_settings() -> rawtonic_export::export_processing::ExportSettings {
+    rawtonic_export::export_processing::ExportSettings {
+        jpeg_quality: 95,
+        tiff_bit_depth: rawtonic_export::export_processing::TiffBitDepth::Sixteen,
+        resize: None,
+        border: None,
+        pad: None,
+        keep_metadata: false,
+        color_space: Default::default(),
+        preserve_timestamps: false,
+        strip_gps: false,
+        keep_creator_contact: false,
+        filename_template: None,
+        name_template: None,
+        job_name: None,
+        recipe_name: None,
+        sequence_start: None,
+        watermark: None,
+        export_masks: false,
+        preserve_folders: false,
+        destination_type: None,
+        subfolder: None,
+        output_sharpening: None,
+        super_resolution: false,
+        super_resolution_quality: Default::default(),
+        provenance: None,
+        existing_files: Default::default(),
+        max_file_kb: None,
+    }
 }
 
 /// A models folder of its own (its cache is beside it) with the networks
@@ -157,6 +190,43 @@ fn x_trans_ai_denoise_exports_deterministically_and_leaves_old_edits_alone() {
         &lensfun,
     );
     assert!(older == off, "an edit from before version 6 changed");
+
+    // A wrong sensor read that loads a Bayer model for a version-6 X-Trans
+    // recipe: the export fails clearly, it never writes the photo without
+    // AI Denoise (or its camera JPEG).
+    let wrong = rawtonic_export::file_export::FileExporter::new(&lensfun)
+        .unwrap()
+        .with_mosaic_denoiser(
+            rawtonic_engine::image_loader::XTRANS_AI_DENOISE_MODEL,
+            std::sync::Arc::new(
+                rawtonic_denoise::MatchFilter::onnx(
+                    &models_a.join(rawtonic_denoise::ONNX_MODEL),
+                    None,
+                )
+                .unwrap(),
+            ),
+        );
+    let refused = out("refused");
+    let error = wrong
+        .export(&rawtonic_export::file_export::FileExport {
+            source: &raw,
+            output: &refused,
+            format: "tiff",
+            recipe: Some(with(50, 6, "full")),
+            settings: export_settings(),
+            base: rawtonic_engine::image_loader::BaseImageOptions::default(),
+            catalog: None,
+            capture: None,
+            library: None,
+            publish: rawtonic_export::output::Publish::New,
+            source_generated: false,
+        })
+        .unwrap_err();
+    assert!(
+        error.contains("export refused") && error.contains("X-Trans network"),
+        "{error}"
+    );
+    assert!(!refused.exists(), "nothing written");
 
     assert!(
         std::fs::read(&raw).unwrap() == original,
