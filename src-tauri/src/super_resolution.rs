@@ -325,13 +325,12 @@ async fn fetch_gpu_graph(app_handle: &tauri::AppHandle, models_dir: &std::path::
 pub struct Prepared {
     backend: String,
     on_cpu: bool,
-    fast_error: Option<String>,
+    pub(crate) fast_error: Option<String>,
 }
 
 /// Fetches and loads the model when Super Resolution is ticked in the
-/// Export dialog, or an export with it starts from a recipe (File menu), so
-/// the export itself downloads nothing; also installs the Fast quality's
-/// files (`install_fast`).
+/// Export dialog, or an export with it starts from a recipe (File menu)
+/// or the command line. Also installs the Fast quality's files (`install_fast`).
 #[tauri::command]
 pub async fn prepare_super_resolution(app_handle: tauri::AppHandle) -> Result<Prepared, String> {
     let model = model(&app_handle, true)

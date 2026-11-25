@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Headless export accepts `--super-resolution-quality fast|full` to enlarge photos 2×. The desktop binary fetches missing Super Resolution models as the Export dialog does. The standalone CLI tells you how to install them when they are missing.
+
 - Press Shift+L or use View → Dim Surroundings to dim or black out the interface around the photo in Develop and Library loupe. Escape restores the surroundings. Choose a background color in Preferences or by right-clicking beside the photo.
 
 - AI Denoise reports when it cannot identify the sensor of a readable RAW. On an offline preview, you can save the AI Denoise amount and quality for when the original returns. When the sensor type is unknown, adjusting an active AI Denoise version 1–4 offline keeps its version. Turning AI Denoise on from zero uses the current version. Export Retry can pick the right network after a drive reconnects, and pasted AI masks wait for the original RAW to develop. X-Trans DNG files also work with a TIFF extension.

@@ -349,8 +349,8 @@ struct ExportArgs {
     /// `lensfun_db` beside this binary or in a macOS app bundle's Resources.
     #[arg(long)]
     lensfun_db: Option<PathBuf>,
-    /// The app's AI model folder, for recipes with AI Denoise or with Sky and
-    /// Subject selections a never-opened photo still needs; default:
+    /// The app's AI model folder, including models for AI Denoise, Super
+    /// Resolution and Sky and Subject selections; default:
     /// $RAWTONIC_MODELS, then the installed app's (cc.rawtonic.editor).
     /// Denoised mosaics are cached beside it in `ai-denoise-cache`.
     #[arg(long)]
@@ -363,11 +363,11 @@ struct ExportArgs {
     /// before any resize and output sharpening, as the app's export option.
     #[arg(long)]
     super_resolution: bool,
-    /// Super Resolution's quality: `full` averages each tile's four
+    /// Enable Super Resolution at this quality: `full` averages each tile's four
     /// rotations, `fast` enlarges it once (a quarter of the work), as the
     /// app's export recipe.
-    #[arg(long, value_enum, default_value_t = SuperResolutionQualityArg::Full)]
-    super_resolution_quality: SuperResolutionQualityArg,
+    #[arg(long, value_enum)]
+    super_resolution_quality: Option<SuperResolutionQualityArg>,
     /// Sign a provenance manifest (C2PA) into each JPEG, PNG, TIFF, WebP, AVIF
     /// or JPEG XL with the signing identity in DIR, as the app keeps it (its data folder's
     /// `provenance/`, holding `signing-identity.json`).
@@ -505,6 +505,10 @@ fn models_dir(models: Option<PathBuf>) -> Result<PathBuf> {
 }
 
 fn app_data_dir() -> Result<PathBuf> {
+    if cfg!(target_os = "windows") {
+        let base = PathBuf::from(std::env::var_os("APPDATA").context("No APPDATA; use --catalog")?);
+        return Ok(base.join("cc.rawtonic.editor"));
+    }
     let home = PathBuf::from(
         std::env::var_os("HOME")
             .or_else(|| std::env::var_os("USERPROFILE"))
@@ -512,8 +516,6 @@ fn app_data_dir() -> Result<PathBuf> {
     );
     let base = if cfg!(target_os = "macos") {
         home.join("Library/Application Support")
-    } else if cfg!(target_os = "windows") {
-        PathBuf::from(std::env::var_os("APPDATA").context("No APPDATA; use --catalog")?)
     } else {
         std::env::var_os("XDG_DATA_HOME")
             .map(PathBuf::from)
@@ -525,17 +527,7 @@ fn app_data_dir() -> Result<PathBuf> {
 fn resolve_models_dir(models: Option<PathBuf>) -> Result<PathBuf> {
     models
         .or_else(|| std::env::var_os("RAWTONIC_MODELS").map(PathBuf::from))
-        .or_else(|| {
-            let home = PathBuf::from(std::env::var_os("HOME")?);
-            let base = if cfg!(target_os = "macos") {
-                home.join("Library/Application Support")
-            } else {
-                std::env::var_os("XDG_DATA_HOME")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| home.join(".local/share"))
-            };
-            Some(base.join("cc.rawtonic.editor/models"))
-        })
+        .or_else(|| app_data_dir().ok().map(|dir| dir.join("models")))
         .context("no model folder; pass --models")
 }
 
@@ -1368,8 +1360,8 @@ fn export(args: ExportArgs) -> Result<()> {
         destination_type: None,
         subfolder: None,
         output_sharpening,
-        super_resolution,
-        super_resolution_quality: super_resolution_quality.into(),
+        super_resolution: super_resolution || super_resolution_quality.is_some(),
+        super_resolution_quality: super_resolution_quality.map(Into::into).unwrap_or_default(),
         provenance: provenance_identity.as_ref().map(|_| {
             rawtonic_export::export_processing::ProvenanceSettings {
                 include_author: provenance_author,
@@ -1600,12 +1592,17 @@ fn export(args: ExportArgs) -> Result<()> {
         }
         None => recipes,
     };
-    let exporter = if super_resolution {
-        let model = rawtonic_superres::Model::from_dir(&models_dir(models.clone())?)
-            .context("Super Resolution")?;
-        if model.backend_name().starts_with("ONNX") {
+    let exporter = if settings.super_resolution {
+        let dir = models_dir(models.clone()).context("Super Resolution")?;
+        let model = rawtonic_superres::Model::from_dir(&dir).context("Super Resolution")?;
+        if model.uses_onnx() {
             ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);
         }
+        anyhow::ensure!(
+            settings.super_resolution_quality.is_full() || model.fast_installed(),
+            "the Super Resolution Fast model is not installed in {} (tick Super Resolution in the app's Export dialog, or run scripts/models/install_models.sh)",
+            dir.display()
+        );
         exporter.with_enlarger(std::sync::Arc::new(SuperResolution(model)))
     } else {
         exporter

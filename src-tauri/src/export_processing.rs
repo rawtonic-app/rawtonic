@@ -3409,6 +3409,26 @@ pub async fn run_headless_export(
 
     let targets = headless_targets(&session, is_explicit_file_path)?;
 
+    let mut sr_settings = targets
+        .iter()
+        .map(|target| &target.export_settings)
+        .filter(|settings| settings.super_resolution);
+    if sr_settings.clone().next().is_some() {
+        let needs_fast = sr_settings.any(|settings| !settings.super_resolution_quality.is_full());
+        // Use the Export dialog's downloader. The workers report failures
+        // per photo and recipe so other outputs can still be written.
+        match crate::super_resolution::prepare_super_resolution(app_handle.clone()).await {
+            Err(error) => rawtonic_runtime::cli_eprintln!("{error}"),
+            Ok(crate::super_resolution::Prepared {
+                fast_error: Some(error),
+                ..
+            }) if needs_fast => {
+                rawtonic_runtime::cli_eprintln!("Super Resolution Fast unavailable: {error}");
+            }
+            Ok(_) => {}
+        }
+    }
+
     export_images_impl(
         paths,
         targets,
@@ -3452,8 +3472,8 @@ fn headless_targets(
         destination_type: None,
         subfolder: None,
         output_sharpening: None,
-        super_resolution: false,
-        super_resolution_quality: Default::default(),
+        super_resolution: session.super_resolution.is_some(),
+        super_resolution_quality: session.super_resolution.unwrap_or_default(),
         provenance: None,
         existing_files: session.existing_files,
         max_file_kb: None,

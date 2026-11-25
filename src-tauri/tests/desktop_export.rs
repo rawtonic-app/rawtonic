@@ -1,7 +1,8 @@
 //! Native headless export regression using the desktop binary.
 //!
-//! Run on a host with a GPU:
-//! `TAURI_CONFIG='{"identifier":"cc.rawtonic.qa.exs2","app":{"appDirectoriesOverride":"$TEMP/exs2-app-data"}}' cargo test --workspace --locked --test desktop_export -- --ignored`
+//! Run on a host with a GPU. Set `TAURI_CONFIG`'s `identifier` and
+//! `app.appDirectoriesOverride` to the values asserted by the selected test:
+//! `cargo test --workspace --locked --test desktop_export TEST_NAME -- --ignored`.
 #![cfg(unix)]
 
 use rawtonic_export::existing_files::{ExportRecords, Outcome};
@@ -12,6 +13,76 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::utils::config::AppDirectoriesOverride;
+
+#[test]
+#[ignore = "requires a GPU, access to the model pack, and an isolated cc.rawtonic.qa.src1 build"]
+fn super_resolution_flag_matches_the_export_recipe() {
+    let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+    assert_eq!(context.config().identifier, "cc.rawtonic.qa.src1");
+    assert_eq!(
+        context.config().app.app_directories_override,
+        Some(AppDirectoriesOverride::Root(PathBuf::from(
+            "$TEMP/src1-app-data"
+        )))
+    );
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonical().unwrap();
+    let source = root.join("photo.png");
+    let recipes = root.join("recipes.json");
+    let original = image::RgbImage::from_fn(32, 24, |x, y| {
+        image::Rgb([(x * 7) as u8, (y * 9) as u8, 128])
+    });
+    let mut encoded = Cursor::new(Vec::new());
+    original
+        .write_to(&mut encoded, image::ImageFormat::Png)
+        .unwrap();
+    rawtonic_fs::atomic_write(&source, encoded.get_ref()).unwrap();
+    rawtonic_fs::atomic_write(
+        &recipes,
+        br#"[{"format":"png","settings":{"jpegQuality":90,"keepMetadata":false,"stripGps":false,"nameTemplate":"enlarged","superResolution":true,"superResolutionQuality":"fast"}}]"#,
+    )
+    .unwrap();
+
+    let data = root.join("src1-app-data");
+    fs::create_dir(&data).unwrap();
+    let run = |output: &Path, options: &[&str]| {
+        let result = Command::new(env!("CARGO_BIN_EXE_rawtonic-app"))
+            .arg("export")
+            .arg(&source)
+            .arg("--output")
+            .arg(output)
+            .args(options)
+            .env("TMPDIR", &root)
+            .output()
+            .unwrap();
+        let log = fs::read_to_string(data.join("logs/app.log")).unwrap_or_default();
+        assert!(
+            result.status.success(),
+            "{}\n{}\n{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr),
+            log.lines().rev().take(12).collect::<Vec<_>>().join("\n")
+        );
+        assert!(log.contains("Super Resolution (Fast)"), "{log}");
+    };
+    let flag_output = root.join("enlarged.png");
+    run(
+        &flag_output,
+        &["--format", "png", "--super-resolution-quality", "fast"],
+    );
+    assert_eq!(
+        image::open(&flag_output).unwrap().to_rgb8().dimensions(),
+        (64, 48)
+    );
+    let recipe_output = root.join("recipe");
+    run(&recipe_output, &["--recipes", recipes.to_str().unwrap()]);
+    assert_eq!(
+        fs::read(&flag_output).unwrap(),
+        fs::read(recipe_output.join("enlarged.png")).unwrap()
+    );
+    assert_eq!(fs::read(&source).unwrap(), *encoded.get_ref());
+}
 
 #[test]
 #[ignore = "requires a GPU and the isolated desktop QA build described above"]
