@@ -26,18 +26,17 @@ pub fn set_bundled_dir(dir: &Path) {
     let _ = BUNDLED_DIR.set(dir.to_path_buf());
 }
 
-/// The compiler to use and the log line saying why. `env_set`: the user
-/// chose one with `WGPU_DX12_COMPILER`; `dir`: the bundled folder, when
+/// The compiler to use and the log line saying why. `env_compiler`: the
+/// resolved `WGPU_DX12_COMPILER` override; `dir`: the bundled folder, when
 /// known; `exists`: whether a file is there.
-pub(crate) fn choose(
-    env_set: bool,
+fn choose(
+    env_compiler: Option<wgpu::Dx12Compiler>,
     dir: Option<&Path>,
     exists: impl Fn(&Path) -> bool,
 ) -> (wgpu::Dx12Compiler, String, bool) {
-    if env_set {
-        let chosen = wgpu::Dx12Compiler::from_env().unwrap_or_default();
+    if let Some(compiler) = env_compiler {
         return (
-            chosen,
+            compiler,
             "GPU: DX12 shader compiler from WGPU_DX12_COMPILER".into(),
             false,
         );
@@ -83,26 +82,41 @@ pub(crate) fn apply(descriptor: &mut wgpu::InstanceDescriptor) -> bool {
     if !descriptor.backends.contains(wgpu::Backends::DX12) {
         return false;
     }
-    let env_set = std::env::var_os("WGPU_DX12_COMPILER").is_some();
-    let (mut compiler, mut line, bundled) =
-        choose(env_set, BUNDLED_DIR.get().map(PathBuf::as_path), |p| {
-            p.is_file()
-        });
+    let env_compiler = std::env::var_os("WGPU_DX12_COMPILER")
+        .map(|_| wgpu::Dx12Compiler::from_env().unwrap_or_default());
+    let (bundled_loaded, line) = apply_choice(
+        descriptor,
+        env_compiler,
+        BUNDLED_DIR.get().map(PathBuf::as_path),
+        Path::is_file,
+        load_validator,
+    );
+    static LOGGED: OnceLock<()> = OnceLock::new();
+    if LOGGED.set(()).is_ok() {
+        log::info!("{line}");
+    }
+    bundled_loaded
+}
+
+fn apply_choice(
+    descriptor: &mut wgpu::InstanceDescriptor,
+    env_compiler: Option<wgpu::Dx12Compiler>,
+    dir: Option<&Path>,
+    exists: impl Fn(&Path) -> bool,
+    load_validator: impl FnOnce(&Path) -> std::io::Result<()>,
+) -> (bool, String) {
+    let (mut compiler, mut line, bundled) = choose(env_compiler, dir, exists);
     let mut bundled_loaded = bundled;
     if bundled
-        && let Some(dir) = BUNDLED_DIR.get()
+        && let Some(dir) = dir
         && let Err(e) = load_validator(&dir.join(LIBRARIES[0]))
     {
         bundled_loaded = false;
         compiler = wgpu::Dx12Compiler::Auto;
         line = format!("GPU: DX12 shader compiler Auto (dxil.dll could not be loaded: {e})");
     }
-    static LOGGED: OnceLock<()> = OnceLock::new();
-    if LOGGED.set(()).is_ok() {
-        log::info!("{line}");
-    }
     descriptor.backend_options.dx12.shader_compiler = compiler;
-    bundled_loaded
+    (bundled_loaded, line)
 }
 
 /// `descriptor` with FXC instead of the bundled DXC (not `Auto`, which can
@@ -147,10 +161,21 @@ mod tests {
 
     #[test]
     fn the_bundled_dxc_is_used_by_full_path_when_both_libraries_are_there() {
-        let dir = Path::new("R/resources");
-        let (compiler, line, bundled) = choose(false, Some(dir), |_| true);
+        let resources = std::env::current_dir().unwrap().join("resources");
+        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        let (bundled, line) = apply_choice(
+            &mut descriptor,
+            None,
+            Some(&resources),
+            |_| true,
+            |path| {
+                assert_eq!(path, resources.join("dxil.dll"));
+                Ok(())
+            },
+        );
         assert!(bundled);
-        let expected = dir.join("dxcompiler.dll").display().to_string();
+        let expected = resources.join("dxcompiler.dll").display().to_string();
+        let compiler = descriptor.backend_options.dx12.shader_compiler;
         assert!(
             matches!(&compiler, wgpu::Dx12Compiler::DynamicDxc { dxc_path } if *dxc_path == expected),
             "{compiler:?}"
@@ -161,22 +186,45 @@ mod tests {
     #[test]
     fn a_missing_library_or_folder_keeps_auto() {
         let dir = Path::new("R/resources");
-        let (compiler, line, bundled) = choose(false, Some(dir), |p| !p.ends_with("dxil.dll"));
-        assert!(!bundled);
-        assert!(matches!(compiler, wgpu::Dx12Compiler::Auto));
-        assert!(line.contains("dxil.dll not in"), "{line}");
-        assert!(matches!(
-            choose(false, None, |_| true).0,
-            wgpu::Dx12Compiler::Auto
-        ));
+        for (dir, reason) in [
+            (Some(dir), "dxil.dll not in"),
+            (None, "no bundled DXC folder"),
+        ] {
+            let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+            descriptor.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
+            let (bundled, line) = apply_choice(
+                &mut descriptor,
+                None,
+                dir,
+                |p| !p.ends_with("dxil.dll"),
+                |_| panic!("cannot preload a missing validator"),
+            );
+            assert!(!bundled);
+            assert!(matches!(
+                descriptor.backend_options.dx12.shader_compiler,
+                wgpu::Dx12Compiler::Auto
+            ));
+            assert!(line.contains(reason), "{line}");
+        }
     }
 
     #[test]
     fn the_environment_wins() {
         // An explicit choice (even `dxc`) is never the bundled one: no
         // bundled validator preload, no FXC retry.
-        let (_, line, bundled) = choose(true, Some(Path::new("R")), |_| true);
+        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        let (bundled, line) = apply_choice(
+            &mut descriptor,
+            Some("dxc".parse().unwrap()),
+            Some(Path::new("R")),
+            |_| true,
+            |_| panic!("the override must not preload the bundled validator"),
+        );
         assert!(!bundled);
         assert!(line.contains("WGPU_DX12_COMPILER"), "{line}");
+        assert!(matches!(
+            descriptor.backend_options.dx12.shader_compiler,
+            wgpu::Dx12Compiler::DynamicDxc { dxc_path } if dxc_path == "dxcompiler.dll"
+        ));
     }
 }
