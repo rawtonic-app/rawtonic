@@ -95,6 +95,7 @@
       "interrupted": "Exportation interrompue : {{label}}",
       "nothingExported": "Rien n’a été exporté — {{existing}} ({{label}})",
       "running": "Exportation de {{label}}",
+      "sizeLimitMissed": "Limite de taille de fichier non atteinte : {{label}}",
       "waiting": "En attente d’exportation : {{label}}"
     },
     "eyes": {
@@ -4008,7 +4009,6 @@
           "rendering": "Rendu et écriture…",
           "replaced": "Export précédent remplacé",
           "selecting": "Calcul des sélections IA…",
-          "sizeLimitMissed": "Plus petit fichier écrit : {{size}} Ko, au-dessus de la limite de {{limit}} Ko",
           "skippedExists": "Ignorée : un fichier de ce nom existe",
           "skippedUnchanged": "Ignorée : inchangée depuis son dernier export",
           "waiting": "En attente"
@@ -4023,6 +4023,8 @@
         "retry": "Réessayer",
         "running": "Exportation ({{done}} sur {{total}} exportées)",
         "show": "Afficher",
+        "sizeLimitMissed": "{{file}} : {{limit}} Ko inatteignable ; le plus petit fichier a été enregistré ({{size}} Ko)",
+        "sizeLimitNotices": "Fichiers au-dessus de leur limite de taille",
         "start": "Démarrer",
         "startQueue": "Lancer la file",
         "title": "File d'exportation",

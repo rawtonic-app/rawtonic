@@ -12,7 +12,12 @@ import {
   type ExportItemLive,
   type ExportJob
 } from '../../store/useProcessStore';
-import { describeCompletedExports, outputFolder } from '../../utils/exportFeedback';
+import {
+  describeCompletedExports,
+  describeSizeLimitMiss,
+  describeSizeLimitMisses,
+  outputFolder
+} from '../../utils/exportFeedback';
 import { renderErrorMessage } from '../../utils/renderErrors';
 import { exportTimeLeft, splitTimeLeft } from '../../utils/exportTimeLeft';
 import { Invokes } from '../ui/AppProperties';
@@ -62,11 +67,6 @@ export function describeExportItem(item: ExportItemLive): string {
     case 'failed':
       return renderErrorMessage(item.error ?? '');
     case 'done':
-      if (item.sizeLimitMiss)
-        return i18n.t('studio.export.queue.photo.sizeLimitMissed', {
-          size: Math.ceil(item.sizeLimitMiss.bytes / 1000),
-          limit: Math.ceil(item.sizeLimitMiss.limitBytes / 1000)
-        });
       if (
         item.outcome === 'skippedExists' ||
         item.outcome === 'skippedUnchanged' ||
@@ -179,6 +179,11 @@ const ExportItemRow = memo(function ExportItemRow({ item }: { item: ExportItemLi
           {t('studio.export.queue.show')}
         </button>
       )}
+      {item.sizeLimitMisses?.map((miss) => (
+        <span key={miss.file} className="studio-export-notice" role="note">
+          {describeSizeLimitMiss(miss)}
+        </span>
+      ))}
     </li>
   );
 });
@@ -273,6 +278,13 @@ function ExportJobRow({ job, held, full }: { job: ExportJob; held: boolean; full
             total: job.total
           })}
         />
+      )}
+      {!!job.sizeLimitMisses?.length && (
+        <ul className="studio-export-notices" aria-label={t('studio.export.queue.sizeLimitNotices')}>
+          {describeSizeLimitMisses(job.sizeLimitMisses).map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
       )}
       {!open && job.failures.length > 0 && (
         <ul className="studio-export-failures" aria-label={t('studio.export.queue.failures')}>

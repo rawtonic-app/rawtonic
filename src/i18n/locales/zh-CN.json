@@ -78,6 +78,7 @@
       "interrupted": "导出已中断：{{label}}",
       "nothingExported": "没有导出任何照片 — {{existing}} ({{label}})",
       "running": "正在导出 {{label}}",
+      "sizeLimitMissed": "未达到文件大小上限：{{label}}",
       "waiting": "等待导出：{{label}}"
     },
     "eyes": {
@@ -3732,7 +3733,6 @@
           "rendering": "正在渲染并写入…",
           "replaced": "已替换之前的导出",
           "selecting": "正在计算 AI 选区…",
-          "sizeLimitMissed": "已写入最小文件：{{size}} KB，超过 {{limit}} KB 的上限",
           "skippedExists": "已跳过：已有同名文件",
           "skippedUnchanged": "已跳过：自上次导出后未更改",
           "waiting": "等待中"
@@ -3745,6 +3745,8 @@
         "retry": "重试",
         "running": "正在导出（已导出 {{done}}/{{total}}）",
         "show": "显示",
+        "sizeLimitMissed": "{{file}}：无法达到 {{limit}} KB；已保存最小的文件（{{size}} KB）",
+        "sizeLimitNotices": "超过大小上限的文件",
         "start": "开始",
         "startQueue": "启动队列",
         "title": "导出队列",

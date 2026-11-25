@@ -85,6 +85,7 @@
       "interrupted": "Export unterbrochen: {{label}}",
       "nothingExported": "Nichts exportiert — {{existing}} ({{label}})",
       "running": "Exportiere {{label}}",
+      "sizeLimitMissed": "Dateigrößenlimit nicht erreicht: {{label}}",
       "waiting": "Wartet auf Export: {{label}}"
     },
     "eyes": {
@@ -3841,7 +3842,6 @@
           "rendering": "Wird gerendert und geschrieben…",
           "replaced": "Früheren Export ersetzt",
           "selecting": "KI-Auswahlen werden berechnet …",
-          "sizeLimitMissed": "Kleinste Datei geschrieben: {{size}} KB, über dem Limit von {{limit}} KB",
           "skippedExists": "Übersprungen: Eine Datei dieses Namens existiert",
           "skippedUnchanged": "Übersprungen: seit dem letzten Export unverändert",
           "waiting": "Wartet"
@@ -3855,6 +3855,8 @@
         "retry": "Erneut versuchen",
         "running": "Wird exportiert ({{done}} von {{total}} exportiert)",
         "show": "Zeigen",
+        "sizeLimitMissed": "{{file}}: {{limit}} KB nicht erreichbar; kleinste Datei gespeichert ({{size}} KB)",
+        "sizeLimitNotices": "Dateien über ihrem Größenlimit",
         "start": "Starten",
         "startQueue": "Warteschlange starten",
         "title": "Exportwarteschlange",

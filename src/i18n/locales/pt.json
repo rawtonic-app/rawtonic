@@ -95,6 +95,7 @@
       "interrupted": "Exportação interrompida: {{label}}",
       "nothingExported": "Nada foi exportado — {{existing}} ({{label}})",
       "running": "A exportar {{label}}",
+      "sizeLimitMissed": "Limite de tamanho de arquivo não atingido: {{label}}",
       "waiting": "A aguardar exportação: {{label}}"
     },
     "eyes": {
@@ -4008,7 +4009,6 @@
           "rendering": "Renderizando e gravando…",
           "replaced": "Exportação anterior substituída",
           "selecting": "Calculando as seleções com IA…",
-          "sizeLimitMissed": "Menor arquivo gravado: {{size}} KB, acima do limite de {{limit}} KB",
           "skippedExists": "Pulada: existe um arquivo com este nome",
           "skippedUnchanged": "Pulada: sem alterações desde a última exportação",
           "waiting": "Aguardando"
@@ -4023,6 +4023,8 @@
         "retry": "Tentar novamente",
         "running": "Exportando ({{done}} de {{total}} exportadas)",
         "show": "Mostrar",
+        "sizeLimitMissed": "{{file}}: não foi possível atingir {{limit}} KB; o menor arquivo foi salvo ({{size}} KB)",
+        "sizeLimitNotices": "Arquivos acima do limite de tamanho",
         "start": "Iniciar",
         "startQueue": "Iniciar a fila",
         "title": "Fila de exportação",
