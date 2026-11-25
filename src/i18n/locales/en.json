@@ -537,7 +537,6 @@
       "closeLibraryFirst": "Close the open session or catalog to try again: these photos were edited outside a library.",
       "defaultRecipe": "Default recipe",
       "failed": "Edit With failed: {{error}}",
-      "generatedAreas": "Edit With is not available for photos with generated areas yet: {{names}}",
       "interrupted": "Edit With in {{app}} was interrupted when Rawtonic quit. Try again to render the photos again.",
       "label": "Edit With",
       "notLinked": "Rendered, but not added to the library: {{error}}",

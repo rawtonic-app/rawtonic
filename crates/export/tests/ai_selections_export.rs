@@ -149,6 +149,7 @@ fn export(
         capture: None,
         library: None,
         publish: rawtonic_export::output::Publish::New,
+        source_generated: false,
     })?;
     Ok(fs::read(output).unwrap())
 }

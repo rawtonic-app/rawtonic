@@ -563,7 +563,6 @@
       "closeLibraryFirst": "Cierra la sesión o el catálogo abierto para intentarlo de nuevo: estas fotos se editaron fuera de una biblioteca.",
       "defaultRecipe": "Receta predeterminada",
       "failed": "Error en Editar con: {{error}}",
-      "generatedAreas": "Editar con aún no está disponible para fotos con zonas generadas: {{names}}",
       "interrupted": "«Editar con» en {{app}} se interrumpió al cerrar Rawtonic. Vuelve a intentarlo para renderizar las fotos de nuevo.",
       "label": "Editar con",
       "notLinked": "Renderizado, pero no añadido a la biblioteca: {{error}}",
