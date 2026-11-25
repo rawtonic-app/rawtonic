@@ -3287,8 +3287,9 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             // first Halation frame on a cold Radeon 680M waited ~53 s, and
             // turning it off again or another photo showed only afterwards
             // (G76/SUPS).
-            // A held preview zoomed in: its visible region first (about a
-            // quarter of the whole frame's GPU time at 100 %), then the
+            // A final frame zoomed in: its visible region first (27 of the
+            // whole 3840 px frame's 277 ms GPU time at 100 % on a Radeon
+            // 680M, notes: benchmark-results/mwd1-2026-11-25), then the
             // whole frame, unless a newer request waits by then.
             // One baseline for both passes: a load begun during the region
             // pass supersedes the whole frame too.
@@ -3580,25 +3581,7 @@ fn region_first_pass(app_handle: &tauri::AppHandle, job: &PreviewJob) -> bool {
 }
 
 fn region_first_eligible(job: &PreviewJob) -> bool {
-    (job.region_first || qa_region_settle())
-        && !job.is_interactive
-        && job.roi.is_some()
-        && !job.crop_edit
-}
-
-/// QA builds (`performance-profiling`) with `RAWTONIC_QA_REGION_SETTLE` set:
-/// every final frame zoomed in shows its visible region first, as a held
-/// preview's does, to measure that settle (notes: benchmark-results/mwd1).
-/// Measurement only; other builds never.
-#[cfg(feature = "performance-profiling")]
-fn qa_region_settle() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("RAWTONIC_QA_REGION_SETTLE").is_some())
-}
-
-#[cfg(not(feature = "performance-profiling"))]
-fn qa_region_settle() -> bool {
-    false
+    job.region_first && !job.is_interactive && job.roi.is_some() && !job.crop_edit
 }
 
 #[cfg(not(target_os = "linux"))]

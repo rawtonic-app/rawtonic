@@ -56,9 +56,9 @@ pub struct PreviewJob {
     /// The frame is the uncropped, unrotated frame shown while cropping; the
     /// display then places it by the crop geometry.
     pub crop_edit: bool,
-    /// A final frame of a held preview (a tool's or the whole photograph's
-    /// before) zoomed in: the visible region is rendered and shown first,
-    /// then the whole frame as for any final frame (native display only).
+    /// A final frame zoomed in (an edit, a held before, a hovered style): the
+    /// visible region is rendered and shown first, then the whole frame as
+    /// for any final frame (native display only).
     pub region_first: bool,
     /// A dropped responder means the job was superseded; `Err` is a real failure.
     pub responder: tokio::sync::oneshot::Sender<Result<Vec<u8>, crate::ipc::CommandError>>,
