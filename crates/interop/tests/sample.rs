@@ -40,6 +40,16 @@ fn summarize_a_real_library() {
         library.albums.len(),
         library.not_read
     );
+    // The keyword library and each photograph's keywords (local output).
+    println!("  keyword library: {:?}", library.keywords);
+    for photo in library
+        .photos
+        .iter()
+        .filter(|p| !p.metadata.keywords.is_empty())
+    {
+        let name = photo.path.file_name().unwrap_or_default().to_string_lossy();
+        println!("  {name}: {:?}", photo.metadata.keywords);
+    }
     for root in library.roots() {
         println!("  {} photos, {} found", root.photos, root.found);
     }

@@ -939,8 +939,9 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
             copies: 1,
             edited: 5,
             albums: 2,
+            keywords: 0,
             roots: [{ folder: '/Volumes/Old/2026', photos: 12, found: 0 }],
-            notRead: { smartAlbums: 3, localAdjustments: 0, unlocated: 0 }
+            notRead: { smartAlbums: 3, localAdjustments: 0, unlocated: 0, keywordSynonyms: 0 }
           }
         : command === 'library_import'
           ? {
@@ -1034,8 +1035,9 @@ it('offers "Apply Capture One straightening and crop" for photos an earlier impo
             copies: 0,
             edited: 2,
             albums: 0,
+            keywords: 10,
             roots: [],
-            notRead: { smartAlbums: 0, localAdjustments: 0, unlocated: 0 }
+            notRead: { smartAlbums: 0, localAdjustments: 0, unlocated: 0, keywordSynonyms: 1 }
           }
         : command === 'library_import'
           ? {
@@ -1070,6 +1072,8 @@ it('offers "Apply Capture One straightening and crop" for photos an earlier impo
   await user.click(await screen.findByRole('menuitem', { name: /Import from Lightroom/ }));
   await user.type(screen.getByLabelText('Library to import'), '/C1/Trip.cosessiondb');
   await user.click(screen.getByRole('button', { name: 'Check' }));
+  // The keyword library is announced, unused terms included; synonyms are not imported.
+  expect(await screen.findByText(/10 keywords in the keyword list, 1 keyword synonym \(not imported\)/)).toBeTruthy();
   await user.click(await screen.findByRole('button', { name: /Import into Acme/ }));
   await waitFor(() => expect(toast.warning).toHaveBeenCalled());
   // Nothing was applied by the import itself.
@@ -1080,7 +1084,7 @@ it('offers "Apply Capture One straightening and crop" for photos an earlier impo
   expect(options.actions.map((a) => a.label)).toEqual([
     'Apply Capture One straightening and crop to A.NEF',
     'Apply Capture One straightening and crop to B.NEF',
-    'Apply Capture One straightening and replace crops using each frame’s aspect ratio (2 photos)'
+    'Apply Capture One straightening and replace crops using each frame’s aspect ratio (Photos: 2)'
   ]);
   expect(useGeometryOffers.getState().offers[0].photos).toEqual(offers);
   // Another library is open: the offers wait, nothing is written there.

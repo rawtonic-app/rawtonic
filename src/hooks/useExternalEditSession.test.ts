@@ -1,9 +1,13 @@
-import { act, cleanup, renderHook } from '@testing-library/react';
+import { createElement } from 'react';
+import { act, cleanup, render, renderHook, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const { invoke, exit } = vi.hoisted(() => ({ invoke: vi.fn(), exit: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/plugin-process', () => ({ exit }));
+
+import ActivityCentre from '../components/activity/ActivityCentre';
+import '../i18n';
 
 import { useExternalEditSession } from './useExternalEditSession';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
@@ -134,7 +138,13 @@ it.each([
     await waitFor(() => expect(select).toHaveBeenCalledWith(path));
     expect(useActivityStore.getState().entries).toEqual([]);
   } else {
-    // What the user sees: the activity centre opens on a failure naming the file.
+    render(createElement(ActivityCentre));
+    // Assert the actual notice, including the basename and support explanation.
+    const dialog = await screen.findByRole('dialog', { name: 'Activity' });
+    expect(
+      within(dialog).getByText('merged.NEFX cannot be opened: Rawtonic does not support this file format yet.')
+    ).toBeTruthy();
+    // The activity centre opens on a failure naming the file.
     await waitFor(() => expect(useActivityStore.getState().open).toBe(true));
     const [entry] = useActivityStore.getState().entries;
     expect(entry.status).toBe('failure');

@@ -22,7 +22,8 @@ import {
   displayKeyword,
   keywordLeaf,
   keywordParent,
-  resolveKeywordEntries
+  resolveKeywordEntries,
+  typedKeyword
 } from '../../utils/keywordTree';
 import { catalogChanged, invokeInOrder } from '../../utils/catalogWrites';
 import { submitPhotoWrite } from '../../utils/photoWrites';
@@ -266,8 +267,9 @@ export function StudioKeywords() {
     [imageList]
   );
   const existing = useMemo(() => [...known.map((value) => value.value), ...listedKeywords], [known, listedKeywords]);
-  // Autocomplete shows each keyword's path (`Animals > Dogs`), the most used first.
-  const suggestions = useMemo(() => [...new Set(existing.map(displayKeyword))].slice(0, 500), [existing]);
+  // Autocomplete shows each keyword's path (`Animals > Dogs`), the most used
+  // first; a name holding `,`, `>` or `<` in quotes, so the choice applies it.
+  const suggestions = useMemo(() => [...new Set(existing.map(typedKeyword))].slice(0, 500), [existing]);
 
   const add = async (text: string) => {
     // `Animals > Dogs`, `Animals|Dogs` and `Dogs < Animals` are one

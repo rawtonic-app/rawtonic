@@ -393,8 +393,11 @@ struct GlobalAdjustments {
     // 1: bw_toning_lut holds the B&W Toning of a black-and-white photo
     // (apply_bw_toning, bw_toning.rs).
     bw_toning_active: u32,
-    _pad_airlight1: u32,
-    _pad_airlight2: u32,
+    // The peak of a PQ/HLG source relative to diffuse white when its
+    // highlights roll off into SDR white (renderVersion 20,
+    // hdr_source_rolloff); 0 = none.
+    hdr_headroom: f32,
+    _hdr_rolloff: u32,
     bw_toning_lut: array<vec4<f32>, 32>,
 }
 
@@ -635,6 +638,24 @@ fn decode_signed(d: vec3<f32>) -> vec3<f32> {
 // Display values → linear, clipped to the gamut.
 fn display_to_linear(d: vec3<f32>) -> vec3<f32> {
     return gamut_unit(decode_signed(d));
+}
+
+// PQ/HLG highlights rolled off into SDR white (crates/engine hdr_source.rs
+// `rolloff`, renderVersion 20): the largest linear ProPhoto channel keeps
+// its value up to the knee (0.75 of diffuse white), above it a rational
+// shoulder of slope 1 reaches 1.0 at the source's peak `headroom`; the
+// colour scales with it, so hue and saturation stay.
+fn hdr_source_rolloff(c: vec3<f32>, headroom: f32) -> vec3<f32> {
+    const KNEE: f32 = 0.75;
+    let p = srgb_to_prophoto(c);
+    let m = max(p.r, max(p.g, p.b));
+    if (m <= KNEE) {
+        return c;
+    }
+    let a = (headroom - KNEE) / (1.0 - KNEE);
+    let t = min((m - KNEE) / (headroom - KNEE), 1.0);
+    let rolled = KNEE + (1.0 - KNEE) * (a * t / (1.0 + (a - 1.0) * t));
+    return c * (rolled / m);
 }
 
 // Linear → display values, clipped to the gamut.
@@ -12187,6 +12208,8 @@ fn main(
         let clipped = clamp(encoded, vec3<f32>(0.0), vec3<f32>(1.0));
         let beyond = select(clipped, encoded, encoded < vec3<f32>(0.0));
         default_tonemapped = carry_beyond_srgb(beyond, clipped, default_tonemapped);
+    } else if (adjustments.global.hdr_headroom > 1.0) {
+        default_tonemapped = linear_to_display(hdr_source_rolloff(composite_rgb_linear, adjustments.global.hdr_headroom));
     } else {
         default_tonemapped = linear_to_display(composite_rgb_linear);
     }

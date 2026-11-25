@@ -553,3 +553,88 @@ fn capture_one_catalog_capture_date_keeps_the_fraction_without_inventing_a_zone(
         );
     }
 }
+
+// KWC1: the keyword library (`ZKEYWORD`). The first ten rows are the C1R11
+// scratch catalog's (Capture One 16.9.1, read back; notes
+// benchmark-results/c1r11-2026-11-24/MANIFEST.md §6), including the unused
+// `unused_alpha`. Capture One's library dialog splits `,` and `;` and makes a
+// hierarchy of `>`, so the names holding them (rows 11–13) and the synonym
+// (row 14, entity `Synonym`) are synthetic: they stand for names that reached
+// a catalog another way, which must stay one keyword each.
+#[test]
+fn capture_one_keyword_library_keeps_unused_terms_and_literal_separators() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = capture_one_session(dir.path(), "Keywords");
+    let conn = Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "INSERT INTO ZENTITIES VALUES(44,'Keyword'),(45,'Synonym');
+         CREATE TABLE ZKEYWORD (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZNAME VARCHAR, ZPARENT INTEGER,
+           ZLEFT INTEGER UNIQUE, ZRIGHT INTEGER UNIQUE, ZISEXPORTABLE BOOLEAN, ZDESCRIPTION VARCHAR);
+         INSERT INTO ZKEYWORD VALUES(44,1,'angle',NULL,1,4,1,NULL),(44,2,'term',1,2,3,1,NULL),
+           (44,3,'comma',NULL,5,6,1,NULL),(44,4,'Parent',NULL,7,8,1,NULL),(44,5,'colon',NULL,9,10,1,NULL),
+           (44,6,'termpipe',NULL,11,14,1,NULL),(44,7,'term',6,12,13,1,NULL),(44,8,'semi',NULL,15,16,1,NULL),
+           (44,9,'unused_alpha',NULL,17,18,1,NULL),(44,10,'slash/term',NULL,19,20,1,NULL),
+           (44,11,'semi;colon',NULL,21,22,1,NULL),(44,12,'comma,term',4,23,24,1,NULL),
+           (44,13,'angle>term',NULL,25,26,1,NULL),(45,14,'Doggo',1,27,28,1,NULL);
+         UPDATE ZVARIANTMETADATA SET ZCONTENT_KEYWORDS =
+           'Parent||0,Parent|comma,term||1,slash/term||2,semi;colon||3,angle>term||4,comma||5' WHERE Z_PK = 1;",
+    )
+    .unwrap();
+    drop(conn);
+    let lib = capture_one::read(&db).unwrap();
+    // The photograph's keywords: a name holding `,` or `;` is one keyword.
+    assert_eq!(
+        lib.photos[0].metadata.keywords,
+        [
+            "Parent",
+            "Parent|comma,term",
+            "slash/term",
+            "semi;colon",
+            "angle>term",
+            "comma"
+        ]
+    );
+    // The library: every term with its path, parents and unused ones too,
+    // the synonym not as a keyword.
+    let mut keywords = lib.keywords.clone();
+    keywords.sort();
+    assert_eq!(
+        keywords,
+        [
+            "Parent",
+            "Parent|comma,term",
+            "angle",
+            "angle>term",
+            "angle|term",
+            "colon",
+            "comma",
+            "semi",
+            "semi;colon",
+            "slash/term",
+            "termpipe",
+            "termpipe|term",
+            "unused_alpha"
+        ]
+    );
+    assert_eq!(lib.not_read.keyword_synonyms, 1);
+}
+
+// Without a keyword library (sessions of older versions) the plain list
+// splits at its commas. A `;` is part of a name: a change, since the first
+// reader also split at `;` without a sample of Capture One writing `;` lists
+// (every catalog and session measured writes `,` and `||<n>`).
+#[test]
+fn capture_one_keywords_without_a_library_split_only_at_commas() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = capture_one_session(dir.path(), "Plain");
+    let conn = Connection::open(&db).unwrap();
+    conn.execute(
+        "UPDATE ZVARIANTMETADATA SET ZCONTENT_KEYWORDS = 'a;b, c||0,d' WHERE Z_PK = 1",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    let lib = capture_one::read(&db).unwrap();
+    assert_eq!(lib.photos[0].metadata.keywords, ["a;b", "c", "d"]);
+    assert!(lib.keywords.is_empty());
+}
