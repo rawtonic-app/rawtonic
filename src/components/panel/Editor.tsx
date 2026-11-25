@@ -21,6 +21,7 @@ import {
   moveCropInsideBounds,
   zoomCrop
 } from '../../utils/cropUtils';
+import { noteHandDrawnCrop } from '../../utils/cropReferenceActions';
 import ImageCanvas, { type LiveMaskDefinition } from './editor/ImageCanvas';
 import { CameraPreview, cameraPreviewOnScreen } from '../studio/CameraPreview';
 import { Mask, SubMask } from './right/Masks';
@@ -293,6 +294,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const isCropPanningRef = useRef(false);
   const cropPanStartRef = useRef<{ x: number; y: number } | null>(null);
   const cropPanStartCropRef = useRef<Crop | null>(null);
+  const cropPanLastRef = useRef<Crop | null>(null);
   const cropWheelTimeoutRef = useRef<number | null>(null);
   const lastCtrlClickTimeRef = useRef<number>(0);
 
@@ -1012,6 +1014,11 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           const nextCrop = zoomCrop(baseCrop, scaleFactor, W, H, rotation, adjustments.aspectRatio, mouseX, mouseY);
 
           setAdjustments((prev) => ({ ...prev, crop: nextCrop }));
+          // At its limit the wheel moves the crop only within the bounds'
+          // tolerance (a pixel each side): not a crop of the user's own.
+          if ((['x', 'y', 'width', 'height'] as const).some((k) => Math.abs(nextCrop[k] - baseCrop[k]) > 2.5)) {
+            noteHandDrawnCrop(baseCrop, nextCrop);
+          }
 
           if (cropWheelTimeoutRef.current) clearTimeout(cropWheelTimeoutRef.current);
           cropWheelTimeoutRef.current = window.setTimeout(() => {
@@ -1175,6 +1182,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         isCropPanningRef.current = true;
         cropPanStartRef.current = { x: e.clientX, y: e.clientY };
         cropPanStartCropRef.current = getEffectiveCrop();
+        cropPanLastRef.current = null;
         e.currentTarget.setPointerCapture(e.pointerId);
 
         setEditor({ isSliderDragging: true });
@@ -1257,6 +1265,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         const rotation = liveRotation !== null && liveRotation !== undefined ? liveRotation : adjustments.rotation || 0;
 
         const newCrop = moveCropInsideBounds(cropPanStartCropRef.current, -imgDx, -imgDy, W, H, rotation);
+        cropPanLastRef.current = newCrop;
 
         setAdjustments((prev) => ({ ...prev, crop: newCrop }));
         return;
@@ -1354,6 +1363,17 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
       if (isCropPanningRef.current) {
         isCropPanningRef.current = false;
+        // The last position the drag computed (the committed crop may still
+        // trail it in the preview draft).
+        const moved = cropPanLastRef.current;
+        if (
+          cropPanStartCropRef.current &&
+          moved &&
+          JSON.stringify(moved) !== JSON.stringify(cropPanStartCropRef.current)
+        ) {
+          noteHandDrawnCrop(cropPanStartCropRef.current, moved);
+        }
+        cropPanLastRef.current = null;
         cropPanStartRef.current = null;
         cropPanStartCropRef.current = null;
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
@@ -2592,6 +2612,15 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       const baseH = isSwapped ? selectedImage.width : selectedImage.height;
 
       const newPixelCrop: Crop = pixelCropFromPercent(pc, baseW, baseH);
+      // A crop the user drew, resized or moved: what later ratio changes fit
+      // into. ReactCrop's report of the crop it was given equals the recipe's.
+      const before = useEditorStore.getState().adjustments.crop;
+      if (
+        !(before === null && isWholeFrame(newPixelCrop, baseW, baseH)) &&
+        JSON.stringify(newPixelCrop) !== JSON.stringify(before)
+      ) {
+        noteHandDrawnCrop(before, newPixelCrop);
+      }
 
       setAdjustments((prev: Adjustments) => {
         // ReactCrop reports the frame it was first given as complete: the

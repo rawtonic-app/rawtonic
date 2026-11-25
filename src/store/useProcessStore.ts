@@ -26,10 +26,20 @@ export interface ExportJob {
   keptBoth?: number;
   /** The photos that did not export and the reasons (export_queue.rs). */
   failures: ExportFailure[];
+  /** The files written above their JPEG size limit. */
+  sizeLimitMisses?: SizeLimitMiss[];
   /** Why the job itself could not run, independent of the photo counts. */
   error?: string | null;
   /** An Edit With render: never resumed (Edit With is chosen again). */
   editWith?: boolean;
+}
+
+/** A written file above its "Limit file size" even at the lowest quality
+ * (`rawtonic_export::size_limit::SizeLimitNotice`). */
+export interface SizeLimitMiss {
+  file: string;
+  limitBytes: number;
+  bytes: number;
 }
 
 export interface ExportFailure {
@@ -47,8 +57,8 @@ export interface ExportItem {
   attempts: number;
   /** How its file ended when it was not simply written ("If a file exists"). */
   outcome?: ExportOutcome | null;
-  /** The JPEG stayed above its file size limit at the lowest quality; the smallest file was written. */
-  sizeLimitMiss?: { limitBytes: number; bytes: number } | null;
+  /** Its files that stayed above the JPEG size limit at the lowest quality; the smallest file was written. */
+  sizeLimitMisses?: SizeLimitMiss[];
   /** When its last attempt started and ended (Unix ms). */
   startedMs: number | null;
   finishedMs: number | null;

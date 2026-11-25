@@ -11,6 +11,81 @@
       "minimumSystemVersion": "13.0",
       "signingIdentity": "-",
       "entitlements": "Entitlements.plist"
-    }
+    },
+    "fileAssociations": [
+      {
+        "ext": [
+          "dng",
+          "crw",
+          "cr2",
+          "cr3",
+          "raw",
+          "erf",
+          "raf",
+          "3fr",
+          "fff",
+          "iiq",
+          "dcr",
+          "mos",
+          "rwl",
+          "mrw",
+          "nef",
+          "nrw",
+          "orf",
+          "rw2",
+          "pef",
+          "srw",
+          "arw",
+          "srf",
+          "sr2"
+        ],
+        "contentTypes": [
+          "public.camera-raw-image"
+        ],
+        "name": "Camera RAW Image",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "jpg",
+          "jpeg",
+          "png",
+          "gif",
+          "bmp",
+          "tiff",
+          "tif",
+          "exr"
+        ],
+        "contentTypes": [
+          "public.jpeg",
+          "public.png",
+          "com.compuserve.gif",
+          "com.microsoft.bmp",
+          "public.tiff",
+          "com.ilm.openexr-image"
+        ],
+        "name": "Image",
+        "role": "Editor",
+        "rank": "Alternate"
+      },
+      {
+        "ext": [
+          "pro",
+          "ari",
+          "bay",
+          "kdc",
+          "k25",
+          "dcs",
+          "mef",
+          "ptx",
+          "x3f",
+          "qoi"
+        ],
+        "name": "Other Image",
+        "role": "Editor",
+        "rank": "Alternate"
+      }
+    ]
   }
 }

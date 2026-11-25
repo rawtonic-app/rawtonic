@@ -518,11 +518,17 @@ impl Tracking {
             q.item_outcome(&self.job, index, outcome, output)
         });
     }
-    /// A photo's JPEG stayed above its file size limit at the lowest
+    /// A file of a photo stayed above its JPEG size limit at the lowest
     /// quality: the smallest file was written.
-    pub fn size_limit_miss(&self, index: usize, miss: rawtonic_export::size_limit::SizeLimitMiss) {
+    pub fn size_limit_miss(
+        &self,
+        index: usize,
+        notice: rawtonic_export::size_limit::SizeLimitNotice,
+    ) {
         let exports = self.app.state::<ExportState>();
-        with_queue(&exports, |q| q.item_size_limit_miss(&self.job, index, miss));
+        with_queue(&exports, |q| {
+            q.item_size_limit_miss(&self.job, index, notice)
+        });
     }
     /// A photo in progress moved on to `stage`.
     pub fn stage(&self, index: usize, stage: Stage, fraction: Option<f32>) {
@@ -2383,7 +2389,7 @@ mod tests {
             error: None,
             attempts: 1,
             outcome: None,
-            size_limit_miss: None,
+            size_limit_misses: Vec::new(),
             started_ms: None,
             finished_ms: None,
         };
