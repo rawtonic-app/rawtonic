@@ -496,7 +496,10 @@ async fn load_denoise_models(app_handle: &tauri::AppHandle, models: BTreeSet<usi
 
 /// Use the Export dialog's downloader before headless exports. The workers
 /// report failures per photo and recipe so other outputs can still be written.
-async fn prepare_headless_super_resolution(app_handle: &tauri::AppHandle, targets: &[ExportTarget]) {
+async fn prepare_headless_super_resolution(
+    app_handle: &tauri::AppHandle,
+    targets: &[ExportTarget],
+) {
     let mut sr_settings = targets
         .iter()
         .map(|target| &target.export_settings)
