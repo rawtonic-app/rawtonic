@@ -930,6 +930,7 @@ mod export {
                 enlarger: None,
                 write: &write,
                 provenance: identity,
+                source_generated: false,
             },
             &|| Ok(()),
         );
@@ -1017,6 +1018,7 @@ mod export {
                     enlarger: None,
                     write: &write,
                     provenance: Some(&identity),
+                    source_generated: false,
                 },
                 &|| Ok(()),
             )
@@ -1107,6 +1109,7 @@ mod export {
                     enlarger: None,
                     write: &write,
                     provenance: Some(&identity),
+                    source_generated: false,
                 },
                 &|| Ok(()),
             )

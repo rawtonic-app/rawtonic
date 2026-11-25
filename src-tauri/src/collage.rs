@@ -140,7 +140,8 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         );
         let versions = normalized.file_versions();
         normalized.lens?;
-        generated |= rawtonic_engine::image_loader::has_generated_areas(&adjustments);
+        generated |= rawtonic_engine::image_loader::has_generated_areas(&adjustments)
+            || crate::session_bridge::generated_provenance(&source_path);
         let (pristine, measures) = crate::export_processing::load_export_base_image(
             &app_handle.state::<crate::state::ai::AiState>(),
             &source,

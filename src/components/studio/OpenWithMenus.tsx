@@ -7,7 +7,7 @@ import type { TFunction } from 'i18next';
 import { notify } from '../../activity/notify';
 import { Invokes, OPTION_HEADER, OPTION_SEPARATOR, type Option } from '../ui/AppProperties';
 import type { ExportPreset } from '../ui/ExportImportProperties';
-import { errorCode, errorMessage } from '../../shared/ipc/errors';
+import { errorMessage } from '../../shared/ipc/errors';
 import { refreshStacks } from '../../store/useStackStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import {
@@ -103,11 +103,7 @@ async function editPhotosWith(
       notify.warn(t('contextMenus.editWith.notLinked', { error: result.problems.join('\n') }));
   } catch (e) {
     notify.dismiss(progress);
-    // `open_with::GENERATED_AREAS`: photographs with generated areas, named.
-    if (errorCode(e) === 'generated_areas') {
-      const { names } = e as { names?: string[] };
-      notify.error(t('contextMenus.editWith.generatedAreas', { names: (names ?? []).join(', ') }));
-    } else notify.error(t('contextMenus.editWith.failed', { error: errorMessage(e) }));
+    notify.error(t('contextMenus.editWith.failed', { error: errorMessage(e) }));
   }
 }
 

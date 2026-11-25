@@ -2383,6 +2383,7 @@ mod tests {
                     capture: None,
                     library: Some(temp.path()),
                     publish: Publish::New,
+                    source_generated: false,
                 })
                 .unwrap();
             image::open(output).unwrap().to_rgb8()

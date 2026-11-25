@@ -133,6 +133,13 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         &[("copy", "TEXT NOT NULL DEFAULT ''")],
         include_str!("../migrations/0036.sql"),
     ),
+    // Renders Rawtonic made with generated areas (Edit With), marked for good.
+    Migration::with_columns(
+        37,
+        "assets",
+        &[("generated_provenance", "INTEGER NOT NULL DEFAULT 0")],
+        include_str!("../migrations/0037.sql"),
+    ),
 ];
 
 /// The newest schema: the last migration's.

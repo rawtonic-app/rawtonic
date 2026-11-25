@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Edit With also renders photos with generated areas (object removal, generative fill). The render is marked as containing AI-generated content (IPTC Digital Source Type in its XMP, as any export of it), and the library marks the stacked render for good when it registers it: the mark stays when the other program saves the file without it, and a metadata edit or Use XMP does not remove it. The "Source type" search finds the render, and its exports are marked, also with metadata stripped (from the app, and from `rawtonic export` for photos of a session). Libraries are upgraded to schema 37 when opened.
+
 - Virtual copies are photos of their own in the Library, as in Lightroom: a copy has its own pick or reject flag (a new copy starts with its photo's; existing copies keep the flag they showed), an ordinary album can hold a copy without its photo (adding or removing a copy leaves the photo as it is), smart albums have a "Is a virtual copy" rule (Lightroom's Copy Status rules now import), and the value lists in the filter bar count copies like the grid lists them. Lightroom imports bring each copy's own pick and put copies into their albums as copies (they used to become their photo).
 
 - Camera rules with "contains", "starts with" or "ends with" also find a camera by the names its files state, so rules saved with the JPEG spelling (`contains NIKON`) keep matching that camera's photos after the one-camera-name change; Lightroom "Camera starts with / ends with" smart collections now import.

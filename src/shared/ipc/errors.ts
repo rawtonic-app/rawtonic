@@ -22,7 +22,6 @@ export type ErrorCode =
   | 'mask_parameters_missing'
   | 'live_stroke_resync'
   | 'render_failed'
-  | 'generated_areas'
   | 'exports_pending'
   | 'download_failed';
 

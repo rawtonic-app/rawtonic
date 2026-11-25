@@ -202,6 +202,18 @@ pub fn catalog_metadata(source: &Path) -> Option<rawtonic_metadata::Metadata> {
     lib.metadata(&asset.id).ok()
 }
 
+/// Whether the library of `source` marked it as a file Rawtonic rendered
+/// with generated areas (`Library::has_generated_provenance`): its exports
+/// are marked so. False outside a library.
+pub(crate) fn generated_provenance(source: &Path) -> bool {
+    (|| {
+        let lib = Library::open(&library_for(source)?).ok()?;
+        let asset = lib.asset_at(source).ok()??;
+        lib.has_generated_provenance(&asset.id).ok()
+    })()
+    .unwrap_or(false)
+}
+
 /// The corrected capture time of a managed source (Shift Capture Time),
 /// `None` elsewhere.
 pub(crate) fn capture_override(
