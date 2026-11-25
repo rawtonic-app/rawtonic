@@ -101,6 +101,11 @@ fn schema_at(version: usize) -> Connection {
             36 => conn
                 .execute_batch("ALTER TABLE collection_assets ADD COLUMN copy TEXT NOT NULL DEFAULT '';")
                 .unwrap(),
+            37 => conn
+                .execute_batch(
+                    "ALTER TABLE assets ADD COLUMN generated_provenance INTEGER NOT NULL DEFAULT 0;",
+                )
+                .unwrap(),
             _ => {}
         }
         conn.execute_batch(&script(step)).unwrap();

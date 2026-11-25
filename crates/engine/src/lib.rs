@@ -54,6 +54,7 @@ pub mod output_color_space;
 pub mod pasted_versions;
 pub mod patch_fill;
 pub mod point_curve;
+pub mod preview_ranges;
 pub mod proxy_codec;
 pub mod recipe_frame;
 pub mod recipe_versions;

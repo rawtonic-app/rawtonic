@@ -1653,6 +1653,7 @@ fn export(args: ExportArgs) -> Result<()> {
                     catalog: catalog.clone(),
                     capture: capture.clone(),
                     library: library.as_deref(),
+                    source_generated: generated_provenance(&source),
                     publish: match (replace, &photo_keys[named_index]) {
                         (Some(previous), Some(photo_key)) => {
                             rawtonic_export::output::Publish::Replace {
@@ -1876,7 +1877,8 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
         );
         generated |= recipe
             .as_ref()
-            .is_some_and(rawtonic_engine::image_loader::has_generated_areas);
+            .is_some_and(rawtonic_engine::image_loader::has_generated_areas)
+            || generated_provenance(&source);
         let library = library_of(&source);
         if let Some(resource) = recipe
             .as_ref()
@@ -1898,6 +1900,7 @@ fn proof_sheet(args: ProofSheetArgs) -> Result<()> {
             base: rawtonic_engine::image_loader::BaseImageOptions::default(),
             catalog: metadata,
             capture: corrected_capture(&source),
+            source_generated: generated_provenance(&source),
             library: library.as_deref(),
             publish: rawtonic_export::output::Publish::New,
         });
@@ -2083,6 +2086,18 @@ fn corrected_capture(
     let lib = Library::open(&session).ok()?;
     let asset = lib.asset_at(source).ok()??;
     Some(lib.capture_override(&asset.id).ok()??.exif_fields())
+}
+/// Whether the session of `source` marked it as a file Rawtonic rendered
+/// with generated areas (an Edit With render), as the app reads it for its
+/// exports. A catalog's photograph anywhere is not found from its path.
+fn generated_provenance(source: &std::path::Path) -> bool {
+    rawtonic_catalog::session_for(source)
+        .and_then(|session| Library::open(&session).ok())
+        .and_then(|lib| {
+            let asset = lib.asset_at(source).ok()??;
+            lib.has_generated_provenance(&asset.id).ok()
+        })
+        .unwrap_or(false)
 }
 /// The catalog metadata of a source inside a session, as the app writes it.
 fn catalog_metadata(source: &std::path::Path) -> Option<rawtonic_metadata::Metadata> {
