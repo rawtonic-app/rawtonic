@@ -4,9 +4,11 @@
 //! `develop_raw_image` hands the active area to the denoiser as
 //! black-subtracted, white-normalised samples (1.0 = the sensor's white;
 //! clipped samples can exceed it) and blends the result back by `amount`.
-//! Samples at or above white are kept as recorded. Only 2 × 2 RGB Bayer
-//! mosaics are passed on; other sensors (X-Trans, linear DNGs, Foveon) and
-//! fast developments are left alone.
+//! Samples at or above white are kept as recorded. 2 × 2 RGB Bayer mosaics
+//! go to `MosaicDenoiser::denoise`, 6 × 6 X-Trans mosaics to
+//! `MosaicDenoiser::denoise_xtrans` (a denoiser without one leaves them
+//! alone); other sensors (linear DNGs, Foveon) and fast developments are
+//! left alone.
 //!
 //! A network can shift the level and colour of what it denoises: Nonlocal
 //! MatchFilter's result is darker than the sensor's samples in deep
@@ -64,6 +66,24 @@ pub trait MosaicDenoiser: Send + Sync {
         let _ = progress;
         self.denoise_scaled(mosaic, width, height, pattern, noise_scale)
     }
+
+    /// Denoised samples of an X-Trans mosaic in the layout of `mosaic`;
+    /// `pattern` holds the colours of the 6 × 6 block at the origin, rows
+    /// top to bottom. `None` when this denoiser does not denoise X-Trans:
+    /// the development then goes on without it (`MosaicDenoise::applied`
+    /// stays unset).
+    fn denoise_xtrans(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: &[[u8; 6]; 6],
+        noise_scale: f32,
+        progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Option<Result<Vec<f32>>> {
+        let _ = (mosaic, width, height, pattern, noise_scale, progress);
+        None
+    }
 }
 
 /// Told `(done, total)` while a denoiser works, e.g. for an export's progress.
@@ -80,6 +100,10 @@ pub struct MosaicDenoise {
     /// Whether the result keeps the sensor's local means (`keep_means`;
     /// AI Denoise from version 4).
     pub sensor_means: bool,
+    /// The recipe denoises X-Trans mosaics (AI Denoise from version 6): an
+    /// X-Trans mosaic whose denoiser has no X-Trans path is an error, not a
+    /// development without AI Denoise (the wrong model was loaded).
+    pub xtrans_required: bool,
     /// Set once a development ran the denoiser (it skips non-Bayer sensors).
     pub applied: Arc<std::sync::atomic::AtomicBool>,
     /// Where the denoiser reports how far it is, if anywhere.
@@ -93,6 +117,7 @@ impl MosaicDenoise {
             amount,
             noise_scale: 1.0,
             sensor_means: false,
+            xtrans_required: false,
             applied: Arc::default(),
             progress: None,
         }
@@ -113,6 +138,11 @@ impl MosaicDenoise {
         self
     }
 
+    pub fn with_xtrans_required(mut self, xtrans_required: bool) -> Self {
+        self.xtrans_required = xtrans_required;
+        self
+    }
+
     /// Whether a development ran the denoiser.
     pub fn was_applied(&self) -> bool {
         self.applied.load(std::sync::atomic::Ordering::SeqCst)
@@ -125,6 +155,7 @@ impl std::fmt::Debug for MosaicDenoise {
             .field("amount", &self.amount)
             .field("noise_scale", &self.noise_scale)
             .field("sensor_means", &self.sensor_means)
+            .field("xtrans_required", &self.xtrans_required)
             .finish_non_exhaustive()
     }
 }
@@ -197,6 +228,83 @@ pub(crate) fn apply<T: Copy>(
         }
     }
     Ok(())
+}
+
+/// `apply` for an X-Trans mosaic (`pattern`: the colours of the 6 × 6
+/// block at the active area's origin): the whole active area, blended and
+/// with white kept as for Bayer, but without `keep_means` (its windows are
+/// per 2 × 2 position, and the X-Trans network keeps levels: it was trained
+/// against clean frames matched to the noisy ones' levels, notes:
+/// benchmark-results/xts1-2026-11-25). `None` when the denoiser does not
+/// denoise X-Trans, an error instead where the recipe asks for it
+/// (`MosaicDenoise::xtrans_required`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply_xtrans<T: Copy>(
+    denoise: &MosaicDenoise,
+    data: &mut [T],
+    width: usize,
+    active: (usize, usize, usize, usize),
+    pattern: &[[u8; 6]; 6],
+    level: impl Fn(T) -> f32,
+    store: impl Fn(f32) -> T,
+) -> Option<Result<()>> {
+    let amount = denoise.amount.clamp(0.0, 1.0);
+    if amount <= 0.0 {
+        return Some(Ok(()));
+    }
+    let (left, top, aw, ah) = active;
+    if aw < 6 || ah < 6 {
+        return Some(Ok(()));
+    }
+    let mut mosaic = Vec::with_capacity(aw * ah);
+    for y in top..top + ah {
+        let row = &data[y * width + left..y * width + left + aw];
+        mosaic.extend(row.iter().map(|&v| level(v)));
+    }
+    let quiet = |_: usize, _: usize| {};
+    let progress: &(dyn Fn(usize, usize) + Sync) = match &denoise.progress {
+        Some(progress) => progress.as_ref(),
+        None => &quiet,
+    };
+    let denoised = match denoise.denoiser.denoise_xtrans(
+        &mosaic,
+        aw,
+        ah,
+        pattern,
+        denoise.noise_scale,
+        progress,
+    ) {
+        Some(Ok(denoised)) => denoised,
+        Some(Err(e)) => return Some(Err(e)),
+        None if denoise.xtrans_required => {
+            return Some(Err(anyhow::anyhow!(
+                "this X-Trans photo's AI Denoise needs the X-Trans network, but another model was loaded"
+            )));
+        }
+        None => return None,
+    };
+    if denoised.len() != mosaic.len() {
+        return Some(Err(anyhow::anyhow!(
+            "denoiser returned {} samples for {}",
+            denoised.len(),
+            mosaic.len()
+        )));
+    }
+    denoise
+        .applied
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    for y in 0..ah {
+        let row = &mut data[(top + y) * width + left..(top + y) * width + left + aw];
+        for (x, sample) in row.iter_mut().enumerate() {
+            let original = mosaic[y * aw + x];
+            if original >= 1.0 {
+                continue;
+            }
+            let value = original + amount * (denoised[y * aw + x] - original);
+            *sample = store(value);
+        }
+    }
+    Some(Ok(()))
 }
 
 /// Radius, in samples of one 2 × 2 position (two photosites each), of the
@@ -309,6 +417,30 @@ pub(crate) fn bayer_pattern(cfa: &rawler::CFA, left: usize, top: usize) -> Optio
         counts[c as usize] += 1;
     }
     (counts == [1, 2, 1]).then_some(pattern)
+}
+
+/// The colours of the 6 × 6 block at (`left`, `top`) of an X-Trans CFA
+/// (rows top to bottom), or `None` for any other pattern. Whether it is a
+/// shift of the X-Trans layout is the denoiser's to check.
+pub fn xtrans_pattern(cfa: &rawler::CFA, left: usize, top: usize) -> Option<[[u8; 6]; 6]> {
+    if cfa.width != 6 || cfa.height != 6 || !cfa.is_rgb() {
+        return None;
+    }
+    let mut pattern = [[0u8; 6]; 6];
+    let mut counts = [0; 3];
+    for (y, row) in pattern.iter_mut().enumerate() {
+        for (x, c) in row.iter_mut().enumerate() {
+            let colour = cfa.color_at(top + y, left + x);
+            if colour > 2 {
+                return None;
+            }
+            *c = colour as u8;
+            counts[colour] += 1;
+        }
+    }
+    // 20 green, 8 red and 8 blue samples per block; a 6 × 6 Bayer
+    // description has 18 green.
+    (counts == [8, 20, 8]).then_some(pattern)
 }
 
 #[cfg(test)]
@@ -550,5 +682,115 @@ mod tests {
         assert_eq!(bayer_pattern(&rggb, 1, 0), Some([1, 0, 2, 1]));
         let xtrans = rawler::CFA::new("GGRGGBGGBGGRBRGRBGGGBGGRGGRGGBRBGBRG");
         assert_eq!(bayer_pattern(&xtrans, 0, 0), None);
+    }
+
+    #[test]
+    fn x_trans_patterns_are_read_at_the_origin_and_bayer_ones_are_not() {
+        let xtrans = rawler::CFA::new("GGRGGBGGBGGRBRGRBGGGBGGRGGRGGBRBGBRG");
+        let at = xtrans_pattern(&xtrans, 0, 0).unwrap();
+        assert_eq!(at[0], [1, 1, 0, 1, 1, 2]);
+        assert_eq!(at[2], [2, 0, 1, 0, 2, 1]);
+        // An origin inside the block shifts the pattern.
+        let shifted = xtrans_pattern(&xtrans, 1, 2).unwrap();
+        assert_eq!(shifted[0][0], at[2][1]);
+        assert_eq!(shifted[5][5], at[1][0]);
+        assert_eq!(xtrans_pattern(&rawler::CFA::new("RGGB"), 0, 0), None);
+        let bayer6 = rawler::CFA::new(&"RGRGRGGBGBGB".repeat(3));
+        assert_eq!(xtrans_pattern(&bayer6, 0, 0), None);
+    }
+
+    /// Width, height, pattern and noise scale of an X-Trans call.
+    type XTransCall = (usize, usize, [[u8; 6]; 6], f32);
+
+    /// Records the X-Trans call and returns a constant; no Bayer denoising.
+    struct XTransFlat(std::sync::Mutex<Option<XTransCall>>);
+
+    impl MosaicDenoiser for XTransFlat {
+        fn denoise(&self, _: &[f32], _: usize, _: usize, _: [u8; 4]) -> Result<Vec<f32>> {
+            anyhow::bail!("X-Trans only")
+        }
+
+        fn denoise_xtrans(
+            &self,
+            m: &[f32],
+            w: usize,
+            h: usize,
+            p: &[[u8; 6]; 6],
+            noise_scale: f32,
+            progress: &(dyn Fn(usize, usize) + Sync),
+        ) -> Option<Result<Vec<f32>>> {
+            *self.0.lock().unwrap() = Some((w, h, *p, noise_scale));
+            progress(1, 1);
+            Some(Ok(vec![0.5; m.len()]))
+        }
+    }
+
+    #[test]
+    fn x_trans_active_areas_are_blended_whole_and_white_is_kept() {
+        // 9 × 8 samples, active area 7 × 7 at (1, 1) (not a multiple of 6
+        // or 2); white at sample (3, 2).
+        let mut data: Vec<u16> = vec![100; 72];
+        data[2 * 9 + 3] = 1100;
+        let flat = Arc::new(XTransFlat(Default::default()));
+        let heard = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&heard);
+        let denoise = MosaicDenoise::new(flat.clone(), 0.5)
+            .with_noise_scale(0.955)
+            .with_sensor_means(true)
+            .with_progress(Arc::new(move |d, t| sink.lock().unwrap().push((d, t))));
+        let pattern = [[1; 6]; 6];
+        apply_xtrans(
+            &denoise,
+            &mut data,
+            9,
+            (1, 1, 7, 7),
+            &pattern,
+            |v: u16| (v as f32 - 100.0) / 1000.0,
+            |l: f32| (l * 1000.0 + 100.0).round() as u16,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(*flat.0.lock().unwrap(), Some((7, 7, pattern, 0.955)));
+        assert_eq!(*heard.lock().unwrap(), [(1, 1)]);
+        assert!(denoise.was_applied());
+        assert_eq!(data[9 + 1], 350);
+        assert_eq!(data[7 * 9 + 7], 350, "the last row and column too");
+        assert_eq!(data[2 * 9 + 3], 1100, "clipped sample kept");
+        assert_eq!(data[0], 100);
+        assert_eq!(data[9 + 8], 100);
+        // A Bayer denoiser does not take X-Trans: nothing changes.
+        let bayer = MosaicDenoise::new(Arc::new(Flat(Default::default())), 0.5);
+        let mut untouched: Vec<u16> = vec![100; 72];
+        assert!(
+            apply_xtrans(
+                &bayer,
+                &mut untouched,
+                9,
+                (1, 1, 7, 7),
+                &pattern,
+                |v: u16| v as f32,
+                |l: f32| l as u16
+            )
+            .is_none()
+        );
+        assert!(!bayer.was_applied());
+        assert_eq!(untouched, vec![100; 72]);
+        // Where the recipe asks for X-Trans denoising, the wrong model is an
+        // error, never a development without it.
+        let wrong =
+            MosaicDenoise::new(Arc::new(Flat(Default::default())), 0.5).with_xtrans_required(true);
+        let error = apply_xtrans(
+            &wrong,
+            &mut untouched,
+            9,
+            (1, 1, 7, 7),
+            &pattern,
+            |v: u16| v as f32,
+            |l: f32| l as u16,
+        )
+        .unwrap()
+        .unwrap_err();
+        assert!(error.to_string().contains("X-Trans network"), "{error}");
+        assert_eq!(untouched, vec![100; 72]);
     }
 }

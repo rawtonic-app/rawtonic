@@ -2246,7 +2246,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
-        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter, and of the X-Trans AI Denoise network, which Rawtonic trained on its X-Trans pairs (B. Brummer, C. De Vleeschouwer, UCLouvain). Both networks are published under CC BY-SA 4.0.",
         "ring": "내보내기의 출처 정보(C2PA) 매니페스트 서명: ECDSA, RSA-PSS, Ed25519 서명, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -3397,7 +3397,8 @@
         "qualityFast": "빠름",
         "qualityFastHint": "빠름: 프로세서에서 약 15배 빠르며, 미세한 디테일이 아주 약간 줄어듭니다.",
         "qualityFull": "전체",
-        "qualityFullHint": "전체: 가장 미세한 디테일. 빠른 그래픽 카드가 없으면 느립니다(프로세서에서는 사진당 수 분 이상)."
+        "qualityFullHint": "전체: 가장 미세한 디테일. 빠른 그래픽 카드가 없으면 느립니다(프로세서에서는 사진당 수 분 이상).",
+        "xtransHint": "X-Trans 센서에는 AI 노이즈 제거 전용 X-Trans 네트워크가 사용되며 품질은 하나입니다."
       },
       "noPhoto": "조정하려면 현상에서 사진을 여세요.",
       "params": {

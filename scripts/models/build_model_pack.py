@@ -18,10 +18,12 @@ Usage:
       --with timm==1.0.30 --with kornia==0.8.3 --with einops==0.8.2 \
       --with onnx==1.23.2 --with onnxruntime==1.22.0 \
       python scripts/models/build_model_pack.py OUT_DIR [--cache CACHE_DIR] [--previous PACK_DIR] \
-      [--own-runtime DIR] [--fast-denoise FILE]
+      [--own-runtime DIR] [--fast-denoise FILE] [--xtrans-denoise FILE]
 `--fast-denoise FILE` is Rawtonic's own trained Fast AI Denoise network
 (FAST_DENOISE below), needed until a previous pack carries it: its weights
 come from Rawtonic's training run, not from an upstream release.
+`--xtrans-denoise FILE` is the same for Rawtonic's X-Trans AI Denoise network
+(XTRANS_DENOISE below).
 `--own-runtime` is the folder of the ONNX Runtime libraries Rawtonic builds
 itself (scripts/models/build_onnxruntime.sh and .ps1; ORT130_OWN below), needed
 until a previous pack carries them.
@@ -256,6 +258,20 @@ FAST_DENOISE = {
     "source": "Rawtonic's own network (scripts/models/fast_denoise_net.py, size L, 9.6 M parameters) trained by Rawtonic by distillation from Nonlocal MatchFilter (Sanchez-Beeckman and Buades, MIT) on 110 noisy Bayer frames of RawNIND (Brummer and De Vleeschouwer, UCLouvain, doi:10.14428/DVN/DEQCIM, CC BY-SA 4.0); exported to ONNX (opset 17, fp32, 512 px tiles)",
     "license": "CC BY-SA 4.0",
     "license_files": ["fast-denoise-CC-BY-SA-4.0.txt", "nonlocal-matchfilter-MIT.txt"],
+}
+
+# AI Denoise on X-Trans sensors: Rawtonic's own U-Net on the X-Trans mosaic
+# (xtrans_denoise_net.py, size L) trained on the X-Trans pairs of 96 RawNIND
+# scenes (CC BY-SA 4.0), so the weights are published under CC BY-SA 4.0;
+# trained by Rawtonic, so the file comes from `--xtrans-denoise` (or a
+# previous pack) and is pinned here.
+XTRANS_DENOISE = {
+    "file": "xtrans_denoise_v1.onnx",
+    "sha256": "de33162b2fc6ac8217e3f9a7becf9d6831fed6a269a4614613300f0bd4c32e2d",
+    "used_by": "AI Denoise on X-Trans sensors (ONNX Runtime, every platform)",
+    "source": "Rawtonic's own network (scripts/models/xtrans_denoise_net.py, size L, 9.6 M parameters) trained by Rawtonic with supervision on the X-Trans frames of 96 scenes of RawNIND (Brummer and De Vleeschouwer, UCLouvain, doi:10.14428/DVN/DEQCIM, CC BY-SA 4.0): noisy frames as inputs, the scenes' clean frames as targets; exported to ONNX (opset 17, fp32, 1008 px tiles, EMA weights)",
+    "license": "CC BY-SA 4.0",
+    "license_files": ["xtrans-denoise-CC-BY-SA-4.0.txt"],
 }
 
 # Moebius (hustvl, Apache-2.0), Remove's guide for large holes on macOS, and
@@ -636,6 +652,8 @@ def main() -> None:
     parser.add_argument("--previous", type=Path, help="earlier pack whose files are carried over unchanged")
     parser.add_argument("--fast-denoise", type=Path,
                         help="Rawtonic's trained Fast AI Denoise network (FAST_DENOISE)")
+    parser.add_argument("--xtrans-denoise", type=Path,
+                        help="Rawtonic's trained X-Trans AI Denoise network (XTRANS_DENOISE)")
     parser.add_argument("--own-runtime", type=Path,
                         help="folder with the ONNX Runtime libraries build_onnxruntime.sh built (ORT130_OWN)")
     args = parser.parse_args()
@@ -762,6 +780,12 @@ def main() -> None:
             sys.exit(f"{FAST_DENOISE['file']}: missing; pass --fast-denoise FILE or --previous with a pack that has it")
         meta = {k: v for k, v in FAST_DENOISE.items() if k not in ("file", "sha256")}
         entries.append(place(args.fast_denoise, args.out, FAST_DENOISE["file"], FAST_DENOISE["sha256"]) | meta)
+
+    if todo({XTRANS_DENOISE["file"]: XTRANS_DENOISE["sha256"]}):
+        if args.xtrans_denoise is None:
+            sys.exit(f"{XTRANS_DENOISE['file']}: missing; pass --xtrans-denoise FILE or --previous with a pack that has it")
+        meta = {k: v for k, v in XTRANS_DENOISE.items() if k not in ("file", "sha256")}
+        entries.append(place(args.xtrans_denoise, args.out, XTRANS_DENOISE["file"], XTRANS_DENOISE["sha256"]) | meta)
 
     if todo(MATCHFILTER_MIXED_SHA256):
         nlmf_mixed = args.cache / "nlmf-mixed"

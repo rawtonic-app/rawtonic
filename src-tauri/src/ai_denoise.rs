@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! AI Denoise: Nonlocal MatchFilter on the Bayer mosaic (rawtonic-denoise).
+//! AI Denoise: Nonlocal MatchFilter (or the Fast network) on the Bayer
+//! mosaic, the X-Trans network on X-Trans mosaics (rawtonic-denoise).
 //!
 //! The recipe's `aiDenoise` (0 … 100) and `aiDenoiseVersion` decide how
 //! (`ai_denoise_settings`); the decoder runs the denoiser before
@@ -14,7 +15,7 @@ use crate::state::lock::lock_recover;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rawtonic_engine::image_loader::FAST_AI_DENOISE_MODEL;
+use rawtonic_engine::image_loader::{FAST_AI_DENOISE_MODEL, XTRANS_AI_DENOISE_MODEL};
 use rawtonic_rawdecode::mosaic_denoise::{MosaicDenoise, MosaicDenoiser};
 use tauri::Manager;
 
@@ -64,6 +65,10 @@ const ONNX_SHA256: &str = "ba788a97f247058ea03d14bbf2f289adc8f4666039f27d0d530e6
 /// The Fast network (`rawtonic_denoise::FAST_ONNX_MODEL`, CC BY-SA 4.0; in
 /// the packs from pack-2026-11-25b), on ONNX Runtime on every platform.
 const FAST_ONNX_SHA256: &str = "95e4e3f168d98f030b25f4f0c7d44337cc168d80d63af48227357d6f616914a6";
+/// The X-Trans network (`rawtonic_denoise::XTRANS_ONNX_MODEL`, CC BY-SA
+/// 4.0; in the packs from pack-2026-11-25d), on ONNX Runtime on every
+/// platform.
+const XTRANS_ONNX_SHA256: &str = "de33162b2fc6ac8217e3f9a7becf9d6831fed6a269a4614613300f0bd4c32e2d";
 
 pub fn cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_handle
@@ -74,11 +79,12 @@ pub fn cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 /// Where `AiState::denoisers` keeps the denoiser of `model`
-/// (`AiDenoiseSettings::model`): ONNX Runtime (Windows, Linux) has one
-/// MatchFilter model for every version; the Fast network has its own slot.
+/// (`AiDenoiseSettings::model_for`): ONNX Runtime (Windows, Linux) has one
+/// MatchFilter model for every version; the Fast and the X-Trans network
+/// have their own slots.
 pub fn slot(model: usize) -> usize {
-    if model == FAST_AI_DENOISE_MODEL {
-        FAST_AI_DENOISE_MODEL
+    if model == FAST_AI_DENOISE_MODEL || model == XTRANS_AI_DENOISE_MODEL {
+        model
     } else if cfg!(target_os = "macos") {
         model.min(1)
     } else {
@@ -86,8 +92,9 @@ pub fn slot(model: usize) -> usize {
     }
 }
 
-/// The denoiser of AI Denoise `model` (`AiDenoiseSettings::model`: 0 the
-/// first package, 1 the mixed-precision one), downloading and loading it on
+/// The denoiser of AI Denoise `model` (`AiDenoiseSettings::model_for`: 0 the
+/// first package, 1 the mixed-precision one, then the Fast and the X-Trans
+/// network), downloading and loading it on
 /// first use. No fallback between them: a version renders with its model or
 /// fails, so a saved recipe never changes with the installed models.
 pub async fn denoiser(
@@ -107,6 +114,8 @@ pub async fn denoiser(
     let cache = cache_dir(app_handle)?;
     let denoiser: Arc<dyn MosaicDenoiser> = if slot == FAST_AI_DENOISE_MODEL {
         Arc::new(load_fast(app_handle, &models, cache).await?)
+    } else if slot == XTRANS_AI_DENOISE_MODEL {
+        Arc::new(load_xtrans(app_handle, &models, cache).await?)
     } else {
         #[cfg(target_os = "macos")]
         let denoiser: Arc<dyn MosaicDenoiser> = if slot == 0 {
@@ -253,6 +262,38 @@ async fn load_fast(
     .map_err(CommandError::from)
 }
 
+/// The X-Trans network on ONNX Runtime (every platform), downloaded from
+/// the pack and checked by its SHA-256 on first use.
+async fn load_xtrans(
+    app_handle: &tauri::AppHandle,
+    models: &Path,
+    cache: PathBuf,
+) -> Result<rawtonic_denoise::XTransNet, CommandError> {
+    crate::ai_processing::ensure_runtime()?;
+    let file = rawtonic_denoise::XTRANS_ONNX_MODEL;
+    crate::ai_processing::download_verified(
+        app_handle,
+        models,
+        file,
+        XTRANS_ONNX_SHA256,
+        "AI Denoise model (X-Trans)",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let model = models.join(file);
+    tokio::task::spawn_blocking(move || {
+        rawtonic_denoise::XTransNet::onnx(&model, Some(cache))
+            .map(|net| {
+                net.with_cache_use_observer(crate::storage_fs::mark_used)
+                    .with_cache_access(|path| Box::new(crate::storage_fs::pin_file(path)))
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(CommandError::from)
+}
+
 /// The AI Denoise quality (`aiDenoiseQuality`) a photo gets when AI Denoise
 /// is first turned on, by the preference (`ai_denoise_default_quality`):
 /// "full" or "fast" as chosen; otherwise Fast where MatchFilter would run
@@ -316,17 +357,42 @@ pub async fn ai_denoise_default_quality(app_handle: tauri::AppHandle) -> Result<
     .map_err(|e| e.to_string())
 }
 
-/// The decoder option for a recipe: `None` without AI Denoise.
+/// The decoder option for a recipe on the RAW at `source`: `None` without
+/// AI Denoise. Versions that denoise X-Trans read the file's tags for its
+/// sensor (`is_xtrans`); the decode fails clearly if that read was wrong
+/// (`MosaicDenoise::xtrans_required`).
 pub async fn option_for(
     app_handle: &tauri::AppHandle,
     adjustments: &serde_json::Value,
+    source: &Path,
 ) -> Result<Option<MosaicDenoise>, CommandError> {
     let Some(ai) = rawtonic_engine::image_loader::ai_denoise_settings(adjustments) else {
         return Ok(None);
     };
-    Ok(Some(
-        ai.mosaic_denoise(denoiser(app_handle, ai.model()).await?),
-    ))
+    let xtrans = ai.denoises_xtrans() && is_xtrans(source).await;
+    Ok(Some(ai.mosaic_denoise(
+        denoiser(app_handle, ai.model_for(xtrans)).await?,
+    )))
+}
+
+/// Whether the RAW at `path` (`?vc=` allowed) has an X-Trans sensor: its AI
+/// Denoise runs the X-Trans network from `aiDenoiseVersion` 6, which has one
+/// quality. Asked by Develop when a photo opens (its tags only, a few
+/// milliseconds), so the answer is there before the full decode.
+#[tauri::command]
+pub async fn raw_is_xtrans(path: String) -> bool {
+    let (source, _) = crate::file_management::parse_virtual_path(&path);
+    is_xtrans(&source).await
+}
+
+/// Whether the RAW at `source` is an X-Trans mosaic
+/// (`rawdecode::raw_processing::is_xtrans_at`; its tags only), off the
+/// async workers.
+pub async fn is_xtrans(source: &Path) -> bool {
+    let source = source.to_path_buf();
+    tokio::task::spawn_blocking(move || rawtonic_rawdecode::raw_processing::is_xtrans_at(&source))
+        .await
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -378,5 +444,8 @@ mod tests {
         let fast = rawtonic_engine::image_loader::FAST_AI_DENOISE_MODEL;
         assert_eq!(super::slot(fast), fast, "the Fast network has its own slot");
         assert!(fast < rawtonic_engine::image_loader::AI_DENOISE_MODELS);
+        let xtrans = rawtonic_engine::image_loader::XTRANS_AI_DENOISE_MODEL;
+        assert_eq!(super::slot(xtrans), xtrans, "so has the X-Trans network");
+        assert!(xtrans < rawtonic_engine::image_loader::AI_DENOISE_MODELS);
     }
 }

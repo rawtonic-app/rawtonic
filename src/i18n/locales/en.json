@@ -2344,7 +2344,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
-        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter, and of the X-Trans AI Denoise network, which Rawtonic trained on its X-Trans pairs (B. Brummer, C. De Vleeschouwer, UCLouvain). Both networks are published under CC BY-SA 4.0.",
         "ring": "Signing of provenance (C2PA) manifests in exports: ECDSA, RSA-PSS and Ed25519 signatures, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -3501,7 +3501,8 @@
         "qualityFast": "Fast",
         "qualityFastHint": "Fast: about 15× quicker on the processor, with very slightly less fine detail.",
         "qualityFull": "Full",
-        "qualityFullHint": "Full: the finest detail. Slow without a fast graphics card (many minutes per photo on the processor)."
+        "qualityFullHint": "Full: the finest detail. Slow without a fast graphics card (many minutes per photo on the processor).",
+        "xtransHint": "X-Trans sensors get AI Denoise's own X-Trans network, which has one quality."
       },
       "noPhoto": "Open a photo in Develop to make adjustments.",
       "params": {

@@ -125,6 +125,7 @@ export enum Invokes {
   ReplaceRecipes = 'replace_recipes',
   ApplyAiDenoise = 'apply_ai_denoise',
   AiDenoiseDefaultQuality = 'ai_denoise_default_quality',
+  RawIsXTrans = 'raw_is_xtrans',
   ThirdPartyLicenses = 'third_party_licenses',
   CalculateAutoAdjustments = 'calculate_auto_adjustments',
   CalculateManualTransform = 'calculate_manual_transform',

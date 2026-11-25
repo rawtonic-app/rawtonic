@@ -196,7 +196,8 @@ pub(crate) fn load_export_base_image(
 ) -> Result<(DynamicImage, Option<crate::image_loader::DecodeMeasures>), String> {
     let ai = rawtonic_engine::image_loader::ai_denoise_settings(adjustments).filter(|_| is_raw);
     let denoise = if let Some(ai) = ai {
-        let denoiser = lock_recover(&ai_state.denoisers)[crate::ai_denoise::slot(ai.model())]
+        let model = ai.model_for_source(Path::new(source_path));
+        let denoiser = lock_recover(&ai_state.denoisers)[crate::ai_denoise::slot(model)]
             .clone()
             .ok_or_else(|| {
                 format!(
@@ -434,24 +435,32 @@ pub(crate) fn render_prepared_unedited(
     apply_export_geometry_and_watermark(image, &export_settings).map(|(image, _)| image)
 }
 
-/// Loads the AI Denoise models these recipes use, once each; photos
-/// that need it fail one by one if it cannot be had.
-pub(crate) async fn prepare_ai_denoise<V: std::borrow::Borrow<Value>>(
+/// Loads the AI Denoise models these photos' recipes use (each a recipe
+/// and its photo's path, `?vc=` included), once each; photos that need it
+/// fail one by one if it cannot be had.
+pub(crate) async fn prepare_ai_denoise<V: std::borrow::Borrow<Value>, P: AsRef<str>>(
     app_handle: &tauri::AppHandle,
-    recipes: impl IntoIterator<Item = V>,
+    photos: impl IntoIterator<Item = (V, P)> + Send + 'static,
 ) {
-    load_denoise_models(app_handle, denoise_models(recipes)).await;
+    let models = tauri::async_runtime::spawn_blocking(move || denoise_models(photos))
+        .await
+        .unwrap_or_default();
+    load_denoise_models(app_handle, models).await;
 }
 
 /// The AI Denoise models `recipes` use.
-pub(crate) fn denoise_models<V: std::borrow::Borrow<Value>>(
-    recipes: impl IntoIterator<Item = V>,
+/// (each a recipe and its photo's path, `?vc=` included): an X-Trans
+/// photo's from version 6 is the X-Trans network (read from its tags,
+/// `AiDenoiseSettings::model_for_source`).
+pub(crate) fn denoise_models<V: std::borrow::Borrow<Value>, P: AsRef<str>>(
+    photos: impl IntoIterator<Item = (V, P)>,
 ) -> BTreeSet<usize> {
-    recipes
+    photos
         .into_iter()
-        .filter_map(|adjustments| {
-            rawtonic_engine::image_loader::ai_denoise_settings(adjustments.borrow())
-                .map(|ai| ai.model())
+        .filter_map(|(adjustments, path)| {
+            rawtonic_engine::image_loader::ai_denoise_settings(adjustments.borrow()).map(|ai| {
+                ai.model_for_source(&crate::file_management::parse_virtual_path(path.as_ref()).0)
+            })
         })
         .collect()
 }
@@ -3360,9 +3369,11 @@ pub async fn run_headless_export(
         })
     };
     let denoise_models = {
-        let (read, count) = (Arc::clone(&read), paths.len());
+        let (read, count, paths) = (Arc::clone(&read), paths.len(), paths.clone());
         tauri::async_runtime::spawn_blocking(move || {
-            denoise_models((0..count).filter_map(|i| read(i).ok().map(|p| p.adjustments)))
+            denoise_models(
+                (0..count).filter_map(|i| read(i).ok().map(|p| (p.adjustments, &paths[i]))),
+            )
         })
         .await
         .map_err(|e| e.to_string())?
@@ -3954,7 +3965,9 @@ mod tests {
     #[test]
     fn exports_load_the_model_of_the_recipes_quality() {
         use rawtonic_engine::image_loader::FAST_AI_DENOISE_MODEL;
-        let models = |recipes: Vec<serde_json::Value>| super::denoise_models(recipes);
+        let models = |recipes: Vec<serde_json::Value>| {
+            super::denoise_models(recipes.into_iter().map(|r| (r, "missing/photo.NEF")))
+        };
         let full = serde_json::json!({ "aiDenoise": 50, "aiDenoiseVersion": 5 });
         let mut explicit = full.clone();
         explicit["aiDenoiseQuality"] = serde_json::json!("full");
@@ -3963,6 +3976,10 @@ mod tests {
         assert_eq!(models(vec![full.clone(), explicit]), [1].into());
         assert_eq!(models(vec![fast.clone()]), [FAST_AI_DENOISE_MODEL].into());
         assert_eq!(models(vec![full, fast]), [1, FAST_AI_DENOISE_MODEL].into());
+        // Version 6 is version 5 on a photo that is not X-Trans (the X-Trans
+        // network loads only for X-Trans photos, read from their tags).
+        let six = serde_json::json!({ "aiDenoise": 50, "aiDenoiseVersion": 6 });
+        assert_eq!(models(vec![six]), [1].into());
         assert_eq!(
             crate::ai_denoise::slot(FAST_AI_DENOISE_MODEL),
             FAST_AI_DENOISE_MODEL

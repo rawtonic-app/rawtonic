@@ -245,7 +245,7 @@ impl ExportRequest {
                 self.library.directory(),
             )?;
             models.extend(denoise_models(
-                photos.iter().map(|photo| &photo.adjustments),
+                photos.iter().map(|photo| &photo.adjustments).zip(paths),
             ));
             seen.extend(photos.iter().map(inspect));
             let snapshots = photos
@@ -2150,12 +2150,15 @@ mod tests {
         ai["adjustments"]["aiDenoise"] = json!(60);
         let asset = libs.a.asset_at(&libs.source).unwrap().unwrap();
         libs.a.save_editor_state(&asset.id, &ai).unwrap();
-        let job = queued(request(&[path], Some(libs.a.directory.as_path())));
+        let job = queued(request(
+            std::slice::from_ref(&path),
+            Some(libs.a.directory.as_path()),
+        ));
         let pinned = job.request.pinned.clone().expect("pinned when queued");
         assert_eq!(pinned.denoise_models.len(), 1, "loaded before the job runs");
         assert_eq!(
             pinned.denoise_models,
-            crate::export_processing::denoise_models([&ai["adjustments"]])
+            crate::export_processing::denoise_models([(&ai["adjustments"], &path)])
         );
         assert!(
             !serde_json::to_string(&job.request)

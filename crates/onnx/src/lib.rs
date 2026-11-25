@@ -138,7 +138,7 @@ pub enum ModelKind {
     TagText,
     /// MI-GAN object removal.
     Inpaint,
-    /// Nonlocal MatchFilter (AI Denoise).
+    /// AI Denoise: Nonlocal MatchFilter, the Fast and the X-Trans network.
     Denoise,
     /// YuNet face detection.
     FaceDetector,
@@ -215,7 +215,7 @@ impl ModelKind {
 
     /// The model a file of the model pack holds, by its name.
     pub fn from_file_name(name: &str) -> Option<Self> {
-        const PREFIXES: [(&str, ModelKind); 21] = [
+        const PREFIXES: [(&str, ModelKind); 22] = [
             ("birefnet", ModelKind::Subject),
             ("sam2.1_tiny_encoder", ModelKind::SamEncoder),
             ("sam2.1_tiny_decoder", ModelKind::SamDecoder),
@@ -229,6 +229,7 @@ impl ModelKind {
             ("migan", ModelKind::Inpaint),
             ("nlmf", ModelKind::Denoise),
             ("fast_denoise", ModelKind::Denoise),
+            ("xtrans_denoise", ModelKind::Denoise),
             ("face_detection", ModelKind::FaceDetector),
             ("face_mesh", ModelKind::FaceMesh),
             ("selfie_multiclass", ModelKind::FaceParser),
@@ -1402,13 +1403,17 @@ mod tests {
     }
 
     #[test]
-    fn both_denoise_networks_are_files_of_the_pack() {
+    fn the_denoise_networks_are_files_of_the_pack() {
         assert_eq!(
             ModelKind::from_file_name("nlmf.onnx"),
             Some(ModelKind::Denoise)
         );
         assert_eq!(
             ModelKind::from_file_name("fast_denoise_v1.onnx"),
+            Some(ModelKind::Denoise)
+        );
+        assert_eq!(
+            ModelKind::from_file_name("xtrans_denoise_v1.onnx"),
             Some(ModelKind::Denoise)
         );
     }

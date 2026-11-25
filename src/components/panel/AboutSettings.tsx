@@ -184,7 +184,7 @@ export const CREDITS: Credit[] = [
   {
     name: 'RawNIND (Raw Natural Image Noise Dataset)',
     url: 'https://doi.org/10.14428/DVN/DEQCIM',
-    what: 'Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.',
+    what: 'Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter, and of the X-Trans AI Denoise network, which Rawtonic trained on its X-Trans pairs (B. Brummer, C. De Vleeschouwer, UCLouvain). Both networks are published under CC BY-SA 4.0.',
     license: 'CC BY-SA 4.0'
   },
   {

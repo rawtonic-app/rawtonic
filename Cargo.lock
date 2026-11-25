@@ -5881,6 +5881,7 @@ dependencies = [
  "objc2-core-ml",
  "objc2-foundation",
  "ort",
+ "rawtonic-fs",
  "rawtonic-onnx",
  "rawtonic-rawdecode",
  "tempfile",

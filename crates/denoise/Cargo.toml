@@ -24,3 +24,4 @@ objc2-core-ml = { version = "0.3.2", features = ["MLModel", "MLMultiArray", "MLF
 
 [dev-dependencies]
 tempfile = { workspace = true }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }

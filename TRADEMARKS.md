@@ -8,10 +8,10 @@ releases. You may say a fork is "based on Rawtonic".
 Other names used in this repository and in the app are trademarks of
 their owners, for example Adobe, Camera Raw, Lightroom and DNG (Adobe),
 Capture One (Capture One A/S), Apple ProRAW and Display P3 (Apple),
-Adobe RGB (Adobe), ProPhoto RGB (Eastman Kodak Company), and the camera makers' names. Rawtonic uses
+Adobe RGB (Adobe), ProPhoto RGB (Eastman Kodak Company), X-Trans (Fujifilm), and the camera makers' names. Rawtonic uses
 them only to name those products, for example the catalogs, sessions,
-presets, colour spaces and file formats it can read or write, or software
-it was compared with.
+presets, colour spaces, file formats and sensor layouts it can read or
+write, or software it was compared with.
 Rawtonic is not affiliated with, endorsed or sponsored by any of them.
 
 C2PA names the open provenance standard Rawtonic writes manifests in
