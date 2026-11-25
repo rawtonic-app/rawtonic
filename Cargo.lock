@@ -6225,6 +6225,7 @@ dependencies = [
  "rawtonic-fs",
  "rawtonic-onnx",
  "rayon",
+ "tempfile",
 ]
 
 [[package]]

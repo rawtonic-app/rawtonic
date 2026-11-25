@@ -105,6 +105,7 @@
       "interrupted": "Eksport przerwany: {{label}}",
       "nothingExported": "Nic nie wyeksportowano — {{existing}} ({{label}})",
       "running": "Eksportowanie: {{label}}",
+      "sizeLimitMissed": "Limit rozmiaru pliku nieosiągnięty: {{label}}",
       "waiting": "Czeka na eksport: {{label}}"
     },
     "eyes": {
@@ -1495,7 +1496,8 @@
     "quitCancelled": "Rawtonic pozostał otwarty, ponieważ zapisywanie nie zostało ukończone. Oczekujące zmiany są nadal zapisywane.",
     "quitSaving": "Zapisywanie zmian przed zamknięciem Rawtonic…",
     "quitSavingPhotos": "Zapisywanie zmian przed zamknięciem Rawtonic… ({{done}}/{{total}})",
-    "region": "Powiadomienia"
+    "region": "Powiadomienia",
+    "unsupportedFormat": "Nie można otworzyć {{name}}: Rawtonic nie obsługuje jeszcze tego formatu pliku."
   },
   "offline": {
     "badge": "Offline",
@@ -4174,7 +4176,6 @@
           "rendering": "Renderowanie i zapis…",
           "replaced": "Zastąpiono wcześniejszy eksport",
           "selecting": "Obliczanie zaznaczeń AI…",
-          "sizeLimitMissed": "Zapisano najmniejszy plik: {{size}} KB, powyżej limitu {{limit}} KB",
           "skippedExists": "Pominięte: istnieje plik o tej nazwie",
           "skippedUnchanged": "Pominięte: bez zmian od ostatniego eksportu",
           "waiting": "Oczekuje"
@@ -4190,6 +4191,8 @@
         "retry": "Ponów próbę",
         "running": "Eksportowanie (wyeksportowano {{done}} z {{total}})",
         "show": "Pokaż",
+        "sizeLimitMissed": "{{file}}: nie udało się osiągnąć {{limit}} KB; zapisano najmniejszy plik ({{size}} KB)",
+        "sizeLimitNotices": "Pliki powyżej limitu rozmiaru",
         "start": "Rozpocznij",
         "startQueue": "Uruchom kolejkę",
         "title": "Kolejka eksportu",

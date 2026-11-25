@@ -95,6 +95,7 @@
       "interrupted": "Exportació interrompuda: {{label}}",
       "nothingExported": "No s’ha exportat res — {{existing}} ({{label}})",
       "running": "S’està exportant {{label}}",
+      "sizeLimitMissed": "Límit de mida de fitxer no assolit: {{label}}",
       "waiting": "Esperant per exportar {{label}}"
     },
     "eyes": {
@@ -1441,7 +1442,8 @@
     "quitCancelled": "El Rawtonic ha romàs obert perquè el desat no ha acabat. Els canvis pendents encara s’estan desant.",
     "quitSaving": "S’estan desant els canvis abans de sortir del Rawtonic…",
     "quitSavingPhotos": "S’estan desant els canvis abans de sortir del Rawtonic… ({{done}}/{{total}})",
-    "region": "Notificacions"
+    "region": "Notificacions",
+    "unsupportedFormat": "No es pot obrir {{name}}: Rawtonic encara no admet aquest format de fitxer."
   },
   "offline": {
     "badge": "Fora de línia",
@@ -4008,7 +4010,6 @@
           "rendering": "S'està renderitzant i escrivint…",
           "replaced": "Exportació anterior substituïda",
           "selecting": "Calculant les seleccions amb IA…",
-          "sizeLimitMissed": "Fitxer més petit escrit: {{size}} KB, per sobre del límit de {{limit}} KB",
           "skippedExists": "Omesa: existeix un fitxer amb aquest nom",
           "skippedUnchanged": "Omesa: sense canvis des de l'última exportació",
           "waiting": "En espera"
@@ -4023,6 +4024,8 @@
         "retry": "Torna-ho a provar",
         "running": "S'està exportant ({{done}} de {{total}} exportades)",
         "show": "Mostra",
+        "sizeLimitMissed": "{{file}}: no s'ha pogut assolir {{limit}} KB; s'ha desat el fitxer més petit ({{size}} KB)",
+        "sizeLimitNotices": "Fitxers per sobre del seu límit de mida",
         "start": "Inicia",
         "startQueue": "Inicia la cua",
         "title": "Cua d'exportació",

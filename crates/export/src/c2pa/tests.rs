@@ -986,9 +986,10 @@ mod export {
     #[test]
     fn a_size_limit_counts_the_signed_manifest() {
         let (_dir, identity) = identity();
-        let run = |kb: u32| {
-            let mut settings = settings(true);
-            settings.max_file_kb = Some(kb);
+        let run = |image: image::DynamicImage, kb: Option<u32>, signed: bool, quality: u8| {
+            let mut settings = settings(signed);
+            settings.max_file_kb = kb;
+            settings.jpeg_quality = quality;
             let miss = std::rc::Rc::new(RefCell::new(None));
             let (into, missed) = (std::rc::Rc::new(RefCell::new(None)), miss.clone());
             let write = {
@@ -1006,7 +1007,7 @@ mod export {
                 })
             };
             save_rendered_export(
-                render(),
+                image,
                 "/photos/DSC0001.ARW",
                 &json!({}),
                 &settings,
@@ -1017,7 +1018,7 @@ mod export {
                     catalog: &catalog,
                     enlarger: None,
                     write: &write,
-                    provenance: Some(&identity),
+                    provenance: signed.then_some(&identity),
                     source_generated: false,
                 },
                 &|| Ok(()),
@@ -1043,17 +1044,48 @@ mod export {
         // A limit the bare picture meets at quality 100 but the manifest breaks.
         let tight = (unsigned as u32).div_ceil(1000);
         assert!(u64::from(tight) * 1000 < signed);
-        let (file, miss) = run(tight);
+        let (file, miss) = run(render(), Some(tight), true, 90);
         let miss = miss.expect("the signed file is above the limit");
         assert_eq!(miss.bytes, file.len() as u64);
         assert!(miss.bytes > u64::from(tight) * 1000);
         validate(&file, &jpeg_store(&file));
         // Room for the manifest: met, signed, validated.
         let roomy = (signed as u32).div_ceil(1000);
-        let (file, miss) = run(roomy);
+        let (file, miss) = run(render(), Some(roomy), true, 90);
         assert!(miss.is_none());
         assert!(file.len() as u64 <= u64::from(roomy) * 1000);
         validate(&file, &jpeg_store(&file));
+        // Detailed deterministic pixels leave enough quality range for a
+        // limit met by unsigned Q100, but only by a lower signed quality.
+        let detailed =
+            image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(256, 192, |x, y| {
+                let hash = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663))
+                    .wrapping_mul(2_654_435_761);
+                image::Rgb([hash as u8, (hash >> 8) as u8, (hash >> 16) as u8])
+            }));
+        let (unsigned_high, _) = run(detailed.clone(), None, false, 100);
+        let (signed_high, _) = run(detailed.clone(), None, true, 100);
+        let (signed_low, _) = run(detailed.clone(), None, true, 1);
+        let intermediate = (unsigned_high.len() as u32).div_ceil(1000);
+        let limit = intermediate as usize * 1000;
+        assert!(unsigned_high.len() <= limit);
+        assert!(signed_high.len() > limit);
+        assert!(signed_low.len() <= limit);
+        let (unsigned_limited, miss) = run(detailed.clone(), Some(intermediate), false, 100);
+        assert!(miss.is_none());
+        assert_eq!(
+            unsigned_limited, unsigned_high,
+            "unsigned Q100 already fits"
+        );
+        let (signed_limited, miss) = run(detailed, Some(intermediate), true, 100);
+        assert!(miss.is_none(), "a lower signed quality must meet the limit");
+        assert!(signed_limited.len() <= limit, "count the whole signed file");
+        validate(&signed_limited, &jpeg_store(&signed_limited));
+        assert_ne!(
+            image::load_from_memory(&signed_limited).unwrap().to_rgb8(),
+            image::load_from_memory(&signed_high).unwrap().to_rgb8(),
+            "signing must force a lower quality, not just change metadata"
+        );
     }
 
     #[test]
