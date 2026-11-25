@@ -2448,7 +2448,7 @@
       "sidecarsCopied_few": "skopiowano {{count}} pliki XMP",
       "sidecarsCopied_many": "skopiowano {{count}} plików XMP",
       "sidecarsCopied_other": "skopiowano {{count}} pliku XMP",
-      "sourceGeometryAll": "Zastosuj prostowanie z Capture One i zastąp kadry z zachowaniem proporcji każdego obrazu ({{n}} zdjęć)",
+      "sourceGeometryAll": "Zastosuj prostowanie z Capture One i zastąp kadry z zachowaniem proporcji każdego obrazu (Liczba zdjęć: {{n}})",
       "sourceGeometryApplied": "Zastosowano prostowanie i kadrowanie z Capture One do {{n}} zdjęć (Cofnij je przywraca)",
       "sourceGeometryErrors": "Nie zastosowano prostowania i kadrowania z Capture One do części zdjęć: {{n}}.",
       "sourceGeometryFailed": "Nie udało się zastosować prostowania i kadrowania z Capture One",
