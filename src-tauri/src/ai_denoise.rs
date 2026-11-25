@@ -260,8 +260,9 @@ async fn load_fast(
 /// 24 MP export on a loaded 6-core desktop against 43–51 s with Fast, and a
 /// Radeon 680M laptop exports in 19–25 min, about 1.3 min with Fast
 /// projected; notes: benchmark-results/dst1-2026-11-25, dst2-2026-11-25),
-/// else Full. The choice is stored in the recipe, so exports never depend on the
-/// machine.
+/// else Full. The choice is stored in the recipe, so every machine exports
+/// the photo with the same network (on a GPU provider within the provider
+/// check's tolerance of the CPU's result).
 pub fn default_quality(
     preference: Option<&str>,
     matchfilter_on_cpu: impl FnOnce() -> bool,

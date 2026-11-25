@@ -604,8 +604,9 @@ segmentation models with the largest training sets, concretely:
   doi:10.14428/DVN/DEQCIM, CC BY-SA 4.0, licence read from the Dataverse
   record on 2026-11-25), with MatchFilter's results on them as targets; no
   clean frame, no NC or unclear data. The weights are published under the
-  dataset's CC BY-SA 4.0. Not held out: none of DNC1's ten evaluation
-  scenes was trained on.
+  dataset's CC BY-SA 4.0. Held out: none of DNC1's ten evaluation scenes
+  (nor two same-object scenes shot with other bodies) was trained on, so
+  DST1's scores are on unseen scenes.
 - **EasyPortrait** (`easyportrait_*`, Eyes and Teeth). Trained by its
   authors on the EasyPortrait dataset: selfies taken by crowd workers
   (Toloka, ABC Elementary) who signed consent to publication, adults only
