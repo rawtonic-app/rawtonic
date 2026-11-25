@@ -2245,7 +2245,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
-        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter, and of the X-Trans AI Denoise network, which Rawtonic trained on its X-Trans pairs (B. Brummer, C. De Vleeschouwer, UCLouvain). Both networks are published under CC BY-SA 4.0.",
         "ring": "書き出し時の来歴 (C2PA) マニフェストへの署名: ECDSA、RSA-PSS、Ed25519 署名、SHA-256。",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -3396,7 +3396,8 @@
         "qualityFast": "高速",
         "qualityFastHint": "高速: プロセッサーで約 15 倍速く、細部はごくわずかに少なくなります。",
         "qualityFull": "フル",
-        "qualityFullHint": "フル: 最も細かいディテール。高速なグラフィックカードがないと遅くなります（プロセッサーでは 1 枚あたり数分以上）。"
+        "qualityFullHint": "フル: 最も細かいディテール。高速なグラフィックカードがないと遅くなります（プロセッサーでは 1 枚あたり数分以上）。",
+        "xtransHint": "X-Trans センサーには AI ノイズ除去専用の X-Trans ネットワークが使われ、品質は 1 つだけです。"
       },
       "noPhoto": "補正するには現像で写真を開いてください。",
       "params": {

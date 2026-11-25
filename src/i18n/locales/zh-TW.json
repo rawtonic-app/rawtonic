@@ -2245,7 +2245,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
-        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter, and of the X-Trans AI Denoise network, which Rawtonic trained on its X-Trans pairs (B. Brummer, C. De Vleeschouwer, UCLouvain). Both networks are published under CC BY-SA 4.0.",
         "ring": "為輸出檔案的來源證明 (C2PA) 清單簽署：ECDSA、RSA-PSS 與 Ed25519 簽章，SHA-256。",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -3396,7 +3396,8 @@
         "qualityFast": "快速",
         "qualityFastHint": "快速：在處理器上約快 15 倍，細節略微減少。",
         "qualityFull": "完整",
-        "qualityFullHint": "完整：最精細的細節。沒有快速顯示卡時較慢（在處理器上每張照片需要許多分鐘）。"
+        "qualityFullHint": "完整：最精細的細節。沒有快速顯示卡時較慢（在處理器上每張照片需要許多分鐘）。",
+        "xtransHint": "X-Trans 感光元件使用 AI 降噪專用的 X-Trans 網路，只有一種品質。"
       },
       "noPhoto": "在顯影中開啟照片以進行調整。",
       "params": {

@@ -56,15 +56,19 @@ pub use rawtonic_metadata::provenance::{
 };
 
 /// The AI Denoise version new edits get (`aiDenoiseVersion`; recipes
-/// without the key are version 1): 5, the mixed-precision model (in the
-/// model pack since pack-2026-10-18) with the sensor's local means kept and
-/// a stronger slider 50 (`V5_SCALE_AT_50`).
-pub const AI_DENOISE_VERSION: u8 = 5;
+/// without the key are version 1): 6, which is version 5 on Bayer mosaics
+/// (the mixed-precision model, in the model pack since pack-2026-10-18,
+/// with the sensor's local means kept and a stronger slider 50,
+/// `V5_SCALE_AT_50`) and denoises X-Trans mosaics with the X-Trans network
+/// (`recipe_versions::XTRANS_AI_DENOISE_VERSION`).
+pub const AI_DENOISE_VERSION: u8 = 6;
 
 /// The model index of AI Denoise's Fast network (`AiDenoiseSettings::model`).
 pub const FAST_AI_DENOISE_MODEL: usize = 2;
-/// How many models AI Denoise has (`AiDenoiseSettings::model`).
-pub const AI_DENOISE_MODELS: usize = 3;
+/// The model index of AI Denoise's X-Trans network (`AiDenoiseSettings::model_for`).
+pub const XTRANS_AI_DENOISE_MODEL: usize = 3;
+/// How many models AI Denoise has (`AiDenoiseSettings::model_for`).
+pub const AI_DENOISE_MODELS: usize = 4;
 
 /// How a recipe's AI Denoise develops the mosaic.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -75,8 +79,10 @@ pub struct AiDenoiseSettings {
     /// mixed-precision model. 4 is 3 with the sensor's local means kept in
     /// the network's result (`sensor_means`): the same model and the same
     /// cached results. 5 is 4 with a stronger slider 50
-    /// (`V5_SCALE_AT_50`). Each version has one model, so a saved recipe
-    /// renders the same whatever models are installed.
+    /// (`V5_SCALE_AT_50`). 6 is 5 on Bayer mosaics and denoises X-Trans
+    /// ones with the X-Trans network at 5's slider mapping (`model_for`).
+    /// Each version has one model per sensor, so a saved recipe renders the
+    /// same whatever models are installed.
     pub version: u8,
     /// Share of the network's result kept (`MosaicDenoise::amount`).
     pub blend: f32,
@@ -84,7 +90,8 @@ pub struct AiDenoiseSettings {
     pub noise_scale: f32,
     /// `aiDenoiseQuality` is `"fast"`: the Fast network instead of this
     /// version's MatchFilter model, with the version's slider mapping and
-    /// sensor means (`AiDenoiseQuality`).
+    /// sensor means (`AiDenoiseQuality`). X-Trans mosaics have one network
+    /// and ignore it.
     pub fast: bool,
 }
 
@@ -169,6 +176,32 @@ impl AiDenoiseSettings {
         usize::from(
             crate::recipe_versions::AiDenoiseVersion::from_raw(self.version).mixed_precision(),
         )
+    }
+
+    /// The model this recipe runs on a photo whose mosaic is X-Trans
+    /// (`xtrans`) or not: from version 6 the X-Trans network
+    /// (`XTRANS_AI_DENOISE_MODEL`, whatever the quality) for X-Trans, else
+    /// `model` (earlier versions leave X-Trans photos alone; their
+    /// MatchFilter model is what the decoder then skips).
+    pub fn model_for(&self, xtrans: bool) -> usize {
+        if xtrans && self.denoises_xtrans() {
+            XTRANS_AI_DENOISE_MODEL
+        } else {
+            self.model()
+        }
+    }
+
+    /// `model_for` the RAW at `source`, read from its tags only where the
+    /// version denoises X-Trans (`rawdecode::raw_processing::is_xtrans_at`).
+    pub fn model_for_source(&self, source: &std::path::Path) -> usize {
+        self.model_for(
+            self.denoises_xtrans() && rawtonic_rawdecode::raw_processing::is_xtrans_at(source),
+        )
+    }
+
+    /// Whether this version denoises X-Trans mosaics (from version 6).
+    pub fn denoises_xtrans(&self) -> bool {
+        crate::recipe_versions::AiDenoiseVersion::from_raw(self.version).xtrans()
     }
 
     /// Whether the network's result keeps the sensor's local means (from
@@ -2850,7 +2883,10 @@ mod ai_denoise_tests {
 
     #[test]
     fn ai_denoise_version_2_maps_the_slider_to_the_noise_scale() {
-        use super::{AiDenoiseSettings, ai_denoise_settings};
+        use super::{
+            AI_DENOISE_MODELS, AiDenoiseSettings, FAST_AI_DENOISE_MODEL, XTRANS_AI_DENOISE_MODEL,
+            ai_denoise_settings,
+        };
         assert_eq!(
             ai_denoise_settings(&json!({ "aiDenoise": 0, "aiDenoiseVersion": 2 })),
             None
@@ -2889,7 +2925,7 @@ mod ai_denoise_tests {
             ai_denoise_settings(&json!({ "aiDenoise": 50, "aiDenoiseVersion": 9 }))
                 .unwrap()
                 .version,
-            5
+            6
         );
         // Version 3: the same mapping on the mixed-precision model.
         let v3 = ai_denoise_settings(&json!({ "aiDenoise": 50, "aiDenoiseVersion": 3 })).unwrap();
@@ -2914,6 +2950,35 @@ mod ai_denoise_tests {
         assert_eq!(v5(50.0).model(), 1);
         // Versions 2 to 4 keep their mapping.
         assert!((at(75.0).noise_scale - 1.0).abs() < 1e-6 && v4.noise_scale == 0.8);
+        // Version 6: version 5 on Bayer mosaics (same model, mapping and
+        // means), the X-Trans network on X-Trans ones whatever the quality;
+        // earlier versions keep their model there (the decoder skips it).
+        for amount in [10.0, 25.0, 50.0, 75.0, 100.0] {
+            let mut six =
+                ai_denoise_settings(&json!({ "aiDenoise": amount, "aiDenoiseVersion": 6 }))
+                    .unwrap();
+            assert_eq!(six.version, 6);
+            six.version = 5;
+            assert_eq!(six, v5(amount));
+        }
+        let six = |quality: &str| {
+            ai_denoise_settings(
+                &json!({ "aiDenoise": 50, "aiDenoiseVersion": 6, "aiDenoiseQuality": quality }),
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            (six("full").model_for(false), six("fast").model_for(false)),
+            (1, FAST_AI_DENOISE_MODEL)
+        );
+        assert_eq!(six("full").model_for(true), XTRANS_AI_DENOISE_MODEL);
+        assert_eq!(six("fast").model_for(true), XTRANS_AI_DENOISE_MODEL);
+        assert!(six("full").sensor_means());
+        for older in [v1, at(50.0), v3, v4, v5(50.0)] {
+            assert_eq!(older.model_for(true), older.model(), "{older:?}");
+            assert!(!older.denoises_xtrans());
+        }
+        const { assert!(XTRANS_AI_DENOISE_MODEL < AI_DENOISE_MODELS) };
     }
 }
 

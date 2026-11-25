@@ -113,7 +113,7 @@ pub fn ai_denoise_amount(adjustments: &Value) -> f32 {
 }
 
 /// The newest AI Denoise version this build renders.
-pub const AI_DENOISE_LATEST: u8 = 5;
+pub const AI_DENOISE_LATEST: u8 = 6;
 
 /// The oldest AI Denoise version the Library does not call older
 /// (`OLDER_DENOISE`): 5 only re-maps 4's slider (the same model and result

@@ -351,6 +351,32 @@ pub(crate) fn inputs_from(
                         .collect();
                     Input::U8(dims, mask)
                 }
+                // The X-Trans network: one mosaic plane and its noise. A
+                // smooth picture sampled through the canonical layout.
+                (ModelKind::Denoise, "mosaic_with_noise", _) => {
+                    const LAYOUT: [[usize; 6]; 6] = [
+                        [0, 2, 1, 2, 0, 1],
+                        [1, 1, 0, 1, 1, 2],
+                        [1, 1, 2, 1, 1, 0],
+                        [2, 0, 1, 0, 2, 1],
+                        [1, 1, 2, 1, 1, 0],
+                        [1, 1, 0, 1, 1, 2],
+                    ];
+                    let side = dims[2] as usize;
+                    let plane = side * side;
+                    let mut data = vec![0.0f32; count];
+                    let (shot, read) = (2e-3f32, 1e-5f32);
+                    for i in 0..plane {
+                        let (y, x) = (i / side, i % side);
+                        let rgb = picture.at(x as f32 / side as f32, y as f32 / side as f32);
+                        let linear = rgb[LAYOUT[y % 6][x % 6]].powf(2.2) * 0.5;
+                        let sd = (shot * linear + read).sqrt();
+                        let noisy = (linear + (noise() - 0.5) * 3.4 * sd).clamp(0.0, 1.0);
+                        data[i] = noisy;
+                        data[plane + i] = (shot * noisy + read).sqrt();
+                    }
+                    Input::F32(dims, data)
+                }
                 (ModelKind::Denoise, _, _) => {
                     let side = dims[2] as usize;
                     let plane = side * side;

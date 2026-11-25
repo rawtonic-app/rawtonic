@@ -50,6 +50,10 @@ pub struct LoadImageResult {
     /// (`skipped_stands_in`): the editor develops it again once AI Denoise
     /// is off.
     pub ai_denoise_stand_in: bool,
+    /// The RAW's mosaic is X-Trans (`raw_processing::is_xtrans`): its AI
+    /// Denoise runs the X-Trans network from `aiDenoiseVersion` 6, which has
+    /// one quality; false for preview data.
+    pub xtrans: bool,
     /// The RAW is offline and the photograph opened on its preview proxy:
     /// "full" (its 1:1 preview, full resolution) or "standard".
     pub offline: Option<&'static str>,
@@ -745,9 +749,11 @@ struct SkippedSensor {
 /// recipe's AI Denoise (`LoadedImage::ai_denoise`) and are not cached, so
 /// they never stand in for a decode without it; it returns what the editor
 /// is told (`stands_in`: `skipped_stands_in` of the preferences). Any other decode goes into the decoded-image cache under `key`.
+#[allow(clippy::too_many_arguments)]
 fn settle_decode(
     develop: &DevelopSession,
     denoise: Option<&rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
+    xtrans: bool,
     stands_in: bool,
     key: &str,
     image: &Arc<DynamicImage>,
@@ -756,7 +762,7 @@ fn settle_decode(
 ) -> Option<SkippedSensor> {
     if denoise.is_some_and(|d| !d.was_applied()) {
         return Some(SkippedSensor {
-            error: NOT_BAYER.to_string(),
+            error: skipped_reason(xtrans).to_string(),
             stands_in,
         });
     }
@@ -768,7 +774,21 @@ fn settle_decode(
     None
 }
 
-const NOT_BAYER: &str = "AI Denoise works on Bayer sensors only; this photograph's sensor (X-Trans, Foveon or a linear DNG) is not supported";
+const NOT_BAYER: &str = "AI Denoise works on Bayer and X-Trans sensors only; this photograph's sensor (Foveon or a linear DNG) is not supported";
+
+/// An X-Trans photo whose AI Denoise is older than version 6
+/// (`XTRANS_AI_DENOISE_VERSION`): it rendered without AI Denoise when it was
+/// made and still does, until the user changes its AI Denoise.
+const XTRANS_EARLIER_VERSION: &str = "This edit's AI Denoise is from before AI Denoise for X-Trans sensors and is not applied; move the AI Denoise slider to apply it";
+
+/// Why a decode skipped the recipe's AI Denoise (`settle_decode`).
+fn skipped_reason(xtrans: bool) -> &'static str {
+    if xtrans {
+        XTRANS_EARLIER_VERSION
+    } else {
+        NOT_BAYER
+    }
+}
 
 /// The decoded-image cache key of a full decode of the source at `path`:
 /// the path, plus the AI Denoise amount and marks for a base developed for
@@ -1023,7 +1043,8 @@ pub async fn apply_ai_denoise(
     // it becomes (the model may take a while to load).
     let settings = crate::state::settings::current(&app_handle);
     let decoder = decode_preferences(&settings);
-    let denoise = crate::ai_denoise::option_for(&app_handle, &recipe).await?;
+    let xtrans = crate::ai_denoise::is_xtrans(&source_path).await;
+    let denoise = crate::ai_denoise::option_for(&app_handle, &recipe, xtrans).await?;
     let applied_ai = ai_denoise_settings(&recipe).filter(|_| denoise.is_some());
     let applied = if denoise.is_some() {
         amount.clamp(0.0, 100.0)
@@ -1125,7 +1146,10 @@ pub async fn apply_ai_denoise(
         // Published as the load does (its pixels stand in for the recipe's
         // AI Denoise, under the preferences just in force); the editor is
         // told, shows them and marks the amount failed.
-        return Err(CommandError::new(ErrorCode::Unsupported, NOT_BAYER));
+        return Err(CommandError::new(
+            ErrorCode::Unsupported,
+            skipped_reason(xtrans),
+        ));
     }
     Ok(applied)
 }
@@ -1324,8 +1348,9 @@ pub async fn load_image(
 
     // AI Denoise from the recipe; if its model cannot be had, the photograph
     // still opens and the frontend reports why.
+    let xtrans = is_raw_file(&source_path_str) && crate::ai_denoise::is_xtrans(&source_path).await;
     let (denoise, mut ai_denoise_error) = if is_raw_file(&source_path_str) {
-        match crate::ai_denoise::option_for(&app_handle, &metadata.adjustments).await {
+        match crate::ai_denoise::option_for(&app_handle, &metadata.adjustments, xtrans).await {
             Ok(denoise) => (denoise, None),
             Err(e) => (None, Some(e.message)),
         }
@@ -1529,6 +1554,7 @@ pub async fn load_image(
         if let Some(skipped) = settle_decode(
             &develop,
             denoise.as_ref(),
+            xtrans,
             decode_stands_in,
             &cache_key,
             &arc_img,
@@ -1679,6 +1705,7 @@ pub async fn load_image(
         ai_denoise_quality,
         ai_denoise_error,
         ai_denoise_stand_in,
+        xtrans,
         offline: None,
         color_noise_multiscale: Some(variant.multiscale),
         dead_pixel_adjacent: Some(variant.dead_test != DeadTest::SameColour),
@@ -1921,6 +1948,7 @@ async fn open_offline(
             ai_denoise_quality: AI_DENOISE_FULL,
             ai_denoise_error: None,
             ai_denoise_stand_in: false,
+            xtrans: false,
             offline: Some("full"),
             color_noise_multiscale: None,
             dead_pixel_adjacent: None,
@@ -2010,6 +2038,7 @@ async fn open_offline(
         ai_denoise_quality: AI_DENOISE_FULL,
         ai_denoise_error: None,
         ai_denoise_stand_in: false,
+        xtrans: false,
         offline: Some("standard"),
         color_noise_multiscale: None,
         dead_pixel_adjacent: None,
@@ -2832,25 +2861,29 @@ mod decode_identity_tests {
         .mosaic_denoise(Arc::new(Same))
     }
 
-    /// A sensor the denoiser skips (X-Trans, Foveon, linear DNG) opens with
-    /// the reason, is never cached (it would stand in for a decode without
-    /// AI Denoise), and with Apple RAW 9 on is flagged: its rawler pixels
-    /// differ from the plain decode the export makes.
+    /// A sensor the denoiser skips (Foveon, linear DNG, X-Trans before
+    /// version 6) opens with the reason, is never cached (it would stand in
+    /// for a decode without AI Denoise), and with Apple RAW 9 on is flagged:
+    /// its rawler pixels differ from the plain decode the export makes.
     #[test]
     fn a_skipped_sensor_is_reported_and_never_cached() {
         let develop = DevelopSession::default();
         let image = Arc::new(DynamicImage::new_rgb32f(2, 2));
-        let settle = |denoise: Option<&_>, settings: &AppSettings, key: &str| {
+        let settle_on = |denoise: Option<&_>, xtrans: bool, settings: &AppSettings, key: &str| {
             let stands_in = skipped_stands_in(settings);
             settle_decode(
                 &develop,
                 denoise,
+                xtrans,
                 stands_in,
                 key,
                 &image,
                 &HashMap::new(),
                 None,
             )
+        };
+        let settle = |denoise: Option<&_>, settings: &AppSettings, key: &str| {
+            settle_on(denoise, false, settings, key)
         };
         let cached = |key: &str| {
             develop
@@ -2865,6 +2898,10 @@ mod decode_identity_tests {
         let off = AppSettings::default();
         let outcome = settle(Some(&skipped), &off, "skipped").unwrap();
         assert_eq!(outcome.error, NOT_BAYER);
+        // An X-Trans edit from before version 6 is told how to apply it.
+        let outcome = settle_on(Some(&skipped), true, &off, "skipped").unwrap();
+        assert_eq!(outcome.error, XTRANS_EARLIER_VERSION);
+        assert!(!cached("skipped"));
         assert!(
             !outcome.stands_in,
             "without Apple RAW 9 rawler is the plain decode"

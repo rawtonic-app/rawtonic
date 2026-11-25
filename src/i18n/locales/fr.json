@@ -2482,7 +2482,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
-        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter, and of the X-Trans AI Denoise network, which Rawtonic trained on its X-Trans pairs (B. Brummer, C. De Vleeschouwer, UCLouvain). Both networks are published under CC BY-SA 4.0.",
         "ring": "Signature des manifestes de provenance (C2PA) des exports : signatures ECDSA, RSA-PSS et Ed25519, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -3662,7 +3662,8 @@
         "qualityFast": "Rapide",
         "qualityFastHint": "Rapide : environ 15× plus rapide sur le processeur, avec très légèrement moins de détails fins.",
         "qualityFull": "Complète",
-        "qualityFullHint": "Complète : les détails les plus fins. Lente sans carte graphique rapide (plusieurs minutes par photo sur le processeur)."
+        "qualityFullHint": "Complète : les détails les plus fins. Lente sans carte graphique rapide (plusieurs minutes par photo sur le processeur).",
+        "xtransHint": "Les capteurs X-Trans reçoivent le réseau X-Trans propre au débruitage IA, qui n’a qu’une qualité."
       },
       "noPhoto": "Ouvrez une photo dans Développement pour la régler.",
       "params": {

@@ -78,12 +78,13 @@ pub(crate) async fn save_collage(
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     // RAWs develop as in a single-image export, AI Denoise included.
-    let raw_recipes = spec
+    let raw_photos: Vec<_> = spec
         .cells
         .iter()
         .filter(|cell| is_raw_file(parse_virtual_path(&cell.path).0))
-        .map(|cell| &cell.adjustments);
-    crate::export_processing::prepare_ai_denoise(&app_handle, raw_recipes).await;
+        .map(|cell| (cell.adjustments.clone(), cell.path.clone()))
+        .collect();
+    crate::export_processing::prepare_ai_denoise(&app_handle, raw_photos).await;
     tokio::task::spawn_blocking(move || render_and_write(&spec, &app_handle))
         .await
         .map_err(|e| format!("Collage failed: {e}"))?

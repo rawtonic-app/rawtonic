@@ -23,7 +23,7 @@ import {
 import { debouncedSetHistory, panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { sharpenViewFor } from '../../utils/sharpenView';
 import { layersInToneVersion, toneSliderIn, toneVersionAfterReset } from '../../utils/pastedVersions';
-import { storedSliderValue, withAiDenoiseQualityOnTurnOn } from '../../utils/aiDenoise';
+import { storedSliderValue, withAiDenoiseQualityOnTurnOn, withXTransAiDenoiseVersion } from '../../utils/aiDenoise';
 import { useAiDenoiseDefaultQuality } from '../../hooks/useAiDenoiseDefaultQuality';
 import type { AiDenoiseQuality } from '../ui/AppProperties';
 import { useUIStore } from '../../store/useUIStore';
@@ -1126,10 +1126,15 @@ export default function StudioDevelop() {
               m.id === layer.id ? { ...m, adjustments: { ...m.adjustments, ...patch } } : m
             )
           }
-        : withAiDenoiseQualityOnTurnOn(
+        : withXTransAiDenoiseVersion(
             prev,
-            withNewGrainStructure(prev, { ...prev, ...patch }),
-            aiDenoiseDefault,
+            withAiDenoiseQualityOnTurnOn(
+              prev,
+              withNewGrainStructure(prev, { ...prev, ...patch }),
+              aiDenoiseDefault,
+              patch
+            ),
+            selectedImage.xtrans === true,
             patch
           )
     );
@@ -2078,26 +2083,33 @@ export default function StudioDevelop() {
                 <>
                   {control(t('studio.develop.sliders.aiDenoise'), 'aiDenoise', 0, 100)}
                   {/* Which network: stored in the recipe, so every export
-                      renders it; a photo without the key renders Full. */}
-                  <label className="studio-inline">
-                    <span>{t('studio.develop.noise.quality')}</span>
-                    <select
-                      aria-label={t('studio.develop.noise.qualityAria')}
-                      value={shownAiDenoiseQuality}
-                      disabled={!panelsReady}
-                      onChange={(e) => change({ aiDenoiseQuality: e.target.value as AiDenoiseQuality })}
-                    >
-                      <option value="full">{t('studio.develop.noise.qualityFull')}</option>
-                      <option value="fast">{t('studio.develop.noise.qualityFast')}</option>
-                    </select>
-                  </label>
-                  <p className="studio-help">
-                    {t(
-                      shownAiDenoiseQuality === 'fast'
-                        ? 'studio.develop.noise.qualityFastHint'
-                        : 'studio.develop.noise.qualityFullHint'
-                    )}
-                  </p>
+                      renders it; a photo without the key renders Full.
+                      X-Trans photos have one network, so no choice. */}
+                  {selectedImage.xtrans ? (
+                    <p className="studio-help">{t('studio.develop.noise.xtransHint')}</p>
+                  ) : (
+                    <>
+                      <label className="studio-inline">
+                        <span>{t('studio.develop.noise.quality')}</span>
+                        <select
+                          aria-label={t('studio.develop.noise.qualityAria')}
+                          value={shownAiDenoiseQuality}
+                          disabled={!panelsReady}
+                          onChange={(e) => change({ aiDenoiseQuality: e.target.value as AiDenoiseQuality })}
+                        >
+                          <option value="full">{t('studio.develop.noise.qualityFull')}</option>
+                          <option value="fast">{t('studio.develop.noise.qualityFast')}</option>
+                        </select>
+                      </label>
+                      <p className="studio-help">
+                        {t(
+                          shownAiDenoiseQuality === 'fast'
+                            ? 'studio.develop.noise.qualityFastHint'
+                            : 'studio.develop.noise.qualityFullHint'
+                        )}
+                      </p>
+                    </>
+                  )}
                   {aiDenoiseBusy && (
                     <p className="studio-help" role="status">
                       {t('studio.develop.noise.denoising')}

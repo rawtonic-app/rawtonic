@@ -539,11 +539,11 @@ fn resolve_models_dir(models: Option<PathBuf>) -> Result<PathBuf> {
         .context("no model folder; pass --models")
 }
 
-/// The denoiser for AI Denoise `model` (`AiDenoiseSettings::model`) from
-/// the app's model folder: MatchFilter on Core ML on macOS (1 the
+/// The denoiser for AI Denoise `model` (`AiDenoiseSettings::model_for`)
+/// from the app's model folder: MatchFilter on Core ML on macOS (1 the
 /// mixed-precision package) and on ONNX Runtime elsewhere (one model for
-/// every version); the Fast network on ONNX Runtime everywhere. ONNX
-/// Runtime needs `ORT_DYLIB_PATH`.
+/// every version); the Fast and the X-Trans network on ONNX Runtime
+/// everywhere. ONNX Runtime needs `ORT_DYLIB_PATH`.
 fn ai_denoiser(
     models: Option<PathBuf>,
     model: usize,
@@ -557,6 +557,12 @@ fn ai_denoiser(
                 cache,
             )?,
         ));
+    }
+    if model == rawtonic_engine::image_loader::XTRANS_AI_DENOISE_MODEL {
+        return Ok(std::sync::Arc::new(rawtonic_denoise::XTransNet::onnx(
+            &models.join(rawtonic_denoise::XTRANS_ONNX_MODEL),
+            cache,
+        )?));
     }
     #[cfg(target_os = "macos")]
     let filter = if model == 1 {
@@ -2109,10 +2115,15 @@ fn with_recipe_models(
     recipes: &[Option<serde_json::Value>],
     sources: &[PathBuf],
 ) -> rawtonic_export::file_export::FileExporter {
+    // The model each photo's AI Denoise runs (X-Trans photos read from
+    // their tags where the version denoises them).
     let ai_models: std::collections::BTreeSet<usize> = recipes
         .iter()
-        .flatten()
-        .filter_map(|r| rawtonic_engine::image_loader::ai_denoise_settings(r).map(|ai| ai.model()))
+        .zip(sources)
+        .filter_map(|(recipe, source)| {
+            let ai = rawtonic_engine::image_loader::ai_denoise_settings(recipe.as_ref()?)?;
+            Some(ai.model_for_source(source))
+        })
         .collect();
     // A model that cannot be loaded fails only the photos that need it.
     for model in ai_models {

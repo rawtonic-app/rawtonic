@@ -10,10 +10,14 @@
 //! cached or not, so a cached and a fresh result are the same bytes.
 //! AI Denoise's Fast quality runs Rawtonic's own smaller network distilled
 //! from MatchFilter (`FAST_ONNX_MODEL`) through the same tiles and cache.
+//! X-Trans mosaics go to Rawtonic's own X-Trans network (`XTransNet`,
+//! `XTRANS_ONNX_MODEL`), trained on RawNIND's X-T1 pairs, with its own
+//! tiles (xtrans.rs), noise estimate and cache entries.
 //! docs/MODELS.md has the measurements.
 
 pub mod noise;
 mod tiles;
+pub mod xtrans;
 
 #[cfg(target_os = "macos")]
 pub mod coreml;
@@ -51,13 +55,29 @@ pub const FAST_ONNX_MODEL: &str = "fast_denoise_v1.onnx";
 const FAST_TILE: usize = 512;
 const FAST_HALO: usize = 32;
 
+/// AI Denoise for X-Trans mosaics (from `aiDenoiseVersion` 6): Rawtonic's
+/// U-Net on the X-Trans mosaic (9.6 M parameters), trained on RawNIND's
+/// X-T1 pairs; `[2, T, T]` (the samples, their noise standard deviations)
+/// → `[1, T, T]` on 1008 px tiles with a 48 px halo, the canonical X-Trans
+/// phase at each tile's origin (xtrans.rs). About 0.035× MatchFilter's CPU
+/// time per photo (notes: benchmark-results/xts1-2026-11-25,
+/// xtsh1-2026-11-25). ONNX on every platform.
+pub const XTRANS_ONNX_MODEL: &str = "xtrans_denoise_v1.onnx";
+/// The X-Trans network's tile edge and halo in samples, as it was exported
+/// and scored (multiples of 6, so each tile starts at the canonical phase).
+const XTRANS_TILE: usize = 1008;
+const XTRANS_HALO: usize = 48;
+
 /// Identifies the network and the input it gets; part of the cache key.
 const MODEL_ID: &str = "nonlocal-matchfilter-rawnoise_25_15_9nbr-v1";
 /// The same for the Fast network.
 const FAST_MODEL_ID: &str = "rawtonic-fast-denoise-l48-v1";
+/// The same for the X-Trans network.
+const XTRANS_MODEL_ID: &str = "rawtonic-xtrans-denoise-l48-v1";
 
 /// One inference: `[8, TILE, TILE]` in (packed planes, then their noise
-/// standard deviations), `[4, TILE, TILE]` out.
+/// standard deviations), `[4, TILE, TILE]` out; the X-Trans network takes
+/// `[2, TILE, TILE]` (samples, their noise) and returns `[1, TILE, TILE]`.
 pub trait Backend: Send + Sync {
     fn run(&self, input: &[f32]) -> Result<Vec<f32>>;
 
@@ -87,34 +107,95 @@ pub trait Backend: Send + Sync {
 /// The cache owner returns a lease that pins one result until it is dropped.
 pub type CacheAccess = fn(&Path) -> Box<dyn Send>;
 
+/// Results by content in a folder shared by the app and the CLI.
+struct ResultCache {
+    dir: Option<PathBuf>,
+    used: Option<fn(&Path)>,
+    access: Option<CacheAccess>,
+}
+
+impl ResultCache {
+    fn new(dir: Option<PathBuf>) -> Self {
+        Self {
+            dir,
+            used: None,
+            access: None,
+        }
+    }
+
+    fn path(&self, key: u64) -> Option<PathBuf> {
+        self.dir
+            .as_ref()
+            .map(|dir| dir.join(format!("{key:016x}.f16")))
+    }
+
+    /// The result cached under `key` (`len` samples), else `compute`'s,
+    /// which is cached unless `backend`'s tag moved from `backend_tag`
+    /// during it. The owner's
+    /// lease pins the entry while it is read, computed and written.
+    fn get_or_compute(
+        &self,
+        key: u64,
+        len: usize,
+        backend: &dyn Backend,
+        backend_tag: &str,
+        compute: impl FnOnce() -> Result<Vec<f32>>,
+    ) -> Result<Vec<f32>> {
+        let _cache_lease = self
+            .path(key)
+            .and_then(|path| self.access.map(|access| access(&path)));
+        if let Some(path) = self.path(key)
+            && let Some(cached) = read_cache(&path, len)
+        {
+            if let Some(used) = self.used {
+                used(&path);
+            }
+            return Ok(cached);
+        }
+        let out = compute()?;
+        // A backend that moved to the CPU during the run (a GPU fault) made
+        // a mixed result, which is neither the GPU's nor the CPU's.
+        let same_backend = backend.cache_tag() == backend_tag;
+        if let Some(path) = self.path(key).filter(|_| same_backend) {
+            // A cache that cannot be written only costs the next run time.
+            let _ = write_cache(&path, &out);
+        }
+        Ok(out)
+    }
+}
+
+/// Values in 0 … 1 rounded to f16, as the cache stores them, so a cached
+/// and a fresh result are the same bytes.
+fn round_to_cache(values: &mut [f32]) {
+    for v in values {
+        *v = half::f16::from_f32(v.clamp(0.0, 1.0)).to_f32();
+    }
+}
+
 /// The MatchFilter mosaic denoiser.
 pub struct MatchFilter {
     backend: Box<dyn Backend>,
-    cache_dir: Option<PathBuf>,
-    cache_used: Option<fn(&Path)>,
-    cache_access: Option<CacheAccess>,
+    cache: ResultCache,
 }
 
 impl MatchFilter {
     pub fn new(backend: Box<dyn Backend>, cache_dir: Option<PathBuf>) -> Self {
         Self {
             backend,
-            cache_dir,
-            cache_used: None,
-            cache_access: None,
+            cache: ResultCache::new(cache_dir),
         }
     }
 
     /// Notifies the cache owner of a hit for its least-recently-used policy.
     pub fn with_cache_use_observer(mut self, used: fn(&Path)) -> Self {
-        self.cache_used = Some(used);
+        self.cache.used = Some(used);
         self
     }
 
     /// Pins this result while it is read or computed/published. The owner
     /// releases its pin when the returned lease is dropped.
     pub fn with_cache_access(mut self, access: CacheAccess) -> Self {
-        self.cache_access = Some(access);
+        self.cache.access = Some(access);
         self
     }
 
@@ -155,12 +236,6 @@ impl MatchFilter {
             cache_dir,
         ))
     }
-
-    fn cache_path(&self, key: u64) -> Option<PathBuf> {
-        self.cache_dir
-            .as_ref()
-            .map(|dir| dir.join(format!("{key:016x}.f16")))
-    }
 }
 
 impl MosaicDenoiser for MatchFilter {
@@ -198,64 +273,169 @@ impl MosaicDenoiser for MatchFilter {
             noise_scale.is_finite() && noise_scale > 0.0,
             "noise scale {noise_scale}"
         );
-        // Scale 1 keeps the keys results were cached under before scales.
         let backend_tag = self.backend.cache_tag();
-        let mut tag = backend_tag.clone();
-        if noise_scale != 1.0 {
-            tag.push_str(&format!("|noise×{noise_scale}"));
-        }
         let key = cache_key(
             self.backend.model_id(),
-            &tag,
+            &cache_tag(&backend_tag, noise_scale),
             mosaic,
             width,
             height,
             pattern,
         );
-        let _cache_lease = self
-            .cache_path(key)
-            .and_then(|path| self.cache_access.map(|access| access(&path)));
-        if let Some(path) = self.cache_path(key)
-            && let Some(cached) = read_cache(&path, mosaic.len())
-        {
-            if let Some(used) = self.cache_used {
-                used(&path);
-            }
-            return Ok(cached);
-        }
-        let started = std::time::Instant::now();
-        let planes = tiles::pack(mosaic, width, height, pattern);
-        let profile = noise::estimate(&planes)?;
-        let denoised = tiles::run(
-            &planes,
-            &profile,
+        self.cache.get_or_compute(
+            key,
+            mosaic.len(),
             self.backend.as_ref(),
-            noise_scale,
-            progress,
-        )?;
-        let mut out = tiles::unpack(&denoised, width, height, pattern);
-        for v in &mut out {
-            *v = half::f16::from_f32(v.clamp(0.0, 1.0)).to_f32();
-        }
-        // "MatchFilter:" as before (QA scripts read the noise profile there).
-        let label = match self.backend.model_id() {
-            MODEL_ID => "MatchFilter",
-            _ => "Fast AI Denoise",
-        };
-        eprintln!(
-            "{label}: {width}x{height} in {:.1} s, noise (shot, read) {:?} ×{noise_scale}",
-            started.elapsed().as_secs_f32(),
-            profile.channels
-        );
-        // A backend that moved to the CPU during the run (a GPU fault) made
-        // a mixed result, which is neither the GPU's nor the CPU's.
-        let same_backend = self.backend.cache_tag() == backend_tag;
-        if let Some(path) = self.cache_path(key).filter(|_| same_backend) {
-            // A cache that cannot be written only costs the next run time.
-            let _ = write_cache(&path, &out);
-        }
-        Ok(out)
+            &backend_tag,
+            || {
+                let started = std::time::Instant::now();
+                let planes = tiles::pack(mosaic, width, height, pattern);
+                let profile = noise::estimate(&planes)?;
+                let denoised = tiles::run(
+                    &planes,
+                    &profile,
+                    self.backend.as_ref(),
+                    noise_scale,
+                    progress,
+                )?;
+                let mut out = tiles::unpack(&denoised, width, height, pattern);
+                round_to_cache(&mut out);
+                // "MatchFilter:" as before (QA scripts read the noise profile there).
+                let label = match self.backend.model_id() {
+                    MODEL_ID => "MatchFilter",
+                    _ => "Fast AI Denoise",
+                };
+                eprintln!(
+                    "{label}: {width}x{height} in {:.1} s, noise (shot, read) {:?} ×{noise_scale}",
+                    started.elapsed().as_secs_f32(),
+                    profile.channels
+                );
+                Ok(out)
+            },
+        )
     }
+}
+
+/// AI Denoise's X-Trans network (`XTRANS_ONNX_MODEL`): denoises X-Trans
+/// mosaics only (`MosaicDenoiser::denoise_xtrans`), with the blind
+/// estimate of `noise::estimate_xtrans` and MatchFilter's noise-scale
+/// contract (`sqrt(shot · x + read) × scale`), so the slider's mapping
+/// carries over. Results are rounded to f16 and cached as MatchFilter's,
+/// under their own model id.
+pub struct XTransNet {
+    backend: Box<dyn Backend>,
+    cache: ResultCache,
+}
+
+impl XTransNet {
+    pub fn new(backend: Box<dyn Backend>, cache_dir: Option<PathBuf>) -> Self {
+        Self {
+            backend,
+            cache: ResultCache::new(cache_dir),
+        }
+    }
+
+    /// ONNX Runtime with the model at `model` (the runtime must be loaded).
+    pub fn onnx(model: &Path, cache_dir: Option<PathBuf>) -> Result<Self> {
+        Ok(Self::new(
+            Box::new(onnx::Onnx::load_xtrans(model)?),
+            cache_dir,
+        ))
+    }
+
+    /// `MatchFilter::with_cache_use_observer`.
+    pub fn with_cache_use_observer(mut self, used: fn(&Path)) -> Self {
+        self.cache.used = Some(used);
+        self
+    }
+
+    /// `MatchFilter::with_cache_access`.
+    pub fn with_cache_access(mut self, access: CacheAccess) -> Self {
+        self.cache.access = Some(access);
+        self
+    }
+}
+
+impl MosaicDenoiser for XTransNet {
+    fn denoise(&self, _: &[f32], _: usize, _: usize, _: [u8; 4]) -> Result<Vec<f32>> {
+        anyhow::bail!("the X-Trans AI Denoise network denoises X-Trans mosaics only")
+    }
+
+    fn denoise_xtrans(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: &[[u8; 6]; 6],
+        noise_scale: f32,
+        progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Option<Result<Vec<f32>>> {
+        Some(self.denoise_xtrans_inner(mosaic, width, height, pattern, noise_scale, progress))
+    }
+}
+
+impl XTransNet {
+    fn denoise_xtrans_inner(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: &[[u8; 6]; 6],
+        noise_scale: f32,
+        progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Result<Vec<f32>> {
+        ensure!(
+            noise_scale.is_finite() && noise_scale > 0.0,
+            "noise scale {noise_scale}"
+        );
+        let origin = xtrans::phase(pattern).context("not an X-Trans layout")?;
+        let rows = pattern.map(|row| {
+            row.iter()
+                .enumerate()
+                .fold(0u64, |word, (i, &c)| word | (c as u64) << (8 * i))
+        });
+        let backend_tag = self.backend.cache_tag();
+        let key = cache_key_of(
+            self.backend.model_id(),
+            &cache_tag(&backend_tag, noise_scale),
+            mosaic,
+            width,
+            height,
+            &rows,
+        );
+        self.cache
+            .get_or_compute(key, mosaic.len(), self.backend.as_ref(), &backend_tag, || {
+                let started = std::time::Instant::now();
+                let profile = noise::estimate_xtrans(mosaic, width, height, origin);
+                let mut out = xtrans::run(
+                    mosaic,
+                    width,
+                    height,
+                    pattern,
+                    &profile,
+                    self.backend.as_ref(),
+                    noise_scale,
+                    progress,
+                )?;
+                round_to_cache(&mut out);
+                eprintln!(
+                    "X-Trans AI Denoise: {width}x{height} in {:.1} s, noise (shot, read) {:?} ×{noise_scale}",
+                    started.elapsed().as_secs_f32(),
+                    profile.channels[0]
+                );
+                Ok(out)
+            })
+    }
+}
+
+/// The backend's cache tag (`Backend::cache_tag`) and, beside scale 1 (the keys results were
+/// cached under before scales), the noise scale.
+fn cache_tag(backend_tag: &str, noise_scale: f32) -> String {
+    let mut tag = backend_tag.to_string();
+    if noise_scale != 1.0 {
+        tag.push_str(&format!("|noise×{noise_scale}"));
+    }
+    tag
 }
 
 /// FNV-1a over the samples' bits and the layout (stable across builds).
@@ -267,6 +447,25 @@ fn cache_key(
     height: usize,
     pattern: [u8; 4],
 ) -> u64 {
+    cache_key_of(
+        model_id,
+        tag,
+        mosaic,
+        width,
+        height,
+        &[u32::from_le_bytes(pattern) as u64],
+    )
+}
+
+/// `cache_key` with the layout as words (Bayer: one, X-Trans: one per row).
+fn cache_key_of(
+    model_id: &str,
+    tag: &str,
+    mosaic: &[f32],
+    width: usize,
+    height: usize,
+    layout: &[u64],
+) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let mut eat = |word: u64| {
         hash ^= word;
@@ -277,7 +476,9 @@ fn cache_key(
     }
     eat(width as u64);
     eat(height as u64);
-    eat(u32::from_le_bytes(pattern) as u64);
+    for &word in layout {
+        eat(word);
+    }
     for pair in mosaic.chunks(2) {
         let lo = pair[0].to_bits() as u64;
         let hi = pair.get(1).map_or(0, |v| v.to_bits() as u64);
@@ -345,6 +546,18 @@ mod tests {
                 0.1 + 0.3 * ((i % width) as f32 / width as f32) + noise
             })
             .collect()
+    }
+
+    /// Bayer results stay cached under the keys earlier builds wrote.
+    #[test]
+    fn bayer_cache_keys_are_unchanged() {
+        let mosaic = noisy_mosaic(30, 20);
+        let key = cache_key(MODEL_ID, "", &mosaic, 30, 20, [0, 1, 1, 2]);
+        let scaled = cache_key(FAST_MODEL_ID, "|noise×0.955", &mosaic, 30, 20, [1, 0, 2, 1]);
+        assert_eq!(
+            (key, scaled),
+            (0x8ccf_e906_e3d4_bd50, 0x9c5f_99c4_d716_fe55)
+        );
     }
 
     #[test]
@@ -602,6 +815,90 @@ mod tests {
             fs::read_dir(dir.path()).unwrap().count(),
             2,
             "one cache file per model"
+        );
+    }
+}
+
+#[cfg(test)]
+mod xtrans_tests {
+    use super::*;
+
+    /// Returns each tile's samples unchanged, on small tiles.
+    struct XIdentity;
+
+    impl Backend for XIdentity {
+        fn run(&self, input: &[f32]) -> Result<Vec<f32>> {
+            Ok(input[..96 * 96].to_vec())
+        }
+
+        fn tile(&self) -> usize {
+            96
+        }
+
+        fn halo(&self) -> usize {
+            12
+        }
+
+        fn model_id(&self) -> &'static str {
+            XTRANS_MODEL_ID
+        }
+    }
+
+    fn shifted(dy: usize, dx: usize) -> [[u8; 6]; 6] {
+        std::array::from_fn(|y| {
+            std::array::from_fn(|x| xtrans::CANONICAL[(y + 6 - dy) % 6][(x + 6 - dx) % 6])
+        })
+    }
+
+    #[test]
+    fn the_x_trans_network_round_trips_caches_by_phase_and_refuses_bayer() {
+        let (w, h) = (250, 170);
+        let mut seed = 5u64;
+        let mosaic: Vec<f32> = (0..w * h)
+            .map(|i| {
+                seed = seed
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                0.05 + 0.4 * ((i % w) as f32 / w as f32)
+                    + ((seed >> 40) as f32 / (1u64 << 24) as f32) * 0.01
+            })
+            .collect();
+        let dir = tempfile::tempdir().unwrap();
+        let net = XTransNet::new(Box::new(XIdentity), Some(dir.path().to_path_buf()));
+        let quiet = |_: usize, _: usize| {};
+        let pattern = shifted(2, 3);
+        let out = net
+            .denoise_xtrans(&mosaic, w, h, &pattern, 0.955, &quiet)
+            .unwrap()
+            .unwrap();
+        for (a, b) in out.iter().zip(&mosaic) {
+            assert!((a - b).abs() < 1e-3, "{a} vs {b}");
+            assert_eq!(*a, half::f16::from_f32(*a).to_f32(), "f16 as cached");
+        }
+        let cached = net
+            .denoise_xtrans(&mosaic, w, h, &pattern, 0.955, &quiet)
+            .unwrap()
+            .unwrap();
+        assert_eq!(out, cached, "the cached result equals the fresh one");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        // Another phase of the same samples is another result.
+        net.denoise_xtrans(&mosaic, w, h, &shifted(0, 1), 0.955, &quiet)
+            .unwrap()
+            .unwrap();
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+        assert!(net.denoise(&mosaic, w, h, [0, 1, 1, 2]).is_err());
+        assert!(
+            net.denoise_xtrans(&mosaic, w, h, &[[1; 6]; 6], 1.0, &quiet)
+                .unwrap()
+                .is_err(),
+            "not an X-Trans layout"
+        );
+        // MatchFilter has no X-Trans path: the decoder skips it.
+        let bayer = MatchFilter::new(Box::new(XIdentity), None);
+        assert!(
+            bayer
+                .denoise_xtrans(&mosaic, w, h, &pattern, 1.0, &quiet)
+                .is_none()
         );
     }
 }

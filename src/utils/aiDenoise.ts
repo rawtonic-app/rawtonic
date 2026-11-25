@@ -1,6 +1,7 @@
 import { sourceOf } from '../entities/photo/photoRef';
 import type { AiDenoiseQuality, SelectedImage } from '../components/ui/AppProperties';
 import {
+  XTRANS_AI_DENOISE_VERSION,
   borderBlack,
   cameraPlaneWarp,
   colorNoiseMultiscale,
@@ -56,6 +57,27 @@ export function withAiDenoiseQualityOnTurnOn<T extends { aiDenoise?: number; aiD
   if (before > 0 && after <= 0) return { ...next, aiDenoiseQuality: 'full' };
   if (before > 0 || after <= 0 || !machineDefault) return next;
   return { ...next, aiDenoiseQuality: machineDefault };
+}
+
+/**
+ * `next` with the AI Denoise version that denoises X-Trans sensors when an edit
+ * changes the AI Denoise amount of an X-Trans photo (`xtrans`) whose recipe is
+ * older: such a recipe never denoised that photo (its version leaves X-Trans
+ * alone, and it rendered so when it was made), so it keeps doing so until the
+ * user moves the slider, which then applies AI Denoise. A version the change
+ * itself sets (`patch`: reset, paste, presets) is kept, and so is every Bayer
+ * photo's.
+ */
+export function withXTransAiDenoiseVersion<T extends { aiDenoise?: number; aiDenoiseVersion?: number }>(
+  previous: { aiDenoise?: number; aiDenoiseVersion?: number },
+  next: T,
+  xtrans: boolean,
+  patch: object = next
+): T {
+  if (!xtrans || (patch !== next && 'aiDenoiseVersion' in patch)) return next;
+  if ((next.aiDenoise ?? 0) === (previous.aiDenoise ?? 0)) return next;
+  if ((next.aiDenoiseVersion ?? 1) >= XTRANS_AI_DENOISE_VERSION) return next;
+  return { ...next, aiDenoiseVersion: XTRANS_AI_DENOISE_VERSION };
 }
 
 // The decoder casts the stored percentage to f32 before dividing by 100

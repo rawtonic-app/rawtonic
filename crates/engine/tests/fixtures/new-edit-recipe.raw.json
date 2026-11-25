@@ -383,7 +383,7 @@
   "colorGradingVersion": 4,
   "sharpenVersion": 8,
   "lumaNoiseVersion": 2,
-  "aiDenoiseVersion": 5,
+  "aiDenoiseVersion": 6,
   "renderVersion": 20,
   "sourceFrameVersion": 3,
   "grainVersion": 4

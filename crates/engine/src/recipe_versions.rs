@@ -1033,6 +1033,13 @@ pub const SENSOR_MEANS_AI_DENOISE_VERSION: u8 = 4;
 /// photo's noise instead of 0.8 (`image_loader::ai_denoise_settings`).
 pub const STRONGER_50_AI_DENOISE_VERSION: u8 = 5;
 
+/// The AI Denoise version that denoises X-Trans mosaics, with Rawtonic's
+/// X-Trans network (`rawtonic_denoise::XTransNet`); for Bayer mosaics it is
+/// version 5. Earlier versions leave X-Trans photos without AI Denoise, as
+/// they always rendered them, so an X-Trans edit saved before denoises only
+/// once its AI Denoise is changed (docs/RECIPE_SCHEMA.md).
+pub const XTRANS_AI_DENOISE_VERSION: u8 = 6;
+
 /// `aiDenoiseVersion` (`image_loader::AI_DENOISE_VERSION`): 1 when missing,
 /// never newer than this renderer knows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -1072,6 +1079,11 @@ impl AiDenoiseVersion {
     /// Tells the network 0.955 × the photo's noise at slider 50.
     pub fn stronger_50(self) -> bool {
         self.0 >= STRONGER_50_AI_DENOISE_VERSION
+    }
+
+    /// Denoises X-Trans mosaics (with the X-Trans network).
+    pub fn xtrans(self) -> bool {
+        self.0 >= XTRANS_AI_DENOISE_VERSION
     }
 }
 

@@ -241,7 +241,8 @@ impl FileExporter {
             .clone()
             .for_recipe(&js_adjustments, &source_path_str);
         if let Some(ai) = ai_denoise_settings(&js_adjustments).filter(|_| is_raw) {
-            let denoiser = self.mosaic_denoisers[ai.model()].clone().ok_or_else(|| {
+            let model = ai.model_for_source(job.source);
+            let denoiser = self.mosaic_denoisers[model].clone().ok_or_else(|| {
                 format!(
                     "{} uses AI Denoise, but the denoising model is not available",
                     job.source.display()

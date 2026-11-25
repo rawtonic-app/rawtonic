@@ -367,46 +367,55 @@ fn develop_internal(
         let width = raw_image.width;
         let result = match (&raw_image.photometric, &mut raw_image.data) {
             (RawPhotometricInterpretation::Cfa(config), rawler::RawImageData::Integer(samples)) => {
-                crate::mosaic_denoise::bayer_pattern(&config.cfa, active.0, active.1).map(
-                    |pattern| {
-                        crate::mosaic_denoise::apply(
-                            denoise,
-                            samples,
-                            width,
-                            active,
-                            pattern,
-                            |v: u16| (v as f32 - original_black_level) / range,
-                            |l: f32| {
-                                (l * range + original_black_level)
-                                    .round()
-                                    .clamp(0.0, u16::MAX as f32)
-                                    as u16
-                            },
-                        )
-                    },
-                )
+                let level = |v: u16| (v as f32 - original_black_level) / range;
+                let store = |l: f32| {
+                    (l * range + original_black_level)
+                        .round()
+                        .clamp(0.0, u16::MAX as f32) as u16
+                };
+                if let Some(pattern) =
+                    crate::mosaic_denoise::bayer_pattern(&config.cfa, active.0, active.1)
+                {
+                    Some(crate::mosaic_denoise::apply(
+                        denoise, samples, width, active, pattern, level, store,
+                    ))
+                } else {
+                    crate::mosaic_denoise::xtrans_pattern(&config.cfa, active.0, active.1).and_then(
+                        |pattern| {
+                            crate::mosaic_denoise::apply_xtrans(
+                                denoise, samples, width, active, &pattern, level, store,
+                            )
+                        },
+                    )
+                }
             }
             (RawPhotometricInterpretation::Cfa(config), rawler::RawImageData::Float(samples)) => {
-                crate::mosaic_denoise::bayer_pattern(&config.cfa, active.0, active.1).map(
-                    |pattern| {
-                        crate::mosaic_denoise::apply(
-                            denoise,
-                            samples,
-                            width,
-                            active,
-                            pattern,
-                            |v: f32| (v - original_black_level) / range,
-                            |l: f32| l * range + original_black_level,
-                        )
-                    },
-                )
+                let level = |v: f32| (v - original_black_level) / range;
+                let store = |l: f32| l * range + original_black_level;
+                if let Some(pattern) =
+                    crate::mosaic_denoise::bayer_pattern(&config.cfa, active.0, active.1)
+                {
+                    Some(crate::mosaic_denoise::apply(
+                        denoise, samples, width, active, pattern, level, store,
+                    ))
+                } else {
+                    crate::mosaic_denoise::xtrans_pattern(&config.cfa, active.0, active.1).and_then(
+                        |pattern| {
+                            crate::mosaic_denoise::apply_xtrans(
+                                denoise, samples, width, active, &pattern, level, store,
+                            )
+                        },
+                    )
+                }
             }
             _ => None,
         };
         match result {
             Some(Ok(())) => log::info!("Mosaic denoised (amount {:.2})", denoise.amount),
             Some(Err(e)) => return Err(e.context("Mosaic denoising failed")),
-            None => log::info!("Mosaic denoising skipped: not a 2 x 2 Bayer mosaic"),
+            None => log::info!(
+                "Mosaic denoising skipped: not a 2 x 2 Bayer mosaic, or an X-Trans one this denoiser does not take"
+            ),
         }
     }
     // Signed means of the mosaic's colours before it is clipped at black
@@ -926,6 +935,36 @@ pub fn warp_planes_matter(source: &RawSource) -> bool {
 /// `warp_planes_matter` of the file at `path`, memory-mapped.
 pub fn warp_planes_matter_at(path: &std::path::Path) -> bool {
     RawSource::new(path).is_ok_and(|source| warp_planes_matter(&source))
+}
+
+/// Whether the RAW in `source` is an X-Trans mosaic, the sensors whose AI
+/// Denoise is `MosaicDenoiser::denoise_xtrans`: a 6 × 6 RGB CFA of X-Trans
+/// counts (`mosaic_denoise::xtrans_pattern`) and no Super CCD layout. Reads
+/// the file's tags only (no samples); false for files rawler cannot read.
+pub fn is_xtrans(source: &RawSource) -> bool {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let Ok(decoder) = rawler::get_decoder(source) else {
+            return false;
+        };
+        let Ok(raw_image) = decoder.raw_image(source, &RawDecodeParams::default(), true) else {
+            return false;
+        };
+        if superccd_layout(&raw_image, source.buf()).is_some() {
+            return false;
+        }
+        match &raw_image.photometric {
+            RawPhotometricInterpretation::Cfa(config) if raw_image.cpp == 1 => {
+                crate::mosaic_denoise::xtrans_pattern(&config.cfa, 0, 0).is_some()
+            }
+            _ => false,
+        }
+    }))
+    .unwrap_or(false)
+}
+
+/// `is_xtrans` of the file at `path`, memory-mapped.
+pub fn is_xtrans_at(path: &std::path::Path) -> bool {
+    RawSource::new(path).is_ok_and(|source| is_xtrans(&source))
 }
 
 /// `developed_frame` of the file at `path`, memory-mapped (rawler's

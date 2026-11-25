@@ -2343,7 +2343,7 @@
         "RapidRAW": "Der quelloffene RAW-Editor von Timon Käch, auf dem Rawtonics Editor aufbaut (Commit a82251f); die Prüfung auf heiße und tote Fotodioden neuer Bearbeitungen und Teile der Foto-Zusammenführungen (Punktsuche für Panoramen, Geisterprüfung für HDR) stammen aus RapidRAW v1.7.1.",
         "rav1d": "Dekodiert AVIF-Dateien (die Rust-Portierung von dav1d).",
         "rawler": "RAW-Dekodierung (dnglab über RapidRAW-DngLab), mit Rawtonic-Patches; Sony ARW 6 aus LibRaw portiert.",
-        "RawNIND (Raw Natural Image Noise Dataset)": "Trainingsbilder des schnellen KI-Entrauschen-Netzes, das Rawtonic von MatchFilter gelernt hat (B. Brummer, C. De Vleeschouwer, UCLouvain). Das Netz ist unter CC BY-SA 4.0 veröffentlicht.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Trainingsbilder des schnellen KI-Entrauschen-Netzes, das Rawtonic von MatchFilter gelernt hat, und des X-Trans-Netzes von KI-Entrauschen, das Rawtonic an seinen X-Trans-Paaren trainiert hat (B. Brummer, C. De Vleeschouwer, UCLouvain). Beide Netze sind unter CC BY-SA 4.0 veröffentlicht.",
         "ring": "Signieren der Herkunftsnachweise (C2PA) in Exporten: ECDSA-, RSA-PSS- und Ed25519-Signaturen, SHA-256.",
         "SAM 2": "Klick- und Rahmenmasken (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Bildkodierer und -dekodierer von Moebius (madebyollin, aus Stability AIs SDXL VAE).",
@@ -3500,7 +3500,8 @@
         "qualityFast": "Schnell",
         "qualityFastHint": "Schnell: auf dem Prozessor etwa 15× schneller, mit minimal weniger feinen Details.",
         "qualityFull": "Voll",
-        "qualityFullHint": "Voll: feinste Details. Langsam ohne schnelle Grafikkarte (auf dem Prozessor viele Minuten pro Foto)."
+        "qualityFullHint": "Voll: feinste Details. Langsam ohne schnelle Grafikkarte (auf dem Prozessor viele Minuten pro Foto).",
+        "xtransHint": "X-Trans-Sensoren erhalten das eigene X-Trans-Netz von KI-Entrauschen; es hat eine Qualität."
       },
       "noPhoto": "Öffne ein Foto in „Entwickeln“, um es anzupassen.",
       "params": {

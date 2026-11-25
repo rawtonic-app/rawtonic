@@ -5,6 +5,7 @@ import {
   aiDenoiseToApply,
   developmentSignature,
   withAiDenoiseQualityOnTurnOn,
+  withXTransAiDenoiseVersion,
   sourceDevelopToApply,
   storedSliderValue,
   warpPlanesMatter
@@ -122,6 +123,33 @@ describe('aiDenoiseToApply', () => {
     expect(aiDenoiseToApply({ ...decoded, isRaw: false }, { aiDenoise: 60 }, false)).toBeNull();
     expect(aiDenoiseToApply({ ...decoded, aiDenoiseFailed: 60 }, { aiDenoise: 60 }, false)).toBeNull();
     expect(aiDenoiseToApply({ ...decoded, aiDenoiseFailed: 60 }, { aiDenoise: 70 }, false)).toBe(70);
+  });
+});
+
+describe('withXTransAiDenoiseVersion', () => {
+  it('brings an older X-Trans edit to the X-Trans version when its AI Denoise amount is changed', () => {
+    const older = { aiDenoise: 50, aiDenoiseVersion: 5 };
+    expect(withXTransAiDenoiseVersion(older, { ...older, aiDenoise: 51 }, true)).toEqual({
+      aiDenoise: 51,
+      aiDenoiseVersion: 6
+    });
+    // Turned off and on again, or on from a recipe without the key.
+    expect(withXTransAiDenoiseVersion(older, { ...older, aiDenoise: 0 }, true).aiDenoiseVersion).toBe(6);
+    const turnedOn: { aiDenoise: number; aiDenoiseVersion?: number } = { aiDenoise: 40 };
+    expect(withXTransAiDenoiseVersion({}, turnedOn, true).aiDenoiseVersion).toBe(6);
+  });
+
+  it('keeps Bayer photos, unchanged amounts, newer versions and versions the change sets', () => {
+    const older = { aiDenoise: 50, aiDenoiseVersion: 5 };
+    const moved = { ...older, aiDenoise: 60 };
+    expect(withXTransAiDenoiseVersion(older, moved, false)).toBe(moved);
+    const other = { ...older, exposure: 1 };
+    expect(withXTransAiDenoiseVersion(older, other, true)).toBe(other);
+    const current = { aiDenoise: 70, aiDenoiseVersion: 6 };
+    expect(withXTransAiDenoiseVersion({ aiDenoise: 60, aiDenoiseVersion: 6 }, current, true)).toBe(current);
+    // A reset or paste that sets the version keeps it.
+    const pasted = { aiDenoise: 30, aiDenoiseVersion: 4 };
+    expect(withXTransAiDenoiseVersion(older, pasted, true, { aiDenoise: 30, aiDenoiseVersion: 4 })).toBe(pasted);
   });
 });
 

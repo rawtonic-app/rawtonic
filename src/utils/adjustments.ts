@@ -1892,8 +1892,12 @@ export const cameraPlaneWarp = (adjustments: Pick<Partial<Adjustments>, 'renderV
   (adjustments.renderVersion ?? 1) >= CAMERA_PLANE_WARP_RENDER_VERSION;
 
 /** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
- * benchmark-results/ai-denoise-mac-2026-10-18, dnz1-2026-11-19). */
-export const AI_DENOISE_VERSION = 5;
+ * benchmark-results/ai-denoise-mac-2026-10-18, dnz1-2026-11-19): 6 is 5 on
+ * Bayer sensors and denoises X-Trans ones (xtsh1-2026-11-25). */
+export const AI_DENOISE_VERSION = 6;
+/** The first AI Denoise version that denoises X-Trans sensors
+ * (`XTRANS_AI_DENOISE_VERSION` in crates/engine/src/recipe_versions.rs). */
+export const XTRANS_AI_DENOISE_VERSION = 6;
 
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
