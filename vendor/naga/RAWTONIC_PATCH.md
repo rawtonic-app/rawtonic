@@ -29,9 +29,12 @@ same name function, so they follow. Only HLSL output changes; the Metal,
 Vulkan (SPIR-V) and other backends do not use this code.
 
 Checked with Microsoft's DXC 1.8.2502 (Linux build, wgpu's arguments
-`-HV 2018 -Ges`, `cs_6_0`) on the HLSL of the processing shader, its display,
-export and display-variant sources and every file in `crates/gpu/src/shaders`:
-22 redefinition errors before, every entry point compiles after.
+`-HV 2018 -Ges`, target `cs_6_0`) on the compute entry points of the HLSL
+written for the processing shader, its display, export and display-variant
+sources and the files in `crates/gpu/src/shaders` that parse on their own:
+22 redefinition errors before, none after (43 → 67 compiles). Vertex and
+fragment entry points (`display.wgsl`) and the shader fragments assembled at
+run time were not compiled with DXC.
 
 Tests (`rawtonic-gpu`, fail with the unpatched crate):
 `display_variant_ir::tests::hlsl_defines_each_image_query_helper_once`,

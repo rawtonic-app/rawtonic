@@ -71,18 +71,25 @@ pub(crate) fn choose(
 }
 
 /// Sets the DX12 compiler on `descriptor` and logs the choice once.
-pub(crate) fn apply(descriptor: &mut wgpu::InstanceDescriptor) {
+/// Returns whether it is the bundled DXC, which the caller drops for
+/// `Auto` when it exposes no adapter (`without_bundled`): wgpu hides an
+/// adapter whose driver reports only Shader Model 5.1 under DXC, while FXC
+/// can still drive it.
+pub(crate) fn apply(descriptor: &mut wgpu::InstanceDescriptor) -> bool {
     if !descriptor.backends.contains(wgpu::Backends::DX12) {
-        return;
+        return false;
     }
     let env_set = std::env::var_os("WGPU_DX12_COMPILER").is_some();
     let (mut compiler, mut line) = choose(env_set, BUNDLED_DIR.get().map(PathBuf::as_path), |p| {
         p.is_file()
     });
-    if let wgpu::Dx12Compiler::DynamicDxc { .. } = compiler
+    let bundled = !env_set && matches!(compiler, wgpu::Dx12Compiler::DynamicDxc { .. });
+    let mut bundled_loaded = bundled;
+    if bundled
         && let Some(dir) = BUNDLED_DIR.get()
         && let Err(e) = load_validator(&dir.join(LIBRARIES[0]))
     {
+        bundled_loaded = false;
         compiler = wgpu::Dx12Compiler::Auto;
         line = format!("GPU: DX12 shader compiler Auto (dxil.dll could not be loaded: {e})");
     }
@@ -91,6 +98,15 @@ pub(crate) fn apply(descriptor: &mut wgpu::InstanceDescriptor) {
         log::info!("{line}");
     }
     descriptor.backend_options.dx12.shader_compiler = compiler;
+    bundled_loaded
+}
+
+/// `descriptor` with wgpu's own choice (`Auto`) instead of the bundled DXC.
+pub(crate) fn without_bundled(descriptor: &mut wgpu::InstanceDescriptor) {
+    log::warn!(
+        "GPU: no DX12 adapter with the bundled DXC (Shader Model 6 not reported?); retrying with Auto"
+    );
+    descriptor.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Auto;
 }
 
 #[cfg(windows)]

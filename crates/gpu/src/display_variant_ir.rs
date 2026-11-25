@@ -1155,11 +1155,6 @@ pub(crate) mod tests {
         let mut hlsl = String::new();
         let mut writer = naga::back::hlsl::Writer::new(&mut hlsl, &options, &pipeline);
         writer.write(module, &info, None).unwrap();
-        if let Ok(dir) = std::env::var("RAWTONIC_HLSL_DUMP") {
-            static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-            let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            std::fs::write(format!("{dir}/{n}.hlsl"), &hlsl).unwrap();
-        }
         let mut seen = std::collections::HashSet::new();
         let mut twice = Vec::new();
         for line in hlsl.lines().filter(|l| !l.starts_with(char::is_whitespace)) {

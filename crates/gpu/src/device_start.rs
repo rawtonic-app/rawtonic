@@ -218,17 +218,29 @@ pub fn start_device(
             on_step(StartStep::Adapter(backends));
             let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
             descriptor.backends = backends;
-            crate::dx12_compiler::apply(&mut descriptor);
-            let instance = wgpu::Instance::new(descriptor);
-            let surface = surface_for(&instance);
-            let adapter =
-                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                    power_preference: wgpu::PowerPreference::HighPerformance,
-                    compatible_surface: surface.as_ref(),
-                    ..Default::default()
-                }))
-                .map_err(|e| e.to_string())?;
-            Ok((instance, adapter, surface))
+            let bundled_dxc = crate::dx12_compiler::apply(&mut descriptor);
+            let pick = |descriptor: wgpu::InstanceDescriptor| {
+                let instance = wgpu::Instance::new(descriptor);
+                let surface = surface_for(&instance);
+                let adapter =
+                    pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                        power_preference: wgpu::PowerPreference::HighPerformance,
+                        compatible_surface: surface.as_ref(),
+                        ..Default::default()
+                    }));
+                adapter.map(|adapter| (instance, adapter, surface))
+            };
+            match pick(descriptor) {
+                Ok(picked) => Ok(picked),
+                Err(_) if bundled_dxc => {
+                    let mut descriptor =
+                        wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+                    descriptor.backends = backends;
+                    crate::dx12_compiler::without_bundled(&mut descriptor);
+                    pick(descriptor).map_err(|e| e.to_string())
+                }
+                Err(e) => Err(e.to_string()),
+            }
         },
         |(_, adapter, _)| adapter.get_info().backend,
         |(_, adapter, _)| adapter.get_info().name,
