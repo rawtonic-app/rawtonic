@@ -571,7 +571,13 @@ impl<W: Write> super::Writer<'_, W> {
             crate::ImageClass::Depth { multi: true } => "DepthMS",
             crate::ImageClass::Depth { multi: false } => "Depth",
             crate::ImageClass::Sampled { multi: false, .. } => "",
-            crate::ImageClass::Storage { .. } => "RW",
+            // RAWTONIC PATCH: DXC does not overload on `unorm`/`snorm`, so
+            // those storage types get helpers of their own name.
+            crate::ImageClass::Storage { format, .. } => match format.to_hlsl_str() {
+                s if s.starts_with("unorm") => "RWUnorm",
+                s if s.starts_with("snorm") => "RWSnorm",
+                _ => "RW",
+            },
             crate::ImageClass::External => "External",
         };
         let arrayed_str = if query.arrayed { "Array" } else { "" };
