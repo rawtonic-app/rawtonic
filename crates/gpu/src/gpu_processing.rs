@@ -14147,8 +14147,9 @@ pub const MULTI_VIEW_LIVE_CALLER: &str = "multi_view_live";
 /// ~280 ms, notes: parity-gaps/G11 TGT5).
 pub const COLOR_TARGET_CALLER: &str = "color_target";
 
-/// The second window's zoomed region after a settled edit: the photograph
-/// the user watches on the other display. As a background render it waited
+/// The second window's zoomed region, or its fit frame where the main
+/// window's is too small, after a settled edit: the photograph the user
+/// watches on the other display. As a background render it waited
 /// out the pause after the main window's frame (~100 ms of its ~240 ms on
 /// Metal) and uploaded its source and built its colour noise pyramid again
 /// for every edit (~60–100 ms more; notes: benchmark-results/swc5-2026-11-24).
