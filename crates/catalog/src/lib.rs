@@ -43,6 +43,7 @@ pub mod layout;
 mod migrations;
 pub mod one_root;
 pub mod query;
+pub mod sensor_kind;
 pub mod session_folders;
 pub mod session_move;
 pub mod snapshots;

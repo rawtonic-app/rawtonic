@@ -140,6 +140,8 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         &[("generated_provenance", "INTEGER NOT NULL DEFAULT 0")],
         include_str!("../migrations/0037.sql"),
     ),
+    // The verified sensor layout of each RAW, for Develop while it is offline.
+    Migration::sql(38, include_str!("../migrations/0038.sql")),
 ];
 
 /// The newest schema: the last migration's.

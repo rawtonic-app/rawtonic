@@ -1,0 +1,132 @@
+//! The verified sensor layout of each RAW (schema 38): recorded only for the
+//! file the library has registered, dropped when that file changes, and
+//! added to older libraries by their upgrade.
+
+use rawtonic_catalog::sensor_kind::SensorKind;
+use rawtonic_catalog::{Library, Mode, fingerprint};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+fn session(dir: &Path, names: &[&str]) -> (Library, Vec<String>, Vec<PathBuf>) {
+    let lib = Library::create(&dir.join("Job"), "Job", Mode::Session).unwrap();
+    let paths: Vec<PathBuf> = names
+        .iter()
+        .map(|name| {
+            let path = lib.directory.join("Capture").join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, format!("raw bytes of {name}")).unwrap();
+            path
+        })
+        .collect();
+    let ids = paths
+        .iter()
+        .map(|path| lib.add_asset(path).unwrap().id)
+        .collect();
+    (lib, ids, paths)
+}
+
+#[test]
+fn a_kind_read_from_the_registered_file_is_kept() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.RAF", "B.NEF"]);
+    assert_eq!(lib.sensor_kind(&ids[0]).unwrap(), None);
+    let a = fingerprint(&paths[0]).unwrap();
+    let b = fingerprint(&paths[1]).unwrap();
+    assert!(
+        lib.record_sensor_kind(&ids[0], SensorKind::XTrans, &a)
+            .unwrap()
+    );
+    assert!(
+        lib.record_sensor_kind(&ids[1], SensorKind::Bayer, &b)
+            .unwrap()
+    );
+    assert_eq!(lib.sensor_kind(&ids[0]).unwrap(), Some(SensorKind::XTrans));
+    assert_eq!(lib.sensor_kind(&ids[1]).unwrap(), Some(SensorKind::Bayer));
+    // Read again, the file's own answer replaces the record.
+    assert!(
+        lib.record_sensor_kind(&ids[0], SensorKind::Bayer, &a)
+            .unwrap()
+    );
+    assert_eq!(lib.sensor_kind(&ids[0]).unwrap(), Some(SensorKind::Bayer));
+    // Kept across reopening (a later offline Develop).
+    drop(lib);
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    assert_eq!(lib.sensor_kind(&ids[1]).unwrap(), Some(SensorKind::Bayer));
+}
+
+#[test]
+fn a_read_of_another_file_than_the_registered_one_is_not_kept() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.RAF"]);
+    // The file was replaced on disk; the library still has the old one.
+    fs::write(&paths[0], b"another camera's file").unwrap();
+    let now = fingerprint(&paths[0]).unwrap();
+    assert!(
+        !lib.record_sensor_kind(&ids[0], SensorKind::XTrans, &now)
+            .unwrap()
+    );
+    assert_eq!(lib.sensor_kind(&ids[0]).unwrap(), None);
+    assert!(
+        !lib.record_sensor_kind("no-such-asset", SensorKind::Bayer, &now)
+            .unwrap()
+    );
+}
+
+#[test]
+fn a_new_registered_file_drops_the_kind() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.RAF", "B.RAF"]);
+    for (id, path) in ids.iter().zip(&paths) {
+        let read = fingerprint(path).unwrap();
+        assert!(
+            lib.record_sensor_kind(id, SensorKind::XTrans, &read)
+                .unwrap()
+        );
+    }
+    // Another column of the asset keeps it.
+    let db = rusqlite::Connection::open(lib.directory.join("session.sqlite")).unwrap();
+    db.execute("UPDATE assets SET stack=stack WHERE id=?", [&ids[1]])
+        .unwrap();
+    assert_eq!(lib.sensor_kind(&ids[1]).unwrap(), Some(SensorKind::XTrans));
+    // A save in place registers the new file: the kind is read again.
+    fs::write(&paths[0], b"saved by another program, other size").unwrap();
+    lib.file_saved(&ids[0]).unwrap();
+    assert_eq!(lib.sensor_kind(&ids[0]).unwrap(), None);
+    let rows: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM sensor_kinds WHERE asset_id=?",
+            [&ids[0]],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(rows, 0, "the stale row is gone, not only hidden");
+    assert_eq!(lib.sensor_kind(&ids[1]).unwrap(), Some(SensorKind::XTrans));
+}
+
+#[test]
+fn an_older_library_takes_the_table_and_upgrading_again_changes_nothing() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.RAF"]);
+    drop(lib);
+    let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
+    db.execute_batch(include_str!("undo_0038.sql")).unwrap();
+    drop(db);
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    assert_eq!(lib.sensor_kind(&ids[0]).unwrap(), None);
+    let read = fingerprint(&paths[0]).unwrap();
+    assert!(
+        lib.record_sensor_kind(&ids[0], SensorKind::Bayer, &read)
+            .unwrap()
+    );
+    drop(lib);
+    // Opening the upgraded library again keeps what it holds.
+    let lib = Library::open(&d.path().join("Job")).unwrap();
+    assert_eq!(lib.sensor_kind(&ids[0]).unwrap(), Some(SensorKind::Bayer));
+}
+
+#[test]
+fn the_kind_is_never_unknown_on_the_wire() {
+    assert_eq!(serde_json::to_value(SensorKind::XTrans).unwrap(), "xTrans");
+    assert_eq!(serde_json::to_value(SensorKind::Bayer).unwrap(), "bayer");
+    assert!(serde_json::from_str::<SensorKind>("\"unknown\"").is_err());
+}

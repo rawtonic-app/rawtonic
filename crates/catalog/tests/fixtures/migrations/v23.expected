@@ -1,4 +1,4 @@
-# user_version 37
+# user_version 38
 # schema
 'index' | 'asset_imports_batch' | 'asset_imports' | 'CREATE INDEX asset_imports_batch ON asset_imports(batch_id)'
 'index' | 'asset_keywords_keyword' | 'asset_keywords' | 'CREATE INDEX asset_keywords_keyword ON asset_keywords(keyword)'
@@ -39,6 +39,7 @@
 'index' | 'sqlite_autoindex_recipe_blob_refs_1' | 'recipe_blob_refs' | NULL
 'index' | 'sqlite_autoindex_recipe_blobs_1' | 'recipe_blobs' | NULL
 'index' | 'sqlite_autoindex_roots_1' | 'roots' | NULL
+'index' | 'sqlite_autoindex_sensor_kinds_1' | 'sensor_kinds' | NULL
 'index' | 'sqlite_autoindex_snapshot_blob_refs_1' | 'snapshot_blob_refs' | NULL
 'index' | 'sqlite_autoindex_snapshots_1' | 'snapshots' | NULL
 'index' | 'sqlite_autoindex_stack_members_1' | 'stack_members' | NULL
@@ -205,6 +206,10 @@
  parent INTEGER REFERENCES recipes(id), schema_version INTEGER NOT NULL DEFAULT 1, payload TEXT NOT NULL,
  snapshot TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)'
 'table' | 'roots' | 'roots' | 'CREATE TABLE roots(id TEXT PRIMARY KEY, path TEXT NOT NULL, volume_id TEXT, external INTEGER NOT NULL DEFAULT 0, volume_name TEXT, volume_path TEXT, volume_kind TEXT CHECK(volume_kind IN (''startup'',''local'',''removable'',''network'')))'
+'table' | 'sensor_kinds' | 'sensor_kinds' | 'CREATE TABLE sensor_kinds(
+ asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+ kind TEXT NOT NULL CHECK(kind IN (''bayer'',''xTrans'')),
+ fingerprint TEXT NOT NULL)'
 'table' | 'snapshot_blob_refs' | 'snapshot_blob_refs' | 'CREATE TABLE snapshot_blob_refs(
  snapshot_key INTEGER NOT NULL REFERENCES snapshots(key) ON DELETE CASCADE,
  hash TEXT NOT NULL REFERENCES recipe_blobs(hash),
@@ -248,6 +253,9 @@ END'
 'trigger' | 'assets_image_hash_stale' | 'assets' | 'CREATE TRIGGER assets_image_hash_stale AFTER UPDATE OF size,mtime,fingerprint ON assets
  WHEN new.size IS NOT old.size OR new.mtime IS NOT old.mtime OR new.fingerprint IS NOT old.fingerprint
  BEGIN DELETE FROM image_hashes WHERE asset_id=new.id; END'
+'trigger' | 'assets_sensor_kind_stale' | 'assets' | 'CREATE TRIGGER assets_sensor_kind_stale AFTER UPDATE OF size,mtime,fingerprint ON assets
+ WHEN new.size IS NOT old.size OR new.mtime IS NOT old.mtime OR new.fingerprint IS NOT old.fingerprint
+ BEGIN DELETE FROM sensor_kinds WHERE asset_id=new.id; END'
 'trigger' | 'metadata_keywords_ai' | 'metadata' | 'CREATE TRIGGER metadata_keywords_ai AFTER INSERT ON metadata BEGIN
  INSERT OR IGNORE INTO asset_keywords(asset_id, keyword)
   SELECT new.asset_id, rawtonic_trim(value) FROM json_each(new.data, ''$.keywords'')
@@ -428,6 +436,7 @@ END'
 'album-wedding' | '00000000-0000-4000-8000-000000000001' | ''
 'album-wedding' | '00000000-0000-4000-8000-000000000002' | ''
 'album-wedding' | '00000000-0000-4000-8000-000000000004' | ''
+# table sensor_kinds (0 rows): asset_id, kind, fingerprint
 # foreign_key_check
 # searches
 text contains 0123: ["00000000-0000-4000-8000-000000000001"]

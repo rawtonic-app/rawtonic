@@ -24,6 +24,9 @@ import { ContextMenuProvider } from '../../context/ContextMenuContext';
 import { createSubMask } from '../../utils/maskUtils';
 import { registerSliderDraftRenderer } from '../../utils/sliderDraft';
 import { INITIAL_MASK_CONTAINER } from '../../utils/adjustments';
+import { invoke } from '@tauri-apps/api/core';
+import { Invokes } from '../ui/AppProperties';
+import sensorWire from '../../contracts/rawSensorKind.json';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn((name: string) => Promise.resolve(name === 'load_metadata' ? {} : undefined))
@@ -109,6 +112,37 @@ describe('Develop tool contracts', () => {
         aiDenoiseVersion: expected,
         aiDenoiseQuality: 'fast'
       });
+    }
+  );
+  it.each([
+    { stored: sensorWire[1], expected: 6, quality: false },
+    { stored: sensorWire[0], expected: 3, quality: true }
+  ])(
+    'an offline photo with a remembered $stored sensor gets its online controls',
+    async ({ stored, expected, quality }) => {
+      const original = vi.mocked(invoke).getMockImplementation()!;
+      vi.mocked(invoke).mockImplementation((name: string, args?: unknown) =>
+        name === Invokes.RawSensorKind ? Promise.resolve(stored) : original(name, args)
+      );
+      onTestFinished(() => {
+        vi.mocked(invoke).mockImplementation(original);
+      });
+      useEditorStore.setState((state) => ({
+        selectedImage: { ...state.selectedImage!, offline: 'standard', isDecoded: true },
+        adjustments: { ...state.adjustments, aiDenoise: 20, aiDenoiseVersion: 3 }
+      }));
+      mount();
+      fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Detail' }));
+      openGroups();
+      await act(async () => {});
+      expect(invoke).toHaveBeenCalledWith(Invokes.RawSensorKind, { path: '/qa/photo.dng' });
+      expect(screen.queryByText('The sensor type is read when the original is available.')).toBeNull();
+      expect(Boolean(screen.queryByText(/X-Trans sensors get AI Denoise/))).toBe(!quality);
+      expect(Boolean(screen.queryByRole('combobox', { name: 'AI Denoise quality' }))).toBe(quality);
+      const slider = screen.getByRole('textbox', { name: 'AI Denoise value' }) as HTMLInputElement;
+      expect(slider.disabled).toBe(false);
+      edit('AI Denoise', 43);
+      expect(useEditorStore.getState().adjustments).toMatchObject({ aiDenoise: 43, aiDenoiseVersion: expected });
     }
   );
   it('accepts adjustments only after the selected source and metadata are ready', () => {

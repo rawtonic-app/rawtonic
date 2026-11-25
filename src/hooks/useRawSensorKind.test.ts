@@ -60,3 +60,17 @@ it('keeps a verified sensor on its offline preview and probes again on reconnect
   await waitFor(() => expect(result.current).toBe('unknown'));
   expect(invoke).toHaveBeenCalledTimes(2);
 });
+
+it('asks for the remembered sensor of a photo that opens offline', async () => {
+  vi.mocked(invoke).mockResolvedValue(wire[1]);
+  const { result, rerender } = renderHook(({ path }) => useRawSensorKind(path, true, true), {
+    initialProps: { path: '/photos/a.RAF' }
+  });
+  expect(invoke).toHaveBeenCalledWith(Invokes.RawSensorKind, { path: '/photos/a.RAF' });
+  await waitFor(() => expect(result.current).toBe('xTrans'));
+  // Another offline photo with nothing remembered.
+  vi.mocked(invoke).mockResolvedValue(wire[2]);
+  rerender({ path: '/photos/b.NEF' });
+  expect(result.current).toBeNull();
+  await waitFor(() => expect(result.current).toBe('unknown'));
+});
