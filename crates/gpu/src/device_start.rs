@@ -194,6 +194,26 @@ pub enum StartStep {
     Device(wgpu::Backend),
 }
 
+fn pick_with_compiler_fallback<A>(
+    descriptor: wgpu::InstanceDescriptor,
+    bundled_dxc: bool,
+    retry_descriptor: impl FnOnce() -> wgpu::InstanceDescriptor,
+    mut pick: impl FnMut(wgpu::InstanceDescriptor) -> Result<A, String>,
+    is_supported: impl FnOnce(&A) -> bool,
+) -> Result<A, String> {
+    // Under the bundled DXC an adapter wgpu hides (Shader Model 5.1)
+    // can leave no adapter or only one Rawtonic refuses (WARP).
+    match pick(descriptor) {
+        Ok(picked) if !bundled_dxc || is_supported(&picked) => Ok(picked),
+        Err(e) if !bundled_dxc => Err(e),
+        _ => {
+            let mut descriptor = retry_descriptor();
+            crate::dx12_compiler::without_bundled(&mut descriptor);
+            pick(descriptor)
+        }
+    }
+}
+
 pub fn start_device(
     surface_for: impl Fn(&wgpu::Instance) -> Option<wgpu::Surface<'static>>,
     avoid: wgpu::Backends,
@@ -219,34 +239,31 @@ pub fn start_device(
             let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
             descriptor.backends = backends;
             let bundled_dxc = crate::dx12_compiler::apply(&mut descriptor);
-            let pick = |descriptor: wgpu::InstanceDescriptor| {
-                let instance = wgpu::Instance::new(descriptor);
-                let surface = surface_for(&instance);
-                let adapter =
-                    pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                        power_preference: wgpu::PowerPreference::HighPerformance,
-                        compatible_surface: surface.as_ref(),
-                        ..Default::default()
-                    }));
-                adapter.map(|adapter| (instance, adapter, surface))
-            };
-            // Under the bundled DXC an adapter wgpu hides (Shader Model 5.1)
-            // can leave no adapter or only one Rawtonic refuses (WARP).
-            match pick(descriptor) {
-                Ok(picked)
-                    if !bundled_dxc || unsupported_adapter(&picked.1.get_info()).is_none() =>
-                {
-                    Ok(picked)
-                }
-                Err(e) if !bundled_dxc => Err(e.to_string()),
-                _ => {
+            pick_with_compiler_fallback(
+                descriptor,
+                bundled_dxc,
+                || {
                     let mut descriptor =
                         wgpu::InstanceDescriptor::new_without_display_handle_from_env();
                     descriptor.backends = backends;
-                    crate::dx12_compiler::without_bundled(&mut descriptor);
-                    pick(descriptor).map_err(|e| e.to_string())
-                }
-            }
+                    descriptor
+                },
+                |descriptor| {
+                    let instance = wgpu::Instance::new(descriptor);
+                    let surface = surface_for(&instance);
+                    let adapter = pollster::block_on(instance.request_adapter(
+                        &wgpu::RequestAdapterOptions {
+                            power_preference: wgpu::PowerPreference::HighPerformance,
+                            compatible_surface: surface.as_ref(),
+                            ..Default::default()
+                        },
+                    ));
+                    adapter
+                        .map(|adapter| (instance, adapter, surface))
+                        .map_err(|e| e.to_string())
+                },
+                |picked| unsupported_adapter(&picked.1.get_info()).is_none(),
+            )
         },
         |(_, adapter, _)| adapter.get_info().backend,
         |(_, adapter, _)| adapter.get_info().name,
@@ -506,6 +523,69 @@ mod tests {
         // Other software adapters (llvmpipe, SwiftShader) and real GPUs start.
         assert!(unsupported_adapter(&adapter(Backend::Vulkan, 0x10005, 0)).is_none());
         assert!(unsupported_adapter(&adapter(Backend::Dx12, 0x10de, 0x2206)).is_none());
+    }
+
+    #[test]
+    fn bundled_dxc_returning_warp_retries_with_fxc() {
+        for hardware_available in [true, false] {
+            let mut attempts = Vec::new();
+            let result = start_with_fallback(
+                &[Backends::DX12, Backends::VULKAN],
+                |backends| {
+                    if backends == Backends::VULKAN {
+                        attempts.push("Vulkan");
+                        return Err("Vulkan adapter unavailable".into());
+                    }
+                    let descriptor_for_dx12 = || {
+                        let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+                        descriptor.backends = Backends::DX12;
+                        descriptor
+                    };
+                    let mut descriptor = descriptor_for_dx12();
+                    descriptor.backend_options.dx12.shader_compiler =
+                        wgpu::Dx12Compiler::default_dynamic_dxc();
+                    pick_with_compiler_fallback(
+                        descriptor,
+                        true,
+                        descriptor_for_dx12,
+                        |descriptor| match descriptor.backend_options.dx12.shader_compiler {
+                            wgpu::Dx12Compiler::DynamicDxc { .. } => {
+                                attempts.push("DXC");
+                                Ok(adapter(Backend::Dx12, 0x1414, 0x8c))
+                            }
+                            wgpu::Dx12Compiler::Fxc => {
+                                attempts.push("FXC");
+                                if hardware_available {
+                                    Ok(adapter(Backend::Dx12, 0x10de, 0x2206))
+                                } else {
+                                    Ok(adapter(Backend::Dx12, 0x1414, 0x8c))
+                                }
+                            }
+                            compiler => panic!("unexpected compiler: {compiler:?}"),
+                        },
+                        |info| unsupported_adapter(info).is_none(),
+                    )
+                },
+                |info| info.backend,
+                |info| info.name.clone(),
+                |info| unsupported_adapter(info).map_or(Ok(()), |reason| Err(reason.into())),
+            );
+            if hardware_available {
+                assert_eq!(attempts, ["DXC", "FXC"]);
+                assert_eq!(result.unwrap().0.vendor, 0x10de);
+            } else {
+                assert_eq!(attempts, ["DXC", "FXC", "Vulkan"]);
+                let error = result.unwrap_err();
+                assert!(
+                    error.contains("dx12 (adapter): Windows' software renderer (WARP)"),
+                    "{error}"
+                );
+                assert!(
+                    error.contains("vulkan: no adapter (Vulkan adapter unavailable)"),
+                    "{error}"
+                );
+            }
+        }
     }
 
     #[test]
