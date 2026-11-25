@@ -60,35 +60,6 @@ export function isCropWithinBounds(crop: Crop, imageW: number, imageH: number, r
   return true;
 }
 
-export function calculateAreaPreservingCrop(
-  imageWidth: number,
-  imageHeight: number,
-  orientationSteps: number,
-  aspectRatio: number | null,
-  rotation: number,
-  currentCrop: Crop | null | undefined
-): Crop | null {
-  if (!aspectRatio || aspectRatio <= 0 || !currentCrop || !currentCrop.width || !currentCrop.height) return null;
-
-  const { width: W, height: H } = getOrientedDimensions(imageWidth, imageHeight, orientationSteps);
-
-  const area = currentCrop.width * currentCrop.height;
-  const newH = Math.sqrt(area / aspectRatio);
-  const newW = aspectRatio * newH;
-  const centerX = currentCrop.x + currentCrop.width / 2;
-  const centerY = currentCrop.y + currentCrop.height / 2;
-
-  const candidate: Crop = {
-    unit: 'px',
-    x: Math.round(centerX - newW / 2),
-    y: Math.round(centerY - newH / 2),
-    width: Math.round(newW),
-    height: Math.round(newH)
-  };
-
-  return isCropWithinBounds(candidate, W, H, rotation) ? candidate : null;
-}
-
 function rotateCropCenter(crop: Crop, orientedWidth: number, orientedHeight: number, deltaDegrees: number): Crop {
   const rad = (deltaDegrees * Math.PI) / 180;
   const cos = Math.cos(rad);
