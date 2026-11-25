@@ -68,12 +68,18 @@ describe('aiDenoiseToApply', () => {
       multiscale: true
     });
     // A quality that failed is not retried; the other one is.
-    const failed = { ...full, aiDenoise: 0, aiDenoiseFailed: 60, aiDenoiseFailedVersion: 5, aiDenoiseFailedQuality: 'fast' as const };
+    const failed = {
+      ...full,
+      aiDenoise: 0,
+      aiDenoiseFailed: 60,
+      aiDenoiseFailedVersion: 5,
+      aiDenoiseFailedQuality: 'fast' as const
+    };
     expect(aiDenoiseToApply(failed, fast, false)).toBeNull();
     expect(aiDenoiseToApply(failed, { ...fast, aiDenoiseQuality: 'full' }, false)).toBe(60);
   });
 
-  it('gives a recipe that turns AI Denoise on the computer\'s quality, and nothing else', () => {
+  it("gives a recipe that turns AI Denoise on the computer's quality, and nothing else", () => {
     expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 50 }, 'fast')).toEqual({
       aiDenoise: 50,
       aiDenoiseQuality: 'fast'

@@ -2472,6 +2472,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
         "ring": "Signatura dels manifests de procedència (C2PA) a les exportacions: signatures ECDSA, RSA-PSS i Ed25519, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -2482,8 +2483,7 @@
         "Tauri updater plugin": "«Instal·la l’actualització»: obté el manifest i el paquet de la versió, en comprova la signatura i substitueix l’app de macOS.",
         "x509-parser": "Lectura de certificats de signatura (signant, validesa, usos permesos).",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
-        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi).",
-        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0."
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
