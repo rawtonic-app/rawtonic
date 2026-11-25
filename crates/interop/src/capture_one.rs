@@ -481,54 +481,60 @@ fn keyword_library(
     }
     let (keyword, synonym) = (entity("Keyword"), entity("Synonym"));
     let mut q = conn.prepare("SELECT Z_ENT, Z_PK, ZNAME, ZPARENT FROM ZKEYWORD")?;
-    let rows: Vec<(Option<i64>, i64, Option<String>, Option<i64>)> = q
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
-        .collect::<rusqlite::Result<_>>()?;
     // Without the entity names (not seen), every row but a synonym counts.
     let is_keyword = |ent: Option<i64>| match ent {
         Some(e) if e == synonym => false,
         Some(e) if keyword >= 0 => e == keyword,
         _ => true,
     };
-    let synonyms = rows.iter().filter(|r| r.0 == Some(synonym)).count();
-    let nodes: HashMap<i64, (&str, Option<i64>)> = rows
-        .iter()
-        .filter(|r| is_keyword(r.0))
-        .filter_map(|r| Some((r.1, (r.2.as_deref()?, r.3))))
-        .collect();
-    let mut paths = Vec::new();
-    for &(name, parent) in nodes.values() {
-        let mut levels = vec![name];
-        let mut up = parent;
+    let mut synonyms = 0;
+    let mut nodes: HashMap<i64, (String, Option<i64>)> = HashMap::new();
+    let mut rows = q.query([])?;
+    while let Some(r) = rows.next()? {
+        let ent: Option<i64> = r.get(0)?;
+        if ent == Some(synonym) {
+            synonyms += 1;
+        } else if is_keyword(ent)
+            && let Some(name) = r.get::<_, Option<String>>(2)?
+        {
+            nodes.insert(r.get(1)?, (name, r.get(3)?));
+        }
+    }
+    let mut paths = std::collections::BTreeSet::new();
+    for (name, parent) in nodes.values() {
+        let mut levels = vec![name.as_str()];
+        let mut up = *parent;
         // A parent that is missing or loops ends the path there.
-        while let Some(&(name, parent)) = up.and_then(|p| nodes.get(&p)) {
+        while let Some((name, parent)) = up.and_then(|p| nodes.get(&p)) {
             if levels.len() > nodes.len() {
                 break;
             }
             levels.push(name);
-            up = parent;
+            up = *parent;
         }
         levels.reverse();
         let path = rawtonic_metadata::keywords::normalize(&levels.join("|"));
-        if !path.is_empty() && !paths.contains(&path) {
-            paths.push(path);
+        if !path.is_empty() {
+            paths.insert(path);
         }
     }
-    paths.sort();
-    Ok((paths, synonyms))
+    Ok((paths.into_iter().collect(), synonyms))
 }
 
 /// The paths of `library` that no other path lies below.
 fn keyword_leaves(library: &[String]) -> Vec<String> {
+    use rawtonic_metadata::keywords::with_ancestors;
+    let parents: std::collections::HashSet<String> = library
+        .iter()
+        .flat_map(|path| {
+            let mut up = with_ancestors(path);
+            up.pop();
+            up
+        })
+        .collect();
     library
         .iter()
-        .filter(|path| {
-            !library.iter().any(|other| {
-                other.len() > path.len()
-                    && rawtonic_metadata::keywords::is_within(other, path)
-                    && other != *path
-            })
-        })
+        .filter(|path| !parents.contains(*path))
         .cloned()
         .collect()
 }
