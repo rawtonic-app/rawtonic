@@ -322,6 +322,7 @@ pub fn read(catalog: &Path) -> Result<Library> {
         photos,
         albums,
         stacks,
+        keywords: Vec::new(),
         not_read,
     })
 }

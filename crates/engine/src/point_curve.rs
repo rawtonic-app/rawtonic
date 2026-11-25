@@ -102,7 +102,7 @@ pub fn curve_value(points: &[(f32, f32)], value: f32) -> f32 {
 }
 
 /// The shader's `is_default_curve`: a channel curve that leaves values alone.
-fn is_identity(points: &[(f32, f32)]) -> bool {
+pub(crate) fn is_identity(points: &[(f32, f32)]) -> bool {
     let (Some(first), Some(last)) = (points.first(), points.last()) else {
         return false;
     };

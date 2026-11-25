@@ -552,6 +552,10 @@ recipe `*Version` key read once, with its clamp and a named predicate per gate).
 under their former module names and keeps their Tauri commands in thin modules of the same name. `engine` also holds
 mask rasterisation and the recipe hashes.
 
+`engine::capture_one_exposure` translates Capture One's Exposure on a non-RAW photo (its gain on the file's encoded
+values) at import: Rawtonic's Exposure scaled by γ/1.8 for a pure power profile (`input_profile::source_tone`), else
+the RGB point curve; the Capture One import (`library_import`) applies it to the photo and its layers.
+
 `engine::ai_selections` computes the Sky, Subject and Landscape selections a never-opened photo (an import, pasted
 settings, a preset) holds without a bitmap at export (the Landscape selections of a photo from one network run,
 `SelectionDetector::detect_landscape`), as the editor does on open (same warped photo, same parameters), through a
