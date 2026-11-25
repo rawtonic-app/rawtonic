@@ -9,7 +9,12 @@
  * (Lightroom's display form), `Animals|Dogs` (Capture One's) and
  * `Dogs < Animals` (Lightroom's entry shortcut: the child first). A keyword
  * stored flat before hierarchies, holding `>` or `<` (`places > asia`), stays
- * as it is; the keyword list offers it for conversion.
+ * as it is; the keyword list offers it for conversion. A level in double
+ * quotes is one name whatever it holds (`Parent > "comma,term"`,
+ * `"a > b"`): commas outside quotes separate keywords, `>`, `|` and `<`
+ * outside quotes separate levels, `;` and `/` are always part of a name.
+ * Autocomplete offers keywords whose names hold `,`, `>` or `<` in that
+ * form (`typedKeyword`), so choosing one applies it as it is.
  */
 
 export const KEYWORD_SEPARATOR = '|';
@@ -39,19 +44,48 @@ export function keywordParent(keyword: string): string | null {
   return levels.length > 1 ? levels.slice(0, -1).join(KEYWORD_SEPARATOR) : null;
 }
 
+/** `text` cut at each character of `separators` outside double quotes. */
+function splitOutsideQuotes(text: string, separators: string): string[] {
+  const out: string[] = [];
+  let piece = '';
+  let quoted = false;
+  for (const char of text) {
+    if (char === '"') quoted = !quoted;
+    if (!quoted && separators.includes(char)) {
+      out.push(piece);
+      piece = '';
+    } else piece += char;
+  }
+  out.push(piece);
+  return out;
+}
+
+/** A typed level, trimmed; a level in double quotes is its content. */
+function typedLevel(text: string): string {
+  const level = text.trim();
+  return level.length >= 2 && level.startsWith('"') && level.endsWith('"') ? level.slice(1, -1).trim() : level;
+}
+
 /** The levels of one typed keyword in any of the three entry forms, the top
  * first; empty when nothing is left. A `|` or `>` makes the levels top
- * first (both may be mixed); `<` alone names the child first. */
+ * first (both may be mixed); `<` alone names the child first; a level in
+ * double quotes is taken as it is. */
 export function parseKeywordPath(text: string): string[] {
-  const split = (separator: RegExp) =>
-    text
-      .split(separator)
-      .map((level) => level.trim())
-      .filter(Boolean);
-  if (/[|>]/.test(text)) return split(/[|>]/);
-  if (text.includes('<')) return split(/</).reverse();
-  const level = text.trim();
+  const split = (separators: string) => splitOutsideQuotes(text, separators).map(typedLevel).filter(Boolean);
+  const outside = text.replace(/"[^"]*"/g, '');
+  if (/[|>]/.test(outside)) return split('|>');
+  if (outside.includes('<')) return split('<').reverse();
+  const level = typedLevel(text);
   return level ? [level] : [];
+}
+
+/** A stored keyword as typed to get it back: its shown form with each level
+ * holding `,`, `>`, `<` or `"` in double quotes (`Parent > "comma,term"`),
+ * so autocomplete tells it apart from the hierarchy those would make. */
+export function typedKeyword(keyword: string): string {
+  return keywordLevels(keyword)
+    .map((level) => (/[,<>"]/.test(level) ? `"${level}"` : level))
+    .join(DISPLAY_SEPARATOR);
 }
 
 /** Keywords typed into the field: comma-separated, each parsed as a path,
@@ -59,7 +93,7 @@ export function parseKeywordPath(text: string): string[] {
 export function parseKeywordEntries(text: string): string[][] {
   const out: string[][] = [];
   const seen = new Set<string>();
-  for (const part of text.split(',')) {
+  for (const part of splitOutsideQuotes(text, ',')) {
     const levels = parseKeywordPath(part);
     if (!levels.length) continue;
     const key = fold(levels.join(KEYWORD_SEPARATOR));
@@ -149,40 +183,26 @@ function spelledPath(levels: string[], known: Map<string, string>): string {
 /**
  * The stored keywords for the field's text: each comma-separated entry
  * resolved (`resolveKeyword`), without duplicates. An entry that is exactly
- * a keyword stored flat before hierarchies (`places > asia`, as autocomplete
- * offers it) is that keyword, so applying it again keeps its identity; the
- * Keyword List offers its conversion.
+ * a keyword stored flat before hierarchies (`places > asia`) or a keyword as
+ * `typedKeyword` writes it (`Parent > "comma,term"`, as autocomplete offers
+ * it) is that keyword, so applying it again keeps its identity; the Keyword
+ * List offers a flat one's conversion.
  */
 export function resolveKeywordEntries(text: string, existing: readonly string[]): string[] {
-  // Existing keywords whose shown form would not parse back to them: a flat
-  // `places > asia` stored before hierarchies, or a level holding `,`, `>`
-  // or `<` (imported, `Parent|comma,term`). Entered as shown or as stored,
-  // as autocomplete offers them, they are kept.
-  const literal = new Map<string, string>();
+  const legacy = new Map<string, string>();
   for (const keyword of existing) {
     const stored = keyword.trim();
-    const shown = displayKeyword(stored);
-    if (!stored.includes(',') && parseKeywordPath(shown).join(KEYWORD_SEPARATOR) === normalizeKeyword(stored)) continue;
-    literal.set(fold(shown), stored);
-    literal.set(fold(stored), stored);
+    if (legacyHierarchy(stored)) legacy.set(fold(stored), stored);
+    // As autocomplete offers a keyword whose names need quotes: that keyword.
+    const typed = typedKeyword(stored);
+    if (typed !== displayKeyword(stored)) legacy.set(fold(typed), stored);
   }
-  const parts = text.split(',');
   const out: string[] = [];
-  for (let i = 0; i < parts.length;) {
-    // The longest run of comma-separated parts that names such a keyword.
-    let end = i + 1;
-    let kept: string | undefined;
-    for (let j = parts.length; j > i; j--) {
-      kept = literal.get(fold(parts.slice(i, j).join(',').trim()));
-      if (kept) {
-        end = j;
-        break;
-      }
-    }
-    const levels = kept ? null : parseKeywordPath(parts[i]);
+  for (const part of splitOutsideQuotes(text, ',')) {
+    const kept = legacy.get(fold(part.trim()));
+    const levels = kept ? null : parseKeywordPath(part);
     const keyword = kept ?? (levels!.length ? resolveKeyword(levels!, existing) : '');
     if (keyword && !out.some((k) => fold(k) === fold(keyword))) out.push(keyword);
-    i = end;
   }
   return out;
 }

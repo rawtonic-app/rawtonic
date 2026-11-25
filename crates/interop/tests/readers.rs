@@ -619,8 +619,10 @@ fn capture_one_keyword_library_keeps_unused_terms_and_literal_separators() {
     assert_eq!(lib.not_read.keyword_synonyms, 1);
 }
 
-// Without a keyword library (sessions of older versions) nothing changes:
-// the plain list splits at its commas, and `;` is part of a name.
+// Without a keyword library (sessions of older versions) the plain list
+// splits at its commas. A `;` is part of a name: a change, since the first
+// reader also split at `;` without a sample of Capture One writing `;` lists
+// (every catalog and session measured writes `,` and `||<n>`).
 #[test]
 fn capture_one_keywords_without_a_library_split_only_at_commas() {
     let dir = tempfile::tempdir().unwrap();

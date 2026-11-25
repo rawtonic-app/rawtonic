@@ -35,6 +35,7 @@ import {
   legacyHierarchy,
   movedKeyword,
   parseKeywordPath,
+  typedKeyword,
   renameKeyword,
   resolveKeywordPath,
   KEYWORD_SEPARATOR,
@@ -353,7 +354,7 @@ export function StudioKeywordList() {
             className="studio-metadata-input studio-album-name"
             style={{ marginLeft: depth * 14 }}
             aria-label={t('studio.library.keywordList.renameLabel', { keyword: displayKeyword(node.path) })}
-            defaultValue={displayKeyword(node.path)}
+            defaultValue={typedKeyword(node.path)}
             autoFocus
             onKeyDown={(e) => renameKeys(e, node.path)}
             onBlur={() => setRenaming(null)}

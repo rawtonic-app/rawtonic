@@ -16,6 +16,7 @@ import {
   resolveKeywordEntries,
   tagsHaveKeyword,
   treeRows,
+  typedKeyword,
   withDeclaredKeywords
 } from './keywordTree';
 
@@ -68,17 +69,26 @@ describe('field entries', () => {
     expect(resolveKeywordEntries('places > asia', [])).toEqual(['places|asia']);
   });
 
-  it('keeps an existing keyword whose name holds a comma or `>` when it is entered as shown', () => {
+  it('takes a level in double quotes as one name, as autocomplete offers such keywords', () => {
     // Imported from Capture One (KWC1): one level each.
-    const existing = ['Parent|comma,term', 'angle>term', 'semi;colon', 'Animals|Dogs'];
-    // As autocomplete offers them (`Parent > comma,term`), and as stored.
-    expect(resolveKeywordEntries('Parent > comma,term', existing)).toEqual(['Parent|comma,term']);
-    expect(resolveKeywordEntries('Parent|comma,term, dogs', existing)).toEqual(['Parent|comma,term', 'Animals|Dogs']);
-    expect(resolveKeywordEntries('angle>term', existing)).toEqual(['angle>term']);
-    expect(resolveKeywordEntries('semi;colon', existing)).toEqual(['semi;colon']);
-    // Other text keeps the typing rule: commas separate, `>` makes levels.
-    expect(resolveKeywordEntries('comma,term', existing)).toEqual(['comma', 'term']);
-    expect(resolveKeywordEntries('angle > other', existing)).toEqual(['angle|other']);
+    const existing = ['Parent|comma,term', 'angle>term', 'People|A > B', 'People|A|B', 'red', 'blue', 'red, blue'];
+    expect(existing.map(typedKeyword)).toEqual([
+      'Parent > "comma,term"',
+      '"angle>term"',
+      'People > "A > B"',
+      'People > A > B',
+      'red',
+      'blue',
+      '"red, blue"'
+    ]);
+    // Each suggestion applies its own keyword.
+    for (const keyword of existing) expect(resolveKeywordEntries(typedKeyword(keyword), existing)).toEqual([keyword]);
+    // Without quotes the typing rule holds: commas separate, `>` makes levels.
+    expect(resolveKeywordEntries('red, blue', existing)).toEqual(['red', 'blue']);
+    expect(resolveKeywordEntries('Parent > comma,term', existing)).toEqual(['Parent|comma', 'term']);
+    // Typed quotes work for new keywords too; `;` is part of a name.
+    expect(parseKeywordPath('Places > "Rome, Italy"')).toEqual(['Places', 'Rome, Italy']);
+    expect(parseKeywordEntries('"a > b", c;d')).toEqual([['a > b'], ['c;d']]);
   });
 });
 
