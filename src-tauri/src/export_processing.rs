@@ -494,6 +494,33 @@ async fn load_denoise_models(app_handle: &tauri::AppHandle, models: BTreeSet<usi
     }
 }
 
+/// Use the Export dialog's downloader before headless exports. The workers
+/// report failures per photo and recipe so other outputs can still be written.
+async fn prepare_headless_super_resolution(
+    app_handle: &tauri::AppHandle,
+    targets: &[ExportTarget],
+) {
+    let mut sr_settings = targets
+        .iter()
+        .map(|target| &target.export_settings)
+        .filter(|settings| settings.super_resolution);
+    let Some(first) = sr_settings.next() else {
+        return;
+    };
+    let needs_fast = !first.super_resolution_quality.is_full()
+        || sr_settings.any(|settings| !settings.super_resolution_quality.is_full());
+    match crate::super_resolution::prepare_super_resolution(app_handle.clone()).await {
+        Err(error) => rawtonic_runtime::cli_eprintln!("{error}"),
+        Ok(crate::super_resolution::Prepared {
+            fast_error: Some(error),
+            ..
+        }) if needs_fast => {
+            rawtonic_runtime::cli_eprintln!("Super Resolution Fast unavailable: {error}");
+        }
+        Ok(_) => {}
+    }
+}
+
 /// Whether `path` (an exported photograph, `?vc=` included) is the one open in
 /// the editor, whose unsaved recipe the export then uses. A virtual copy and
 /// its master share a source file but not a recipe, so the whole path counts.
@@ -1316,6 +1343,7 @@ pub(crate) struct ExportTarget {
 /// transformed and uploaded once and every recipe renders, sizes, sharpens
 /// and encodes its file from that (notes: parity-gaps/G43, F10); before, a
 /// photo exported with two recipes was decoded and developed twice.
+/// `completion_tx` is supplied by the headless exporter.
 pub(crate) async fn export_images_impl(
     paths: Vec<String>,
     targets: Vec<ExportTarget>,
@@ -1425,6 +1453,10 @@ pub(crate) async fn export_images_impl(
         let _task_guard = task_guard;
         let _same_ai_providers = same_ai_providers;
         let _ai_turn = ai_turn;
+        if completion_tx.is_some() {
+            // Start the GPU first so the model follows its provider policy.
+            prepare_headless_super_resolution(&app_handle, &targets).await;
+        }
         load_denoise_models(&app_handle, photos.denoise_models.clone()).await;
         let settings = crate::state::settings::current(&app_handle);
         let targets = Arc::new(targets);
@@ -3452,8 +3484,8 @@ fn headless_targets(
         destination_type: None,
         subfolder: None,
         output_sharpening: None,
-        super_resolution: false,
-        super_resolution_quality: Default::default(),
+        super_resolution: session.super_resolution.is_some(),
+        super_resolution_quality: session.super_resolution.unwrap_or_default(),
         provenance: None,
         existing_files: session.existing_files,
         max_file_kb: None,

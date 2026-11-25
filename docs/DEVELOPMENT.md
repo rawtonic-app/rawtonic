@@ -93,7 +93,18 @@ npm run tauri -- build --debug --bundles app
 './target/debug/bundle/macos/Rawtonic.app/Contents/MacOS/rawtonic-app' export /path/Job/Capture/photo.ARW --output /path/Job/Output/photo.jpg --format jpeg --quality 100
 ```
 
+Both binaries accept `--super-resolution-quality full|fast` to turn on 2× Super Resolution for an export. `--super-resolution` selects Full when no quality is given.
+
+```sh
+rawtonic-app export photo.png --output enlarged.png --format png --super-resolution-quality fast
+rawtonic export photo.png --output enlarged.png --format png --super-resolution-quality fast --models /path/to/models --lensfun-db /path/to/lensfun_db
+```
+
+The desktop binary fetches any missing Super Resolution model files through the same model pack as the Export dialog. The standalone `rawtonic` uses the installed app's model folder by default, or `--models DIR` / `RAWTONIC_MODELS`. If a required model is missing, it exits with status 1. To install the models, tick **Super Resolution** in the Export dialog and wait for the download, or run `scripts/models/install_models.sh` from the checkout and use the resulting models folder.
+
 `--recipes recipes.json` exports with several recipes at once, as ticked recipes in the export dialog (each photo is developed once for all of them): a JSON array of `{"format": "jpg", "settings": {…}}`, `settings` in the shape of a queued export's settings (`jpegQuality`, `resize`, `tiffBitDepth`, `colorSpace`, `keepMetadata`, `stripGps`, `filenameTemplate`, `subfolder`, …); `--output` is then the folder the recipes' subfolders go into. Built with `--features performance-profiling`, the run logs `[PERF_STAGE]` records with their thread and end time for batch-export profiles (notes: parity-gaps/G43).
+
+With `rawtonic-app export --recipes`, each recipe supplies its own export settings, including `"superResolution": true` and `"superResolutionQuality": "fast"`. The quality defaults to Full if omitted. Keep these fields in the export recipe's `settings` object.
 
 The desktop binary's `--on-conflict keep-both|skip|replace-if-changed` sets the conflict policy for a headless export, including a single explicit output file. The default is `keep-both`. `ask` and unknown policies are rejected. With `--recipes`, each recipe's `settings.existingFiles` supplies its policy (`keepBoth`, `skip` or `replaceIfChanged`), even if `--on-conflict` also appears on the command line. A recipe that omits `existingFiles` uses Keep both.
 

@@ -5,6 +5,7 @@ use tauri::Emitter;
 use crate::export_processing::TiffBitDepth;
 use rawtonic_engine::output_color_space::OutputColorSpace;
 use rawtonic_export::existing_files::ExistingFiles;
+use rawtonic_export::export_processing::SuperResolutionQuality;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +26,7 @@ pub struct HeadlessExportSession {
     pub color_space: OutputColorSpace,
     pub keep_metadata: bool,
     pub keep_creator_contact: bool,
+    pub super_resolution: Option<SuperResolutionQuality>,
     /// Conflict policy of a headless export without a recipes file.
     pub existing_files: ExistingFiles,
     pub adjustments_override: Option<String>,
@@ -88,6 +90,7 @@ pub fn parse_launch_args(args: &[String], base: Option<&Path>) -> LaunchRequest 
         let mut color_space = OutputColorSpace::Srgb;
         let mut keep_metadata = false;
         let mut keep_creator_contact = false;
+        let mut super_resolution = None;
         let mut existing_files = ExistingFiles::default();
         let mut adjustments_override = None;
         let mut max_jobs = None;
@@ -152,6 +155,20 @@ pub fn parse_launch_args(args: &[String], base: Option<&Path>) -> LaunchRequest 
                 }
                 "--keep-metadata" => keep_metadata = true,
                 "--keep-creator-contact" => keep_creator_contact = true,
+                "--super-resolution" => {
+                    super_resolution.get_or_insert(SuperResolutionQuality::Full);
+                }
+                "--super-resolution-quality" => {
+                    super_resolution = Some(match iter.next().map(String::as_str) {
+                        Some("full") => SuperResolutionQuality::Full,
+                        Some("fast") => SuperResolutionQuality::Fast,
+                        _ => {
+                            return LaunchRequest::InvalidHeadless(
+                                "--super-resolution-quality expects full or fast.".to_string(),
+                            );
+                        }
+                    });
+                }
                 "--on-conflict" => {
                     let Some(value) = iter.next() else {
                         return LaunchRequest::InvalidHeadless(
@@ -205,6 +222,7 @@ pub fn parse_launch_args(args: &[String], base: Option<&Path>) -> LaunchRequest 
             color_space,
             keep_metadata,
             keep_creator_contact,
+            super_resolution,
             existing_files,
             adjustments_override,
             max_jobs,
@@ -341,6 +359,38 @@ mod tests {
             parse_launch_args(&args(&["--recipes"]), None),
             LaunchRequest::InvalidHeadless(_)
         ));
+    }
+
+    #[test]
+    fn headless_exports_parse_super_resolution() {
+        let parse = |extra: &[&str]| {
+            let mut args = strings(&["export", "Capture", "--output", "Output"]);
+            args.extend(strings(extra));
+            parse_launch_args(&args, None)
+        };
+        for (extra, expected) in [
+            (&[][..], None),
+            (&["--super-resolution"], Some(SuperResolutionQuality::Full)),
+            (
+                &["--super-resolution-quality", "fast"],
+                Some(SuperResolutionQuality::Fast),
+            ),
+            (
+                &["--super-resolution-quality", "full"],
+                Some(SuperResolutionQuality::Full),
+            ),
+        ] {
+            let LaunchRequest::HeadlessExport(session) = parse(extra) else {
+                panic!("expected a headless export for {extra:?}");
+            };
+            assert_eq!(session.super_resolution, expected);
+        }
+        for extra in [
+            &["--super-resolution-quality"][..],
+            &["--super-resolution-quality", "unknown"],
+        ] {
+            assert!(matches!(parse(extra), LaunchRequest::InvalidHeadless(_)));
+        }
     }
 
     #[test]
