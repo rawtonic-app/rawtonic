@@ -938,6 +938,18 @@
         },
         {
           "kind": "item",
+          "id": "cmd:cycle_surroundings",
+          "label": "Dim Surroundings",
+          "enabled": false,
+          "shortcut": {
+            "key": "l",
+            "shift": true
+          },
+          "shortcutLabel": "⇧L",
+          "checked": false
+        },
+        {
+          "kind": "item",
           "id": "cmd:toggle_pointer_readout",
           "label": "Pointer RGB Readout",
           "enabled": false,

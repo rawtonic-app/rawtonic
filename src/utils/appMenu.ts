@@ -198,6 +198,7 @@ export const MENU_LAYOUT: TopMenu[] = [
       'separator',
       c('toggle_analytics', { check: true }),
       c('toggle_clipping', { check: true }),
+      c('cycle_surroundings', { check: true }),
       c('toggle_pointer_readout', { check: true }),
       // Shift+\ stays the webview's alone (no ⌘: not a key equivalent).
       c('toggle_camera_preview', { check: true }),

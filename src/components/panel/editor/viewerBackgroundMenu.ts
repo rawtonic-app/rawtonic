@@ -4,6 +4,7 @@ import { useSettingsStore } from '../../../store/useSettingsStore';
 import { resolveViewerBackground, VIEWER_BACKGROUNDS, type ViewerBackground } from '../../../utils/viewerDisplay';
 
 const LABELS: Record<ViewerBackground, () => string> = {
+  default: () => i18n.t('studio.workspace.viewer.background.default'),
   black: () => i18n.t('studio.workspace.viewer.background.black'),
   veryDark: () => i18n.t('studio.workspace.viewer.background.veryDark'),
   dark: () => i18n.t('studio.workspace.viewer.background.dark'),

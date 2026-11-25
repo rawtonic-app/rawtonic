@@ -76,16 +76,17 @@ describe('proof margin', () => {
 });
 
 describe('viewer background', () => {
-  it('defaults to Dark and migrates the neutral grey canvas switch to Medium', () => {
-    expect(resolveViewerBackground(null)).toBe('dark');
-    expect(resolveViewerBackground({})).toBe('dark');
-    expect(resolveViewerBackground({ editorNeutralGreyBg: false })).toBe('dark');
+  it('preserves the former Dark appearance by default and migrates the neutral grey canvas switch to Medium', () => {
+    expect(resolveViewerBackground(null)).toBe('default');
+    expect(resolveViewerBackground({})).toBe('default');
+    expect(resolveViewerBackground({ editorNeutralGreyBg: false })).toBe('default');
     expect(resolveViewerBackground({ editorNeutralGreyBg: true })).toBe('medium');
     expect(resolveViewerBackground({ editorNeutralGreyBg: true, viewerBackground: 'white' })).toBe('white');
-    expect(resolveViewerBackground({ viewerBackground: 'nonsense' })).toBe('dark');
+    expect(resolveViewerBackground({ viewerBackground: 'nonsense' })).toBe('default');
   });
 
   it('is a neutral grey; Medium is the 18 % grey (L* 50)', () => {
+    expect(viewerBackgroundRgba('default')).toEqual(viewerBackgroundRgba('dark'));
     expect(viewerBackgroundRgba('black')).toEqual([0, 0, 0, 1]);
     expect(viewerBackgroundRgba('white')).toEqual([1, 1, 1, 1]);
     expect(viewerBackgroundCss('medium')).toBe('rgb(119, 119, 119)');

@@ -308,6 +308,7 @@
       "compare_top_bottom": "Abans/després: Divisió superior/inferior",
       "copy_adjustments": "Copia els ajustaments",
       "copy_image_path": "Copia el camí",
+      "cycle_surroundings": "Atenua l’entorn",
       "delete_selected": "Mou a la paperera",
       "dock_filmstrip_bottom": "Tira de fotos sota la foto",
       "dock_filmstrip_left": "Tira de fotos a l'esquerra de la foto",
@@ -2650,6 +2651,7 @@
         "copy_files": "Copiar els fitxers seleccionats",
         "copy_image_path": "Copiar camí de les imatges seleccionades",
         "cycle_compare_mode": "Canvia el mode abans/després",
+        "cycle_surroundings": "Atenua l’entorn",
         "cycle_zoom": "Alternar zoom (Ajustar, 2x Ajustar, 100%)",
         "delete_selected": "Eliminar els fitxers seleccionats",
         "dock_filmstrip_bottom": "Tira de fotos sota la foto",
@@ -6019,6 +6021,7 @@
         "background": {
           "black": "Negre",
           "dark": "Fosc",
+          "default": "Predeterminat",
           "light": "Clar",
           "medium": "Mitjà",
           "veryDark": "Molt fosc",

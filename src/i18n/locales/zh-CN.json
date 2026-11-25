@@ -277,6 +277,7 @@
       "compare_top_bottom": "修改前/修改后：上下分割",
       "copy_adjustments": "拷贝调整",
       "copy_image_path": "拷贝路径",
+      "cycle_surroundings": "调暗照片周围区域",
       "delete_selected": "移到废纸篓",
       "dock_filmstrip_bottom": "胶片条置于照片下方",
       "dock_filmstrip_left": "胶片条置于照片左侧",
@@ -2410,6 +2411,7 @@
         "copy_files": "复制选中的文件",
         "copy_image_path": "复制所选图片的路径",
         "cycle_compare_mode": "切换修改前后对比模式",
+        "cycle_surroundings": "调暗照片周围区域",
         "cycle_zoom": "循环缩放（适应、2倍适应、100%）",
         "delete_selected": "删除选中的文件",
         "dock_filmstrip_bottom": "胶片条置于照片下方",
@@ -5642,6 +5644,7 @@
         "background": {
           "black": "黑色",
           "dark": "暗",
+          "default": "默认",
           "light": "亮",
           "medium": "中灰",
           "veryDark": "极暗",

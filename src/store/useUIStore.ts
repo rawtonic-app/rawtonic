@@ -213,6 +213,7 @@ export interface UIState {
   isFullScreen: boolean;
   /** The Library's single large photograph (loupe) instead of the grid. */
   libraryLoupe: boolean;
+  surroundings: 'normal' | 'dim' | 'black';
   /** Read-only facts of the photograph over the viewer (I in Develop and
    * in the full screen). */
   infoOverlay: boolean;
@@ -321,6 +322,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   gridColumns: 0,
   isFullScreen: false,
   libraryLoupe: false,
+  surroundings: 'normal',
   infoOverlay: false,
   isWindowFullScreen: false,
   isInstantTransition: false,

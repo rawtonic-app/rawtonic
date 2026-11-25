@@ -277,6 +277,7 @@
       "compare_top_bottom": "보정 전/후: 상하 분할",
       "copy_adjustments": "조정값 복사",
       "copy_image_path": "경로 복사",
+      "cycle_surroundings": "사진 주변 어둡게 하기",
       "delete_selected": "휴지통으로 이동",
       "dock_filmstrip_bottom": "필름스트립을 사진 아래에",
       "dock_filmstrip_left": "필름스트립을 사진 왼쪽에",
@@ -2410,6 +2411,7 @@
         "copy_files": "선택한 파일 복사",
         "copy_image_path": "선택한 이미지의 경로 복사",
         "cycle_compare_mode": "보정 전후 비교 모드 전환",
+        "cycle_surroundings": "사진 주변 어둡게 하기",
         "cycle_zoom": "확대/축소 순환 (맞춤, 2배 맞춤, 100%)",
         "delete_selected": "선택한 파일 삭제",
         "dock_filmstrip_bottom": "필름스트립을 사진 아래에",
@@ -5642,6 +5644,7 @@
         "background": {
           "black": "검정",
           "dark": "어두움",
+          "default": "기본값",
           "light": "밝음",
           "medium": "중간",
           "veryDark": "매우 어두움",

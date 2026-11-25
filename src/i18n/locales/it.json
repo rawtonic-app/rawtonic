@@ -308,6 +308,7 @@
       "compare_top_bottom": "Prima/dopo: Divisione alto/basso",
       "copy_adjustments": "Copia regolazioni",
       "copy_image_path": "Copia percorso",
+      "cycle_surroundings": "Oscura l’ambiente",
       "delete_selected": "Sposta nel cestino",
       "dock_filmstrip_bottom": "Pellicola sotto la foto",
       "dock_filmstrip_left": "Pellicola a sinistra della foto",
@@ -2650,6 +2651,7 @@
         "copy_files": "Copia file selezionati",
         "copy_image_path": "Copia il percorso delle immagini selezionate",
         "cycle_compare_mode": "Scorri le modalità prima/dopo",
+        "cycle_surroundings": "Oscura l’ambiente",
         "cycle_zoom": "Ruota zoom (Adatta, Adatta 2x, 100%)",
         "delete_selected": "Elimina file selezionati",
         "dock_filmstrip_bottom": "Pellicola sotto la foto",
@@ -6019,6 +6021,7 @@
         "background": {
           "black": "Nero",
           "dark": "Scuro",
+          "default": "Predefinito",
           "light": "Chiaro",
           "medium": "Medio",
           "veryDark": "Molto scuro",

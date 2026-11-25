@@ -277,6 +277,7 @@
       "compare_top_bottom": "修改前/修改後：上下分割",
       "copy_adjustments": "拷貝調整",
       "copy_image_path": "拷貝路徑",
+      "cycle_surroundings": "調暗照片周圍區域",
       "delete_selected": "丟到垃圾桶",
       "dock_filmstrip_bottom": "幻燈片列置於相片下方",
       "dock_filmstrip_left": "幻燈片列置於相片左側",
@@ -2410,6 +2411,7 @@
         "copy_files": "複製選中的檔案",
         "copy_image_path": "複製所選圖片的路徑",
         "cycle_compare_mode": "切換修改前後對比模式",
+        "cycle_surroundings": "調暗照片周圍區域",
         "cycle_zoom": "迴圈縮放（適應、2倍適應、100%）",
         "delete_selected": "刪除選中的檔案",
         "dock_filmstrip_bottom": "幻燈片列置於相片下方",
@@ -5642,6 +5644,7 @@
         "background": {
           "black": "黑色",
           "dark": "暗",
+          "default": "預設",
           "light": "亮",
           "medium": "中灰",
           "veryDark": "極暗",
