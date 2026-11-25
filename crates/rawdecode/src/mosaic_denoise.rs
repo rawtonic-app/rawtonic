@@ -86,6 +86,72 @@ pub trait MosaicDenoiser: Send + Sync {
     }
 }
 
+/// Both models for a recipe whose source sensor could not be probed. The
+/// full decode chooses a branch from the mosaic it actually decodes.
+pub struct SensorDenoisers {
+    pub bayer: Option<Arc<dyn MosaicDenoiser>>,
+    pub xtrans: Option<Arc<dyn MosaicDenoiser>>,
+}
+
+impl SensorDenoisers {
+    fn bayer(&self) -> Result<&dyn MosaicDenoiser> {
+        self.bayer
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Bayer AI Denoise model is not available"))
+    }
+}
+
+impl MosaicDenoiser for SensorDenoisers {
+    fn denoise(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: [u8; 4],
+    ) -> Result<Vec<f32>> {
+        self.bayer()?.denoise(mosaic, width, height, pattern)
+    }
+
+    fn denoise_scaled(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: [u8; 4],
+        noise_scale: f32,
+    ) -> Result<Vec<f32>> {
+        self.bayer()?
+            .denoise_scaled(mosaic, width, height, pattern, noise_scale)
+    }
+
+    fn denoise_reporting(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: [u8; 4],
+        noise_scale: f32,
+        progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Result<Vec<f32>> {
+        self.bayer()?
+            .denoise_reporting(mosaic, width, height, pattern, noise_scale, progress)
+    }
+
+    fn denoise_xtrans(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: &[[u8; 6]; 6],
+        noise_scale: f32,
+        progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Option<Result<Vec<f32>>> {
+        self.xtrans
+            .as_ref()?
+            .denoise_xtrans(mosaic, width, height, pattern, noise_scale, progress)
+    }
+}
+
 /// Told `(done, total)` while a denoiser works, e.g. for an export's progress.
 pub type DenoiseProgress = Arc<dyn Fn(usize, usize) + Send + Sync>;
 
@@ -723,6 +789,64 @@ mod tests {
             progress(1, 1);
             Some(Ok(vec![0.5; m.len()]))
         }
+    }
+
+    #[test]
+    fn models_for_an_unknown_sensor_run_the_same_network_as_the_direct_model() {
+        let bayer = Arc::new(Flat(Default::default()));
+        let xtrans = Arc::new(XTransFlat(Default::default()));
+        let both = SensorDenoisers {
+            bayer: Some(bayer.clone()),
+            xtrans: Some(xtrans.clone()),
+        };
+        let mosaic = [0.25; 36];
+        let bayer_pattern = [0, 1, 1, 2];
+        let xtrans_pattern = [[1; 6]; 6];
+        let progress = |_, _| {};
+        assert_eq!(
+            both.denoise_reporting(&mosaic, 6, 6, bayer_pattern, 0.955, &progress)
+                .unwrap(),
+            bayer
+                .denoise_reporting(&mosaic, 6, 6, bayer_pattern, 0.955, &progress)
+                .unwrap()
+        );
+        assert_eq!(
+            both.denoise_xtrans(&mosaic, 6, 6, &xtrans_pattern, 0.955, &progress)
+                .unwrap()
+                .unwrap(),
+            xtrans
+                .denoise_xtrans(&mosaic, 6, 6, &xtrans_pattern, 0.955, &progress)
+                .unwrap()
+                .unwrap()
+        );
+        let xtrans_only = SensorDenoisers {
+            bayer: None,
+            xtrans: Some(xtrans),
+        };
+        assert!(
+            xtrans_only
+                .denoise(&mosaic, 6, 6, bayer_pattern)
+                .unwrap_err()
+                .to_string()
+                .contains("Bayer AI Denoise model")
+        );
+        let bayer_only = SensorDenoisers {
+            bayer: Some(bayer),
+            xtrans: None,
+        };
+        let denoise = MosaicDenoise::new(Arc::new(bayer_only), 1.0).with_xtrans_required(true);
+        let error = apply_xtrans(
+            &denoise,
+            &mut [0.25; 36],
+            6,
+            (0, 0, 6, 6),
+            &xtrans_pattern,
+            |v| v,
+            |v| v,
+        )
+        .unwrap()
+        .unwrap_err();
+        assert!(error.to_string().contains("X-Trans"));
     }
 
     #[test]

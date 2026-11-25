@@ -73,6 +73,44 @@ const edit = (label: string, value: number) => {
 };
 
 describe('Develop tool contracts', () => {
+  it('shows a sensor read problem and keeps AI Denoise disabled', async () => {
+    mount();
+    fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Detail' }));
+    openGroups();
+    await act(async () => {});
+    expect((screen.getByRole('textbox', { name: 'AI Denoise value' }) as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText('Could not read a supported RAW sensor for AI Denoise.')).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: /AI Denoise quality/i })).toBeNull();
+  });
+  it.each([
+    { amount: 20, version: 3, expected: 3 },
+    { amount: 20, version: 5, expected: 6 },
+    { amount: 0, version: 3, expected: 6 }
+  ])(
+    'stores offline AI Denoise from $amount at version $version as version $expected',
+    async ({ amount, version, expected }) => {
+      useEditorStore.setState((state) => ({
+        selectedImage: { ...state.selectedImage!, offline: 'standard', isDecoded: true },
+        adjustments: { ...state.adjustments, aiDenoise: amount, aiDenoiseVersion: version }
+      }));
+      mount();
+      fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Detail' }));
+      openGroups();
+      await act(async () => {});
+      const slider = screen.getByRole('textbox', { name: 'AI Denoise value' }) as HTMLInputElement;
+      expect(slider.disabled).toBe(false);
+      expect(screen.getByText('The sensor type is read when the original is available.')).toBeTruthy();
+      const quality = screen.getByRole('combobox', { name: 'AI Denoise quality' }) as HTMLSelectElement;
+      expect(quality.disabled).toBe(false);
+      edit('AI Denoise', 43);
+      fireEvent.change(quality, { target: { value: 'fast' } });
+      expect(useEditorStore.getState().adjustments).toMatchObject({
+        aiDenoise: 43,
+        aiDenoiseVersion: expected,
+        aiDenoiseQuality: 'fast'
+      });
+    }
+  );
   it('accepts adjustments only after the selected source and metadata are ready', () => {
     useEditorStore.setState((state) => ({ selectedImage: { ...state.selectedImage!, isReady: false } }));
     const before = useEditorStore.getState().adjustments;

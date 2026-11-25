@@ -3398,6 +3398,8 @@
         "qualityFastHint": "快速：在處理器上約快 15 倍，細節略微減少。",
         "qualityFull": "完整",
         "qualityFullHint": "完整：最精細的細節。沒有快速顯示卡時較慢（在處理器上每張照片需要許多分鐘）。",
+        "sensorDeferred": "原始檔案可用時將讀取感光元件類型。",
+        "sensorReadFailed": "無法辨識 AI 降噪支援的 RAW 感光元件。",
         "xtransHint": "X-Trans 感光元件使用 AI 降噪專用的 X-Trans 網路，只有一種品質。"
       },
       "noPhoto": "在顯影中開啟照片以進行調整。",

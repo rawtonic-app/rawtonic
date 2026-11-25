@@ -184,8 +184,11 @@ impl SubmittedFrom {
 pub struct Pinned {
     /// Of all the photos' snapshots: jobs with equal ones share a develop.
     pub digest: String,
-    /// The AI Denoise models the recipes use, loaded before the job runs.
-    pub denoise_models: BTreeSet<usize>,
+    /// Model requirements from the sensor probe. Older requests only
+    /// stored a Bayer guess for unreadable sources, so re-probe their
+    /// pending photos from the pinned recipes.
+    #[serde(default)]
+    sensor_denoise_models: Option<BTreeSet<usize>>,
 }
 
 /// Photos pinned and written to the queue together: pinning a batch holds
@@ -264,7 +267,7 @@ impl ExportRequest {
         Ok((
             Pinned {
                 digest: digest.finalize().to_hex().to_string(),
-                denoise_models: models,
+                sensor_denoise_models: Some(models),
             },
             seen,
         ))
@@ -384,7 +387,7 @@ fn queued_photos(
         denoise_models: request
             .pinned
             .as_ref()
-            .map(|pinned| pinned.denoise_models.clone())
+            .and_then(|pinned| pinned.sensor_denoise_models.clone())
             .unwrap_or_default(),
         read: Arc::new(move |index| {
             let snapshot = jobs
@@ -1235,12 +1238,33 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     };
     let job_ids: Vec<String> = trackings.iter().map(|(_, t)| t.job.clone()).collect();
     let photo_app = app.clone();
-    let photos = queued_photos(&request, job_ids, move |job, index| {
+    let mut photos = queued_photos(&request, job_ids, move |job, index| {
         with_queue(&photo_app.state::<ExportState>(), |q| {
             q.item_snapshot(job, index)
         })
         .flatten()
     });
+    if request
+        .pinned
+        .as_ref()
+        .is_some_and(|pinned| pinned.sensor_denoise_models.is_none())
+    {
+        let pending: HashSet<usize> = trackings
+            .iter()
+            .flat_map(|(_, tracking)| tracking.pending.iter().copied())
+            .collect();
+        let paths = request.paths.clone();
+        let read = Arc::clone(&photos.read);
+        photos.denoise_models = tauri::async_runtime::spawn_blocking(move || {
+            denoise_models(
+                pending
+                    .into_iter()
+                    .filter_map(|index| Some((read(index).ok()?.adjustments, paths.get(index)?))),
+            )
+        })
+        .await
+        .unwrap_or_default();
+    }
     *lock_recover(&exports.running_jobs) = trackings
         .iter()
         .map(|(_, t)| RunningJob {
@@ -2155,9 +2179,12 @@ mod tests {
             Some(libs.a.directory.as_path()),
         ));
         let pinned = job.request.pinned.clone().expect("pinned when queued");
-        assert_eq!(pinned.denoise_models.len(), 1, "loaded before the job runs");
+        let models = pinned
+            .sensor_denoise_models
+            .expect("models determined at submission");
+        assert_eq!(models.len(), 1, "loaded before the job runs");
         assert_eq!(
-            pinned.denoise_models,
+            models,
             crate::export_processing::denoise_models([(&ai["adjustments"], &path)])
         );
         assert!(
@@ -2170,6 +2197,23 @@ mod tests {
         assert!(
             (job.photos().read)(0).is_err(),
             "an exported photo is not again"
+        );
+    }
+
+    #[test]
+    fn a_queued_recipe_from_before_sensor_probing_keeps_its_snapshot() {
+        let libs = two_catalogs();
+        let path = libs.source.to_string_lossy().into_owned();
+        let job = queued(request(&[path], Some(libs.a.directory.as_path())));
+        let mut stored = serde_json::to_value(&job.request).unwrap();
+        let pinned = stored["pinned"].as_object_mut().unwrap();
+        pinned.remove("sensorDenoiseModels");
+        pinned.insert("denoiseModels".into(), json!([1]));
+        let old = runnable(&stored).unwrap().pinned.unwrap();
+        assert_eq!(old.digest, job.request.pinned.unwrap().digest);
+        assert_eq!(
+            old.sensor_denoise_models, None,
+            "the old model list must be recomputed"
         );
     }
 

@@ -6169,6 +6169,7 @@ version = "0.1.0"
 dependencies = [
  "rawler",
  "rawtonic-fs",
+ "serde",
 ]
 
 [[package]]

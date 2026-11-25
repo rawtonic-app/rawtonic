@@ -938,60 +938,73 @@ pub fn warp_planes_matter_at(path: &std::path::Path) -> bool {
     RawSource::new(path).is_ok_and(|source| warp_planes_matter(&source))
 }
 
-/// Whether the RAW in `source` is an X-Trans mosaic, the sensors whose AI
-/// Denoise is `MosaicDenoiser::denoise_xtrans`: a 6 × 6 RGB CFA of X-Trans
-/// counts (`mosaic_denoise::xtrans_pattern`) and no Super CCD layout. Reads
-/// the file's tags only (no samples), and only of the formats that can hold
-/// an X-Trans mosaic (`may_be_xtrans`); false for others and for files
-/// rawler cannot read.
-pub fn is_xtrans(source: &RawSource) -> bool {
-    if !may_be_xtrans(source) {
-        return false;
+pub use crate::raw_tiff::SensorKind;
+
+/// Probe the CFA without decoding sensor pixels. DNG uses a tag-only
+/// TIFF walk, since the DNG decoder reads unrelated tag payloads eagerly.
+pub fn sensor_kind(source: &RawSource) -> SensorKind {
+    if source.buf().starts_with(b"FOVb") {
+        // X3F is a linear Foveon sensor. Its dummy decode reads the whole file.
+        return SensorKind::Unknown;
+    }
+    if let Some(sensor) = crate::raw_tiff::dng_sensor(source.buf()) {
+        return sensor;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let Ok(decoder) = rawler::get_decoder(source) else {
-            return false;
-        };
-        let Ok(raw_image) = decoder.raw_image(source, &RawDecodeParams::default(), true) else {
-            return false;
-        };
-        if superccd_layout(&raw_image, source.buf()).is_some() {
-            return false;
+        let decoder = rawler::get_decoder(source).ok()?;
+        let raw_image = decoder
+            .raw_image(source, &RawDecodeParams::default(), true)
+            .ok()?;
+        if superccd_layout(&raw_image, source.buf()).is_some() || raw_image.cpp != 1 {
+            return None;
         }
-        match &raw_image.photometric {
-            RawPhotometricInterpretation::Cfa(config) if raw_image.cpp == 1 => {
-                crate::mosaic_denoise::xtrans_pattern(&config.cfa, 0, 0).is_some()
-            }
-            _ => false,
+        let RawPhotometricInterpretation::Cfa(config) = &raw_image.photometric else {
+            return None;
+        };
+        if crate::mosaic_denoise::xtrans_pattern(&config.cfa, 0, 0).is_some() {
+            Some(SensorKind::XTrans)
+        } else {
+            crate::mosaic_denoise::bayer_pattern(&config.cfa, 0, 0).map(|_| SensorKind::Bayer)
         }
     }))
-    .unwrap_or(false)
+    .ok()
+    .flatten()
+    .unwrap_or(SensorKind::Unknown)
 }
 
-/// Whether `source` is of a format that can hold an X-Trans mosaic, by its
-/// first bytes and name, without a decoder: Fujifilm's RAF and DNG (which
-/// converted RAFs are). Other formats are never opened by a decoder for the
-/// question, as some decoders (Sigma's X3F, Minolta's MRW) read the whole
-/// file when they are made.
-fn may_be_xtrans(source: &RawSource) -> bool {
-    let head = source.subview(0, 16).unwrap_or_default();
-    let tiff = head.starts_with(b"II*\0") || head.starts_with(b"MM\0*");
-    let dng = source
-        .path()
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("dng"));
-    head.starts_with(b"FUJIFILMCCD-RAW") || (tiff && dng)
-}
-
-/// `is_xtrans` of the file at `path`, mapped without reading ahead
-/// (`RawSource::new_lazy`): only the pages its first bytes and tags are on
-/// are read, which matters on network shares. An evicted cloud file is not
-/// opened (that would download it): false.
-pub fn is_xtrans_at(path: &std::path::Path) -> bool {
+/// Probe the sensor using a lazy read-only mapping, or ordinary reads if
+/// the filesystem refuses that mapping. An offline cloud file
+/// stays offline until the user opens it.
+pub fn sensor_kind_at(path: &std::path::Path) -> SensorKind {
     if rawtonic_fs::is_cloud_placeholder(path) {
-        return false;
+        return SensorKind::Unknown;
     }
-    RawSource::new_lazy(path).is_ok_and(|source| is_xtrans(&source))
+    match RawSource::new_lazy(path) {
+        Ok(source) => sensor_kind(&source),
+        Err(_) => std::fs::File::open(path)
+            .ok()
+            .and_then(|mut file| sensor_kind_read(&mut file, path))
+            .unwrap_or(SensorKind::Unknown),
+    }
+}
+
+fn sensor_kind_read(
+    source: &mut (impl std::io::Read + std::io::Seek),
+    path: &std::path::Path,
+) -> Option<SensorKind> {
+    if let Some(sensor) = crate::raw_tiff::dng_sensor_reader(source) {
+        return Some(sensor);
+    }
+    source.rewind().ok()?;
+    let mut magic = [0; 4];
+    source.read_exact(&mut magic).ok()?;
+    if &magic == b"FOVb" {
+        return Some(SensorKind::Unknown);
+    }
+    let mut bytes = magic.to_vec();
+    source.read_to_end(&mut bytes).ok()?;
+    let source = RawSource::new_from_shared_vec(std::sync::Arc::new(bytes)).with_path(path);
+    Some(sensor_kind(&source))
 }
 
 /// `developed_frame` of the file at `path`, memory-mapped (rawler's
@@ -2926,19 +2939,63 @@ mod xtrans_probe_tests {
         RawSource::new_from_slice(&bytes).with_path(name)
     }
 
+    fn dng_with_embedded_original(name: &str) -> RawSource {
+        let mut bytes = b"II*\0\x08\0\0\0".to_vec();
+        let entries: [(u16, u16, u32, [u8; 4]); 5] = [
+            (259, 3, 1, [1, 0, 0, 0]),
+            (262, 3, 1, [0x23, 0x80, 0, 0]),
+            (33421, 3, 2, [6, 0, 6, 0]),
+            (50706, 1, 4, [1, 4, 0, 0]),
+            // The sensor tags are readable even though the embedded original is not.
+            (50828, 7, 1024 * 1024, [0, 0, 1, 0]),
+        ];
+        bytes.extend((entries.len() as u16).to_le_bytes());
+        for (tag, kind, count, value) in entries {
+            bytes.extend(tag.to_le_bytes());
+            bytes.extend(kind.to_le_bytes());
+            bytes.extend(count.to_le_bytes());
+            bytes.extend(value);
+        }
+        bytes.extend([0; 4]);
+        source(&bytes, name)
+    }
+
     #[test]
-    fn only_raf_and_dng_files_are_opened_for_the_x_trans_question() {
-        assert!(may_be_xtrans(&source(b"FUJIFILMCCD-RAW 0201", "a.RAF")));
-        assert!(may_be_xtrans(&source(b"II*\0\x08\0\0\0", "a.dng")));
-        assert!(may_be_xtrans(&source(b"MM\0*\0\0\0\x08", "a.DNG")));
-        // Other TIFF-based RAWs and formats whose decoders read the whole
-        // file when made are not.
-        assert!(!may_be_xtrans(&source(b"II*\0\x08\0\0\0", "a.NEF")));
-        assert!(!may_be_xtrans(&source(b"FOVb", "a.X3F")));
-        assert!(!may_be_xtrans(&source(b"\0MRM", "a.MRW")));
-        assert!(!may_be_xtrans(&source(b"", "empty.raf")));
-        // A header that only looks like a RAF: no X-Trans answer, no panic.
-        assert!(!is_xtrans(&source(b"FUJIFILMCCD-RAW 0201", "a.RAF")));
-        assert!(!is_xtrans_at(std::path::Path::new("missing/photo.RAF")));
+    fn reads_dng_sensor_without_reading_the_embedded_original() {
+        assert_eq!(
+            sensor_kind(&dng_with_embedded_original("photo.dng")),
+            SensorKind::XTrans
+        );
+    }
+
+    #[test]
+    fn identifies_dng_content_under_a_tiff_name() {
+        assert_eq!(
+            sensor_kind(&dng_with_embedded_original("photo.tif")),
+            SensorKind::XTrans
+        );
+    }
+
+    #[test]
+    fn ordinary_reads_recover_the_dng_sensor_when_mapping_is_unavailable() {
+        let source = dng_with_embedded_original("photo.tif");
+        let mut reader = std::io::Cursor::new(source.buf());
+        assert_eq!(
+            sensor_kind_read(&mut reader, source.path()),
+            Some(SensorKind::XTrans)
+        );
+        assert!(reader.position() < 100, "reads end in the TIFF directory");
+    }
+
+    #[test]
+    fn unreadable_sensor_is_unknown() {
+        assert_eq!(
+            sensor_kind(&source(b"FUJIFILMCCD-RAW 0201", "a.RAF")),
+            SensorKind::Unknown
+        );
+        assert_eq!(
+            sensor_kind_at(std::path::Path::new("missing/photo.RAF")),
+            SensorKind::Unknown
+        );
     }
 }

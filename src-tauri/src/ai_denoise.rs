@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use rawtonic_engine::image_loader::{FAST_AI_DENOISE_MODEL, XTRANS_AI_DENOISE_MODEL};
 use rawtonic_rawdecode::mosaic_denoise::{MosaicDenoise, MosaicDenoiser};
+use rawtonic_rawdecode::raw_processing::SensorKind;
 use tauri::Manager;
 
 /// Files of the model pack (docs/MODELS.md). On macOS the three Core ML
@@ -357,10 +358,8 @@ pub async fn ai_denoise_default_quality(app_handle: tauri::AppHandle) -> Result<
     .map_err(|e| e.to_string())
 }
 
-/// The decoder option for a recipe on the RAW at `source`: `None` without
-/// AI Denoise. Versions that denoise X-Trans read the file's tags for its
-/// sensor (`is_xtrans`); the decode fails clearly if that read was wrong
-/// (`MosaicDenoise::xtrans_required`).
+/// Prepare the denoiser for this recipe. With an unknown sensor, the full
+/// decode will choose which of the two models it needs.
 pub async fn option_for(
     app_handle: &tauri::AppHandle,
     adjustments: &serde_json::Value,
@@ -369,34 +368,61 @@ pub async fn option_for(
     let Some(ai) = rawtonic_engine::image_loader::ai_denoise_settings(adjustments) else {
         return Ok(None);
     };
-    let xtrans = ai.denoises_xtrans() && is_xtrans(source).await;
-    Ok(Some(ai.mosaic_denoise(
-        denoiser(app_handle, ai.model_for(xtrans)).await?,
-    )))
+    let sensor = if ai.denoises_xtrans() {
+        sensor_kind(source).await
+    } else {
+        SensorKind::Unknown
+    };
+    let mut models = std::collections::BTreeMap::new();
+    let mut error = None;
+    for model in ai.models_for_sensor(sensor).into_iter().flatten() {
+        match denoiser(app_handle, model).await {
+            Ok(denoiser) => {
+                models.insert(model, denoiser);
+            }
+            Err(e) => {
+                error.get_or_insert(e);
+            }
+        }
+    }
+    match ai.mosaic_denoise_for(sensor, |model| models.remove(&model)) {
+        Some(denoise) => Ok(Some(denoise)),
+        None => Err(error.unwrap_or_else(|| "AI Denoise model is not available".into())),
+    }
 }
 
-/// Whether the RAW at `path` (`?vc=` allowed) has an X-Trans sensor: its AI
-/// Denoise runs the X-Trans network from `aiDenoiseVersion` 6, which has one
-/// quality. Asked by Develop when a photo opens (its tags only, a few
-/// milliseconds), so the answer is there before the full decode.
+/// Probe the sensor of a photo, including virtual copies of it.
 #[tauri::command]
-pub async fn raw_is_xtrans(path: String) -> bool {
+pub async fn raw_sensor_kind(path: String) -> SensorKind {
     let (source, _) = crate::file_management::parse_virtual_path(&path);
-    is_xtrans(&source).await
+    sensor_kind(&source).await
 }
 
-/// Whether the RAW at `source` is an X-Trans mosaic
-/// (`rawdecode::raw_processing::is_xtrans_at`; its tags only), off the
-/// async workers.
-pub async fn is_xtrans(source: &Path) -> bool {
+/// Run the sensor read off the async workers.
+pub async fn sensor_kind(source: &Path) -> SensorKind {
     let source = source.to_path_buf();
-    tokio::task::spawn_blocking(move || rawtonic_rawdecode::raw_processing::is_xtrans_at(&source))
+    tokio::task::spawn_blocking(move || rawtonic_rawdecode::raw_processing::sensor_kind_at(&source))
         .await
-        .unwrap_or(false)
+        .unwrap_or(SensorKind::Unknown)
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn raw_sensor_kind_matches_the_frontend_contract() {
+        use super::SensorKind;
+        let wire: [serde_json::Value; 3] =
+            serde_json::from_str(include_str!("../../src/contracts/rawSensorKind.json")).unwrap();
+        let kinds = [SensorKind::Bayer, SensorKind::XTrans, SensorKind::Unknown];
+        for (value, kind) in wire.into_iter().zip(kinds) {
+            assert_eq!(
+                serde_json::from_value::<SensorKind>(value.clone()).unwrap(),
+                kind
+            );
+            assert_eq!(serde_json::to_value(kind).unwrap(), value);
+        }
+    }
+
     #[test]
     fn new_edits_get_fast_where_matchfilter_runs_on_the_cpu_unless_chosen() {
         use super::default_quality;

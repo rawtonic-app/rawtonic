@@ -3825,6 +3825,8 @@
         "qualityFastHint": "Szybka: około 15× szybsza na procesorze, z minimalnie mniejszą ilością drobnych szczegółów.",
         "qualityFull": "Pełna",
         "qualityFullHint": "Pełna: najdrobniejsze szczegóły. Wolna bez szybkiej karty graficznej (wiele minut na zdjęcie na procesorze).",
+        "sensorDeferred": "Typ matrycy zostanie odczytany, gdy oryginał będzie dostępny.",
+        "sensorReadFailed": "Nie udało się rozpoznać obsługiwanej matrycy RAW do odszumiania AI.",
         "xtransHint": "Matryce X-Trans korzystają z własnej sieci X-Trans odszumiania AI, która ma jedną jakość."
       },
       "noPhoto": "Otwórz zdjęcie w module Wywoływanie, aby je skorygować.",

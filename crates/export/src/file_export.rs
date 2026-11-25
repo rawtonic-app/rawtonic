@@ -241,14 +241,16 @@ impl FileExporter {
             .clone()
             .for_recipe(&js_adjustments, &source_path_str);
         if let Some(ai) = ai_denoise_settings(&js_adjustments).filter(|_| is_raw) {
-            let model = ai.model_for_source(job.source);
-            let denoiser = self.mosaic_denoisers[model].clone().ok_or_else(|| {
-                format!(
-                    "{} uses AI Denoise, but the denoising model is not available",
-                    job.source.display()
-                )
-            })?;
-            base.mosaic_denoise = Some(ai.mosaic_denoise(denoiser));
+            let sensor = ai.sensor_for_source(job.source);
+            base.mosaic_denoise = Some(
+                ai.mosaic_denoise_for(sensor, |model| self.mosaic_denoisers[model].clone())
+                    .ok_or_else(|| {
+                        format!(
+                            "{} uses AI Denoise, but the denoising model is not available",
+                            job.source.display()
+                        )
+                    })?,
+            );
         }
         if let Some(inputs) = &self.render_inputs {
             inputs.decode(
@@ -257,15 +259,20 @@ impl FileExporter {
                 ai_denoise_settings(&js_adjustments).filter(|_| is_raw),
             );
         }
-        let (pristine_source, measures) = match read_file_mapped(job.source) {
-            Ok(mmap) => load_base_image_measured(&mmap, &source_path_str, false, &base, None)
-                .map_err(|e| format!("Failed to load from mmap: {}", e))?,
-            Err(_) => {
-                let bytes = fs::read(&source_path_str).map_err(|e| e.to_string())?;
-                load_base_image_measured(&bytes, &source_path_str, false, &base, None)
-                    .map_err(|e| format!("Failed to load from bytes: {}", e))?
-            }
-        };
+        let (pristine_source, measures) =
+            rawtonic_engine::image_loader::require_raw_development(&source_path_str, || {
+                match read_file_mapped(job.source) {
+                    Ok(mmap) => {
+                        load_base_image_measured(&mmap, &source_path_str, false, &base, None)
+                            .map_err(|e| format!("Failed to load from mmap: {e}"))
+                    }
+                    Err(_) => {
+                        let bytes = fs::read(&source_path_str).map_err(|e| e.to_string())?;
+                        load_base_image_measured(&bytes, &source_path_str, false, &base, None)
+                            .map_err(|e| format!("Failed to load from bytes: {e}"))
+                    }
+                }
+            })?;
         let pristine_source = Arc::new(pristine_source);
         // As the editor computes them when the photo opens (nothing is
         // written back: the CLI never changes a recipe).

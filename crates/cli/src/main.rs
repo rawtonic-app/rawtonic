@@ -539,7 +539,7 @@ fn resolve_models_dir(models: Option<PathBuf>) -> Result<PathBuf> {
         .context("no model folder; pass --models")
 }
 
-/// The denoiser for AI Denoise `model` (`AiDenoiseSettings::model_for`)
+/// The denoiser for AI Denoise `model` (`AiDenoiseSettings::models_for_source`)
 /// from the app's model folder: MatchFilter on Core ML on macOS (1 the
 /// mixed-precision package) and on ONNX Runtime elsewhere (one model for
 /// every version); the Fast and the X-Trans network on ONNX Runtime
@@ -2122,8 +2122,9 @@ fn with_recipe_models(
         .zip(sources)
         .filter_map(|(recipe, source)| {
             let ai = rawtonic_engine::image_loader::ai_denoise_settings(recipe.as_ref()?)?;
-            Some(ai.model_for_source(source))
+            Some(ai.models_for_source(source))
         })
+        .flatten()
         .collect();
     // A model that cannot be loaded fails only the photos that need it.
     for model in ai_models {

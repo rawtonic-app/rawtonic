@@ -3398,6 +3398,8 @@
         "qualityFastHint": "快速：在处理器上约快 15 倍，细节略微减少。",
         "qualityFull": "完整",
         "qualityFullHint": "完整：最精细的细节。没有快速显卡时较慢（在处理器上每张照片需要许多分钟）。",
+        "sensorDeferred": "原始文件可用后将读取传感器类型。",
+        "sensorReadFailed": "无法识别 AI 降噪支持的 RAW 传感器。",
         "xtransHint": "X-Trans 传感器使用 AI 降噪专用的 X-Trans 网络，只有一种质量。"
       },
       "noPhoto": "在显影中打开照片以进行调整。",

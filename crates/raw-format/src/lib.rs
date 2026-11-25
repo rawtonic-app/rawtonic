@@ -6,7 +6,9 @@
 //! file's content to tell them from the RGB TIFFs editors and scanners write.
 
 pub mod camera_names;
+mod dng_sensor;
 pub mod extensions;
+pub use dng_sensor::{SensorKind, dng_sensor, dng_sensor_reader};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -23,11 +25,10 @@ use rawler::tags::{DngTag, TiffCommonTag};
 pub enum TiffKind {
     /// An RGB, grayscale or other raster image (or not a TIFF at all).
     Raster,
-    /// Camera raw data the decoder can develop.
+    /// Camera raw data identified by the container or decoder.
     Raw,
-    /// Unmistakably camera raw data (a Phase One IIQ header, a colour filter
-    /// array image) the decoder cannot read: it must fail as an unsupported
-    /// RAW, never open as its thumbnail.
+    /// Camera raw data whose decoder reported an error during classification.
+    /// It must fail as an unsupported RAW instead of opening as a thumbnail.
     UnsupportedRaw,
 }
 
@@ -56,7 +57,15 @@ pub fn classify(path: &Path) -> TiffKind {
 fn classify_local(path: &Path) -> TiffKind {
     match RawSource::new_lazy(path) {
         Ok(source) => classify_source(&source),
-        Err(_) => TiffKind::Raster,
+        Err(_) => {
+            if std::fs::File::open(path)
+                .is_ok_and(|mut file| dng_sensor::read_dng_header(&mut file))
+            {
+                TiffKind::Raw
+            } else {
+                TiffKind::Raster
+            }
+        }
     }
 }
 
@@ -112,6 +121,9 @@ fn classify_tiff(source: &RawSource) -> TiffKind {
     let buf = source.buf();
     if !(buf.starts_with(b"II*\0") || buf.starts_with(b"MM\0*")) {
         return TiffKind::Raster;
+    }
+    if dng_sensor(buf).is_some() {
+        return TiffKind::Raw;
     }
     // Phase One writes its IIQ container behind a TIFF header: "IIII" at
     // byte 8 is the IIQ directory's magic.
