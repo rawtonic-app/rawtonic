@@ -1761,11 +1761,12 @@ fn capture_one_exposure_report(
         .and_then(|entries| translate(&Develop::CaptureOne(entries.to_vec())))
         .and_then(|v| v.as_object().cloned())
         .unwrap_or_default();
-    let settings = std::iter::once((None, photo)).chain(layers.iter().map(|layer| {
-        (
+    // Only the layers that come over (a layer left out is reported as such).
+    let settings = std::iter::once((None, photo)).chain(layers.iter().filter_map(|layer| {
+        Some((
             Some(&layer.name),
-            crate::capture_one_layers::translated(layer),
-        )
+            crate::capture_one_layers::translated(layer)?,
+        ))
     }));
     let mut tone = None;
     let mut out = Vec::new();
@@ -3532,6 +3533,19 @@ mod tests {
             warnings
                 .iter()
                 .any(|w| w.contains("layer “Fill”: Exposure +1 comes over as Rawtonic's Exposure")),
+            "{warnings:?}"
+        );
+        // A layer the import leaves out gets no Exposure line.
+        only_layer.capture_one_layers[0].mask = Mask::Unsupported {
+            what: "test".into(),
+        };
+        let warnings = import_warnings(&only_layer);
+        assert!(
+            !warnings.iter().any(|w| w.contains("Exposure")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains("not imported")),
             "{warnings:?}"
         );
         // RAW files keep Rawtonic's Exposure (another law, G50M).
