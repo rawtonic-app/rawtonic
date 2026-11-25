@@ -13,7 +13,7 @@
 
 use std::collections::HashMap;
 
-use super::DisplayTransform;
+use super::{DisplayGeometry, DisplayTransform, PrimaryPlacement};
 
 /// A cell of the multi view: the photograph at `path` is shown contained and
 /// centred in `area` (device pixels, window coordinates).
@@ -72,10 +72,11 @@ pub(crate) struct CellTexture {
     /// frame keeps the sampling it was shown with (the editor's maximum
     /// zoom) while its cell stays at that zoom, until replaced.
     pixelated_at: Option<f32>,
-    /// A primary's stand-in after a lost device: where its live frame was
-    /// placed (window device px), drawn there until the new live frame
-    /// shows the cell.
-    placed: Option<[f32; 4]>,
+    /// A primary's stand-in after a lost device: where its live frame
+    /// showed the developed photograph (window device px; while cropping
+    /// the crop selection), drawn there until the new live frame shows the
+    /// cell.
+    placed: Option<PrimaryPlacement>,
     _texture: wgpu::Texture,
     width: u32,
     height: u32,
@@ -619,7 +620,7 @@ impl MultiView {
         width: u32,
         height: u32,
         rgba: &[u8],
-        primary_placed: Option<[f32; 4]>,
+        primary_placed: Option<PrimaryPlacement>,
         shown: impl FnOnce() -> Option<[f32; 2]>,
     ) -> bool {
         // The primary is drawn live. After a lost device its live frame is
@@ -928,8 +929,11 @@ impl MultiView {
     }
 
     fn placement(&self, path: &str, area: [f32; 4], texture: &CellTexture) -> [f32; 4] {
-        if let Some(rect) = texture.placed {
-            return rect;
+        // Contained in it: a thumbnail made before the latest crop never
+        // shows stretched.
+        if let Some(placed) = texture.placed {
+            let [x, y, w, h] = placed.rect;
+            return fit_rect([x, y, w, h], texture.width as f32, texture.height as f32);
         }
         match (self.drawn_zoom(path), texture.extent) {
             (Some(zoom), Some(extent)) => zoomed_rect(area, extent, zoom),
@@ -950,6 +954,29 @@ impl MultiView {
         match layer {
             CellLayer::Whole => area,
             CellLayer::Region => intersect(area, self.placement(path, area, texture)),
+        }
+    }
+
+    /// Moves the primary's stand-in (after a lost device) to the same kind
+    /// of place in `geometry`, so it stays on the photograph while the
+    /// webview pans or the crop selection is dragged: whether it moved.
+    pub(crate) fn follow_stand_in(&mut self, geometry: &DisplayGeometry) -> bool {
+        let Some(texture) = self
+            .primary
+            .as_deref()
+            .and_then(|path| self.textures.get_mut(path))
+        else {
+            return false;
+        };
+        let Some(placed) = texture.placed else {
+            return false;
+        };
+        match placed.on(geometry) {
+            Some(moved) if moved != placed => {
+                texture.placed = Some(moved);
+                true
+            }
+            _ => false,
         }
     }
 
@@ -1227,6 +1254,18 @@ mod tests {
 
     /// A live frame as the display binds it: its own transform and texture.
     fn live_frame(gpu: &Offscreen, rect: [f32; 4], clip: [f32; 4]) -> wgpu::BindGroup {
+        live_frame_of(gpu, rect, clip, (8, 8), &solid(8, 8, [0, 0, 255]))
+    }
+
+    /// A live frame of `rgba` (`size`) drawn at `rect` within `clip`.
+    fn live_frame_of(
+        gpu: &Offscreen,
+        rect: [f32; 4],
+        clip: [f32; 4],
+        size: (u32, u32),
+        rgba: &[u8],
+    ) -> wgpu::BindGroup {
+        let (width, height) = size;
         let mut primary = MultiView::default();
         primary.set_layout(
             None,
@@ -1246,19 +1285,19 @@ mod tests {
             &bindings,
             "live",
             7,
-            whole(8, 8),
+            whole(width, height),
             CellLayer::Whole,
-            8,
-            8,
-            &solid(8, 8, [0, 0, 255]),
+            width,
+            height,
+            rgba,
         );
         let texture = primary.textures.remove("live").unwrap();
         let transform = DisplayTransform {
             rect,
             clip,
             window: [SIZE[0] as f32, SIZE[1] as f32],
-            image_size: [8.0, 8.0],
-            texture_size: [8.0, 8.0],
+            image_size: [width as f32, height as f32],
+            texture_size: [width as f32, height as f32],
             pixelated: 0.0,
             rotation: 0.0,
             bg_primary: BG,
@@ -1572,7 +1611,10 @@ mod tests {
                 10,
                 8,
                 &magenta,
-                placed,
+                placed.map(|rect| PrimaryPlacement {
+                    rect,
+                    in_selection: false,
+                }),
                 || None,
             )
         };
@@ -1623,6 +1665,205 @@ mod tests {
         // A stand-in does not outlive a change of primary.
         multi.set_layout(Some("b".into()), cells());
         assert!(multi.textures["primary"].placed.is_none());
+    }
+
+    /// G74 DVL6, the recovery path as `shown_on` and `show_again` take it:
+    /// where the live frame showed the developed photograph
+    /// (`primary_placement_of` on the display's geometry) is where the new
+    /// display draws the cached thumbnail, so the cell shows the same
+    /// pixels as before the loss: zoomed in and panned with Zoom Lock on (a
+    /// primary that was never a secondary), and with the Crop tool open
+    /// (the uncropped frame; the thumbnail is the cropped photograph).
+    #[test]
+    #[ignore = "requires a native GPU; the primary's stand-in after a lost device, also while cropping"]
+    fn after_a_lost_device_the_primary_shows_its_thumbnail_where_its_frame_showed_it() {
+        use crate::gpu_processing::{DisplayGeometry, primary_placement_of};
+        let gpu = offscreen();
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        let area = [0.0, 0.0, 100.0, 100.0];
+        let layout = |zoom: Option<CellZoom>| {
+            let mut multi = MultiView::default();
+            multi.set_layout(
+                Some("primary".into()),
+                vec![
+                    MultiViewCell {
+                        path: "primary".into(),
+                        area,
+                    },
+                    MultiViewCell {
+                        path: "b".into(),
+                        area: [110.0, 0.0, 90.0, 100.0],
+                    },
+                ],
+            );
+            multi.set_zooms(zoom, HashMap::new());
+            multi
+        };
+        // Texel centres inside `rect` (`texels` across), away from the
+        // cell's edges: the same photograph point in both frames.
+        let points = |rect: [f32; 4], texels: u32| {
+            let step = rect[2] / texels as f32;
+            (0..texels * texels).filter_map(move |i| {
+                let x = rect[0] + step * ((i % texels) as f32 + 0.5);
+                let y = rect[1] + step * ((i / texels) as f32 + 0.5);
+                (x > 1.0 && y > 1.0 && x < 99.0 && y < 99.0).then_some((x as u32, y as u32))
+            })
+        };
+        let bullseye = bullseye_rgba();
+
+        // Zoom Lock on at 100 %, panned: the 32 x 32 photograph at 6x, its
+        // cyan centre off the cell's centre.
+        let zoom = Some(CellZoom {
+            scale: 6.0,
+            center: [0.4, 0.45],
+        });
+        let geometry = DisplayGeometry {
+            rect: [-50.0, -30.0, 192.0, 192.0],
+            ..Default::default()
+        };
+        let before = present(
+            &gpu,
+            &layout(zoom),
+            Some(PrimaryDraw {
+                bind_group: &live_frame_of(&gpu, geometry.rect, area, (32, 32), &bullseye),
+                before: &gpu.empty_before,
+                clip: area,
+            }),
+        );
+        let placed = primary_placement_of(&geometry, false);
+        let mut multi = layout(zoom);
+        assert!(multi.stand_in(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "primary",
+            32,
+            32,
+            &bullseye,
+            placed,
+            || None,
+        ));
+        let after = present(&gpu, &multi, None);
+        let mut cyan = 0;
+        for (x, y) in points(geometry.rect, 32) {
+            let shown = pixel(&before, x, y);
+            assert!(close(pixel(&after, x, y), shown), "zoomed at {x},{y}");
+            cyan += usize::from(shown == [0, 255, 255]);
+        }
+        assert!(cyan > 20, "the cyan centre is in the cell: {cyan}");
+
+        // The Crop tool open: the uncropped photograph in its box (3 px a
+        // texel), the selection on texels 8..24 (cyan 12..20 in its middle).
+        // The thumbnail is that crop, 16 x 16.
+        let geometry = DisplayGeometry {
+            rect: [24.0, 24.0, 48.0, 48.0],
+            crop_rect: [2.0, 2.0, 96.0, 96.0],
+            crop_rotation: 0.0,
+            crop_selection: Some([26.0, 26.0, 48.0, 48.0]),
+        };
+        let (box_rect, rotation, clip) = geometry.placement(true);
+        assert_eq!(rotation, 0.0);
+        let before = present(
+            &gpu,
+            &layout(None),
+            Some(PrimaryDraw {
+                bind_group: &live_frame_of(&gpu, box_rect, clip, (32, 32), &bullseye),
+                before: &gpu.empty_before,
+                clip,
+            }),
+        );
+        let cropped: Vec<u8> = (8..24)
+            .flat_map(|y| bullseye[(y * 32 + 8) * 4..(y * 32 + 24) * 4].to_vec())
+            .collect();
+        let placed = primary_placement_of(&geometry, true);
+        assert_eq!(placed.map(|p| p.rect), geometry.crop_selection);
+        let mut multi = layout(None);
+        assert!(multi.stand_in(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "primary",
+            16,
+            16,
+            &cropped,
+            placed,
+            || None,
+        ));
+        let after = present(&gpu, &multi, None);
+        for (x, y) in points([26.0, 26.0, 48.0, 48.0], 16) {
+            assert!(
+                close(pixel(&after, x, y), pixel(&before, x, y)),
+                "cropping at {x},{y}: {:?} vs {:?}",
+                pixel(&after, x, y),
+                pixel(&before, x, y)
+            );
+        }
+        assert!(close(pixel(&after, 50, 50), [0, 255, 255]));
+        // Outside the selection only the background (the crop tool shades
+        // it); the thumbnail has nothing of the cropped-away photograph.
+        assert!(close(pixel(&after, 10, 50), [35, 35, 35]));
+        // A crop edge dragged while it shows: it stays in the selection.
+        let dragged = DisplayGeometry {
+            crop_selection: Some([26.0, 26.0, 30.0, 48.0]),
+            ..geometry
+        };
+        assert!(multi.follow_stand_in(&dragged));
+        assert!(!multi.follow_stand_in(&dragged), "moved once");
+        let after = present(&gpu, &multi, None);
+        assert!(
+            close(pixel(&after, 65, 50), [35, 35, 35]),
+            "not past the edge"
+        );
+        assert!(close(pixel(&after, 41, 50), [0, 255, 255]));
+        // A pan without the Crop tool moves a frame's stand-in with it.
+        let mut panned = layout(None);
+        let at_frame = primary_placement_of(&geometry, false);
+        assert!(panned.stand_in(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "primary",
+            16,
+            16,
+            &cropped,
+            at_frame,
+            || None,
+        ));
+        let moved = DisplayGeometry {
+            rect: [4.0, 24.0, 48.0, 48.0],
+            ..geometry
+        };
+        assert!(panned.follow_stand_in(&moved));
+        let after = present(&gpu, &panned, None);
+        assert!(close(pixel(&after, 28, 48), [0, 255, 255]));
+        assert!(close(pixel(&after, 60, 48), [35, 35, 35]));
+        // A thumbnail from before the latest crop (another shape) is
+        // contained in the selection, never stretched.
+        let mut multi = layout(None);
+        assert!(multi.stand_in(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "primary",
+            32,
+            16,
+            &solid(32, 16, [255, 255, 0]),
+            placed,
+            || None,
+        ));
+        let after = present(&gpu, &multi, None);
+        assert!(close(pixel(&after, 50, 50), [255, 255, 0]));
+        assert!(close(pixel(&after, 50, 30), [35, 35, 35]), "letterboxed");
+        // Without a selection (none sent) no guess.
+        let unknown = DisplayGeometry {
+            crop_selection: None,
+            ..geometry
+        };
+        assert_eq!(primary_placement_of(&unknown, true), None);
     }
 
     #[test]

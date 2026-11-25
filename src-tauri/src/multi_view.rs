@@ -351,7 +351,7 @@ pub(crate) struct Shown {
     zoom: Option<CellZoom>,
     cell_zooms: HashMap<String, CellZoom>,
     /// Where the primary's live frame was placed (window device px).
-    primary_placed: Option<[f32; 4]>,
+    primary_placed: Option<gpu_processing::PrimaryPlacement>,
 }
 
 /// What `display`'s multi view shows, when it is active.
@@ -399,7 +399,7 @@ fn show_cells(
     primary: Option<String>,
     cells: Vec<CellPayload>,
     zooms: Option<(CellZooms, u64)>,
-    primary_placed: Option<[f32; 4]>,
+    primary_placed: Option<gpu_processing::PrimaryPlacement>,
 ) -> bool {
     let Ok(context) = gpu_processing::get_or_init_gpu_context(
         &app_handle.state::<crate::state::gpu::GpuState>(),
@@ -769,7 +769,7 @@ fn show_stand_ins(
     app_handle: &tauri::AppHandle,
     context: &GpuContext,
     paths: Vec<(String, (u32, u32))>,
-    primary_placed: Option<[f32; 4]>,
+    primary_placed: Option<gpu_processing::PrimaryPlacement>,
 ) {
     if paths.is_empty() {
         return;

@@ -64,6 +64,80 @@ pub fn to_working_space(image: DynamicImage, icc: &[u8]) -> DynamicImage {
     profile_to_working_space(image, &profile)
 }
 
+/// How the renderer reads a non-RAW source's values, for settings defined
+/// on the file's own encoding (`capture_one_exposure`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum SourceTone {
+    /// The renderer's values are the file's own: no profile, an sRGB one,
+    /// one it cannot read, or a profile that is not RGB.
+    AsRead,
+    /// A matrix/TRC profile other than sRGB whose three channels share one
+    /// pure power curve (Adobe RGB 563/256, ProPhoto 1.8): linear = value^γ.
+    Power(f64),
+    /// A matrix/TRC profile other than sRGB whose three channels share
+    /// another tone curve (Display P3's sRGB curve, a linear toe): the
+    /// file's value → linear light, sampled at `SOURCE_TONE_SAMPLES` even
+    /// steps over 0…1.
+    Matrix(Vec<f32>),
+    /// A LUT profile, or channels with different tone curves.
+    Other,
+}
+
+/// Samples of a `SourceTone::Matrix` curve.
+pub const SOURCE_TONE_SAMPLES: usize = 4097;
+
+/// The tone of a source with the embedded profile `icc`, as
+/// `to_working_space` reads it.
+pub fn source_tone(icc: &[u8]) -> SourceTone {
+    let Ok(profile) = ColorProfile::new_from_slice(icc) else {
+        return SourceTone::AsRead;
+    };
+    if profile.color_space != DataColorSpace::Rgb {
+        return SourceTone::AsRead;
+    }
+    if !profile.is_matrix_shaper() {
+        return SourceTone::Other;
+    }
+    let matrix = profile.transform_matrix(&ColorProfile::new_srgb()).v;
+    if is_srgb(&profile, &matrix) {
+        return SourceTone::AsRead;
+    }
+    let tables: Vec<Vec<f32>> = [&profile.red_trc, &profile.green_trc, &profile.blue_trc]
+        .iter()
+        .filter_map(|trc| trc.as_ref().and_then(|t| t.make_linear_evaluator().ok()))
+        .map(|e| {
+            let last = (SOURCE_TONE_SAMPLES - 1) as f32;
+            (0..SOURCE_TONE_SAMPLES)
+                .map(|i| match e.evaluate_value(i as f32 / last) {
+                    v if v.is_finite() => v.clamp(0.0, 1.0),
+                    _ => 0.0,
+                })
+                .collect()
+        })
+        .collect();
+    let shared = tables.len() == 3
+        && tables[1..]
+            .iter()
+            .all(|t| t.iter().zip(&tables[0]).all(|(a, b)| (a - b).abs() < 1e-4));
+    if !shared {
+        return SourceTone::Other;
+    }
+    let table = tables.into_iter().next().unwrap_or_default();
+    let last = (SOURCE_TONE_SAMPLES - 1) as f64;
+    let mid = f64::from(table[(SOURCE_TONE_SAMPLES - 1) / 2]);
+    let gamma = mid.ln() / 0.5_f64.ln();
+    let power = gamma.is_finite()
+        && gamma > 0.0
+        && table
+            .iter()
+            .enumerate()
+            .all(|(i, v)| (f64::from(*v) - (i as f64 / last).powf(gamma)).abs() < 2e-4);
+    if power {
+        return SourceTone::Power(gamma);
+    }
+    SourceTone::Matrix(table)
+}
+
 /// The RGB profile of H.273 colour primaries and transfer characteristics
 /// (an AVIF `nclx` property); `None` for code points moxcms has no
 /// chromaticities or curve for.

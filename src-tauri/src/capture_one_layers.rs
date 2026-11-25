@@ -108,6 +108,13 @@ fn adjustments(layer: &Layer) -> (Map<String, Value>, Vec<String>) {
     (out, left_out)
 }
 
+/// The layer's settings as the Rawtonic layer adjustments they become;
+/// `None` for a layer the import leaves out (its mask is not read).
+pub fn translated(layer: &Layer) -> Option<Map<String, Value>> {
+    components(layer, &mut Vec::new(), false, &uncorrected).ok()?;
+    Some(adjustments(layer).0)
+}
+
 fn is_neutral(value: &Value) -> bool {
     match value {
         Value::Null => true,

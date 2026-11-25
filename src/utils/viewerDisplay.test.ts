@@ -6,6 +6,7 @@ import {
   clampViewerZoom,
   cropModeBox,
   cropModeMarginPx,
+  cropSelectionOnScreen,
   fitInViewer,
   fitZoomValue,
   isOutsidePhoto,
@@ -192,5 +193,24 @@ describe('viewerPaintsBackground', () => {
 
   it("never covers the multi view's primary cell, which keeps its own native frame", () => {
     expect(viewerPaintsBackground({ nativeFrame: false, nativeMultiView: true })).toBe(false);
+  });
+});
+
+describe('cropSelectionOnScreen', () => {
+  it('maps the stored crop into the box the uncropped photo is placed in', () => {
+    const box: [number, number, number, number] = [100, 50, 600, 400];
+    const frame = { width: 6000, height: 4000 };
+    expect(cropSelectionOnScreen(box, frame, { x: 1500, y: 1000, width: 3000, height: 2000 })).toEqual([
+      250, 150, 300, 200
+    ]);
+    expect(cropSelectionOnScreen(box, frame, { unit: '%', x: 25, y: 25, width: 50, height: 50 })).toEqual([
+      250, 150, 300, 200
+    ]);
+  });
+
+  it('is the whole box without a crop', () => {
+    const box: [number, number, number, number] = [0, 0, 300, 200];
+    expect(cropSelectionOnScreen(box, { width: 3, height: 2 }, null)).toEqual(box);
+    expect(cropSelectionOnScreen(box, { width: 3, height: 2 }, { x: 0, y: 0, width: 0, height: 0 })).toEqual(box);
   });
 });

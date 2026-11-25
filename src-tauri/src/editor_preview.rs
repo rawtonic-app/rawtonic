@@ -91,6 +91,13 @@ pub struct WgpuTransformPayload {
     pub crop_rect: Option<[f32; 4]>,
     #[serde(default)]
     pub crop_rotation: f32,
+    /// While cropping: the crop selection on screen (x, y, w, h), where the
+    /// cropped photograph shows (a stand-in after a lost device, G74 DVL6).
+    #[serde(default)]
+    pub crop_selection: Option<[f32; 4]>,
+    /// Only `crop_selection` changed (a crop drag): kept, nothing presented.
+    #[serde(default)]
+    pub selection_only: bool,
     /// Keep showing the current frame where it is; this placement applies
     /// with the next frame bound (the next photograph's first frame).
     #[serde(default)]
@@ -1047,12 +1054,22 @@ pub(crate) async fn update_wgpu_transform(
             })
         );
         let mut display_lock = context.display.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(display) = display_lock.as_mut() {
+        if let Some(display) = display_lock.as_mut()
+            && payload.selection_only
+        {
+            let geometry = display.pending_geometry.as_mut();
+            geometry.unwrap_or(&mut display.geometry).crop_selection = payload.crop_selection;
+            // A stand-in after a lost device stays in the moving selection.
+            if display.follow_primary_stand_in() {
+                display.render(&context.device, &context.queue);
+            }
+        } else if let Some(display) = display_lock.as_mut() {
             let rect = [payload.x, payload.y, payload.width, payload.height];
             let geometry = gpu_processing::DisplayGeometry {
                 rect,
                 crop_rect: payload.crop_rect.unwrap_or(rect),
                 crop_rotation: payload.crop_rotation.to_radians(),
+                crop_selection: payload.crop_selection,
             };
             display.viewport = payload.viewport;
             display.viewer_area = payload.viewer_area.or(display.viewer_area);
@@ -1068,6 +1085,7 @@ pub(crate) async fn update_wgpu_transform(
                 display.pending_geometry = None;
                 display.geometry = geometry;
                 display.apply_geometry();
+                display.follow_primary_stand_in();
             }
             display.latest_transform.clip = [
                 payload.clip_x,
@@ -3848,6 +3866,7 @@ fn submit_activation_frame(
             rect,
             crop_rect: rect,
             crop_rotation: 0.0,
+            crop_selection: None,
         });
     }
     let preview_dim = match state.preview.last_preview_dim.load(Ordering::Relaxed) {
