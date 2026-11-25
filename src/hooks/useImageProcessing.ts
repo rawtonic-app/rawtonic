@@ -163,8 +163,6 @@ export function useImageProcessing(
   const appSettings = useSettingsStore((state) => state.appSettings);
 
   const uncroppedJobIdRef = useRef(0);
-  // Whether the frame last rendered showed a held before, to tell its start and end.
-  const beforeHeldRef = useRef(false);
   const latestUncroppedJobIdRef = useRef(0);
 
   const lastAnalyticsTimeRef = useRef<number>(0);
@@ -1100,14 +1098,12 @@ export function useImageProcessing(
     } else {
       currentResRef.current = targetRes;
 
-      // A held before (a tool's, or the whole photograph's peek) starting
-      // or ending shows its visible region first; other previews in place
-      // of the edit (a hovered style or preset) render as before.
-      const { toolBefore, showOriginal } = useEditorStore.getState();
-      const beforeHeld = previewOverride !== null && (toolBefore !== null || showOriginal);
-      const regionFirst = beforeHeld !== beforeHeldRef.current;
-      beforeHeldRef.current = beforeHeld;
-      applyAdjustments(renderAdjustments, false, targetRes, regionFirst);
+      // Zoomed in, a settled frame (an edit, a held before, a hovered style)
+      // shows its visible region first, then the whole frame for panning:
+      // at 100 % on a Radeon 680M the whole 3840 px frame took 277 ms on
+      // the GPU, its visible region 27 ms; settle 384 -> 113 ms (notes:
+      // benchmark-results/mwd1-2026-11-25). Native display only (backend).
+      applyAdjustments(renderAdjustments, false, targetRes, true);
 
       if (previewOverride) return;
 

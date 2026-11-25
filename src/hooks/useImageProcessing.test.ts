@@ -254,11 +254,13 @@ it('keeps original-preview overrides out of saved adjustments', async () => {
     })
   );
   expect(calls()[1][1]).toMatchObject({ jsAdjustments: { exposure: -2 } });
+  // At fit there is no region to show first.
+  expect(calls()[1][1]).not.toHaveProperty('regionFirst');
   expect(debouncedSave).not.toHaveBeenCalled();
   await finish();
 });
 
-it('asks for the visible region first when a held before starts or ends zoomed in', async () => {
+it('asks for the visible region first for every settled frame zoomed in', async () => {
   useEditorStore.setState({
     baseRenderSize: { width: 1000, height: 600, offsetX: 0, offsetY: 0, containerWidth: 1000, containerHeight: 600 }
   } as never);
@@ -275,7 +277,7 @@ it('asks for the visible region first when a held before starts or ends zoomed i
     )
   );
   await finish();
-  expect(calls()[0][1]).not.toHaveProperty('regionFirst');
+  expect(calls()[0][1]).toMatchObject({ regionFirst: true, roi: expect.any(Array) });
   // The per-tool before held, then let go.
   act(() =>
     useEditorStore.setState({ toolBefore: 'exposure', previewOverride: { ...INITIAL_ADJUSTMENTS, exposure: -2 } })
@@ -285,15 +287,15 @@ it('asks for the visible region first when a held before starts or ends zoomed i
   act(() => useEditorStore.setState({ toolBefore: null, previewOverride: null }));
   expect(calls()[2][1]).toMatchObject({ regionFirst: true, jsAdjustments: { exposure: 0 } });
   await finish();
-  // An edit, or a hovered preset shown in place of the edit, renders the whole frame as before.
+  // An edit, or a hovered preset shown in place of the edit, too.
   act(() => useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 1 } }));
-  expect(calls()[3][1]).not.toHaveProperty('regionFirst');
+  expect(calls()[3][1]).toMatchObject({ regionFirst: true, jsAdjustments: { exposure: 1 } });
   await finish();
   act(() => useEditorStore.setState({ previewOverride: { ...INITIAL_ADJUSTMENTS, exposure: 3 } }));
-  expect(calls()[4][1]).not.toHaveProperty('regionFirst');
+  expect(calls()[4][1]).toMatchObject({ regionFirst: true });
   await finish();
   act(() => useEditorStore.setState({ previewOverride: null }));
-  expect(calls()[5][1]).not.toHaveProperty('regionFirst');
+  expect(calls()[5][1]).toMatchObject({ regionFirst: true });
   await finish();
   // The whole photograph's before held (the peek).
   act(() => useEditorStore.setState({ showOriginal: true, previewOverride: { ...INITIAL_ADJUSTMENTS } }));

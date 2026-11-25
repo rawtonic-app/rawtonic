@@ -3287,8 +3287,9 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             // first Halation frame on a cold Radeon 680M waited ~53 s, and
             // turning it off again or another photo showed only afterwards
             // (G76/SUPS).
-            // A held preview zoomed in: its visible region first (about a
-            // quarter of the whole frame's GPU time at 100 %), then the
+            // A final frame zoomed in: its visible region first (27 of the
+            // whole 3840 px frame's 277 ms GPU time at 100 % on a Radeon
+            // 680M, notes: benchmark-results/mwd1-2026-11-25), then the
             // whole frame, unless a newer request waits by then.
             // One baseline for both passes: a load begun during the region
             // pass supersedes the whole frame too.
