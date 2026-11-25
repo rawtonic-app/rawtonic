@@ -146,7 +146,7 @@ describe('withXTransAiDenoiseVersion', () => {
     const other = { ...older, exposure: 1 };
     expect(withXTransAiDenoiseVersion(older, other, 'xTrans')).toBe(other);
     const current = { aiDenoise: 70, aiDenoiseVersion: 6 };
-    expect(withXTransAiDenoiseVersion({ aiDenoise: 60, aiDenoiseVersion: 6 }, current, 'xTrans')).toBe(current);
+    expect(withXTransAiDenoiseVersion({ aiDenoise: 60 }, current, 'xTrans')).toBe(current);
     // A reset or paste that sets the version keeps it.
     const pasted = { aiDenoise: 30, aiDenoiseVersion: 4 };
     expect(withXTransAiDenoiseVersion(older, pasted, 'xTrans', { aiDenoise: 30, aiDenoiseVersion: 4 })).toBe(pasted);
