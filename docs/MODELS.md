@@ -1007,6 +1007,15 @@ use); all 98 uploaded assets were verified against GitHub's SHA-256 digests
 before the draft was published.
 [Model repository PR #13](https://github.com/rawtonic-app/models/pull/13)
 records the published manifest.
+The [pack-2026-11-25d release](https://github.com/rawtonic-app/models/releases/tag/pack-2026-11-25d)
+was built with `build_model_pack.py --previous` (pack-2026-11-25c)
+`--xtrans-denoise` (task XTSH1) and adds only AI Denoise's X-Trans network
+(`xtrans_denoise_v1.onnx`, CC BY-SA 4.0, with its licence text). All 98 prior
+assets are byte-identical and keep their manifest entries; all 100 uploaded
+assets (92 files, `models.json`, seven license texts) were verified against
+GitHub's SHA-256 digests before the draft was published.
+[Model repository PR #14](https://github.com/rawtonic-app/models/pull/14)
+records the published manifest.
 The app, `src-tauri/build.rs` and `install_models.sh` point to pack-2026-11-25d.
 
 On an Apple M5 Pro laptop (24 GiB RAM, macOS 27.0.1), forced CPU inference
