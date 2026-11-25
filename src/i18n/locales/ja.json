@@ -1806,6 +1806,7 @@
     },
     "import": {
       "albums_other": "アルバム {{count}} 個",
+      "catalogChanged": "確認後にカタログが変更されました。もう一度確認してください。",
       "check": "確認",
       "chooseSource": "読み込むライブラリを選択",
       "copies_other": "仮想コピー {{count}} 件",

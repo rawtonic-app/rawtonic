@@ -2052,6 +2052,7 @@
       "albums_few": "{{count}} альбома",
       "albums_many": "{{count}} альбомов",
       "albums_other": "{{count}} альбома",
+      "catalogChanged": "Каталог изменился после проверки. Проверьте его ещё раз.",
       "check": "Проверить",
       "chooseSource": "Выбрать библиотеку для импорта",
       "copies_one": "{{count}} виртуальная копия",
