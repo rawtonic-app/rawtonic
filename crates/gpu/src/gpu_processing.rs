@@ -15428,6 +15428,55 @@ fn extend_image_rect(image: &DynamicImage, rect: Roi, sides: (u32, u32, u32, u32
     }
 }
 
+/// QA builds with `RAWTONIC_QA_GPU_LOG` set: one log line per render with
+/// its source and output region and the CPU time at each step (`[gpu-time]
+/// render ...`), next to each submission's own GPU time (`gpu_submit`), so a
+/// frame's GPU work can be split by pass on the machine that shows it.
+/// Measurement only: nothing else changes.
+#[cfg(feature = "performance-profiling")]
+struct QaFrameMarks {
+    start: Instant,
+    marks: Vec<(&'static str, f64)>,
+}
+
+#[cfg(feature = "performance-profiling")]
+impl QaFrameMarks {
+    fn start() -> Self {
+        Self {
+            start: Instant::now(),
+            marks: Vec::new(),
+        }
+    }
+
+    fn mark(&mut self, step: &'static str) {
+        if rawtonic_rawdecode::gpu_submit::qa_log_requested() {
+            self.marks
+                .push((step, self.start.elapsed().as_secs_f64() * 1e3));
+        }
+    }
+
+    fn log(&self, caller: &str, display: bool, source: [u32; 2], out: [u32; 4]) {
+        if !rawtonic_rawdecode::gpu_submit::qa_log_requested() {
+            return;
+        }
+        let marks: Vec<String> = self
+            .marks
+            .iter()
+            .map(|(step, ms)| format!("{step}={ms:.1}"))
+            .collect();
+        log::info!(
+            "[gpu-time] render caller={caller} display={display} source={}x{} out={}x{}+{}+{} cpu_ms {}",
+            source[0],
+            source[1],
+            out[2],
+            out[3],
+            out[0],
+            out[1],
+            marks.join(" ")
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_dynamic_image(
     context: &GpuContext,
@@ -15444,6 +15493,8 @@ fn render_dynamic_image(
     stream: Option<RowStream<'_>>,
 ) -> Result<DynamicImage, String> {
     let streamed = stream.is_some();
+    #[cfg(feature = "performance-profiling")]
+    let mut qa_marks = QaFrameMarks::start();
     let mut request = request;
     // A region of a photograph renders as a window of the whole one.
     let whole_flare = request.adjustments.flare_samples.take();
@@ -15556,6 +15607,8 @@ fn render_dynamic_image(
         height,
         foreground_turn(caller_id, output_to_display),
     )?;
+    #[cfg(feature = "performance-profiling")]
+    qa_marks.mark("turn");
     let processor_state = processor_lock.as_ref().unwrap();
     let processor = &processor_state.processor;
 
@@ -15657,6 +15710,8 @@ fn render_dynamic_image(
         });
     }
 
+    #[cfg(feature = "performance-profiling")]
+    qa_marks.mark("upload");
     let cache = cache_lock.as_mut().unwrap();
     let adjustments = &mut request.adjustments;
     let prepare = || {
@@ -15676,6 +15731,8 @@ fn render_dynamic_image(
     } else {
         off_global_pool(|| gpu_scoped(&context.device, prepare))??
     };
+    #[cfg(feature = "performance-profiling")]
+    qa_marks.mark("colour_noise");
     // Level 1 of the window's pyramid, placed in the photograph's.
     if let Some(placed) = &placed
         && chroma.is_some()
@@ -15758,6 +15815,16 @@ fn render_dynamic_image(
         &mut [stream],
         readback_analytics,
     )?;
+    #[cfg(feature = "performance-profiling")]
+    {
+        qa_marks.mark("passes");
+        qa_marks.log(
+            caller_id,
+            output_to_display,
+            [cache.width, cache.height],
+            [out_x, out_y, out_w, out_h],
+        );
+    }
     let analytics_pixels = readback_analytics.then(|| rendered.pop()).flatten();
     let processed_pixels = rendered.remove(0);
     #[cfg(feature = "performance-profiling")]

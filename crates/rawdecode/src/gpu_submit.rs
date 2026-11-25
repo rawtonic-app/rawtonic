@@ -52,6 +52,22 @@ pub fn time_on_gpu(device: &wgpu::Device) {
     TIMED.store(on, std::sync::atomic::Ordering::Release);
 }
 
+/// QA builds (`performance-profiling`) with `RAWTONIC_QA_GPU_LOG` set: every
+/// timed submission's GPU time is logged (`[gpu-time] submission ...`), and
+/// the device times its submissions also where it would not
+/// (`rawtonic_gpu::device_start`). Measurement only; other builds never.
+#[cfg(feature = "performance-profiling")]
+pub fn qa_log_requested() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("RAWTONIC_QA_GPU_LOG").is_some())
+}
+
+/// Never outside QA builds (see the profiling build's version).
+#[cfg(not(feature = "performance-profiling"))]
+pub fn qa_log_requested() -> bool {
+    false
+}
+
 /// Times no submission on the GPU (a device started without short
 /// submissions).
 pub fn stop_timing() {
@@ -153,6 +169,12 @@ where
                 (ticks[1].saturating_sub(ticks[0]) as f64 * f64::from(period)) as u64,
             );
             LAST_GPU_NS.store(took.as_nanos() as u64, std::sync::atomic::Ordering::Release);
+            if qa_log_requested() {
+                log::info!(
+                    "[gpu-time] submission {label} {pixels} px {:.3} ms",
+                    took.as_secs_f64() * 1000.0
+                );
+            }
             if let Some(took) = slow(took) {
                 log::warn!(
                     "Slow GPU submission: {label}, {pixels} px, {:.0} ms on the GPU (budget {} ms)",
