@@ -1,4 +1,4 @@
-//! Catalog exports use the same pinned inputs and encoder as desktop exports.
+//! CLI forwards catalog inputs to the shared export encoder; compare its encoded output.
 //! Run explicitly on a GPU host: cargo test -p rawtonic-cli --test catalog_export -- --ignored
 use rawtonic_catalog::{Library, Mode};
 use rawtonic_export::export_processing::{ExportSettings, TiffBitDepth};

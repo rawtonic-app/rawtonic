@@ -20888,7 +20888,8 @@ fn regions_render_as_windows_of_the_whole_photograph() {
 /// one source id for every recipe): each edit's region is byte for byte the
 /// one a fresh upload renders, through changes of exposure, of the colour
 /// noise reduction's amount and version (CPU and GPU pyramid) and of the
-/// luminance noise reduction (SWC5).
+/// luminance noise reduction (SWC5). So is its whole fit frame where the
+/// main window's is too small (no placement, no ROI; SWC6).
 #[test]
 #[ignore = "requires a native GPU"]
 fn a_kept_region_source_renders_each_edit_as_a_fresh_upload() {
@@ -20899,50 +20900,57 @@ fn a_kept_region_source_renders_each_edit_as_a_fresh_upload() {
     let crop = image.crop_imm(x, y, w, h);
     let processor = ProcessorSlot::new(None);
     let kept = Mutex::new(None);
-    let render =
-        |profile: &serde_json::Value, caller: &str, cache: &Mutex<Option<GpuImageCache>>| {
-            let mut adjustments = get_all_adjustments_from_json(profile, true, Some(1));
-            let measured = measures_noise(&adjustments.global)
-                .then(|| measure_color_noise(&context, &processor, &image, &adjustments, "test"))
-                .transpose()
-                .unwrap()
-                .flatten();
-            adjustments.color_noise_measurement = measured.map(Box::new);
+    let whole_kept = Mutex::new(None);
+    let render = |profile: &serde_json::Value,
+                  caller: &str,
+                  cache: &Mutex<Option<GpuImageCache>>,
+                  whole: bool| {
+        let mut adjustments = get_all_adjustments_from_json(profile, true, Some(1));
+        // A region filters as the whole photograph does (its measurement);
+        // the whole fit frame measures itself, as in the app.
+        let measured = (!whole && measures_noise(&adjustments.global))
+            .then(|| measure_color_noise(&context, &processor, &image, &adjustments, "test"))
+            .transpose()
+            .unwrap()
+            .flatten();
+        adjustments.color_noise_measurement = measured.map(Box::new);
+        if !whole {
             adjustments.photo_placement = Some(crate::image_processing::PhotoPlacement {
                 photo_width: fw,
                 photo_height: fh,
                 x,
                 y,
             });
-            process_and_get_dynamic_image_inner(
-                &context,
-                &processor,
-                cache,
-                RenderSource::Image {
-                    image: &crop,
-                    transform_hash: 7,
-                },
-                RenderRequest {
-                    adjustments,
-                    mask_bitmaps: &[],
-                    lut: None,
-                    roi: Some(Roi {
-                        x: 64,
-                        y: 48,
-                        width: 1280,
-                        height: 992,
-                    }),
-                },
-                caller,
-                RenderOutputPrecision::EightBit,
-                false,
-                None,
-                None,
-                ReadbackShader::Display,
-            )
-            .unwrap()
-            .to_rgba8()
-        };
+        }
+        process_and_get_dynamic_image_inner(
+            &context,
+            &processor,
+            cache,
+            RenderSource::Image {
+                image: if whole { &image } else { &crop },
+                transform_hash: if whole { 8 } else { 7 },
+            },
+            RenderRequest {
+                adjustments,
+                mask_bitmaps: &[],
+                lut: None,
+                roi: (!whole).then_some(Roi {
+                    x: 64,
+                    y: 48,
+                    width: 1280,
+                    height: 992,
+                }),
+            },
+            caller,
+            RenderOutputPrecision::EightBit,
+            false,
+            None,
+            None,
+            ReadbackShader::Display,
+        )
+        .unwrap()
+        .to_rgba8()
+    };
     let edits = [
         json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11, "lumaNoiseReduction": 30 }),
         json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11, "lumaNoiseReduction": 30, "exposure": 0.7 }),
@@ -20952,13 +20960,18 @@ fn a_kept_region_source_renders_each_edit_as_a_fresh_upload() {
         json!({ "colorNoiseReduction": 0, "colorNoiseVersion": 11, "exposure": -0.4 }),
         json!({ "colorNoiseReduction": 50, "colorNoiseVersion": 11, "sharpness": 60 }),
     ];
-    for (i, profile) in edits.iter().enumerate() {
-        let edited = render(profile, SECOND_WINDOW_CALLER, &kept);
+    for (i, (profile, whole)) in edits
+        .iter()
+        .flat_map(|profile| [(profile, false), (profile, true)])
+        .enumerate()
+    {
+        let cache = if whole { &whole_kept } else { &kept };
+        let edited = render(profile, SECOND_WINDOW_CALLER, cache, whole);
         assert!(
-            kept.lock().unwrap().is_some(),
+            cache.lock().unwrap().is_some(),
             "edit {i}: the second window's source is kept"
         );
-        let fresh = render(profile, "test", &Mutex::new(None));
+        let fresh = render(profile, "test", &Mutex::new(None), whole);
         let differing = edited
             .as_raw()
             .iter()
@@ -20967,7 +20980,7 @@ fn a_kept_region_source_renders_each_edit_as_a_fresh_upload() {
             .count();
         assert_eq!(
             differing, 0,
-            "edit {i} ({profile}) differs from a fresh upload"
+            "edit {i} ({profile}, whole: {whole}) differs from a fresh upload"
         );
     }
 }

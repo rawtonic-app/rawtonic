@@ -5,6 +5,7 @@
 - CLI exports find catalog photos through the app’s recent libraries or `--catalog`, retaining their saved edits, catalog metadata, corrected capture times and sticky AI-generated-content marking after an external editor strips XMP; ambiguous ownership requires an explicit choice.
 
 - Colour-noise preview tests use an injected memory-pressure level, so frame-marker checks stay reliable on a busy host; warning and critical pressure still disable the production lookup.
+- The second window at Fit, when it is larger than the main window's photograph, shows the edit sharp about 57–89 ms after a settled edit on macOS (p50 to its frame's submission to the window server, was about 350–370 ms): its own fit frame keeps its upload and colour noise pyramid from edit to edit and starts at once after the main window's frame. Pixels are unchanged.
 
 - Edit With also renders photos with generated areas (object removal, generative fill). The render is marked as containing AI-generated content (IPTC Digital Source Type in its XMP, as any export of it), and the library marks the stacked render for good when it registers it: the mark stays when the other program saves the file without it, and a metadata edit or Use XMP does not remove it. The "Source type" search finds the render, and its exports are marked, also with metadata stripped (from the app, and from `rawtonic export` for photos of a session). Libraries are upgraded to schema 37 when opened.
 
