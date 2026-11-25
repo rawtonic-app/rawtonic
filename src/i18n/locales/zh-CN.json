@@ -1811,6 +1811,8 @@
       "copies_other": "{{count}} 个虚拟副本",
       "edited_other": "{{count}} 张有调整",
       "filterName": "目录和会话",
+      "keywordLibrary_other": "关键词列表中的 {{count}} 个关键词",
+      "keywordSynonymsNotImported_other": "{{count}} 个关键词同义词（不导入）",
       "photos_other": "{{count}} 张照片",
       "preview": "：{{items}}。",
       "relinkAria": "{{folder}} 的新位置",

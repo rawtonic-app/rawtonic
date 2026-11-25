@@ -6,7 +6,7 @@ import { ContextMenuProvider } from '../../context/ContextMenuContext';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import type { ImageFile } from '../ui/AppProperties';
 import { StudioKeywordList, plannedRename } from './StudioKeywordList';
-import { buildKeywordTree } from '../../utils/keywordTree';
+import { buildKeywordTree, typedKeyword } from '../../utils/keywordTree';
 import { getUndoLabel, redo, undo, useCatalogUndoStore } from '../../utils/appUndo';
 import { TILE_DROP_EVENT } from './tileDrag';
 
@@ -333,5 +333,15 @@ describe('planned keyword renames', () => {
     expect(plannedRename(tree, 'Animals', ' Animals ')).toBeNull();
     // A change of case only is a rename.
     expect(plannedRename(tree, 'Fauna', 'fauna')).toMatchObject({ kind: 'rename', to: 'fauna' });
+  });
+
+  it('leaves a name holding `>` or `,` as it is when its field is confirmed unchanged', () => {
+    // The field starts with `typedKeyword` (KWC1: imported literal names).
+    const literal = buildKeywordTree([
+      { value: 'People|A > B', count: 1 },
+      { value: 'Parent|comma,term', count: 1 }
+    ]);
+    expect(plannedRename(literal, 'People|A > B', typedKeyword('People|A > B'))).toBeNull();
+    expect(plannedRename(literal, 'Parent|comma,term', typedKeyword('Parent|comma,term'))).toBeNull();
   });
 });
