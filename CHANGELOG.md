@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Linux: an Arch Linux package recipe (`rawtonic-bin`) and a Flatpak manifest in `packaging/linux/`, both built from the release AppImage and checked in fresh containers (not published yet); inside a Flatpak Rawtonic makes no update request — Flatpak delivers updates — and an unpacked AppDir started through its AppRun resolves relative paths against the folder the command ran in.
+- The second window at Fit, when it is larger than the main window's photograph, shows the edit sharp about 57–89 ms after a settled edit on macOS (p50 to its frame's submission to the window server, was about 350–370 ms): its own fit frame keeps its upload and colour noise pyramid from edit to edit and starts at once after the main window's frame. Pixels are unchanged.
 
 - Edit With also renders photos with generated areas (object removal, generative fill). The render is marked as containing AI-generated content (IPTC Digital Source Type in its XMP, as any export of it), and the library marks the stacked render for good when it registers it: the mark stays when the other program saves the file without it, and a metadata edit or Use XMP does not remove it. The "Source type" search finds the render, and its exports are marked, also with metadata stripped (from the app, and from `rawtonic export` for photos of a session). Libraries are upgraded to schema 37 when opened.
 
@@ -23,6 +23,8 @@
 - Capture One catalog imports retain shifted capture times and the camera’s timezone offset, leave equal times uncorrected, and defer unknown camera facts until they can be read.
 
 - Assigning a keyboard shortcut gives it to the new command, clears its previous owner, and names that owner in Preferences.
+
+- Linux: an Arch Linux package recipe (`rawtonic-bin`) and a Flatpak manifest in `packaging/linux/`, both built from the release AppImage and checked in fresh containers (not published yet); inside a Flatpak Rawtonic makes no update request — Flatpak delivers updates — and an unpacked AppDir started through its AppRun resolves relative paths against the folder the command ran in.
 
 ### Highlights
 
