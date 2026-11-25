@@ -62,7 +62,8 @@ export function useExternalEditSession(
         handleImageSelectRef.current(initialFileToOpen);
       else {
         const name = initialFileToOpen.split(/[\\/]/).pop() ?? initialFileToOpen;
-        notify.error(i18n.t('notifications.unsupportedFormat', { name }), { paths: [initialFileToOpen] });
+        // No paths: the notice's Show photos would list the file it refused.
+        notify.error(i18n.t('notifications.unsupportedFormat', { name }), { detail: initialFileToOpen });
         // The user's own open failed: the activity centre opens on its notice.
         useActivityStore.getState().setOpen(true);
       }

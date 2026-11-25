@@ -138,7 +138,9 @@ it.each([
     await waitFor(() => expect(useActivityStore.getState().open).toBe(true));
     const [entry] = useActivityStore.getState().entries;
     expect(entry.status).toBe('failure');
-    expect(entry.paths).toEqual([path]);
+    expect(entry.detail).toBe(path);
+    // No Show photos action for the file it refused.
+    expect(entry.paths ?? []).toEqual([]);
     expect(select).not.toHaveBeenCalled();
   }
 });
