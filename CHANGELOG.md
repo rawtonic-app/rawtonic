@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Faster Shadows and Highlights drags on photos with their own tone curve (DNG profiles and camera profiles with a curve): tone version 23's anchors read the curve's segments the CPU finds once per render instead of searching the 48-entry curve for every pixel. Metal, 2560 × 1707 preview with readback: a Shadows drag costs +0.1 ms over version 22 (was +4.5 ms, p50 12.9–13.7 → 8.7–9.4 ms), Highlights +0.0 ms (was +1.3 ms). Exports and previews are byte-identical.
+
 - CLI exports find catalog photos through the app’s recent libraries or `--catalog`, retaining their saved edits, catalog metadata, corrected capture times and sticky AI-generated-content marking after an external editor strips XMP; ambiguous ownership requires an explicit choice.
 
 - Colour-noise preview tests use an injected memory-pressure level, so frame-marker checks stay reliable on a busy host; warning and critical pressure still disable the production lookup.
