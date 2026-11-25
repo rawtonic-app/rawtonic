@@ -4875,7 +4875,15 @@ pub struct GlobalAdjustments {
     /// 1 when `bw_toning_lut` holds the B&W Toning (`blackAndWhiteToning`,
     /// bw_toning.rs) of a black-and-white photo, else 0.
     pub bw_toning_active: u32,
-    pub _pad_airlight: [u32; 2],
+    /// The peak of a PQ/HLG source relative to diffuse white
+    /// (`hdr_source::HEADROOM`) when its highlights roll off into SDR white
+    /// (renderVersion 20, `hdr_rolloff`); 0 = no roll-off.
+    pub hdr_headroom: f32,
+    /// 1 when the recipe's render version rolls PQ/HLG highlights off
+    /// (`hdr_source::ROLLOFF_RENDER_VERSION`) and the photo is not a RAW;
+    /// `apply_base_look` then sets `hdr_headroom` for an HDR source. Read
+    /// on the CPU only (the shader names it `_hdr_rolloff`).
+    pub hdr_rolloff: u32,
     /// B&W Toning as Oklab (dL, da, db) shifts by the grey's Oklab L at
     /// i / (BW_TONING_LUT_SIZE − 1), added after the curves.
     pub bw_toning_lut: [[f32; 4]; crate::bw_toning::BW_TONING_LUT_SIZE],
@@ -5983,7 +5991,8 @@ fn get_global_adjustments_resolved(
         dehaze_version: versions.dehaze.uniform(),
         airlight: 0.0,
         bw_toning_active: 0,
-        _pad_airlight: [0; 2],
+        hdr_headroom: 0.0,
+        hdr_rolloff: u32::from(!is_raw && versions.render.hdr_rolloff()),
         bw_toning_lut: [[0.0; 4]; crate::bw_toning::BW_TONING_LUT_SIZE],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
@@ -6485,8 +6494,12 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// ratio, ratio of the neighbours nearest in the other colours, colour
 /// difference along the smoothest direction;
 /// `image_loader::MEDIAN_DEAD_RENDER_VERSION`).
+/// 20 (2026-11-25) rolls the highlights of PQ and HLG sources (HDR HEIF
+/// and AVIF) off into SDR white from 0.75 of diffuse white to the source's
+/// peak instead of clipping everything above diffuse white
+/// (`hdr_source::ROLLOFF_RENDER_VERSION`); other photos develop as 19.
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 19;
+pub const RENDER_VERSION: u64 = 20;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the

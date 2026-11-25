@@ -201,6 +201,11 @@ impl RenderVersion {
     pub fn scene_black(self) -> bool {
         self.0 >= crate::baseline_exposure::SCENE_BLACK_RENDER_VERSION
     }
+
+    /// PQ and HLG highlights roll off into SDR white instead of clipping.
+    pub fn hdr_rolloff(self) -> bool {
+        self.0 >= crate::hdr_source::ROLLOFF_RENDER_VERSION
+    }
 }
 
 /// The tone-slider response from which raised Shadows keep their local
