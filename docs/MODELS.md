@@ -62,6 +62,7 @@ weights tensor by tensor.
 | `siglip2_vision.onnx`, `siglip2_tags.bin` (+ `siglip2_text.onnx`, `siglip2_tokenizer.json` for own tags) | Auto tags | Rawtonic's export of Google's SigLIP 2 B/16 (`google/siglip2-base-patch16-224`, revision 75de2d5) by `scripts/models/export_siglip2.py`; reproducible (same SHA-256 in two exports). Replaced the inherited CLIP (OpenAI ViT-B/32, model card: deployed use "out of scope") on 2026-10-08. | Apache-2.0 | In the pack |
 | `nlmf_coreml_*` (Core ML package), `nlmf.onnx` | AI Denoise (Detail → Noise reduction) | Nonlocal MatchFilter (Sánchez-Beeckman and Buades, MIT), Core ML and ONNX conversions by sheldonxxxx/RapidRAW-Nonlocal-Denoise at revision af6bf36, unchanged (hashes from its `distribution.json`) | MIT | In the pack |
 | `nlmf_mixed640_macos13_coreml_*` (Core ML package) | AI Denoise versions 3 to 5 on macOS | The same MatchFilter checkpoint (authors' release v1.0.0, SHA-256 pinned) converted by `scripts/models/convert_nlmf_coreml.py`: mixed precision (convolutions fp16, matching fp32), 640 px tiles, Core ML for macOS 13 like the app, through RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW `denoise/`, commit 2375e17); reproducible. Versions 3 to 5 (5 is the default for new RAW edits) run it; version 1 and 2 recipes keep `nlmf_coreml_*`. A macOS 15 build of it (`nlmf_mixed640_coreml_*`, same weights, same results on macOS 26) went into pack-2026-10-18 first and is used by no build. | MIT | In the pack (from pack-2026-10-18) |
+| `fast_denoise_v1.onnx` | AI Denoise, quality **Fast** (`aiDenoiseQuality: "fast"`; ONNX Runtime on every platform, the CPU provider unless a GPU provider takes it) | **Rawtonic's own network**: a U-Net of plain 3×3 convolutions (`scripts/models/fast_denoise_net.py`, size L, 9.6 M parameters) with MatchFilter's interface (4 packed Bayer planes and their noise σ in, 4 planes out), run on 512 px tiles with a 32 px halo. Trained by Rawtonic (task DST1, 2026-11-25) by **distillation**: targets were MatchFilter's AI Denoise version 5 results through the app's exact path on 110 noisy RawNIND Bayer frames (ISO 1600–65535; the 10 evaluation scenes and same-object scenes excluded), 3 h on one GPU. **Changes:** trained weights exported to ONNX (opset 17, fp32, 38 MB; max \|ONNX − PyTorch\| 1.1e-6). No Core ML conversion: macOS runs the ONNX file too. Measured (Linux PC, Ryzen 5 3600X, 6 threads): 27.5 s per 24 MP against MatchFilter's 470 s (17.1×); estimated 70–82 s per 24 MP export on a Radeon 680M laptop where MatchFilter takes 19–25 min (estimate, not measured there). At Camera Raw 50's flat-area noise on DNC1's RawNIND frames, finest detail 0.987× MatchFilter's (CI 0.978–0.995), luminance error 1.005×; in 100 % crops very close to MatchFilter (notes: benchmark-results/dst1-2026-11-25). | CC BY-SA 4.0 (trained on RawNIND, CC BY-SA 4.0; teacher MatchFilter, MIT; `licenses/models/fast-denoise-CC-BY-SA-4.0.txt`) | In `pack-2026-11-25b` |
 | `skyseg_upernet_convnext_t.onnx` | Sky mask | Rawtonic's export of UperNet + ConvNeXt-T on ADE20K (Meta's checkpoint from facebookresearch/ConvNeXt, MIT; transformers conversion `openmmlab/upernet-convnext-tiny`, revision 876ffc5) by `scripts/models/export_sky.py`; sky probability of ADE20K class 2, fp16 storage, reproducible (same SHA-256 in two exports). | MIT (Meta) | In the pack since 2026-10-09 |
 | `landscape_upernet_convnext_t.onnx` | Landscape mask (sky, mountains, water, vegetation, natural and artificial ground, architecture) | The Sky model's checkpoint (UperNet + ConvNeXt-T on ADE20K, Meta, MIT; `openmmlab/upernet-convnext-tiny`, revision 876ffc5) exported by `scripts/models/export_landscape.py` with a **changed head**: seven part probabilities, each the 150-class softmax summed over the part's ADE20K classes (mountain/hill/rock; water/sea/river/lake/waterfall/swimming pool/fountain; tree/grass/plant/flower/palm/field; earth/sand/land/dirt track; road/sidewalk/path/runway/floor/pier; building/house/skyscraper/tower/bridge/hovel/wall/column/windowpane/door/awning/grandstand/booth/stairway/stairs/fence/railing; sky), each part's logit margin upsampled from the decoder's 1/4 grid as the Sky export does; fp16 storage, fp32 compute; reproducible (same SHA-256 in two exports in the pack environment). The class lists were fixed before any measurement. ONNX Runtime on every platform (no Core ML program). On 12 COCO-Stuff val2017 scenes (Flickr CC licences recorded; human stuff labels, ambiguous classes not scored) the parts score above Lightroom Classic 15's Landscape masks in mean IoU on all six ground parts and in boundary F on five (architecture 0.556 vs 0.577); Sky as a part 0.926 vs 0.931 (notes: benchmark-results/lsm1-2026-11-21/REPORT.md). The sky's colour edge fitting applied to each part lowered every part's boundary F there; parts are instead cut off the sky along the sky's fitted edge: on two full-size RAWs checked by eye at 100 % this removed the 30–60-pixel halo the network's coarse edge left in the sky above a ridge and a tree line. Since `landscapeVersion` 2 that fitted sky reaches only where the network sees some sky (at most ten times its sky probability): sky part 0.926 / 0.734 → 0.937 / 0.808, Lightroom 0.931 / 0.798 (notes: benchmark-results/lsm4-2026-11-22/REPORT.md). Same training-data note as the Sky row. | MIT | In `pack-2026-11-21` |
 | `skyseg_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Sky mask on macOS (fast path) | The same UperNet + ConvNeXt-T checkpoint and revision converted from PyTorch with coremltools 9.0 by `scripts/models/convert_sky_coreml.py` (the export's graph; ML program, fp32, 237 MB; reproducible with `PYTHONHASHSEED=0`: same SHA-256 in three conversions). Probabilities equal to PyTorch's (largest difference < 1e-4, mask IoU 1.0 on 13 photos), 0.06 s on the GPU of an M5 Pro against 0.35-0.8 s on the CPU. Downloaded on macOS for the first Sky mask (before 2026-10-19 only `install_models.sh` installed them); if Core ML fails, the app uses the ONNX model. | MIT | Built 2026-10-10, in the pack |
@@ -596,6 +597,13 @@ segmentation models with the largest training sets, concretely:
   U²-Net under Subject masks is **not** held out for BiRefNet (it is for
   U²-Net, trained on DUTS-TR); it overstates BiRefNet's lead by an unknown
   amount. The RAW-sample comparison beside it is unaffected.
+- **Fast AI Denoise** (`fast_denoise_v1.onnx`). Trained by Rawtonic only on
+  noisy Bayer frames of RawNIND (Brummer and De Vleeschouwer, UCLouvain,
+  doi:10.14428/DVN/DEQCIM, CC BY-SA 4.0, licence read from the Dataverse
+  record on 2026-11-25), with MatchFilter's results on them as targets; no
+  clean frame, no NC or unclear data. The weights are published under the
+  dataset's CC BY-SA 4.0. Not held out: none of DNC1's ten evaluation
+  scenes was trained on.
 - **EasyPortrait** (`easyportrait_*`, Eyes and Teeth). Trained by its
   authors on the EasyPortrait dataset: selfies taken by crowd workers
   (Toloka, ABC Elementary) who signed consent to publication, adults only
@@ -892,7 +900,7 @@ other load). Two builds produced the same encoder bytes.
 
 ## Hosting
 
-The pack is the release `pack-2026-11-21b` of
+The pack is the release `pack-2026-11-25b` of
 [github.com/rawtonic-app/models](https://github.com/rawtonic-app/models)
 (README, `models.json`, `licenses/`), public together with Rawtonic. The app
 downloads `MODEL_PACK_URL/<file>`
@@ -954,7 +962,12 @@ uploaded assets (86 files, `models.json`, five license texts) were verified
 against GitHub's SHA-256 digests before the draft was published.
 [Model repository PR #10](https://github.com/rawtonic-app/models/pull/10)
 records the published manifest and adds the two EasyPortrait license texts.
-The app, `src-tauri/build.rs` and `install_models.sh` point to pack-2026-11-21b.
+The [pack-2026-11-25b release](https://github.com/rawtonic-app/models/releases/tag/pack-2026-11-25b)
+was built with `build_model_pack.py --previous` (pack-2026-11-25)
+`--fast-denoise` and adds only AI Denoise's Fast network
+(`fast_denoise_v1.onnx`, CC BY-SA 4.0, with its licence text). All prior files
+are byte-identical and keep their manifest entries.
+The app, `src-tauri/build.rs` and `install_models.sh` point to pack-2026-11-25b.
 
 On an Apple M5 Pro laptop (24 GiB RAM, macOS 27.0.1), forced CPU inference
 on the same 117 tiles of a 6000×4000 float32 image took 460.896 → 145.915 s
@@ -971,7 +984,7 @@ A new pack is a new release (new tag): build it with
 commit. `build_model_pack.py --previous DIR` carries an earlier pack's
 files (downloaded with `gh release download`) over unchanged, checked
 against its `models.json`, and builds only what it lacks; that keeps the
-files older builds load. `pack-2026-11-21b` adds the eye and teeth parser to `pack-2026-11-21`, preserving every existing asset. `pack-2026-11-21` adds the landscape-parts model to `pack-2026-11-20`, preserving every existing asset. `pack-2026-11-20` adds the fp16 Super Resolution conversion for GPU providers to `pack-2026-11-19`, preserving every existing asset. `pack-2026-11-19` adds Rawtonic's own ONNX Runtime 1.30.0 libraries without telemetry to `pack-2026-11-12`, preserving every existing asset. `pack-2026-11-12` adds the sequential CPU Super Resolution conversion to `pack-2026-11-09`, preserving every existing asset. `pack-2026-11-09` is `pack-2026-11-07` plus the Super Resolution
+files older builds load. `pack-2026-11-25b` adds AI Denoise's Fast network to `pack-2026-11-25`, preserving every existing asset. `pack-2026-11-21b` adds the eye and teeth parser to `pack-2026-11-21`, preserving every existing asset. `pack-2026-11-21` adds the landscape-parts model to `pack-2026-11-20`, preserving every existing asset. `pack-2026-11-20` adds the fp16 Super Resolution conversion for GPU providers to `pack-2026-11-19`, preserving every existing asset. `pack-2026-11-19` adds Rawtonic's own ONNX Runtime 1.30.0 libraries without telemetry to `pack-2026-11-12`, preserving every existing asset. `pack-2026-11-12` adds the sequential CPU Super Resolution conversion to `pack-2026-11-09`, preserving every existing asset. `pack-2026-11-09` is `pack-2026-11-07` plus the Super Resolution
 model (ONNX and Core ML, with its CC BY 4.0 license text as an asset; built that way). `pack-2026-11-07` is `pack-2026-10-27b` plus ONNX Runtime 1.30.0
 for Apple silicon (built that way). `pack-2026-10-27b` is `pack-2026-10-27` plus
 Moebius and the SDXL VAE fp16-fix as ONNX models for Windows and Linux

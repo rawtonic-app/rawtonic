@@ -2482,7 +2482,8 @@
         "Tauri updater plugin": "«Installa aggiornamento»: scarica il manifesto e il pacchetto della versione, ne verifica la firma e sostituisce l’app macOS.",
         "x509-parser": "Lettura dei certificati di firma (firmatario, validità, usi consentiti).",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
-        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi).",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
@@ -2747,6 +2748,13 @@
       "title": "I Miei Obiettivi"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automatica",
+        "fast": "Veloce",
+        "full": "Completa"
+      },
+      "aiDenoiseQuality": "Qualità della riduzione rumore IA per le nuove modifiche",
+      "aiDenoiseQualityDesc": "La qualità che una foto riceve quando attivi per la prima volta la riduzione rumore IA; ogni foto mantiene la propria e puoi cambiarla in Sviluppo. Automatica sceglie Veloce sui computer in cui la riduzione rumore IA gira sul processore, altrimenti Completa.",
       "aiGpu": "IA sulla scheda grafica",
       "aiGpuDesc": "Esegue maschere IA, tag, rimozione oggetti e riduzione del rumore IA sulla scheda grafica quando possibile (WebGPU; CUDA se installato), altrimenti sul processore. Disattivalo se uno strumento IA non funziona bene.",
       "aiGpuLabel": "Usa la GPU per l'IA",
@@ -3638,7 +3646,13 @@
         "colorSmoothnessAria": "Uniformità rumore di colore",
         "denoising": "Riduzione del rumore del RAW… La prima volta richiede circa mezzo minuto.",
         "lumaContrastAria": "Contrasto rumore di luminanza",
-        "lumaDetailAria": "Dettaglio rumore di luminanza"
+        "lumaDetailAria": "Dettaglio rumore di luminanza",
+        "quality": "Qualità",
+        "qualityAria": "Qualità della riduzione rumore IA",
+        "qualityFast": "Veloce",
+        "qualityFastHint": "Veloce: circa 15× più rapida sul processore, con dettagli fini appena inferiori.",
+        "qualityFull": "Completa",
+        "qualityFullHint": "Completa: i dettagli più fini. Lenta senza una scheda grafica veloce (molti minuti per foto sul processore)."
       },
       "noPhoto": "Apri una foto in Sviluppo per regolarla.",
       "params": {

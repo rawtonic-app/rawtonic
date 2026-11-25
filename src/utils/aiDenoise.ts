@@ -1,5 +1,5 @@
 import { sourceOf } from '../entities/photo/photoRef';
-import type { SelectedImage } from '../components/ui/AppProperties';
+import type { AiDenoiseQuality, SelectedImage } from '../components/ui/AppProperties';
 import {
   borderBlack,
   cameraPlaneWarp,
@@ -24,6 +24,29 @@ export function aiDenoiseAmount(
   const visibility = adjustments.sectionVisibility ?? {};
   const switchedOff = visibility.details === false || visibility.noiseReduction === false;
   return switchedOff ? 0 : Math.min(100, Math.max(0, adjustments.aiDenoise ?? 0));
+}
+
+/** The network a recipe's AI Denoise runs (`AiDenoiseQuality::of`):
+ * 'fast' only when the recipe says so, so every recipe saved before the key
+ * renders Full as it did. */
+export const aiDenoiseQualityOf = (adjustments: { aiDenoiseQuality?: string | null }): AiDenoiseQuality =>
+  adjustments.aiDenoiseQuality === 'fast' ? 'fast' : 'full';
+
+/**
+ * `next` with the quality a photo's AI Denoise starts with: when an edit turns
+ * AI Denoise on (from 0) in a recipe without `aiDenoiseQuality`, the
+ * computer's default for new edits (`ai_denoise_default_quality`; null while
+ * unknown: nothing, which renders Full). A recipe that already uses AI Denoise
+ * keeps what it renders, and a chosen quality is never replaced.
+ */
+export function withAiDenoiseQualityOnTurnOn<T extends { aiDenoise?: number; aiDenoiseQuality?: AiDenoiseQuality }>(
+  previous: { aiDenoise?: number },
+  next: T,
+  machineDefault: AiDenoiseQuality | null
+): T {
+  const turnedOn = (previous.aiDenoise ?? 0) <= 0 && (next.aiDenoise ?? 0) > 0;
+  if (!turnedOn || next.aiDenoiseQuality || !machineDefault) return next;
+  return { ...next, aiDenoiseQuality: machineDefault };
 }
 
 // The decoder casts the stored percentage to f32 before dividing by 100
@@ -52,12 +75,14 @@ export function aiDenoiseToApply(
     | 'isRaw'
     | 'aiDenoise'
     | 'aiDenoiseVersion'
+    | 'aiDenoiseQuality'
     | 'aiDenoiseFailed'
     | 'aiDenoiseFailedVersion'
+    | 'aiDenoiseFailedQuality'
     | 'aiDenoiseStandIn'
     | 'decoderStale'
   > | null,
-  adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> & {
+  adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion' | 'aiDenoiseQuality'> & {
     sectionVisibility?: Record<string, boolean | undefined>;
   },
   dragging: boolean
@@ -73,13 +98,19 @@ export function aiDenoiseToApply(
   // once (a failure marks the amount).
   const off = sameAiDenoiseAmount(wanted, 0);
   if (off && image.aiDenoiseStandIn && image.aiDenoiseFailed !== 0) return 0;
-  // The version only matters with AI Denoise on (reset or paste can change it).
-  const sameVersion = off || (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseVersion ?? 1);
-  // An amount that failed is not retried with the same version.
+  // The version and quality only matter with AI Denoise on (reset or paste
+  // can change them).
+  const quality = aiDenoiseQualityOf(adjustments);
+  const sameVersion =
+    off ||
+    ((adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseVersion ?? 1) &&
+      quality === (image.aiDenoiseQuality ?? 'full'));
+  // An amount that failed is not retried with the same version and quality.
   const failed =
     image.aiDenoiseFailed !== undefined &&
     sameAiDenoiseAmount(wanted, image.aiDenoiseFailed) &&
-    (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseFailedVersion ?? 1);
+    (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseFailedVersion ?? 1) &&
+    quality === (image.aiDenoiseFailedQuality ?? 'full');
   if ((sameAiDenoiseAmount(wanted, have) && sameVersion) || failed) return null;
   return wanted;
 }
@@ -90,6 +121,8 @@ export interface SourceDevelop {
   aiDenoise: number;
   /** Its `aiDenoiseVersion` (undefined: 1). */
   aiDenoiseVersion?: number;
+  /** Its `aiDenoiseQuality` (undefined: 'full'). */
+  aiDenoiseQuality?: AiDenoiseQuality;
   /** For the multi-scale colour noise filter: without the decode-time chroma
    * clean-up (undefined: the stored recipe's filter). */
   multiscale?: boolean;
@@ -144,8 +177,10 @@ export function sourceDevelopToApply(
     | 'isRaw'
     | 'aiDenoise'
     | 'aiDenoiseVersion'
+    | 'aiDenoiseQuality'
     | 'aiDenoiseFailed'
     | 'aiDenoiseFailedVersion'
+    | 'aiDenoiseFailedQuality'
     | 'aiDenoiseStandIn'
     | 'decoderStale'
     | 'colorNoiseMultiscale'
@@ -172,7 +207,7 @@ export function sourceDevelopToApply(
     | 'cameraPlaneWarpFailed'
     | 'offline'
   > | null,
-  adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> &
+  adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion' | 'aiDenoiseQuality'> &
     Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction' | 'renderVersion'> & {
       sectionVisibility?: Record<string, boolean | undefined>;
     },
@@ -244,9 +279,12 @@ export function sourceDevelopToApply(
   )
     return null;
   const version = aiDenoise === null ? image.aiDenoiseVersion : adjustments.aiDenoiseVersion;
+  const quality = aiDenoise === null ? (image.aiDenoiseQuality ?? 'full') : aiDenoiseQualityOf(adjustments);
   return {
     aiDenoise: aiDenoise ?? image.aiDenoise ?? 0,
     ...(version !== undefined && version !== null ? { aiDenoiseVersion: version } : {}),
+    // Full is what a missing quality develops.
+    ...(quality === 'fast' ? { aiDenoiseQuality: quality } : {}),
     multiscale,
     deadPixelAdjacent: dead,
     defectsIsolated: isolated,

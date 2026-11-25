@@ -2345,7 +2345,8 @@
         "Tauri updater plugin": "Install update: fetches the release manifest and package, checks its signature and replaces the macOS app.",
         "x509-parser": "Reading signing certificates (signer, validity, allowed uses).",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
-        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi).",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
@@ -2607,6 +2608,13 @@
       "title": "My Lenses"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automatic",
+        "fast": "Fast",
+        "full": "Full"
+      },
+      "aiDenoiseQuality": "AI Denoise quality for new edits",
+      "aiDenoiseQualityDesc": "The quality a photo gets when you first turn on AI Denoise; each photo keeps its own, and you can switch it in Develop. Automatic picks Fast on computers where AI Denoise runs on the processor, otherwise Full.",
       "aiGpu": "AI on the graphics card",
       "aiGpuDesc": "Runs AI masks, tags, object removal and AI Denoise on the graphics card (WebGPU; CUDA when installed) where it gives the same result and is faster than the processor on this computer, measured once per AI model; otherwise on the processor. Turn off if an AI tool misbehaves.",
       "aiGpuLabel": "Use the GPU for AI",
@@ -3478,7 +3486,13 @@
         "colorSmoothnessAria": "Color noise smoothness",
         "denoising": "Denoising the RAW… The first time takes about half a minute.",
         "lumaContrastAria": "Luminance noise contrast",
-        "lumaDetailAria": "Luminance noise detail"
+        "lumaDetailAria": "Luminance noise detail",
+        "quality": "Quality",
+        "qualityAria": "AI Denoise quality",
+        "qualityFast": "Fast",
+        "qualityFastHint": "Fast: about 15× quicker on the processor, with very slightly less fine detail.",
+        "qualityFull": "Full",
+        "qualityFullHint": "Full: the finest detail. Slow without a fast graphics card (many minutes per photo on the processor)."
       },
       "noPhoto": "Open a photo in Develop to make adjustments.",
       "params": {

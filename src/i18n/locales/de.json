@@ -2345,7 +2345,8 @@
         "Tauri updater plugin": "„Update installieren“: lädt Manifest und Paket der Version, prüft die Signatur und ersetzt die macOS-App.",
         "x509-parser": "Lesen von Signaturzertifikaten (Unterzeichner, Gültigkeit, erlaubte Verwendungen).",
         "YuNet": "Findet Gesichter für Personenmasken (Shiqi Yu und andere).",
-        "zune-jpegxl": "Verlustfreier JPEG-XL-Export (Caleb Etemesi)."
+        "zune-jpegxl": "Verlustfreier JPEG-XL-Export (Caleb Etemesi).",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Trainingsbilder des schnellen KI-Entrauschen-Netzes, das Rawtonic von MatchFilter gelernt hat (B. Brummer, C. De Vleeschouwer, UCLouvain). Das Netz ist unter CC BY-SA 4.0 veröffentlicht."
       },
       "credits": "Mitwirkende und Quellen",
       "creditsIntro": "Rawtonic baut auf diesen Projekten, Daten und Modellen auf. Unten findest du die Lizenztexte aller enthaltenen Pakete und der heruntergeladenen KI-Modelle.",
@@ -2607,6 +2608,13 @@
       "title": "Meine Objektive"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automatisch",
+        "fast": "Schnell",
+        "full": "Voll"
+      },
+      "aiDenoiseQuality": "Qualität von KI-Entrauschen für neue Bearbeitungen",
+      "aiDenoiseQualityDesc": "Die Qualität, die ein Foto beim ersten Einschalten von KI-Entrauschen erhält; jedes Foto behält seine eigene, umschalten lässt sie sich in Entwickeln. Automatisch wählt Schnell auf Computern, auf denen KI-Entrauschen auf dem Prozessor läuft, sonst Voll.",
       "aiGpu": "KI auf der Grafikkarte",
       "aiGpuDesc": "Führt KI-Masken, Stichwörter, Objektentfernung und KI-Entrauschen auf der Grafikkarte aus (WebGPU; CUDA, falls installiert), wo sie dasselbe Ergebnis liefert und auf diesem Computer schneller ist als der Prozessor (einmal je KI-Modell gemessen), sonst auf dem Prozessor. Ausschalten, wenn ein KI-Werkzeug Probleme macht.",
       "aiGpuLabel": "GPU für KI verwenden",
@@ -3478,7 +3486,13 @@
         "colorSmoothnessAria": "Glättung Farbrauschen",
         "denoising": "RAW wird entrauscht … Beim ersten Mal dauert das etwa eine halbe Minute.",
         "lumaContrastAria": "Kontrast Luminanzrauschen",
-        "lumaDetailAria": "Details Luminanzrauschen"
+        "lumaDetailAria": "Details Luminanzrauschen",
+        "quality": "Qualität",
+        "qualityAria": "KI-Entrauschen: Qualität",
+        "qualityFast": "Schnell",
+        "qualityFastHint": "Schnell: auf dem Prozessor etwa 15× schneller, mit minimal weniger feinen Details.",
+        "qualityFull": "Voll",
+        "qualityFullHint": "Voll: feinste Details. Langsam ohne schnelle Grafikkarte (auf dem Prozessor viele Minuten pro Foto)."
       },
       "noPhoto": "Öffne ein Foto in „Entwickeln“, um es anzupassen.",
       "params": {

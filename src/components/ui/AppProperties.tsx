@@ -124,6 +124,7 @@ export enum Invokes {
   SetRecipeValues = 'set_recipe_values',
   ReplaceRecipes = 'replace_recipes',
   ApplyAiDenoise = 'apply_ai_denoise',
+  AiDenoiseDefaultQuality = 'ai_denoise_default_quality',
   ThirdPartyLicenses = 'third_party_licenses',
   CalculateAutoAdjustments = 'calculate_auto_adjustments',
   CalculateManualTransform = 'calculate_manual_transform',
@@ -610,6 +611,10 @@ export interface AppSettings {
   uiVisibility?: UiVisibility;
   processingBackend?: string;
   aiGpu?: boolean;
+  /** The AI Denoise quality photos get when AI Denoise is first turned on:
+   * 'full', 'fast' or 'auto' / missing for this computer's
+   * (`ai_denoise::default_quality`). */
+  aiDenoiseDefaultQuality?: 'auto' | AiDenoiseQuality;
   linuxGpuOptimization?: boolean;
   /** Records the one-time migration disabling the old Linux GPU optimization default. */
   linuxGpuOptimizationMigratedV1?: boolean | null;
@@ -857,6 +862,10 @@ export interface ImageMetadata {
 }
 
 /** Result of `load_image` (`LoadImageResult` in image_loader.rs). */
+/** AI Denoise's quality (`aiDenoiseQuality`): 'full' runs MatchFilter,
+ * 'fast' the smaller network distilled from it. */
+export type AiDenoiseQuality = 'full' | 'fast';
+
 export interface LoadImageResult {
   width: number;
   height: number;
@@ -867,6 +876,8 @@ export interface LoadImageResult {
   ai_denoise: number;
   /** Its `aiDenoiseVersion` (1 when off). */
   ai_denoise_version: number;
+  /** Its `aiDenoiseQuality` as it rendered ('full' when off). */
+  ai_denoise_quality?: AiDenoiseQuality;
   /** Why the recipe's AI Denoise could not be applied. */
   ai_denoise_error?: string | null;
   /** The source is that skipped sensor's rawler decode (`aiDenoiseStandIn`). */
@@ -952,6 +963,8 @@ export interface SelectedImage {
   aiDenoise?: number;
   /** Its `aiDenoiseVersion` (missing: 1). */
   aiDenoiseVersion?: number;
+  /** Its `aiDenoiseQuality` (missing: 'full'). */
+  aiDenoiseQuality?: AiDenoiseQuality;
   /** The camera's crop for each frame version, which new recipes start
    * with (src/utils/cameraCrop.ts; RAWs only). */
   cameraCrops?: CameraCrops;
@@ -962,6 +975,8 @@ export interface SelectedImage {
   aiDenoiseFailed?: number;
   /** The `aiDenoiseVersion` that failed with it (missing: 1). */
   aiDenoiseFailedVersion?: number;
+  /** The `aiDenoiseQuality` that failed with it (missing: 'full'). */
+  aiDenoiseFailedQuality?: AiDenoiseQuality;
   /** The pixels are a skipped sensor's rawler decode that stands in for the
    * recipe's AI Denoise although Apple RAW 9 would develop it without
    * (`ai_denoise_stand_in`): developed again when AI Denoise is off. */

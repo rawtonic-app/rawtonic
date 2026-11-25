@@ -9,7 +9,7 @@ use crate::noise::NoiseProfile;
 
 /// Tile edge in packed pixels, as the network was exported.
 pub const TILE: usize = 320;
-/// Margin around the kept core of each tile.
+/// Margin around the kept core of each tile (`Backend::halo`).
 pub const HALO: usize = 40;
 
 /// Four planes of `width / 2` × `height / 2`, plane-major.
@@ -94,9 +94,9 @@ pub fn run(
     progress: &(dyn Fn(usize, usize) + Sync),
 ) -> Result<Planes> {
     let (pw, ph) = (planes.width, planes.height);
-    let tile = backend.tile();
-    ensure!(tile > 2 * HALO, "tile of {tile} px");
-    let core = tile - 2 * HALO;
+    let (tile, halo) = (backend.tile(), backend.halo());
+    ensure!(tile > 2 * halo, "tile of {tile} px with a {halo} px halo");
+    let core = tile - 2 * halo;
     ensure!(pw >= 2 && ph >= 2, "mosaic too small: {pw}x{ph} planes");
     let std: Vec<Vec<f32>> = (0..4)
         .map(|c| {
@@ -121,11 +121,11 @@ pub fn run(
                     &std[c - 4][..]
                 };
                 for y in 0..tile {
-                    let sy = reflect(ty as isize + y as isize - HALO as isize, ph);
+                    let sy = reflect(ty as isize + y as isize - halo as isize, ph);
                     let row = &source[sy * pw..(sy + 1) * pw];
                     let dst = &mut input[(c * tile + y) * tile..(c * tile + y + 1) * tile];
                     for (x, d) in dst.iter_mut().enumerate() {
-                        *d = row[reflect(tx as isize + x as isize - HALO as isize, pw)];
+                        *d = row[reflect(tx as isize + x as isize - halo as isize, pw)];
                     }
                 }
             }
@@ -141,7 +141,7 @@ pub fn run(
             let (hh, ww) = (core.min(ph - ty), core.min(pw - tx));
             for c in 0..4 {
                 for y in 0..hh {
-                    let src = &result[(c * tile + HALO + y) * tile + HALO..][..ww];
+                    let src = &result[(c * tile + halo + y) * tile + halo..][..ww];
                     out[c * pw * ph + (ty + y) * pw + tx..][..ww].copy_from_slice(src);
                 }
             }

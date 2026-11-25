@@ -530,19 +530,25 @@ export const withLegacyGrainVersion = <T extends Partial<Adjustments>>(adjustmen
     ? { ...adjustments, grainVersion: 1 }
     : adjustments;
 
-/** AI Denoise's amount means what its version makes of it, so wherever an
- * amount is copied (paste, tool copy, presets) its version goes along: the
- * source's, else — presets and recipes from before the key — version 1 for an
- * amount above 0 and the current one for 0, which renders the same. */
+/** AI Denoise's amount means what its version and quality make of it, so
+ * wherever an amount is copied (paste, tool copy, presets) they go along: the
+ * source's version, else — presets and recipes from before the key — version
+ * 1 for an amount above 0 and the current one for 0, which renders the same;
+ * for an amount above 0 the source's quality, else Full (what a recipe
+ * without `aiDenoiseQuality` renders), so a destination never keeps a quality
+ * of its own under the copied amount. */
 export const withAiDenoiseVersion = <T extends Partial<Adjustments>>(
   picked: T,
   source?: Partial<Adjustments>
-): T & Pick<Partial<Adjustments>, 'aiDenoiseVersion'> => {
-  if (picked.aiDenoise === undefined || (picked.aiDenoiseVersion !== undefined && picked.aiDenoiseVersion !== null)) {
-    return picked;
-  }
+): T & Pick<Partial<Adjustments>, 'aiDenoiseVersion' | 'aiDenoiseQuality'> => {
+  if (picked.aiDenoise === undefined) return picked;
+  const withQuality =
+    (picked.aiDenoise ?? 0) > 0 && !picked.aiDenoiseQuality
+      ? { ...picked, aiDenoiseQuality: source?.aiDenoiseQuality === 'fast' ? ('fast' as const) : ('full' as const) }
+      : picked;
+  if (picked.aiDenoiseVersion !== undefined && picked.aiDenoiseVersion !== null) return withQuality;
   const version = source?.aiDenoiseVersion ?? ((picked.aiDenoise ?? 0) > 0 ? 1 : AI_DENOISE_VERSION);
-  return { ...picked, aiDenoiseVersion: version };
+  return { ...withQuality, aiDenoiseVersion: version };
 };
 
 /** diffraction.rs VERSION for a request made now. */
@@ -708,6 +714,11 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * effect; 3 = the same on the faster model; missing = 1 (recipes from
    * before it). */
   aiDenoiseVersion?: number;
+  /** Which network AI Denoise runs (crates/engine/src/recipe_versions.rs
+   * `AiDenoiseQuality`): 'fast' the smaller one, 'full' or missing
+   * MatchFilter (every recipe from before the key). Stored per photo, so an
+   * export renders it on every machine. */
+  aiDenoiseQuality?: 'full' | 'fast';
   curves: Curves;
   pointCurves?: Curves;
   parametricCurve?: ParametricCurve;
@@ -2932,7 +2943,8 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'colorNoiseVersion',
         'lumaNoiseVersion',
         'aiDenoise',
-        'aiDenoiseVersion'
+        'aiDenoiseVersion',
+        'aiDenoiseQuality'
       ]
     },
     {

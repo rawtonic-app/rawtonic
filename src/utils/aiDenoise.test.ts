@@ -4,6 +4,7 @@ import {
   aiDenoiseAmount,
   aiDenoiseToApply,
   developmentSignature,
+  withAiDenoiseQualityOnTurnOn,
   sourceDevelopToApply,
   storedSliderValue,
   warpPlanesMatter
@@ -45,6 +46,52 @@ describe('aiDenoiseToApply', () => {
       aiDenoise: 60,
       aiDenoiseVersion: 2,
       multiscale: true
+    });
+  });
+
+  it('develops again when the AI Denoise quality changes with AI Denoise on', () => {
+    const full = { ...decoded, aiDenoise: 60, aiDenoiseVersion: 5 };
+    const fast = { aiDenoise: 60, aiDenoiseVersion: 5, aiDenoiseQuality: 'fast' as const };
+    expect(aiDenoiseToApply(full, fast, false)).toBe(60);
+    // A recipe without the key renders Full: the Full source is its own.
+    expect(aiDenoiseToApply(full, { aiDenoise: 60, aiDenoiseVersion: 5 }, false)).toBeNull();
+    expect(aiDenoiseToApply({ ...full, aiDenoiseQuality: 'fast' }, fast, false)).toBeNull();
+    expect(aiDenoiseToApply({ ...full, aiDenoiseQuality: 'fast' }, { ...fast, aiDenoiseQuality: 'full' }, false)).toBe(
+      60
+    );
+    // Off: the quality does not matter.
+    expect(aiDenoiseToApply(decoded, { ...fast, aiDenoise: 0 }, false)).toBeNull();
+    expect(sourceDevelopToApply({ ...full, colorNoiseMultiscale: true }, fast, false)).toEqual({
+      aiDenoise: 60,
+      aiDenoiseVersion: 5,
+      aiDenoiseQuality: 'fast',
+      multiscale: true
+    });
+    // A quality that failed is not retried; the other one is.
+    const failed = { ...full, aiDenoise: 0, aiDenoiseFailed: 60, aiDenoiseFailedVersion: 5, aiDenoiseFailedQuality: 'fast' as const };
+    expect(aiDenoiseToApply(failed, fast, false)).toBeNull();
+    expect(aiDenoiseToApply(failed, { ...fast, aiDenoiseQuality: 'full' }, false)).toBe(60);
+  });
+
+  it('gives a recipe that turns AI Denoise on the computer\'s quality, and nothing else', () => {
+    expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 50 }, 'fast')).toEqual({
+      aiDenoise: 50,
+      aiDenoiseQuality: 'fast'
+    });
+    expect(withAiDenoiseQualityOnTurnOn({}, { aiDenoise: 50 }, 'full')).toEqual({
+      aiDenoise: 50,
+      aiDenoiseQuality: 'full'
+    });
+    // Already on (a recipe from before the key renders Full): kept as it renders.
+    expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 40 }, { aiDenoise: 50 }, 'fast')).toEqual({ aiDenoise: 50 });
+    // A chosen quality stays; an unknown default writes nothing.
+    expect(
+      withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 50, aiDenoiseQuality: 'full' as const }, 'fast')
+    ).toEqual({ aiDenoise: 50, aiDenoiseQuality: 'full' });
+    expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 50 }, null)).toEqual({ aiDenoise: 50 });
+    expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 0, exposure: 1 }, 'fast')).toEqual({
+      aiDenoise: 0,
+      exposure: 1
     });
   });
 

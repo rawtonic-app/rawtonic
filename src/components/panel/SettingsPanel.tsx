@@ -420,6 +420,14 @@ export default function SettingsPanel({
     [t]
   );
 
+  const aiDenoiseQualityOptions = useMemo<OptionItem<string>[]>(
+    () => [
+      { value: 'auto', label: t('settings.processing.aiDenoiseQualities.auto') },
+      { value: 'full', label: t('settings.processing.aiDenoiseQualities.full') },
+      { value: 'fast', label: t('settings.processing.aiDenoiseQualities.fast') }
+    ],
+    [t]
+  );
   const filteredBackendOptions = useMemo<OptionItem<string>[]>(() => {
     const rawOptions = [
       { value: 'auto', label: t('settings.processing.backends.auto') },
@@ -1641,6 +1649,23 @@ export default function SettingsPanel({
                           />
                         </SettingItem>
                       )}
+
+                      <SettingItem
+                        label={t('settings.processing.aiDenoiseQuality')}
+                        description={t('settings.processing.aiDenoiseQualityDesc')}
+                      >
+                        <Dropdown
+                          onChange={(value) =>
+                            onSettingsChange({
+                              ...appSettings,
+                              aiDenoiseDefaultQuality: value as 'auto' | 'full' | 'fast'
+                            })
+                          }
+                          options={aiDenoiseQualityOptions}
+                          value={appSettings?.aiDenoiseDefaultQuality ?? 'auto'}
+                          triggerClassName="bg-bg-primary"
+                        />
+                      </SettingItem>
 
                       {osPlatform !== 'macos' && osPlatform !== 'windows' && (
                         <SettingItem

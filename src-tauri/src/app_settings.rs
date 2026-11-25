@@ -202,6 +202,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "dehazeVersion",
         "aiDenoise",
         "aiDenoiseVersion",
+        "aiDenoiseQuality",
         "defringePurpleAmount",
         "defringePurpleHueLo",
         "defringePurpleHueHi",
@@ -788,6 +789,11 @@ pub struct AppSettings {
     /// AI models on a GPU execution provider when one works (None = on).
     #[serde(default)]
     pub ai_gpu: Option<bool>,
+    /// The AI Denoise quality (`aiDenoiseQuality`) photos get when AI
+    /// Denoise is first turned on: "full", "fast", or None / "auto" for
+    /// this machine's (`ai_denoise::default_quality`).
+    #[serde(default)]
+    pub ai_denoise_default_quality: Option<String>,
     #[serde(default)]
     pub linux_gpu_optimization_migrated_v1: Option<bool>,
     #[serde(default)]
@@ -994,6 +1000,7 @@ impl Default for AppSettings {
             processing_backend: Some("auto".to_string()),
             linux_gpu_optimization: Some(false),
             ai_gpu: None,
+            ai_denoise_default_quality: None,
             linux_gpu_optimization_migrated_v1: Some(true),
             library_view_mode: Some("flat".to_string()),
             subfolder_views: None,

@@ -330,6 +330,19 @@ describe('RAW detail defaults', () => {
     expect('aiDenoiseVersion' in withAiDenoiseVersion({ exposure: 1 } as Partial<Adjustments>)).toBe(false);
   });
 
+  it('carry the AI Denoise quality with a copied amount', () => {
+    // The source's quality goes along; without one it renders Full, so the
+    // destination gets Full, never its own quality under the copied amount.
+    expect(withAiDenoiseVersion({ aiDenoise: 60 }, { aiDenoiseQuality: 'fast' }).aiDenoiseQuality).toBe('fast');
+    expect(withAiDenoiseVersion({ aiDenoise: 60 }).aiDenoiseQuality).toBe('full');
+    expect(withAiDenoiseVersion({ aiDenoise: 60, aiDenoiseQuality: undefined }, {}).aiDenoiseQuality).toBe('full');
+    expect(
+      withAiDenoiseVersion({ aiDenoise: 60, aiDenoiseVersion: 5, aiDenoiseQuality: 'fast' }, {}).aiDenoiseQuality
+    ).toBe('fast');
+    // At 0 the quality renders nothing: none is written.
+    expect('aiDenoiseQuality' in withAiDenoiseVersion({ aiDenoise: 0 })).toBe(false);
+  });
+
   it('carry the diffraction version with a copied or preset correction', () => {
     // A recipe or preset from before the key renders version 1; pasted onto a
     // photo whose recipe says 2, it must still render 1.

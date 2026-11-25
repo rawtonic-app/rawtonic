@@ -2482,7 +2482,8 @@
         "Tauri updater plugin": "«Instal·la l’actualització»: obté el manifest i el paquet de la versió, en comprova la signatura i substitueix l’app de macOS.",
         "x509-parser": "Lectura de certificats de signatura (signant, validesa, usos permesos).",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
-        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi).",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
@@ -2747,6 +2748,13 @@
       "title": "Els meus objectius"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automàtica",
+        "fast": "Ràpida",
+        "full": "Completa"
+      },
+      "aiDenoiseQuality": "Qualitat de la reducció de soroll amb IA a les edicions noves",
+      "aiDenoiseQualityDesc": "La qualitat que rep una foto quan actives per primer cop la reducció de soroll amb IA; cada foto conserva la seva i la pots canviar a Revelat. Automàtica tria Ràpida als ordinadors on la reducció de soroll amb IA s’executa al processador; si no, Completa.",
       "aiGpu": "IA a la targeta gràfica",
       "aiGpuDesc": "Executa les màscares d'IA, les etiquetes, l'eliminació d'objectes i la reducció de soroll amb IA a la targeta gràfica quan és possible (WebGPU; CUDA si està instal·lat); si no, al processador. Desactiva-ho si una eina d'IA falla.",
       "aiGpuLabel": "Utilitza la GPU per a la IA",
@@ -3638,7 +3646,13 @@
         "colorSmoothnessAria": "Suavitat del soroll de color",
         "denoising": "Reduint el soroll del RAW… La primera vegada triga uns trenta segons.",
         "lumaContrastAria": "Contrast del soroll de luminància",
-        "lumaDetailAria": "Detall del soroll de luminància"
+        "lumaDetailAria": "Detall del soroll de luminància",
+        "quality": "Qualitat",
+        "qualityAria": "Qualitat de la reducció de soroll amb IA",
+        "qualityFast": "Ràpida",
+        "qualityFastHint": "Ràpida: unes 15× més ràpida al processador, amb un detall fi lleugerament menor.",
+        "qualityFull": "Completa",
+        "qualityFullHint": "Completa: el detall més fi. Lenta sense una targeta gràfica ràpida (molts minuts per foto al processador)."
       },
       "noPhoto": "Obre una foto a Revelatge per ajustar-la.",
       "params": {

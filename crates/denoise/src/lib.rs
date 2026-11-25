@@ -8,6 +8,8 @@
 //! (`noise::estimate`). It runs on 320 px tiles with a 40 px halo, on
 //! Core ML on macOS and ONNX Runtime elsewhere. Results are rounded to f16,
 //! cached or not, so a cached and a fresh result are the same bytes.
+//! AI Denoise's Fast quality runs Rawtonic's own smaller network distilled
+//! from MatchFilter (`FAST_ONNX_MODEL`) through the same tiles and cache.
 //! docs/MODELS.md has the measurements.
 
 pub mod noise;
@@ -37,9 +39,20 @@ pub const CORE_ML_PACKAGE: &str = "nlmf.mlpackage";
 pub const CORE_ML_MIXED_PACKAGE: &str = "nlmf_mixed640.mlpackage";
 /// The ONNX model's file name there.
 pub const ONNX_MODEL: &str = "nlmf.onnx";
+/// AI Denoise's Fast quality: Rawtonic's U-Net (9.6 M parameters) distilled
+/// from MatchFilter on RawNIND frames, the same `[8, T, T] → [4, T, T]`
+/// contract on 512 px tiles with a 32 px halo, about 17× less CPU time per
+/// photo (notes: benchmark-results/dst1-2026-11-25). ONNX on every platform.
+pub const FAST_ONNX_MODEL: &str = "fast_denoise_v1.onnx";
+/// The Fast network's tile edge and halo in packed pixels, as it was
+/// exported and measured.
+const FAST_TILE: usize = 512;
+const FAST_HALO: usize = 32;
 
 /// Identifies the network and the input it gets; part of the cache key.
 const MODEL_ID: &str = "nonlocal-matchfilter-rawnoise_25_15_9nbr-v1";
+/// The same for the Fast network.
+const FAST_MODEL_ID: &str = "rawtonic-fast-denoise-l48-v1";
 
 /// One inference: `[8, TILE, TILE]` in (packed planes, then their noise
 /// standard deviations), `[4, TILE, TILE]` out.
@@ -56,6 +69,16 @@ pub trait Backend: Send + Sync {
     /// Tile edge the network takes, in packed pixels.
     fn tile(&self) -> usize {
         TILE
+    }
+
+    /// Margin around each tile's kept core, in packed pixels.
+    fn halo(&self) -> usize {
+        HALO
+    }
+
+    /// The network and the input it gets, for the cache key.
+    fn model_id(&self) -> &'static str {
+        MODEL_ID
     }
 }
 
@@ -122,6 +145,15 @@ impl MatchFilter {
         Ok(Self::new(Box::new(onnx::Onnx::load(model)?), cache_dir))
     }
 
+    /// AI Denoise's Fast network (`FAST_ONNX_MODEL`) on ONNX Runtime, on
+    /// every platform; its results are cached apart from MatchFilter's.
+    pub fn fast_onnx(model: &Path, cache_dir: Option<PathBuf>) -> Result<Self> {
+        Ok(Self::new(
+            Box::new(onnx::Onnx::load_fast(model)?),
+            cache_dir,
+        ))
+    }
+
     fn cache_path(&self, key: u64) -> Option<PathBuf> {
         self.cache_dir
             .as_ref()
@@ -170,7 +202,14 @@ impl MosaicDenoiser for MatchFilter {
         if noise_scale != 1.0 {
             tag.push_str(&format!("|noise×{noise_scale}"));
         }
-        let key = cache_key(&tag, mosaic, width, height, pattern);
+        let key = cache_key(
+            self.backend.model_id(),
+            &tag,
+            mosaic,
+            width,
+            height,
+            pattern,
+        );
         let _cache_lease = self
             .cache_path(key)
             .and_then(|path| self.cache_access.map(|access| access(&path)));
@@ -196,8 +235,13 @@ impl MosaicDenoiser for MatchFilter {
         for v in &mut out {
             *v = half::f16::from_f32(v.clamp(0.0, 1.0)).to_f32();
         }
+        // "MatchFilter:" as before (QA scripts read the noise profile there).
+        let label = match self.backend.model_id() {
+            MODEL_ID => "MatchFilter",
+            _ => "Fast AI Denoise",
+        };
         eprintln!(
-            "MatchFilter: {width}x{height} in {:.1} s, noise (shot, read) {:?} ×{noise_scale}",
+            "{label}: {width}x{height} in {:.1} s, noise (shot, read) {:?} ×{noise_scale}",
             started.elapsed().as_secs_f32(),
             profile.channels
         );
@@ -213,13 +257,20 @@ impl MosaicDenoiser for MatchFilter {
 }
 
 /// FNV-1a over the samples' bits and the layout (stable across builds).
-fn cache_key(tag: &str, mosaic: &[f32], width: usize, height: usize, pattern: [u8; 4]) -> u64 {
+fn cache_key(
+    model_id: &str,
+    tag: &str,
+    mosaic: &[f32],
+    width: usize,
+    height: usize,
+    pattern: [u8; 4],
+) -> u64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     let mut eat = |word: u64| {
         hash ^= word;
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     };
-    for b in MODEL_ID.bytes().chain(tag.bytes()) {
+    for b in model_id.bytes().chain(tag.bytes()) {
         eat(b as u64);
     }
     eat(width as u64);
@@ -501,6 +552,54 @@ mod tests {
             filter
                 .denoise_scaled(&mosaic, w, h, [0, 1, 1, 2], 0.0)
                 .is_err()
+        );
+    }
+    /// `Identity` on the Fast network's tiles, under another model id.
+    struct FastIdentity;
+
+    impl Backend for FastIdentity {
+        fn run(&self, input: &[f32]) -> Result<Vec<f32>> {
+            Ok(input[..4 * FAST_TILE * FAST_TILE].to_vec())
+        }
+
+        fn tile(&self) -> usize {
+            FAST_TILE
+        }
+
+        fn halo(&self) -> usize {
+            FAST_HALO
+        }
+
+        fn model_id(&self) -> &'static str {
+            FAST_MODEL_ID
+        }
+    }
+
+    #[test]
+    fn another_model_uses_its_own_halo_and_caches_apart() {
+        let (w, h) = (1300, 950);
+        let mosaic = noisy_mosaic(w, h);
+        let dir = tempfile::tempdir().unwrap();
+        let cache = Some(dir.path().to_path_buf());
+        let full = MatchFilter::new(Box::new(Identity), cache.clone());
+        let fast = MatchFilter::new(Box::new(FastIdentity), cache);
+        let heard = std::sync::Mutex::new(Vec::new());
+        let out = fast
+            .denoise_reporting(&mosaic, w, h, [0, 1, 1, 2], 1.0, &|done, total| {
+                heard.lock().unwrap().push((done, total))
+            })
+            .unwrap();
+        for (a, b) in out.iter().zip(&mosaic) {
+            assert!((a - b).abs() < 1e-3, "{a} vs {b}");
+        }
+        // 650 × 475 planes in 448 px cores: 2 × 2 tiles (MatchFilter's
+        // 240 px cores would take 3 × 2).
+        assert_eq!(heard.into_inner().unwrap().last(), Some(&(4, 4)));
+        full.denoise(&mosaic, w, h, [0, 1, 1, 2]).unwrap();
+        assert_eq!(
+            fs::read_dir(dir.path()).unwrap().count(),
+            2,
+            "one cache file per model"
         );
     }
 }

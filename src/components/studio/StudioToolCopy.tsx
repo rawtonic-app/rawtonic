@@ -70,8 +70,8 @@ export const COPIED_ALONG: Partial<Record<string, string[]>> = {
   sharpenDetail: ['sharpenVersion'],
   sharpenMasking: ['sharpenVersion'],
   sharpnessFalloff: ['sharpenVersion'],
-  // AI Denoise means what the recipe's AI Denoise version makes of it.
-  aiDenoise: ['aiDenoiseVersion']
+  // AI Denoise means what the recipe's AI Denoise version and quality make of it.
+  aiDenoise: ['aiDenoiseVersion', 'aiDenoiseQuality']
 };
 
 /** `keys` of `values` (and the keys that say how they render), as copied

@@ -2618,7 +2618,8 @@
         "Tauri updater plugin": "„Zainstaluj aktualizację”: pobiera manifest i pakiet wydania, sprawdza podpis i zastępuje aplikację macOS.",
         "x509-parser": "Odczyt certyfikatów podpisu (podpisujący, ważność, dozwolone zastosowania).",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
-        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi).",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
@@ -2886,6 +2887,13 @@
       "title": "Moje obiektywy"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automatyczna",
+        "fast": "Szybka",
+        "full": "Pełna"
+      },
+      "aiDenoiseQuality": "Jakość odszumiania AI dla nowych edycji",
+      "aiDenoiseQualityDesc": "Jakość, którą zdjęcie otrzymuje przy pierwszym włączeniu odszumiania AI; każde zdjęcie zachowuje własną, a zmienić ją można w Wywoływaniu. Automatyczna wybiera Szybką na komputerach, na których odszumianie AI działa na procesorze, w przeciwnym razie Pełną.",
       "aiGpu": "AI na karcie graficznej",
       "aiGpuDesc": "Uruchamia maski AI, tagi, usuwanie obiektów i odszumianie AI na karcie graficznej, gdy to możliwe (WebGPU; CUDA, jeśli zainstalowana), w przeciwnym razie na procesorze. Wyłącz, jeśli narzędzie AI działa niepoprawnie.",
       "aiGpuLabel": "Używaj GPU do AI",
@@ -3797,7 +3805,13 @@
         "colorSmoothnessAria": "Wygładzenie szumu koloru",
         "denoising": "Odszumianie pliku RAW… Za pierwszym razem trwa to około pół minuty.",
         "lumaContrastAria": "Kontrast szumu luminancji",
-        "lumaDetailAria": "Szczegóły szumu luminancji"
+        "lumaDetailAria": "Szczegóły szumu luminancji",
+        "quality": "Jakość",
+        "qualityAria": "Jakość odszumiania AI",
+        "qualityFast": "Szybka",
+        "qualityFastHint": "Szybka: około 15× szybsza na procesorze, z minimalnie mniejszą ilością drobnych szczegółów.",
+        "qualityFull": "Pełna",
+        "qualityFullHint": "Pełna: najdrobniejsze szczegóły. Wolna bez szybkiej karty graficznej (wiele minut na zdjęcie na procesorze)."
       },
       "noPhoto": "Otwórz zdjęcie w module Wywoływanie, aby je skorygować.",
       "params": {

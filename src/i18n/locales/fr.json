@@ -2482,7 +2482,8 @@
         "Tauri updater plugin": "« Installer la mise à jour » : récupère le manifeste et le paquet de la version, vérifie sa signature et remplace l’app macOS.",
         "x509-parser": "Lecture des certificats de signature (signataire, validité, usages autorisés).",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
-        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi).",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
@@ -2747,6 +2748,13 @@
       "title": "Mes objectifs"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automatique",
+        "fast": "Rapide",
+        "full": "Complète"
+      },
+      "aiDenoiseQuality": "Qualité du débruitage IA des nouvelles retouches",
+      "aiDenoiseQualityDesc": "La qualité qu’une photo reçoit lorsque vous activez le débruitage IA pour la première fois ; chaque photo garde la sienne, modifiable dans Développement. Automatique choisit Rapide sur les ordinateurs où le débruitage IA s’exécute sur le processeur, sinon Complète.",
       "aiGpu": "IA sur la carte graphique",
       "aiGpuDesc": "Exécute les masques IA, les mots-clés, la suppression d'objets et le débruitage IA sur la carte graphique si possible (WebGPU ; CUDA s'il est installé), sinon sur le processeur. Désactivez-le si un outil IA pose problème.",
       "aiGpuLabel": "Utiliser le GPU pour l'IA",
@@ -3638,7 +3646,13 @@
         "colorSmoothnessAria": "Lissage du bruit de couleur",
         "denoising": "Débruitage du RAW… La première fois prend environ une demi-minute.",
         "lumaContrastAria": "Contraste du bruit de luminance",
-        "lumaDetailAria": "Détail du bruit de luminance"
+        "lumaDetailAria": "Détail du bruit de luminance",
+        "quality": "Qualité",
+        "qualityAria": "Qualité du débruitage IA",
+        "qualityFast": "Rapide",
+        "qualityFastHint": "Rapide : environ 15× plus rapide sur le processeur, avec très légèrement moins de détails fins.",
+        "qualityFull": "Complète",
+        "qualityFullHint": "Complète : les détails les plus fins. Lente sans carte graphique rapide (plusieurs minutes par photo sur le processeur)."
       },
       "noPhoto": "Ouvrez une photo dans Développement pour la régler.",
       "params": {

@@ -1162,6 +1162,7 @@ fn start(args: Vec<String>) {
             inpainting::invoke_generative_replace_with_mask_def,
             image_loader::load_image,
             image_loader::apply_ai_denoise,
+            ai_denoise::ai_denoise_default_quality,
             image_loader::load_embedded_preview,
             export_processing::export_images,
             export_processing::export_images_batch,

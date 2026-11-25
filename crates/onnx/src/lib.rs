@@ -535,6 +535,13 @@ fn first_gpu(
         .find_map(|provider| device(provider, &settings.plugin_dirs).ok())
 }
 
+/// Whether a GPU provider would take `kind` in this process: one of its
+/// candidates (`candidates`) offers a device. Registers that provider's
+/// plugin, as loading the model would.
+pub fn has_gpu_for(kind: ModelKind) -> bool {
+    first_gpu(kind, &settings(), forced_provider()).is_some()
+}
+
 /// `RAWTONIC_AI_PROVIDER`, if set to a provider's name.
 pub fn forced_provider() -> Option<Provider> {
     std::env::var("RAWTONIC_AI_PROVIDER")

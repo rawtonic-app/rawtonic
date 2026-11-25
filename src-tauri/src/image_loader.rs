@@ -15,6 +15,7 @@ use crate::state::merge::MergeState;
 use crate::state::source::{LoadedImage, SourceSignal, SourceState};
 use anyhow::{Result, anyhow};
 use image::{DynamicImage, GenericImageView};
+use rawtonic_engine::recipe_versions::{AI_DENOISE_FAST, AI_DENOISE_FULL, AI_DENOISE_QUALITY_KEY};
 use serde_json::Value;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -39,6 +40,9 @@ pub struct LoadImageResult {
     pub ai_denoise: f32,
     /// Its `aiDenoiseVersion` (1 when off).
     pub ai_denoise_version: u8,
+    /// Its `aiDenoiseQuality` as it rendered: "fast" or "full" ("full" when
+    /// off).
+    pub ai_denoise_quality: &'static str,
     /// Why the recipe's AI Denoise could not be applied, if it could not.
     pub ai_denoise_error: Option<String>,
     /// The source is the rawler decode of a sensor AI Denoise skipped,
@@ -885,8 +889,18 @@ fn publish_cancelled() -> CommandError {
     CommandError::cancelled(LOAD_CANCELLED)
 }
 
+/// The `aiDenoiseQuality` a source developed with `applied` reports.
+fn quality_name(applied: Option<AiDenoiseSettings>) -> &'static str {
+    if applied.is_some_and(|ai| ai.fast) {
+        AI_DENOISE_FAST
+    } else {
+        AI_DENOISE_FULL
+    }
+}
+
 /// Develops the open photograph again with AI Denoise at `amount` (0 … 100)
-/// of `version` (`aiDenoiseVersion`, None: 1), for the colour noise filter
+/// of `version` (`aiDenoiseVersion`, None: 1) and `quality`
+/// (`aiDenoiseQuality`, None: "full"), for the colour noise filter
 /// of its recipe (`multiscale`, see `load_base_image_from_bytes_for`; None:
 /// its stored recipe's) and for its dead-photosite test
 /// (`dead_pixel_adjacent`: `DeadTest::Adjacent`, with `defects_isolated`
@@ -910,6 +924,7 @@ pub async fn apply_ai_denoise(
     path: String,
     amount: f32,
     version: Option<u8>,
+    quality: Option<String>,
     multiscale: Option<bool>,
     dead_pixel_adjacent: Option<bool>,
     defects_isolated: Option<bool>,
@@ -999,8 +1014,11 @@ pub async fn apply_ai_denoise(
             None => stored.warp_planes,
         },
     };
-    let recipe =
-        serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version.unwrap_or(1) });
+    let recipe = serde_json::json!({
+        "aiDenoise": amount,
+        "aiDenoiseVersion": version.unwrap_or(1),
+        AI_DENOISE_QUALITY_KEY: quality.as_deref().unwrap_or(AI_DENOISE_FULL),
+    });
     // One snapshot of the preferences for the decode, its key and the source
     // it becomes (the model may take a while to load).
     let settings = crate::state::settings::current(&app_handle);
@@ -1323,6 +1341,7 @@ pub async fn load_image(
         (metadata.adjustments["aiDenoise"].as_f64().unwrap_or(0.0) as f32).clamp(0.0, 100.0)
     });
     let ai_denoise_version = applied_ai.map_or(1, |ai| ai.version);
+    let ai_denoise_quality = quality_name(applied_ai);
     let mut ai_denoise_stand_in = false;
     // The opened recipe decides the decode-time chroma clean-up, the
     // dead-photosite test and the frame (a virtual copy's own recipe).
@@ -1657,6 +1676,7 @@ pub async fn load_image(
         is_raw,
         ai_denoise,
         ai_denoise_version,
+        ai_denoise_quality,
         ai_denoise_error,
         ai_denoise_stand_in,
         offline: None,
@@ -1898,6 +1918,8 @@ async fn open_offline(
             is_raw: true,
             ai_denoise: 0.0,
             ai_denoise_version: 1,
+        ai_denoise_quality: AI_DENOISE_FULL,
+            ai_denoise_quality: AI_DENOISE_FULL,
             ai_denoise_error: None,
             ai_denoise_stand_in: false,
             offline: Some("full"),
@@ -1986,6 +2008,7 @@ async fn open_offline(
         is_raw: true,
         ai_denoise: 0.0,
         ai_denoise_version: 1,
+        ai_denoise_quality: AI_DENOISE_FULL,
         ai_denoise_error: None,
         ai_denoise_stand_in: false,
         offline: Some("standard"),

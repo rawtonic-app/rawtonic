@@ -19,6 +19,7 @@ import { historyFor, keptSince } from '../utils/photoHistory';
 import { keptSelectionMatchesSettled } from '../utils/queuedSelections';
 import { recipeStepsSince } from '../utils/appUndo';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
+import { aiDenoiseQualityOf } from '../utils/aiDenoise';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 
 function canShowCameraPreview(recipe: Partial<Adjustments> | null | undefined) {
@@ -417,6 +418,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             isDecoded: true,
             aiDenoise: loadImageResult.ai_denoise,
             aiDenoiseVersion: loadImageResult.ai_denoise_version,
+            aiDenoiseQuality: loadImageResult.ai_denoise_quality ?? 'full',
             colorNoiseMultiscale: loadImageResult.color_noise_multiscale ?? undefined,
             deadPixelAdjacent: loadImageResult.dead_pixel_adjacent ?? undefined,
             defectsIsolated: loadImageResult.defects_isolated ?? undefined,
@@ -435,6 +437,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               ? {
                   aiDenoiseFailed: Number(storedMetadata?.adjustments?.aiDenoise ?? 0),
                   aiDenoiseFailedVersion: Number(storedMetadata?.adjustments?.aiDenoiseVersion ?? 1),
+                  aiDenoiseFailedQuality: aiDenoiseQualityOf(storedMetadata?.adjustments ?? {}),
                   ...(loadImageResult.ai_denoise_stand_in ? { aiDenoiseStandIn: true } : {})
                 }
               : {}),

@@ -678,6 +678,7 @@ export function useImageProcessing(
   const sourceDevelop = sourceDevelopToApply(selectedImage, adjustments, isSliderDragging);
   const developAiDenoise = sourceDevelop?.aiDenoise ?? null;
   const developAiDenoiseVersion = sourceDevelop?.aiDenoiseVersion;
+  const developAiDenoiseQuality = sourceDevelop?.aiDenoiseQuality;
   const developMultiscale = sourceDevelop?.multiscale;
   const developDeadPixel = sourceDevelop?.deadPixelAdjacent;
   const developDefectsIsolated = sourceDevelop?.defectsIsolated;
@@ -702,6 +703,7 @@ export function useImageProcessing(
     if (developAiDenoise === null || !path || current?.path !== path) return;
     const amount = developAiDenoise;
     const version = developAiDenoiseVersion;
+    const quality = developAiDenoiseQuality ?? 'full';
     const multiscale = developMultiscale;
     const deadPixelAdjacent = developDeadPixel;
     const defectsIsolated = developDefectsIsolated;
@@ -717,7 +719,8 @@ export function useImageProcessing(
     const changesAiDenoise =
       !sameAiDenoiseAmount(amount, current.aiDenoise ?? 0) ||
       (amount === 0 && current.aiDenoiseStandIn === true) ||
-      (amount > 0 && (version ?? 1) !== (current.aiDenoiseVersion ?? 1));
+      (amount > 0 &&
+        ((version ?? 1) !== (current.aiDenoiseVersion ?? 1) || quality !== (current.aiDenoiseQuality ?? 'full')));
     const changesFilter = multiscale !== current.colorNoiseMultiscale;
     const changesDeadTest = deadPixelAdjacent !== current.deadPixelAdjacent;
     const changesDefectTest = defectsIsolated !== current.defectsIsolated;
@@ -739,6 +742,7 @@ export function useImageProcessing(
       path,
       amount,
       version,
+      quality,
       multiscale,
       deadPixelAdjacent,
       defectsIsolated,
@@ -762,11 +766,14 @@ export function useImageProcessing(
             ...editor.selectedImage,
             aiDenoise: applied,
             aiDenoiseVersion: applied > 0 ? (version ?? 1) : 1,
+            aiDenoiseQuality: applied > 0 ? quality : 'full',
             aiDenoiseStandIn: false,
             // This source settles the stale preferences and the amount that
             // failed before (undo to it develops again).
             decoderStale: (editor.selectedImage.decoderStale ?? 0) === revision ? 0 : editor.selectedImage.decoderStale,
-            ...(changesAiDenoise ? { aiDenoiseFailed: undefined, aiDenoiseFailedVersion: undefined } : {}),
+            ...(changesAiDenoise
+              ? { aiDenoiseFailed: undefined, aiDenoiseFailedVersion: undefined, aiDenoiseFailedQuality: undefined }
+              : {}),
             ...(multiscale === undefined ? {} : { colorNoiseMultiscale: multiscale }),
             ...(deadPixelAdjacent === undefined ? {} : { deadPixelAdjacent }),
             ...(defectsIsolated === undefined ? {} : { defectsIsolated }),
@@ -810,7 +817,9 @@ export function useImageProcessing(
                   ...(published && useSettingsStore.getState().appSettings?.useAppleRaw9
                     ? { aiDenoiseStandIn: true }
                     : {}),
-                  ...(changesAiDenoise ? { aiDenoiseFailed: amount, aiDenoiseFailedVersion: version ?? 1 } : {}),
+                  ...(changesAiDenoise
+                    ? { aiDenoiseFailed: amount, aiDenoiseFailedVersion: version ?? 1, aiDenoiseFailedQuality: quality }
+                    : {}),
                   ...(!changesAiDenoise && changesFilter ? { colorNoiseMultiscaleFailed: multiscale } : {}),
                   ...(!changesAiDenoise && changesDeadTest ? { deadPixelAdjacentFailed: deadPixelAdjacent } : {}),
                   ...(!changesAiDenoise && changesDefectTest ? { defectsIsolatedFailed: defectsIsolated } : {}),
@@ -843,6 +852,7 @@ export function useImageProcessing(
     developPath,
     developAiDenoise,
     developAiDenoiseVersion,
+    developAiDenoiseQuality,
     developMultiscale,
     developDeadPixel,
     developDefectsIsolated,

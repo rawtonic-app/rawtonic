@@ -2249,7 +2249,8 @@
         "Tauri updater plugin": "「アップデートをインストール」: リリースのマニフェストとパッケージを取得し、署名を確認して macOS アプリを置き換えます。",
         "x509-parser": "署名証明書の読み取り (署名者、有効期限、許可された用途)。",
         "YuNet": "Finds faces for People masks (Shiqi Yu et al.).",
-        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi)."
+        "zune-jpegxl": "Lossless JPEG XL export (Caleb Etemesi).",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0."
       },
       "credits": "Credits",
       "creditsIntro": "Rawtonic builds on these projects, data and models. The license texts of included third-party packages and downloaded AI models are below.",
@@ -2511,6 +2512,13 @@
       "title": "マイレンズ"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "自動",
+        "fast": "高速",
+        "full": "フル"
+      },
+      "aiDenoiseQuality": "新規編集の AI ノイズ除去の品質",
+      "aiDenoiseQualityDesc": "写真で AI ノイズ除去を初めてオンにしたときの品質です。写真ごとに保持され、現像で切り替えられます。自動では、AI ノイズ除去がプロセッサーで動くコンピューターでは高速、それ以外ではフルを選びます。",
       "aiGpu": "グラフィックカードでAIを実行",
       "aiGpuDesc": "可能な場合、AIマスク、タグ、オブジェクト除去、AIノイズ除去をグラフィックカードで実行します（WebGPU、インストール済みならCUDA）。それ以外はプロセッサで実行します。AIツールの動作がおかしい場合はオフにしてください。",
       "aiGpuLabel": "AIにGPUを使用",
@@ -3376,7 +3384,13 @@
         "colorSmoothnessAria": "カラーノイズの滑らかさ",
         "denoising": "RAW のノイズを除去しています… 初回は 30 秒ほどかかります。",
         "lumaContrastAria": "輝度ノイズのコントラスト",
-        "lumaDetailAria": "輝度ノイズのディテール"
+        "lumaDetailAria": "輝度ノイズのディテール",
+        "quality": "品質",
+        "qualityAria": "AI ノイズ除去の品質",
+        "qualityFast": "高速",
+        "qualityFastHint": "高速: プロセッサーで約 15 倍速く、細部はごくわずかに少なくなります。",
+        "qualityFull": "フル",
+        "qualityFullHint": "フル: 最も細かいディテール。高速なグラフィックカードがないと遅くなります（プロセッサーでは 1 枚あたり数分以上）。"
       },
       "noPhoto": "補正するには現像で写真を開いてください。",
       "params": {
