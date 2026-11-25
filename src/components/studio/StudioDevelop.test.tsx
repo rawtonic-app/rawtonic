@@ -82,6 +82,28 @@ describe('Develop tool contracts', () => {
     expect(screen.getByText('Could not read a supported RAW sensor for AI Denoise.')).toBeTruthy();
     expect(screen.queryByRole('combobox', { name: /AI Denoise quality/i })).toBeNull();
   });
+  it('stores offline AI Denoise changes for when the RAW returns', async () => {
+    useEditorStore.setState((state) => ({
+      selectedImage: { ...state.selectedImage!, offline: 'standard', isDecoded: true },
+      adjustments: { ...state.adjustments, aiDenoise: 20, aiDenoiseVersion: 5 }
+    }));
+    mount();
+    fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: 'Detail' }));
+    openGroups();
+    await act(async () => {});
+    const slider = screen.getByRole('textbox', { name: 'AI Denoise value' }) as HTMLInputElement;
+    expect(slider.disabled).toBe(false);
+    expect(screen.getByText('The sensor type is read when the original is available.')).toBeTruthy();
+    const quality = screen.getByRole('combobox', { name: 'AI Denoise quality' }) as HTMLSelectElement;
+    expect(quality.disabled).toBe(false);
+    edit('AI Denoise', 43);
+    fireEvent.change(quality, { target: { value: 'fast' } });
+    expect(useEditorStore.getState().adjustments).toMatchObject({
+      aiDenoise: 43,
+      aiDenoiseVersion: 6,
+      aiDenoiseQuality: 'fast'
+    });
+  });
   it('accepts adjustments only after the selected source and metadata are ready', () => {
     useEditorStore.setState((state) => ({ selectedImage: { ...state.selectedImage!, isReady: false } }));
     const before = useEditorStore.getState().adjustments;

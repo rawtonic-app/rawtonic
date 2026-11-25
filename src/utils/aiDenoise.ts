@@ -61,20 +61,21 @@ export function withAiDenoiseQualityOnTurnOn<T extends { aiDenoise?: number; aiD
 
 /**
  * `next` with the AI Denoise version that denoises X-Trans sensors when an edit
- * changes the AI Denoise amount of an X-Trans photo (`xtrans`) whose recipe is
- * older: such a recipe never denoised that photo (its version leaves X-Trans
+ * changes the AI Denoise amount of a photo that may use X-Trans
+ * (`mayBeXTrans`) whose recipe is older: such a recipe never denoised that photo (its version leaves X-Trans
  * alone, and it rendered so when it was made), so it keeps doing so until the
  * user moves the slider, which then applies AI Denoise. A version the change
- * itself sets (`patch`: reset, paste, presets) is kept, and so is every Bayer
- * photo's.
+ * itself sets (`patch`: reset, paste, presets) is kept. A changed amount
+ * on an offline RAW of unknown kind also gets the version that can denoise
+ * either sensor when the original returns.
  */
 export function withXTransAiDenoiseVersion<T extends { aiDenoise?: number; aiDenoiseVersion?: number }>(
   previous: { aiDenoise?: number; aiDenoiseVersion?: number },
   next: T,
-  xtrans: boolean,
+  mayBeXTrans: boolean,
   patch: object = next
 ): T {
-  if (!xtrans || (patch !== next && 'aiDenoiseVersion' in patch)) return next;
+  if (!mayBeXTrans || (patch !== next && 'aiDenoiseVersion' in patch)) return next;
   if ((next.aiDenoise ?? 0) === (previous.aiDenoise ?? 0)) return next;
   if ((next.aiDenoiseVersion ?? 1) >= XTRANS_AI_DENOISE_VERSION) return next;
   return { ...next, aiDenoiseVersion: XTRANS_AI_DENOISE_VERSION };
@@ -244,55 +245,55 @@ export function sourceDevelopToApply(
     },
   dragging: boolean
 ): SourceDevelop | null {
-  if (!image?.isDecoded || dragging) return null;
+  if (!image?.isDecoded || image.offline || dragging) return null;
   if (!image.isRaw) return image.decoderStale ? { aiDenoise: 0 } : null;
   const aiDenoise = aiDenoiseToApply(image, adjustments, dragging);
   // Unknown for preview data: the backend then takes the stored recipe's.
   const have = image.colorNoiseMultiscale;
-  const wanted = image.offline || have === undefined ? have : colorNoiseMultiscale(adjustments, true);
+  const wanted = have === undefined ? have : colorNoiseMultiscale(adjustments, true);
   // A filter whose development failed before is not retried.
   const multiscale = wanted === image.colorNoiseMultiscaleFailed ? have : wanted;
   // The same for the dead-photosite test (`renderVersion`: reset of an
   // older edit, undo).
   const haveDead = image.deadPixelAdjacent;
-  const wantedDead = image.offline || haveDead === undefined ? haveDead : deadPixelAdjacent(adjustments);
+  const wantedDead = haveDead === undefined ? haveDead : deadPixelAdjacent(adjustments);
   const dead = wantedDead === image.deadPixelAdjacentFailed ? haveDead : wantedDead;
   // And for the isolation test (`renderVersion` 15).
   const haveIsolated = image.defectsIsolated;
-  const wantedIsolated = image.offline || haveIsolated === undefined ? haveIsolated : defectsIsolated(adjustments);
+  const wantedIsolated = haveIsolated === undefined ? haveIsolated : defectsIsolated(adjustments);
   const isolated = wantedIsolated === image.defectsIsolatedFailed ? haveIsolated : wantedIsolated;
   // And for its texture rule (`renderVersion` 16).
   const haveTexture = image.defectsTexture;
-  const wantedTexture = image.offline || haveTexture === undefined ? haveTexture : defectsTexture(adjustments);
+  const wantedTexture = haveTexture === undefined ? haveTexture : defectsTexture(adjustments);
   const texture = wantedTexture === image.defectsTextureFailed ? haveTexture : wantedTexture;
   // And for the rule for dead photosites at black (`renderVersion` 17).
   const haveDeadBlack = image.defectsBlack;
-  const wantedDeadBlack = image.offline || haveDeadBlack === undefined ? haveDeadBlack : defectsBlack(adjustments);
+  const wantedDeadBlack = haveDeadBlack === undefined ? haveDeadBlack : defectsBlack(adjustments);
   const deadBlack = wantedDeadBlack === image.defectsBlackFailed ? haveDeadBlack : wantedDeadBlack;
   // And for the looser guard and green ratio repair (`renderVersion` 18).
   const haveCross = image.defectsCross;
-  const wantedCross = image.offline || haveCross === undefined ? haveCross : defectsCross(adjustments);
+  const wantedCross = haveCross === undefined ? haveCross : defectsCross(adjustments);
   const cross = wantedCross === image.defectsCrossFailed ? haveCross : wantedCross;
   // And for the median of three dead repairs (`renderVersion` 19).
   const haveMedian = image.defectsMedian;
-  const wantedMedian = image.offline || haveMedian === undefined ? haveMedian : defectsMedian(adjustments);
+  const wantedMedian = haveMedian === undefined ? haveMedian : defectsMedian(adjustments);
   const median = wantedMedian === image.defectsMedianFailed ? haveMedian : wantedMedian;
   // And for the black handling (`renderVersion` 8).
   const haveBlack = image.unbiasedBlack;
-  const wantedBlack = image.offline || haveBlack === undefined ? haveBlack : unbiasedBlack(adjustments);
+  const wantedBlack = haveBlack === undefined ? haveBlack : unbiasedBlack(adjustments);
   const black = wantedBlack === image.unbiasedBlackFailed ? haveBlack : wantedBlack;
   // And for the border's black (`renderVersion` 11).
   const haveBorder = image.borderBlack;
-  const wantedBorder = image.offline || haveBorder === undefined ? haveBorder : borderBlack(adjustments);
+  const wantedBorder = haveBorder === undefined ? haveBorder : borderBlack(adjustments);
   const border = wantedBorder === image.borderBlackFailed ? haveBorder : wantedBorder;
   // And for the highlight rebuild (`renderVersion` 9).
   const haveRatios = image.highlightRatios;
-  const wantedRatios = image.offline || haveRatios === undefined ? haveRatios : highlightRatios(adjustments);
+  const wantedRatios = haveRatios === undefined ? haveRatios : highlightRatios(adjustments);
   const ratios = wantedRatios === image.highlightRatiosFailed ? haveRatios : wantedRatios;
   // And for a DNG's lens warp (`renderVersion` 14; unknown where it does
   // not change the decode).
   const haveWarp = image.cameraPlaneWarp;
-  const wantedWarp = image.offline || haveWarp === undefined ? haveWarp : cameraPlaneWarp(adjustments);
+  const wantedWarp = haveWarp === undefined ? haveWarp : cameraPlaneWarp(adjustments);
   const warp = wantedWarp === image.cameraPlaneWarpFailed ? haveWarp : wantedWarp;
   if (
     aiDenoise === null &&

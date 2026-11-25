@@ -3664,6 +3664,7 @@
         "qualityFastHint": "Ràpida: unes 15× més ràpida al processador, amb un detall fi lleugerament menor.",
         "qualityFull": "Completa",
         "qualityFullHint": "Completa: el detall més fi. Lenta sense una targeta gràfica ràpida (molts minuts per foto al processador).",
+        "sensorDeferred": "El tipus de sensor es llegeix quan l’original està disponible.",
         "sensorReadFailed": "No s’ha pogut identificar un sensor RAW compatible amb la reducció de soroll amb IA.",
         "xtransHint": "Els sensors X-Trans fan servir la xarxa X-Trans pròpia de la reducció de soroll amb IA, que té una sola qualitat."
       },

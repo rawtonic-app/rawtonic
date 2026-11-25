@@ -201,6 +201,7 @@ describe('sourceDevelopToApply', () => {
     expect(sourceDevelopToApply({ ...oldBase, isDecoded: false }, v2, false)).toBeNull();
     expect(sourceDevelopToApply({ ...oldBase, isRaw: false }, v2, false)).toBeNull();
     expect(sourceDevelopToApply({ ...oldBase, offline: 'full' }, v2, false)).toBeNull();
+    expect(sourceDevelopToApply({ ...oldBase, offline: 'full' }, { ...v2, aiDenoise: 40 }, false)).toBeNull();
     expect(sourceDevelopToApply({ ...oldBase, colorNoiseMultiscaleFailed: true }, v2, false)).toBeNull();
     // Unknown source filter: AI Denoise alone, the backend takes the stored recipe's filter.
     expect(sourceDevelopToApply(decoded, v2, false)).toBeNull();

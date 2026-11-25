@@ -768,3 +768,7 @@ and DNGBackwardVersion of the DNG writer (upstream's render pipeline, DNG
 converter and writer; Rawtonic develops through `rawtonic-rawdecode` and
 writes DNG only for merges), and the RAF orientation turn for S2Pro/GX680
 (`fuji_rotate_90cw`, an upstream camera hint our copy lacks).
+
+- `src/decoders/mrw.rs` (XTSH2): borrow the source bytes for Minolta's
+  header and white-balance metadata so a dummy sensor probe can use the
+  lazy mapping without copying or reading the complete file.

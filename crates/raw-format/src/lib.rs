@@ -8,7 +8,7 @@
 pub mod camera_names;
 mod dng_sensor;
 pub mod extensions;
-pub use dng_sensor::{SensorKind, dng_sensor};
+pub use dng_sensor::{SensorKind, dng_sensor, dng_sensor_reader};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -25,11 +25,10 @@ use rawler::tags::{DngTag, TiffCommonTag};
 pub enum TiffKind {
     /// An RGB, grayscale or other raster image (or not a TIFF at all).
     Raster,
-    /// Camera raw data the decoder can develop.
+    /// Camera raw data identified by the container or decoder.
     Raw,
-    /// Unmistakably camera raw data (a Phase One IIQ header, a colour filter
-    /// array image) the decoder cannot read: it must fail as an unsupported
-    /// RAW, never open as its thumbnail.
+    /// Camera raw data whose decoder reported an error during classification.
+    /// It must fail as an unsupported RAW instead of opening as a thumbnail.
     UnsupportedRaw,
 }
 

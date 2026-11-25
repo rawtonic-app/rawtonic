@@ -45,3 +45,18 @@ it('renders the native unknown sensor status', async () => {
   const { result } = renderHook(() => useRawSensorKind('/photos/c.RAF', true));
   await waitFor(() => expect(result.current).toBe('unknown'));
 });
+
+it('keeps a verified sensor on its offline preview and probes again on reconnect', async () => {
+  vi.mocked(invoke).mockResolvedValue(wire[1]);
+  const { result, rerender } = renderHook(({ offline }) => useRawSensorKind('/photos/a.RAF', true, offline), {
+    initialProps: { offline: false }
+  });
+  await waitFor(() => expect(result.current).toBe('xTrans'));
+  rerender({ offline: true });
+  expect(result.current).toBe('xTrans');
+  expect(invoke).toHaveBeenCalledTimes(1);
+  vi.mocked(invoke).mockResolvedValue(wire[2]);
+  rerender({ offline: false });
+  await waitFor(() => expect(result.current).toBe('unknown'));
+  expect(invoke).toHaveBeenCalledTimes(2);
+});

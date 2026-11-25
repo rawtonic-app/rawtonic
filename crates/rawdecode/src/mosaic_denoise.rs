@@ -792,6 +792,64 @@ mod tests {
     }
 
     #[test]
+    fn models_for_an_unknown_sensor_run_the_same_network_as_the_direct_model() {
+        let bayer = Arc::new(Flat(Default::default()));
+        let xtrans = Arc::new(XTransFlat(Default::default()));
+        let both = SensorDenoisers {
+            bayer: Some(bayer.clone()),
+            xtrans: Some(xtrans.clone()),
+        };
+        let mosaic = [0.25; 36];
+        let bayer_pattern = [0, 1, 1, 2];
+        let xtrans_pattern = [[1; 6]; 6];
+        let progress = |_, _| {};
+        assert_eq!(
+            both.denoise_reporting(&mosaic, 6, 6, bayer_pattern, 0.955, &progress)
+                .unwrap(),
+            bayer
+                .denoise_reporting(&mosaic, 6, 6, bayer_pattern, 0.955, &progress)
+                .unwrap()
+        );
+        assert_eq!(
+            both.denoise_xtrans(&mosaic, 6, 6, &xtrans_pattern, 0.955, &progress)
+                .unwrap()
+                .unwrap(),
+            xtrans
+                .denoise_xtrans(&mosaic, 6, 6, &xtrans_pattern, 0.955, &progress)
+                .unwrap()
+                .unwrap()
+        );
+        let xtrans_only = SensorDenoisers {
+            bayer: None,
+            xtrans: Some(xtrans),
+        };
+        assert!(
+            xtrans_only
+                .denoise(&mosaic, 6, 6, bayer_pattern)
+                .unwrap_err()
+                .to_string()
+                .contains("Bayer AI Denoise model")
+        );
+        let bayer_only = SensorDenoisers {
+            bayer: Some(bayer),
+            xtrans: None,
+        };
+        let denoise = MosaicDenoise::new(Arc::new(bayer_only), 1.0).with_xtrans_required(true);
+        let error = apply_xtrans(
+            &denoise,
+            &mut [0.25; 36],
+            6,
+            (0, 0, 6, 6),
+            &xtrans_pattern,
+            |v| v,
+            |v| v,
+        )
+        .unwrap()
+        .unwrap_err();
+        assert!(error.to_string().contains("X-Trans"));
+    }
+
+    #[test]
     fn x_trans_active_areas_are_blended_whole_and_white_is_kept() {
         // 9 × 8 samples, active area 7 × 7 at (1, 1) (not a multiple of 6
         // or 2); white at sample (3, 2).

@@ -3398,6 +3398,7 @@
         "qualityFastHint": "빠름: 프로세서에서 약 15배 빠르며, 미세한 디테일이 아주 약간 줄어듭니다.",
         "qualityFull": "전체",
         "qualityFullHint": "전체: 가장 미세한 디테일. 빠른 그래픽 카드가 없으면 느립니다(프로세서에서는 사진당 수 분 이상).",
+        "sensorDeferred": "원본 파일을 사용할 수 있게 되면 센서 유형을 읽습니다.",
         "sensorReadFailed": "AI 노이즈 제거를 지원하는 RAW 센서를 확인할 수 없습니다.",
         "xtransHint": "X-Trans 센서에는 AI 노이즈 제거 전용 X-Trans 네트워크가 사용되며 품질은 하나입니다."
       },

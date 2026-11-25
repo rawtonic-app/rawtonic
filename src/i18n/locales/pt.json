@@ -3664,6 +3664,7 @@
         "qualityFastHint": "Rápida: cerca de 15× mais rápida no processador, com detalhe fino ligeiramente menor.",
         "qualityFull": "Completa",
         "qualityFullHint": "Completa: o detalhe mais fino. Lenta sem uma placa gráfica rápida (muitos minutos por foto no processador).",
+        "sensorDeferred": "O tipo de sensor é lido quando o original está disponível.",
         "sensorReadFailed": "Não foi possível identificar um sensor RAW compatível com a redução de ruído por IA.",
         "xtransHint": "Os sensores X-Trans usam a rede X-Trans própria da redução de ruído por IA, que tem uma única qualidade."
       },

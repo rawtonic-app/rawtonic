@@ -4,12 +4,17 @@ import { Invokes } from '../components/ui/AppProperties';
 
 type SensorKind = 'bayer' | 'xTrans' | 'unknown';
 
-/** The RAW sensor, or null while the current photo's probe is pending. */
-export function useRawSensorKind(path: string | undefined, isRaw: boolean | undefined): SensorKind | null {
+/** The RAW sensor, or null while the probe is pending or the original is offline. */
+export function useRawSensorKind(
+  path: string | undefined,
+  isRaw: boolean | undefined,
+  offline = false
+): SensorKind | null {
   const [answer, setAnswer] = useState<{ path: string; sensor: SensorKind } | null>(null);
   useEffect(() => {
-    if (!path || !isRaw) return;
+    if (!path || !isRaw || offline) return;
     let current = true;
+    // The same path is probed again after its original comes back.
     setAnswer(null);
     invoke<SensorKind>(Invokes.RawSensorKind, { path })
       .then((sensor) => {
@@ -22,7 +27,7 @@ export function useRawSensorKind(path: string | undefined, isRaw: boolean | unde
     return () => {
       current = false;
     };
-  }, [path, isRaw]);
+  }, [path, isRaw, offline]);
   if (!path || !isRaw) return null;
   return answer?.path === path ? answer.sensor : null;
 }

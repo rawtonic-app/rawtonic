@@ -943,6 +943,10 @@ pub use crate::raw_tiff::SensorKind;
 /// Probe the CFA without decoding sensor pixels. DNG uses a tag-only
 /// TIFF walk, since the DNG decoder reads unrelated tag payloads eagerly.
 pub fn sensor_kind(source: &RawSource) -> SensorKind {
+    if source.buf().starts_with(b"FOVb") {
+        // X3F is a linear Foveon sensor. Its dummy decode reads the whole file.
+        return SensorKind::Unknown;
+    }
     if let Some(sensor) = crate::raw_tiff::dng_sensor(source.buf()) {
         return sensor;
     }
@@ -968,13 +972,39 @@ pub fn sensor_kind(source: &RawSource) -> SensorKind {
     .unwrap_or(SensorKind::Unknown)
 }
 
-/// Probe the sensor using a lazy read-only mapping. An offline cloud file
+/// Probe the sensor using a lazy read-only mapping, or ordinary reads if
+/// the filesystem refuses that mapping. An offline cloud file
 /// stays offline until the user opens it.
 pub fn sensor_kind_at(path: &std::path::Path) -> SensorKind {
     if rawtonic_fs::is_cloud_placeholder(path) {
         return SensorKind::Unknown;
     }
-    RawSource::new_lazy(path).map_or(SensorKind::Unknown, |source| sensor_kind(&source))
+    match RawSource::new_lazy(path) {
+        Ok(source) => sensor_kind(&source),
+        Err(_) => std::fs::File::open(path)
+            .ok()
+            .and_then(|mut file| sensor_kind_read(&mut file, path))
+            .unwrap_or(SensorKind::Unknown),
+    }
+}
+
+fn sensor_kind_read(
+    source: &mut (impl std::io::Read + std::io::Seek),
+    path: &std::path::Path,
+) -> Option<SensorKind> {
+    if let Some(sensor) = crate::raw_tiff::dng_sensor_reader(source) {
+        return Some(sensor);
+    }
+    source.rewind().ok()?;
+    let mut magic = [0; 4];
+    source.read_exact(&mut magic).ok()?;
+    if &magic == b"FOVb" {
+        return Some(SensorKind::Unknown);
+    }
+    let mut bytes = magic.to_vec();
+    source.read_to_end(&mut bytes).ok()?;
+    let source = RawSource::new_from_shared_vec(std::sync::Arc::new(bytes)).with_path(path);
+    Some(sensor_kind(&source))
 }
 
 /// `developed_frame` of the file at `path`, memory-mapped (rawler's
@@ -2944,6 +2974,17 @@ mod xtrans_probe_tests {
             sensor_kind(&dng_with_embedded_original("photo.tif")),
             SensorKind::XTrans
         );
+    }
+
+    #[test]
+    fn ordinary_reads_recover_the_dng_sensor_when_mapping_is_unavailable() {
+        let source = dng_with_embedded_original("photo.tif");
+        let mut reader = std::io::Cursor::new(source.buf());
+        assert_eq!(
+            sensor_kind_read(&mut reader, source.path()),
+            Some(SensorKind::XTrans)
+        );
+        assert!(reader.position() < 100, "reads end in the TIFF directory");
     }
 
     #[test]

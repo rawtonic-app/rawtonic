@@ -3502,6 +3502,7 @@
         "qualityFastHint": "Schnell: auf dem Prozessor etwa 15× schneller, mit minimal weniger feinen Details.",
         "qualityFull": "Voll",
         "qualityFullHint": "Voll: feinste Details. Langsam ohne schnelle Grafikkarte (auf dem Prozessor viele Minuten pro Foto).",
+        "sensorDeferred": "Der Sensortyp wird gelesen, sobald das Original verfügbar ist.",
         "sensorReadFailed": "Für KI-Entrauschen konnte kein unterstützter RAW-Sensor erkannt werden.",
         "xtransHint": "X-Trans-Sensoren erhalten das eigene X-Trans-Netz von KI-Entrauschen; es hat eine Qualität."
       },

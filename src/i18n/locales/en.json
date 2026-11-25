@@ -3502,6 +3502,7 @@
         "qualityFastHint": "Fast: about 15× quicker on the processor, with very slightly less fine detail.",
         "qualityFull": "Full",
         "qualityFullHint": "Full: the finest detail. Slow without a fast graphics card (many minutes per photo on the processor).",
+        "sensorDeferred": "The sensor type is read when the original is available.",
         "sensorReadFailed": "Could not read a supported RAW sensor for AI Denoise.",
         "xtransHint": "X-Trans sensors get AI Denoise's own X-Trans network, which has one quality."
       },

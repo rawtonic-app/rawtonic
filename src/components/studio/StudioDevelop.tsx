@@ -1117,10 +1117,10 @@ export default function StudioDevelop() {
     []
   );
   const aiDenoiseDefault = useAiDenoiseDefaultQuality(selectedImage?.path);
-  // X-Trans photos: one AI Denoise network, from version 6. Until the sensor
-  // is known the AI Denoise slider waits, so a change never keeps an old
-  // X-Trans edit's version (it would stay undenoised).
-  const sensor = useRawSensorKind(selectedImage?.path, selectedImage?.isRaw);
+  const offline = Boolean(selectedImage?.offline);
+  const sensor = useRawSensorKind(selectedImage?.path, selectedImage?.isRaw, offline);
+  const sensorDeferred = offline && (sensor === 'unknown' || sensor === null);
+  const aiDenoiseEditable = sensor === 'bayer' || sensor === 'xTrans' || sensorDeferred;
   const change = (patch: Partial<Adjustments>) =>
     selectedImage?.isReady &&
     setAdjustments((prev) =>
@@ -1139,7 +1139,7 @@ export default function StudioDevelop() {
               aiDenoiseDefault,
               patch
             ),
-            sensor === 'xTrans',
+            sensor === 'xTrans' || sensorDeferred,
             patch
           )
     );
@@ -1218,7 +1218,7 @@ export default function StudioDevelop() {
       max={max}
       step={step}
       defaultValue={(defaults[key] ?? 0) as number}
-      disabled={!panelsReady || (key === 'aiDenoise' && (sensor === null || sensor === 'unknown'))}
+      disabled={!panelsReady || (key === 'aiDenoise' && !aiDenoiseEditable)}
       track={track}
       keys={key === 'exposure' ? EXPOSURE_KEYS : undefined}
       optionView={optionViewOf(key)}
@@ -2090,13 +2090,18 @@ export default function StudioDevelop() {
                   {/* Which network: stored in the recipe, so every export
                       renders it; a photo without the key renders Full.
                       X-Trans photos have one network, so no choice. */}
-                  {sensor === 'unknown' && (
+                  {sensorDeferred && (
+                    <p className="studio-help" role="status">
+                      {t('studio.develop.noise.sensorDeferred')}
+                    </p>
+                  )}
+                  {sensor === 'unknown' && !offline && (
                     <p className="studio-help" role="status">
                       {t('studio.develop.noise.sensorReadFailed')}
                     </p>
                   )}
                   {sensor === 'xTrans' && <p className="studio-help">{t('studio.develop.noise.xtransHint')}</p>}
-                  {sensor === 'bayer' && (
+                  {(sensor === 'bayer' || sensorDeferred) && (
                     <>
                       <label className="studio-inline">
                         <span>{t('studio.develop.noise.quality')}</span>
@@ -2110,13 +2115,15 @@ export default function StudioDevelop() {
                           <option value="fast">{t('studio.develop.noise.qualityFast')}</option>
                         </select>
                       </label>
-                      <p className="studio-help">
-                        {t(
-                          shownAiDenoiseQuality === 'fast'
-                            ? 'studio.develop.noise.qualityFastHint'
-                            : 'studio.develop.noise.qualityFullHint'
-                        )}
-                      </p>
+                      {!sensorDeferred && (
+                        <p className="studio-help">
+                          {t(
+                            shownAiDenoiseQuality === 'fast'
+                              ? 'studio.develop.noise.qualityFastHint'
+                              : 'studio.develop.noise.qualityFullHint'
+                          )}
+                        </p>
+                      )}
                     </>
                   )}
                   {aiDenoiseBusy && (

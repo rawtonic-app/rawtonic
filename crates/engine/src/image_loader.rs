@@ -191,6 +191,7 @@ impl AiDenoiseSettings {
             .flatten()
     }
 
+    /// Only recipes that can denoise X-Trans need to probe the file.
     pub fn sensor_for_source(&self, source: &std::path::Path) -> SensorKind {
         if self.denoises_xtrans() {
             rawtonic_rawdecode::raw_processing::sensor_kind_at(source)
@@ -199,6 +200,8 @@ impl AiDenoiseSettings {
         }
     }
 
+    /// Version 6 may need both models until the source can be read. Older
+    /// versions always keep their existing Bayer model selection.
     pub fn models_for_sensor(&self, sensor: SensorKind) -> [Option<usize>; 2] {
         match (self.denoises_xtrans(), sensor) {
             (true, SensorKind::XTrans) => [Some(XTRANS_AI_DENOISE_MODEL), None],
@@ -207,6 +210,8 @@ impl AiDenoiseSettings {
         }
     }
 
+    /// Build the decode option from whichever required models are available.
+    /// With an unknown sensor, the decoded mosaic chooses the branch.
     pub fn mosaic_denoise_for(
         &self,
         sensor: SensorKind,

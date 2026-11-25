@@ -1341,6 +1341,25 @@ pub async fn load_image(
     let decoder = decode_preferences(&settings);
     let decode_stands_in = skipped_stands_in(&settings);
 
+    // Offline (missing, unreadable or not downloaded): the photograph
+    // opens on its preview proxies, as Lightroom's smart previews and
+    // Capture One's previews of offline images.
+    if is_raw_file(&source_path_str)
+        && !crate::preview_proxy::source_available(&source_path)
+        && let Some(result) = open_offline(
+            &state,
+            &path,
+            &source_path,
+            my_generation,
+            metadata.clone(),
+            stored_exif,
+            &settings,
+        )
+        .await?
+    {
+        return Ok(result);
+    }
+
     let path_clone = source_path_str.clone();
 
     // AI Denoise from the recipe; if its model cannot be had, the photograph
@@ -1401,24 +1420,6 @@ pub async fn load_image(
     {
         (cached_img, cached_exif, measures)
     } else {
-        // Offline (missing, unreadable or not downloaded): the photograph
-        // opens on its preview proxies, as Lightroom's smart previews and
-        // Capture One's previews of offline images.
-        if is_raw_file(&source_path_str)
-            && !crate::preview_proxy::source_available(&source_path)
-            && let Some(result) = open_offline(
-                &state,
-                &path,
-                &source_path,
-                my_generation,
-                metadata.clone(),
-                stored_exif,
-                &settings,
-            )
-            .await?
-        {
-            return Ok(result);
-        }
         if let Some(message) = offline_without_preview(&source_path) {
             return Err(message.into());
         }
