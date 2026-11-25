@@ -95,6 +95,9 @@ pub struct WgpuTransformPayload {
     /// cropped photograph shows (a stand-in after a lost device, G74 DVL6).
     #[serde(default)]
     pub crop_selection: Option<[f32; 4]>,
+    /// Only `crop_selection` changed (a crop drag): kept, nothing presented.
+    #[serde(default)]
+    pub selection_only: bool,
     /// Keep showing the current frame where it is; this placement applies
     /// with the next frame bound (the next photograph's first frame).
     #[serde(default)]
@@ -1051,7 +1054,12 @@ pub(crate) async fn update_wgpu_transform(
             })
         );
         let mut display_lock = context.display.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(display) = display_lock.as_mut() {
+        if let Some(display) = display_lock.as_mut()
+            && payload.selection_only
+        {
+            let geometry = display.pending_geometry.as_mut();
+            geometry.unwrap_or(&mut display.geometry).crop_selection = payload.crop_selection;
+        } else if let Some(display) = display_lock.as_mut() {
             let rect = [payload.x, payload.y, payload.width, payload.height];
             let geometry = gpu_processing::DisplayGeometry {
                 rect,

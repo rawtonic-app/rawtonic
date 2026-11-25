@@ -116,8 +116,9 @@ interface WgpuRenderState {
    * for the frame the native display shows while cropping. */
   cropBox: { width: number; height: number } | null;
   cropRotation: number;
-  /** The stored crop (px of `cropBox`), for where the selection is on screen. */
-  crop: Adjustments['crop'];
+  /** The crop selection the crop tool shows (%, live during a drag), else
+   * the stored crop (px of `cropBox`): where the selection is on screen. */
+  crop: Crop | Adjustments['crop'];
   bgPrimary: [number, number, number, number];
   bgSecondary: [number, number, number, number];
 }
@@ -289,6 +290,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   } | null>(null);
   const wgpuSyncRef = useRef<number | null>(null);
   const lastWgpuTransformRef = useRef<string | null>(null);
+  const lastCropSelectionRef = useRef<string | null>(null);
 
   const [isCtrlPressed, setIsCtrlPressed] = useState(false);
   const isCtrlPressedRef = useRef(false);
@@ -1648,7 +1650,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       showOriginal,
       cropBox,
       cropRotation,
-      crop: adjustments.crop,
+      crop: crop ?? adjustments.crop,
       bgPrimary: isFullScreen ? viewerRgba : parseRgb(bgPrimaryStr),
       // Around the photograph (proof margin and empty viewer) natively.
       bgSecondary: viewerRgba
@@ -1667,6 +1669,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     showOriginal,
     cropBox,
     cropRotation,
+    crop,
     adjustments.crop,
     finalPreviewUrl
   ]);
@@ -1687,6 +1690,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     showOriginal,
     cropBox,
     cropRotation,
+    crop,
     adjustments.crop,
     finalPreviewUrl,
     transformState,
@@ -1853,10 +1857,16 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         Math.max(ch - 2 * margin, 1) * dpr
       ];
 
-      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${cropSelection?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split},${splitOrientation},${paneOffset},${viewerArea.join(',')}`;
+      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split},${splitOrientation},${paneOffset},${viewerArea.join(',')}`;
 
-      if (lastWgpuTransformRef.current !== currentTransform && !isInvoking) {
+      // The crop selection moves with every drag step while the frame stays:
+      // the display only keeps it (a stand-in after a lost device) and
+      // presents nothing for it.
+      const selectionKey = cropSelection?.join(',') ?? '';
+      const transformChanged = lastWgpuTransformRef.current !== currentTransform;
+      if ((transformChanged || lastCropSelectionRef.current !== selectionKey) && !isInvoking) {
         lastWgpuTransformRef.current = currentTransform;
+        lastCropSelectionRef.current = selectionKey;
         isInvoking = true;
 
         const isZoomedIn = scale >= maxScaleRef.current - 0.5;
@@ -1878,6 +1888,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             pixelated: isZoomedIn,
             cropRect,
             cropSelection,
+            selectionOnly: !transformChanged,
             cropRotation: state.cropRotation,
             hold: holding,
             split,
