@@ -661,14 +661,21 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
             .chain(capture_one_lens_report(entries, &photo.path))
             .chain(capture_one_rotation_report(entries, &photo.path))
             .chain(capture_one_color_editor_report(entries))
-            .chain(capture_one_exposure_report(
-                entries,
-                &photo.capture_one_layers,
-                &photo.path,
-            ))
             .collect(),
         _ => Vec::new(),
     };
+    // A variant with only layers (no translated photo settings) too.
+    let entries = match &photo.develop {
+        Develop::CaptureOne(entries) => Some(entries.as_slice()),
+        _ => None,
+    };
+    if entries.is_some() || !photo.capture_one_layers.is_empty() {
+        layers.extend(capture_one_exposure_report(
+            entries,
+            &photo.capture_one_layers,
+            &photo.path,
+        ));
+    }
     layers.extend(crate::capture_one_layers::report(&photo.capture_one_layers));
     let layers = layers
         .into_iter()
@@ -1686,10 +1693,7 @@ fn recipe_for_with(
 fn capture_one_nonraw_exposure(adjustments: Option<&mut Value>, layers: &mut [Value], path: &Path) {
     use rawtonic_engine::capture_one_exposure::express;
     let mut tone = None;
-    let mut tone_of = || {
-        tone.get_or_insert_with(|| rawtonic_engine::capture_one_exposure::source_tone_of(path))
-            .clone()
-    };
+    let mut tone_of = || tone.get_or_insert_with(|| source_tone(path)).clone();
     let exposed = |map: &serde_json::Map<String, Value>| {
         map.get(rawtonic_recipe::tone::EXPOSURE.name())
             .and_then(Value::as_f64)
@@ -1709,11 +1713,43 @@ fn capture_one_nonraw_exposure(adjustments: Option<&mut Value>, layers: &mut [Va
     }
 }
 
+/// `rawtonic_engine::capture_one_exposure::source_tone_of`, kept for the
+/// last file asked about (while its size and time are unchanged): the
+/// recipe and the import report of a photo ask for it in turn.
+fn source_tone(path: &Path) -> Option<rawtonic_engine::input_profile::SourceTone> {
+    use rawtonic_engine::input_profile::SourceTone;
+    type Last = Option<(
+        std::path::PathBuf,
+        u64,
+        std::time::SystemTime,
+        Option<SourceTone>,
+    )>;
+    thread_local! {
+        static LAST: std::cell::RefCell<Last> = const { std::cell::RefCell::new(None) };
+    }
+    let stamp = std::fs::metadata(path)
+        .ok()
+        .and_then(|m| Some((m.len(), m.modified().ok()?)));
+    LAST.with(|last| {
+        let mut last = last.borrow_mut();
+        if let (Some((p, len, time, tone)), Some((l, t))) = (last.as_ref(), stamp)
+            && p == path
+            && *len == l
+            && *time == t
+        {
+            return tone.clone();
+        }
+        let tone = rawtonic_engine::capture_one_exposure::source_tone_of(path);
+        *last = stamp.map(|(l, t)| (path.to_path_buf(), l, t, tone.clone()));
+        tone
+    })
+}
+
 /// The import report's lines for Capture One's Exposure on a non-RAW photo
 /// (`capture_one_nonraw_exposure`): where it stays the same amount of
 /// Rawtonic's Exposure, whose tone response differs.
 fn capture_one_exposure_report(
-    entries: &[(String, String)],
+    entries: Option<&[(String, String)]>,
     layers: &[rawtonic_interop::capture_one::Layer],
     path: &Path,
 ) -> Vec<String> {
@@ -1721,7 +1757,8 @@ fn capture_one_exposure_report(
     if crate::formats::is_raw_file(path) {
         return Vec::new();
     }
-    let photo = translate(&Develop::CaptureOne(entries.to_vec()))
+    let photo = entries
+        .and_then(|entries| translate(&Develop::CaptureOne(entries.to_vec())))
         .and_then(|v| v.as_object().cloned())
         .unwrap_or_default();
     let settings = std::iter::once((None, photo)).chain(layers.iter().map(|layer| {
@@ -1740,15 +1777,14 @@ fn capture_one_exposure_report(
         if exposure == 0.0 {
             continue;
         }
-        let tone =
-            tone.get_or_insert_with(|| rawtonic_engine::capture_one_exposure::source_tone_of(path));
+        let tone = tone.get_or_insert_with(|| source_tone(path));
         let whose = match layer {
             Some(name) => format!("Capture One layer “{name}”: Exposure {exposure:+}"),
             None => format!("Capture One's Exposure {exposure:+}"),
         };
         match express(&mut map, tone.as_ref()) {
             Err(Kept::UnknownTone) => out.push(format!(
-                "{whose} comes over as Rawtonic's Exposure, which brightens differently (the file's colour profile has no single tone curve Rawtonic reads)"
+                "{whose} comes over as Rawtonic's Exposure, which brightens differently (the file’s colour profile has no single tone curve Rawtonic reads, or the file type is not read for it)"
             )),
             Err(Kept::Curves) => out.push(format!(
                 "{whose} comes over as Rawtonic's Exposure, which brightens differently (Capture One's own RGB or colour curves are set there)"
@@ -3461,7 +3497,7 @@ mod tests {
             assert_eq!(photo["exposure"], layer["exposure"]);
             assert_eq!(photo.get("curves"), layer.get("curves"));
             let report = capture_one_exposure_report(
-                &[("Exposure".into(), exposure.to_string())],
+                Some(&[("Exposure".into(), exposure.to_string())]),
                 &[],
                 &path,
             );
@@ -3475,12 +3511,29 @@ mod tests {
         ];
         let path = dir.path().join("ramp_Srgb.png");
         let develop = Develop::CaptureOne(curved.to_vec());
-        let (photo, _) =
-            recipe_for_with(&develop, &[], &path, &|_: &Value, _: &Path| None).unwrap();
-        assert_eq!(photo["exposure"], 1.0);
-        let report = capture_one_exposure_report(&curved, &[], &path);
+        let (kept, _) = recipe_for_with(&develop, &[], &path, &|_: &Value, _: &Path| None).unwrap();
+        assert_eq!(kept["exposure"], 1.0);
+        let report = capture_one_exposure_report(Some(&curved), &[], &path);
         assert_eq!(report.len(), 1, "{report:?}");
         assert!(report[0].contains("Rawtonic's Exposure"), "{report:?}");
+        // A variant with only a layer (no photo settings) is reported too.
+        let layer = Layer {
+            name: "Fill".into(),
+            enabled: true,
+            opacity: 100.0,
+            settings: curved.to_vec(),
+            mask: Mask::Uniform { value: 255 },
+            frame: (256.0, 1.0),
+        };
+        let mut only_layer = photo("p", path.clone(), Develop::None, None);
+        only_layer.capture_one_layers = vec![layer];
+        let warnings = import_warnings(&only_layer);
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("layer “Fill”: Exposure +1 comes over as Rawtonic's Exposure")),
+            "{warnings:?}"
+        );
         // RAW files keep Rawtonic's Exposure (another law, G50M).
         let develop = Develop::CaptureOne(vec![("Exposure".into(), "1".into())]);
         let (raw, _) = recipe_for_with(
