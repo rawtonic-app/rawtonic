@@ -4748,6 +4748,10 @@ pub struct GpuProcessor {
     /// sharpening's mask view `SHARPEN_VIEW`).
     detail_pipeline: [Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>; 5],
     detail_compilation: [std::sync::OnceLock<()>; 5],
+    /// The detail-cache passes a frame has asked for or will read
+    /// (`detail_pipelines_after_start` compiles them first, as compiles a
+    /// frame waits for).
+    detail_wanted: [Arc<Wanted>; 5],
     preview_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
     preview_compilation: Arc<VariantTable<std::sync::OnceLock<()>>>,
     /// Display variants that failed validation (never set in `preview_pipelines`).
@@ -6292,6 +6296,19 @@ fn sharpen_v8(adjustments: &AllAdjustments) -> bool {
     g.sharpen_falloff[3] >= 8.0 && g.is_raw_image == 1 && g.noise_level > 0.0
 }
 
+/// The detail-cache pass a display frame of `adjustments` reads
+/// (`GpuProcessor::detail_pipeline_slot`). For the sharpening's mask view
+/// the sharpening stores its Masking factor in the cache (shader
+/// `SHARPEN_VIEW_MARK`), which the frame's view variant reads (`DetailKey`
+/// keeps the two caches apart), with response 8's code for its recipes.
+fn detail_slot_of(adjustments: &AllAdjustments) -> usize {
+    if adjustments.global.show_clipping == SHARPEN_VIEW_MASK {
+        3 + usize::from(sharpen_v8(adjustments))
+    } else {
+        sharpen_level(adjustments)
+    }
+}
+
 /// The sharpening code a recipe's general and detail pipelines compile in:
 /// 0 (responses up to 6's), 1 (response 7's Masking), 2 (response 8).
 fn sharpen_level(adjustments: &AllAdjustments) -> usize {
@@ -6701,14 +6718,145 @@ impl Drop for SmallVariant {
     }
 }
 
-/// The one small compile that may run (`CompileWeight::Small`).
-static SMALL_SLOT: Mutex<()> = Mutex::new(());
+/// The one small compile that may run (`CompileWeight::Small`): whether it
+/// is taken, and how many small compiles not made ahead wait for it.
+/// Compiles made ahead (`AheadCompile`) take it only while none of those
+/// waits: on a cold Radeon 680M the start's ahead detail-cache pass and the
+/// effect passes compiled ahead held it 6.9 + 2 + 2.3 s after the first
+/// frame, while the detail pass a drag's frames read and a drag's grain
+/// field pass waited behind them in an unfair mutex (G76/WQA4, WCC6).
+static SMALL_SLOT: Mutex<SmallSlotState> = Mutex::new(SmallSlotState {
+    taken: false,
+    waiting: 0,
+});
+static SMALL_SLOT_FREED: std::sync::Condvar = std::sync::Condvar::new();
+
+struct SmallSlotState {
+    taken: bool,
+    waiting: usize,
+}
+
+/// The small compile slot, held while it lives (`small_slot`).
+struct SmallSlot;
+
+impl Drop for SmallSlot {
+    fn drop(&mut self) {
+        SMALL_SLOT.lock().unwrap_or_else(|e| e.into_inner()).taken = false;
+        SMALL_SLOT_FREED.notify_all();
+    }
+}
+
+/// Waits for the small compile slot and takes it: a compile made ahead on
+/// this thread (`AheadCompile`) after every other small compile waiting,
+/// unless a frame waits for what it compiles (`Wanted`).
+fn small_slot() -> SmallSlot {
+    let ahead = compiles_ahead_here();
+    let wanted = WANTED_HERE.with(|wanted| wanted.borrow().clone());
+    let mut state = SMALL_SLOT.lock().unwrap_or_else(|e| e.into_inner());
+    // Counted among the compiles waiting: one not made ahead, or one a
+    // frame came to wait for.
+    let mut counted = false;
+    loop {
+        if !counted && (!ahead || wanted.as_ref().is_some_and(|wanted| wanted.is_set())) {
+            state.waiting += 1;
+            counted = true;
+        }
+        if !state.taken && (counted || state.waiting == 0) {
+            break;
+        }
+        state = SMALL_SLOT_FREED
+            .wait(state)
+            .unwrap_or_else(|e| e.into_inner());
+    }
+    if counted {
+        state.waiting -= 1;
+    }
+    state.taken = true;
+    SmallSlot
+}
+
+/// Whether this thread compiles ahead of use (`AheadCompile`).
+fn compiles_ahead_here() -> bool {
+    AHEAD_COMPILE.with(std::cell::Cell::get)
+}
+
+thread_local! {
+    /// Set while this thread compiles ahead of use (`AheadCompile`).
+    static AHEAD_COMPILE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// What this thread compiles now, if a frame may come to wait for it
+    /// (`WantedHere`).
+    static WANTED_HERE: std::cell::RefCell<Option<Arc<Wanted>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Whether a compile not made ahead waits for a pipeline that compiles
+/// ahead of use: that compile then takes the small slot as one a frame
+/// waits for (`small_slot`).
+#[derive(Default)]
+struct Wanted(std::sync::atomic::AtomicBool);
+
+impl Wanted {
+    fn set(&self) {
+        if !self.0.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            // Under the slot's lock, so a compile that waits for the slot
+            // sees it at its next look.
+            let _state = SMALL_SLOT.lock().unwrap_or_else(|e| e.into_inner());
+            SMALL_SLOT_FREED.notify_all();
+        }
+    }
+
+    fn is_set(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+/// While it lives, this thread's small compiles are of the pipeline `Wanted`
+/// stands for.
+struct WantedHere(Option<Arc<Wanted>>);
+
+impl WantedHere {
+    fn new(wanted: Arc<Wanted>) -> Self {
+        Self(WANTED_HERE.with(|here| here.replace(Some(wanted))))
+    }
+}
+
+impl Drop for WantedHere {
+    fn drop(&mut self) {
+        WANTED_HERE.with(|here| *here.borrow_mut() = self.0.take());
+    }
+}
+
+/// While it lives, this thread's small compiles are made ahead of use:
+/// they give the small slot to any other that waits for it (`small_slot`).
+struct AheadCompile(bool);
+
+impl AheadCompile {
+    fn new() -> Self {
+        Self(AHEAD_COMPILE.with(|ahead| ahead.replace(true)))
+    }
+}
+
+impl Drop for AheadCompile {
+    fn drop(&mut self) {
+        AHEAD_COMPILE.with(|ahead| ahead.set(self.0));
+    }
+}
 
 /// Detail-cache passes whose compile thread went past its start wait
 /// (`GpuProcessor::detail_pipeline_after`).
 #[cfg(test)]
 static DETAIL_COMPILES_STARTED: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
+
+/// Tests of the small slot (`small_slot`), one at a time: it is the
+/// process's.
+#[cfg(test)]
+static SMALL_SLOT_TESTS: Mutex<()> = Mutex::new(());
+
+/// The slots of the detail-cache passes compiled after the start, in order
+/// (`GpuProcessor::detail_pipelines_after_start`).
+#[cfg(test)]
+static DETAIL_COMPILE_ORDER: Mutex<Vec<usize>> = Mutex::new(Vec::new());
 
 /// Heavy compiles waiting for a compile slot or running
 /// (`background_compile_slot`: an idle compile starts only without one).
@@ -6750,8 +6898,7 @@ fn validated<T>(
     let weight = weight.here();
     if weight != CompileWeight::Heavy && compile_limited() {
         let _pending = PendingCompile::new();
-        let _slot = (weight == CompileWeight::Small)
-            .then(|| SMALL_SLOT.lock().unwrap_or_else(|e| e.into_inner()));
+        let _slot = (weight == CompileWeight::Small).then(small_slot);
         if weight == CompileWeight::Small {
             log::info!(
                 "GPU {what}: compile started (+{:.2} s since start)",
@@ -9069,6 +9216,7 @@ impl GpuProcessor {
             detail_layout,
             detail_pipeline: Default::default(),
             detail_compilation: Default::default(),
+            detail_wanted: Default::default(),
             preview_pipelines,
             preview_compilation,
             preview_failed,
@@ -10267,9 +10415,10 @@ impl GpuProcessor {
         // After the first frame has its pipelines (`IdleCompiles::started`):
         // beside the RAW default variant they took the small compile slot
         // between its pipelines (G76/WCC4).
-        for slot in [0, sharpen_level(adjustments)] {
-            self.detail_pipeline_after(slot, Some(Arc::clone(&idle.0)));
-        }
+        // The measured RAW's first: a frame reads it from the first one on
+        // (its noise is measured while it loads), and the window may end
+        // before that frame asks for it (the RAW default variant settled).
+        self.detail_pipelines_after_start(&[sharpen_level(adjustments), 0], Arc::clone(&idle.0));
     }
 
     /// What an idle compile needs (`idle_compiles`).
@@ -10323,6 +10472,13 @@ impl GpuProcessor {
         let idle = self.idle_compiles.as_ref().map(|owner| &owner.0);
         if on_screen && let Some(idle) = idle {
             idle.frame();
+            // The start's detail passes compile the one this frame will
+            // read first (`detail_pipelines_after_start`): a reopened
+            // recipe may read another than a new RAW edit's, and the
+            // window can end before the frame's tiles ask for it.
+            if !idle.started() {
+                self.detail_wanted[detail_slot_of(adjustments)].set();
+            }
         }
         // Idle compiles wait while it does at the start (`StartWindow`;
         // `render_window` ends the window once the frame has every pipeline).
@@ -10725,11 +10881,8 @@ impl GpuProcessor {
         self.detail_pipeline_slot(level)
     }
 
-    /// The detail cache's pass for the mask view: the sharpening stores its
-    /// Masking factor in the cache (shader `SHARPEN_VIEW_MARK`), which the
-    /// frame's view variant reads (`DetailKey` keeps the two caches apart).
-    /// With response 8's code for its recipes (the view then shows its noise
-    /// gate times Masking's).
+    /// The detail cache's pass for the mask view (`detail_slot_of`).
+    #[cfg(test)]
     fn mask_view_detail_pipeline(&self, sharpen_v8: bool) -> Option<&wgpu::ComputePipeline> {
         self.detail_pipeline_slot(3 + usize::from(sharpen_v8))
     }
@@ -10737,29 +10890,14 @@ impl GpuProcessor {
     /// Slot 0 plain, 1 with response 7's Masking, 2 with response 8, 3 the
     /// mask view (response 7's code), 4 the mask view with response 8's.
     fn detail_pipeline_slot(&self, slot: usize) -> Option<&wgpu::ComputePipeline> {
-        self.detail_pipeline_after(slot, None)
-    }
-
-    /// `detail_pipeline_slot`, its compile once `start` (if any) has
-    /// started (`IdleCompiles::wait_started`); a frame that asks for it
-    /// before computes the detail stage inline.
-    fn detail_pipeline_after(
-        &self,
-        slot: usize,
-        start: Option<Arc<idle_compiles::IdleCompiles>>,
-    ) -> Option<&wgpu::ComputePipeline> {
         if self.detail_pipeline[slot].get().is_none() {
+            self.detail_wanted[slot].set();
             self.detail_compilation[slot].get_or_init(|| {
                 let pipeline = Arc::clone(&self.detail_pipeline[slot]);
                 let device = Arc::clone(&self.context.device);
                 let shader = self.preview_shader.clone();
                 let layout = self.detail_layout.clone();
                 spawn_device_thread("pipeline-compile", move || {
-                    if let Some(start) = start
-                        && !start.wait_started()
-                    {
-                        return;
-                    }
                     #[cfg(test)]
                     DETAIL_COMPILES_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     let _ = pipeline.set(compile_detail_pipeline(&device, &shader, &layout, slot));
@@ -10767,6 +10905,70 @@ impl GpuProcessor {
             });
         }
         self.detail_pipeline[slot].get().and_then(Option::as_ref)
+    }
+
+    /// Compiles the detail-cache passes of `slots` (`detail_pipeline_slot`)
+    /// not compiled or compiling yet, one after another on one thread, once
+    /// `start` has started (`IdleCompiles::wait_started`); a frame that asks
+    /// for one before computes the detail stage inline. In the order of
+    /// `slots`, but the passes a frame has asked for by then go first and as
+    /// compiles a frame waits for (`small_slot`), the others ahead of use: on a cold Radeon 680M the
+    /// pass a never-edited RAW's frames read (response 8) could come second,
+    /// 7–10 s after the first frame, so a drag 3.5 s after that frame still
+    /// computed the detail stage inline (37 ms a frame; G76/WQA4, WCC6).
+    fn detail_pipelines_after_start(
+        &self,
+        slots: &[usize],
+        start: Arc<idle_compiles::IdleCompiles>,
+    ) {
+        let mut claimed = Vec::new();
+        for &slot in slots {
+            if self.detail_pipeline[slot].get().is_none() {
+                self.detail_compilation[slot].get_or_init(|| claimed.push(slot));
+            }
+        }
+        if claimed.is_empty() {
+            return;
+        }
+        let pipelines: Vec<_> = claimed
+            .iter()
+            .map(|&slot| {
+                (
+                    slot,
+                    Arc::clone(&self.detail_pipeline[slot]),
+                    Arc::clone(&self.detail_wanted[slot]),
+                )
+            })
+            .collect();
+        let device = Arc::clone(&self.context.device);
+        let shader = self.preview_shader.clone();
+        let layout = self.detail_layout.clone();
+        spawn_device_thread("pipeline-compile", move || {
+            if !start.wait_started() {
+                return;
+            }
+            let mut pipelines = pipelines;
+            while !pipelines.is_empty() {
+                let next = pipelines
+                    .iter()
+                    .position(|(_, _, wanted)| wanted.is_set())
+                    .unwrap_or(0);
+                let (slot, pipeline, wanted) = pipelines.remove(next);
+                // Ahead of use until a frame asks for it, also while it
+                // waits for the small slot.
+                let _ahead = AheadCompile::new();
+                let _wanted = WantedHere::new(wanted);
+                #[cfg(test)]
+                {
+                    DETAIL_COMPILES_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    DETAIL_COMPILE_ORDER
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(slot);
+                }
+                let _ = pipeline.set(compile_detail_pipeline(&device, &shader, &layout, slot));
+            }
+        });
     }
 
     /// The detail pass an export of `adjustments` renders its detail stage
@@ -12615,13 +12817,7 @@ impl GpuProcessor {
                                 detail_bytes
                             }
                             <= BLUR_CACHE_BYTES)
-                        .then(|| {
-                            if adjustments.global.show_clipping == SHARPEN_VIEW_MASK {
-                                self.mask_view_detail_pipeline(sharpen_v8(adjustments))
-                            } else {
-                                self.detail_pipeline_for(sharpen_level(adjustments))
-                            }
-                        })
+                        .then(|| self.detail_pipeline_slot(detail_slot_of(adjustments)))
                         .flatten()
                 });
                 let mut build_detail = false;
