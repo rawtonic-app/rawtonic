@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.20 — 2026-11-25
+
 The twentieth alpha. New: B&W Toning in the Black & white tool, raised Shadows and lowered Highlights that keep more detail, a dead-pixel repair that left fewer dead photosites visible than Capture One in our test, iPhone HEIC photos on macOS, a JPEG file-size limit, Save As and an "If a file exists" choice in Export, and virtual copies that are photos of their own in the Library. Libraries on a network share open thumbnails and photos much faster, Windows laptops with Radeon graphics show the first photo after an install in about half the time and no longer freeze after a graphics driver error, and on macOS Rawtonic no longer hides other apps in Open With. Saved edits keep their look; the exceptions are listed under Changes to existing edits.
 
 ### Highlights
