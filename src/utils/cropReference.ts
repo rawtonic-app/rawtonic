@@ -153,24 +153,48 @@ export function referenceAfterHistoryStep(
   return { key: cropReferenceKey(path, to as Record<string, unknown>), rect: copy(crop), ...centre(crop) };
 }
 
-/** The reference each history entry had when it was recorded: an undo or a
- * redo returns to it, so a ratio change after an undo fits into the crop the
- * user had drawn at that step. */
-const historyReferences = new WeakMap<object, CropReference | null>();
+/** The reference each recorded edit had, by its photo, frame, crop and
+ * ratio (not the object, which a reload of the photo replaces): an undo, a
+ * redo or a return to the photo gets the crop the user had drawn back. */
+const recorded = new Map<string, CropReference | null>();
+const RECORDED_MAX = 2000;
+const entryKey = (path: string, entry: CropState) =>
+  JSON.stringify([
+    cropReferenceKey(path, entry as Record<string, unknown>),
+    entry.crop ?? null,
+    entry.aspectRatio ?? null
+  ]);
 
-export function rememberCropReference(entry: object, reference: CropReference | null) {
-  historyReferences.set(entry, reference);
+export function rememberCropReference(
+  path: string | null | undefined,
+  entry: CropState,
+  reference: CropReference | null
+) {
+  if (!path) return;
+  const key = entryKey(path, entry);
+  recorded.delete(key);
+  recorded.set(key, reference);
+  if (recorded.size > RECORDED_MAX) recorded.delete(recorded.keys().next().value!);
+}
+
+/** The reference recorded with this photo's edit, if any (undefined: none). */
+export function recordedCropReference(
+  path: string | null | undefined,
+  entry: CropState
+): CropReference | null | undefined {
+  if (!path) return undefined;
+  const key = entryKey(path, entry);
+  return recorded.has(key) ? (recorded.get(key) ?? null) : undefined;
 }
 
 /** The reference after an undo, a redo or a jump to `to`: the one recorded
- * with that entry, else (an entry from before the photo was opened)
- * `referenceAfterHistoryStep`. */
+ * with that edit, else `referenceAfterHistoryStep`. */
 export function referenceForHistoryEntry(
   reference: CropReference | null,
   path: string | null | undefined,
   from: CropState,
   to: CropState
 ): CropReference | null {
-  if (historyReferences.has(to)) return historyReferences.get(to) ?? null;
-  return referenceAfterHistoryStep(reference, path, from, to);
+  const kept = recordedCropReference(path, to);
+  return kept !== undefined ? kept : referenceAfterHistoryStep(reference, path, from, to);
 }

@@ -437,7 +437,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     heldHistory = null;
     // Usage statistics (only while switched on): the tools this step used.
     noteEdit(get().history[get().historyIndex], newAdj);
-    rememberCropReference(newAdj, get().cropReference);
+    rememberCropReference(get().selectedImage?.path, newAdj, get().cropReference);
     const order = batchOrder ?? newEditOrder();
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);

@@ -1,7 +1,13 @@
 import type { Crop } from 'react-image-crop';
 import { useEditorStore } from '../store/useEditorStore';
 import { getOrientedDimensions } from './cropUtils';
-import { cropReferenceKey, fitRatioCrop, referenceAfterHandEdit, referenceForRatioChange } from './cropReference';
+import {
+  cropReferenceKey,
+  fitRatioCrop,
+  recordedCropReference,
+  referenceAfterHandEdit,
+  referenceForRatioChange
+} from './cropReference';
 
 /* The editor's crop reference (utils/cropReference) for the photo it shows. */
 
@@ -38,8 +44,10 @@ export function cropForRatio(aspectRatio: number): Crop | null {
   const now = current();
   const { selectedImage, adjustments, cropReference } = useEditorStore.getState();
   if (!now || !selectedImage) return null;
+  // Back on a photo after another one: the reference recorded with its edit.
+  const kept = cropReference?.key === now.key ? cropReference : recordedCropReference(selectedImage.path, adjustments);
   const reference = referenceForRatioChange(
-    cropReference,
+    kept ?? null,
     now.key,
     adjustments.crop,
     now.width,

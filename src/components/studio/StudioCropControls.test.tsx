@@ -258,3 +258,28 @@ it('after an undo the next ratio fits into the crop drawn at that step (ASP1)', 
   choose(3 / 2);
   expect(adjustments().crop).toEqual(drawn);
 });
+
+it('back on a photo after another one, ratios still fit into the crop drawn there (ASP1)', () => {
+  const photo = { path: '/s/back.NEF', width: 6000, height: 4000, isRaw: true, isReady: true } as SelectedImage;
+  useEditorStore.setState({ selectedImage: photo });
+  render(<StudioCropControls />);
+  const choose = (value: string) => {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Crop aspect ratio' }), { target: { value } });
+    debouncedSetHistory.flush();
+  };
+  const drawn = { unit: 'px' as const, x: 1000, y: 1000, width: 3000, height: 2000 };
+  noteHandDrawnCrop(null, drawn);
+  useEditorStore.setState({ adjustments: { ...adjustments(), crop: drawn } });
+  choose('1');
+  choose(String(16 / 9));
+  const edited = structuredClone(adjustments());
+  // Another photo, then this one again, its recipe loaded afresh.
+  useEditorStore.setState({
+    cropReference: null,
+    selectedImage: { ...photo, path: '/s/other.NEF' },
+    adjustments: structuredClone(INITIAL_ADJUSTMENTS)
+  });
+  useEditorStore.setState({ selectedImage: photo, adjustments: edited });
+  choose(String(1.5));
+  expect(adjustments().crop).toEqual(drawn);
+});

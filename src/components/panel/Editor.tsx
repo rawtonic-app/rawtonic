@@ -1014,10 +1014,11 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           const nextCrop = zoomCrop(baseCrop, scaleFactor, W, H, rotation, adjustments.aspectRatio, mouseX, mouseY);
 
           setAdjustments((prev) => ({ ...prev, crop: nextCrop }));
-          // At its limit the wheel moves the crop by less than a pixel: not a
-          // crop of the user's own.
-          const px = (c: Crop) => [c.x, c.y, c.width, c.height].map(Math.round).join();
-          if (px(nextCrop) !== px(baseCrop)) noteHandDrawnCrop(baseCrop, nextCrop);
+          // At its limit the wheel moves the crop only within the bounds'
+          // tolerance (a pixel each side): not a crop of the user's own.
+          if ((['x', 'y', 'width', 'height'] as const).some((k) => Math.abs(nextCrop[k] - baseCrop[k]) > 2.5)) {
+            noteHandDrawnCrop(baseCrop, nextCrop);
+          }
 
           if (cropWheelTimeoutRef.current) clearTimeout(cropWheelTimeoutRef.current);
           cropWheelTimeoutRef.current = window.setTimeout(() => {
