@@ -671,6 +671,18 @@ fn import_warnings(photo: &Photo) -> Vec<String> {
             .collect(),
         _ => Vec::new(),
     };
+    // A variant with only layers (no translated photo settings) too.
+    let entries = match &photo.develop {
+        Develop::CaptureOne(entries) => Some(entries.as_slice()),
+        _ => None,
+    };
+    if entries.is_some() || !photo.capture_one_layers.is_empty() {
+        layers.extend(capture_one_exposure_report(
+            entries,
+            &photo.capture_one_layers,
+            &photo.path,
+        ));
+    }
     layers.extend(crate::capture_one_layers::report(&photo.capture_one_layers));
     let layers = layers
         .into_iter()
@@ -1612,6 +1624,11 @@ fn recipe_for_with(
     if !edited && layers.is_empty() {
         return None;
     }
+    let mut layers = layers;
+    if !is_raw {
+        let photo = matches!(develop, Develop::CaptureOne(_)).then_some(&mut adjustments);
+        capture_one_nonraw_exposure(photo, &mut layers, path);
+    }
     if !layers.is_empty()
         && let Some(map) = adjustments.as_object_mut()
     {
@@ -1678,6 +1695,122 @@ fn recipe_for_with(
         crate::capture_one_layers::set_orientation(&mut adjustments, orientation);
     }
     Some((adjustments, clipped))
+}
+
+/// Capture One's Exposure on the non-RAW photo at `path`, the photo's (its
+/// `adjustments` when they are Capture One's) and its layers' (`layers`, as
+/// imported), as the tone curve Capture One
+/// renders (`rawtonic_engine::capture_one_exposure`: Rawtonic's Exposure
+/// scaled for a pure power profile, else the RGB curve); where neither can
+/// say it, it stays the same amount of Rawtonic's Exposure
+/// (`capture_one_exposure_report`).
+fn capture_one_nonraw_exposure(adjustments: Option<&mut Value>, layers: &mut [Value], path: &Path) {
+    use rawtonic_engine::capture_one_exposure::express;
+    let mut tone = None;
+    let mut tone_of = || tone.get_or_insert_with(|| source_tone(path)).clone();
+    let exposed = |map: &serde_json::Map<String, Value>| {
+        map.get(rawtonic_recipe::tone::EXPOSURE.name())
+            .and_then(Value::as_f64)
+            .is_some_and(|e| e != 0.0)
+    };
+    if let Some(map) = adjustments.and_then(Value::as_object_mut)
+        && exposed(map)
+    {
+        let _ = express(map, tone_of().as_ref());
+    }
+    for layer in layers {
+        if let Some(map) = layer[rawtonic_recipe::masks::ADJUSTMENTS.name()].as_object_mut()
+            && exposed(map)
+        {
+            let _ = express(map, tone_of().as_ref());
+        }
+    }
+}
+
+/// `rawtonic_engine::capture_one_exposure::source_tone_of`, kept for the
+/// last file asked about (while its size and time are unchanged): the
+/// recipe and the import report of a photo ask for it in turn.
+fn source_tone(path: &Path) -> Option<rawtonic_engine::input_profile::SourceTone> {
+    use rawtonic_engine::input_profile::SourceTone;
+    type Last = Option<(
+        std::path::PathBuf,
+        u64,
+        std::time::SystemTime,
+        Option<SourceTone>,
+    )>;
+    thread_local! {
+        static LAST: std::cell::RefCell<Last> = const { std::cell::RefCell::new(None) };
+    }
+    let stamp = std::fs::metadata(path)
+        .ok()
+        .and_then(|m| Some((m.len(), m.modified().ok()?)));
+    LAST.with(|last| {
+        let mut last = last.borrow_mut();
+        if let (Some((p, len, time, tone)), Some((l, t))) = (last.as_ref(), stamp)
+            && p == path
+            && *len == l
+            && *time == t
+        {
+            return tone.clone();
+        }
+        let tone = rawtonic_engine::capture_one_exposure::source_tone_of(path);
+        *last = stamp.map(|(l, t)| (path.to_path_buf(), l, t, tone.clone()));
+        tone
+    })
+}
+
+/// The import report's lines for Capture One's Exposure on a non-RAW photo
+/// (`capture_one_nonraw_exposure`): where it stays the same amount of
+/// Rawtonic's Exposure, whose tone response differs.
+fn capture_one_exposure_report(
+    entries: Option<&[(String, String)]>,
+    layers: &[rawtonic_interop::capture_one::Layer],
+    path: &Path,
+) -> Vec<String> {
+    use rawtonic_engine::capture_one_exposure::{Kept, express};
+    if crate::formats::is_raw_file(path) {
+        return Vec::new();
+    }
+    let photo = entries
+        .and_then(|entries| translate(&Develop::CaptureOne(entries.to_vec())))
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    // Only the layers that come over (a layer left out is reported as such).
+    let settings = std::iter::once((None, photo)).chain(layers.iter().filter_map(|layer| {
+        Some((
+            Some(&layer.name),
+            crate::capture_one_layers::translated(layer)?,
+        ))
+    }));
+    let mut tone = None;
+    let mut out = Vec::new();
+    for (layer, mut map) in settings {
+        let exposure = map
+            .get(rawtonic_recipe::tone::EXPOSURE.name())
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
+        if exposure == 0.0 {
+            continue;
+        }
+        let tone = tone.get_or_insert_with(|| source_tone(path));
+        let whose = match layer {
+            Some(name) => format!("Capture One layer “{name}”: Exposure {exposure:+}"),
+            None => format!("Capture One's Exposure {exposure:+}"),
+        };
+        match express(&mut map, tone.as_ref()) {
+            Err(Kept::UnknownTone) => out.push(format!(
+                "{whose} comes over as Rawtonic's Exposure, which brightens differently (the file’s colour profile has no single tone curve Rawtonic reads, or the file type is not read for it)"
+            )),
+            Err(Kept::Curves) => out.push(format!(
+                "{whose} comes over as Rawtonic's Exposure, which brightens differently (Capture One's own RGB or colour curves are set there)"
+            )),
+            // The photo's own Exposure above 0 clips the brightest tones
+            // Capture One rolls off (`capture_one_exposure`); a line on
+            // every such photo would drown the report.
+            Ok(_) => {}
+        }
+    }
+    out
 }
 
 /// Capture One's local adjustment layers as Rawtonic layers on the photo
@@ -3196,6 +3329,250 @@ mod tests {
         let g = |r: &Value| r["masks"][0]["subMasks"][0]["parameters"]["lrNormalized"].clone();
         assert!((g(&unmoved)["fullY"].as_f64().unwrap() - 0.125).abs() < 1e-9);
         assert!((g(&recipe)["fullY"].as_f64().unwrap() - 0.125).abs() > 1e-4);
+    }
+
+    /// A 16-bit neutral ramp (C1R16's `ramp_*` TIFFs, one row: value =
+    /// step · 257) with the embedded profile `icc`, as PNG (the image
+    /// crate's TIFF encoder writes a profile its decoder does not read back).
+    fn ramp_png(path: &Path, icc: Option<&[u8]>) {
+        use image::ImageEncoder;
+        let values: Vec<u16> = (0..256u16).flat_map(|s| [s * 257; 3]).collect();
+        let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_ne_bytes()).collect();
+        let file = fs::File::create(path).unwrap();
+        let mut encoder = image::codecs::png::PngEncoder::new(std::io::BufWriter::new(file));
+        if let Some(icc) = icc {
+            encoder.set_icc_profile(icc.to_vec()).unwrap();
+        }
+        encoder
+            .write_image(&bytes, 256, 1, image::ExtendedColorType::Rgb16)
+            .unwrap();
+    }
+
+    /// Capture One's Exposure on a non-RAW photo renders as Capture One's:
+    /// out = min(1, 2^(E/1.8) · in) on the file's own values, before the
+    /// conversion to sRGB. The numbers are Capture One 16.9.1's 16-bit sRGB
+    /// renders of the same ramps at steps 16, 64, 128, 192 and 240 (C1R16,
+    /// filled layer; notes: benchmark-results/c1r16-2026-11-25), compared
+    /// with the renderer's reading of the file through the imported curve.
+    #[test]
+    fn capture_one_exposure_on_non_raw_files_renders_as_capture_ones() {
+        use rawtonic_engine::output_color_space::OutputColorSpace;
+        use rawtonic_interop::capture_one::Layer;
+        use rawtonic_interop::capture_one_masks::Mask;
+        const STEPS: [usize; 5] = [16, 64, 128, 192, 240];
+        // (space, exposure, Capture One's render).
+        let measured: &[(OutputColorSpace, f64, [u16; 5])] = &[
+            (
+                OutputColorSpace::Srgb,
+                -2.0,
+                [1903, 7614, 15228, 22843, 28553],
+            ),
+            (
+                OutputColorSpace::Srgb,
+                -1.0,
+                [2797, 11191, 22382, 33573, 41966],
+            ),
+            (
+                OutputColorSpace::Srgb,
+                1.0,
+                [6043, 24174, 48348, 65535, 65535],
+            ),
+            (
+                OutputColorSpace::Srgb,
+                2.0,
+                [8882, 35529, 65535, 65535, 65535],
+            ),
+            (
+                OutputColorSpace::AdobeRgb,
+                -2.0,
+                [768, 6014, 14548, 22716, 28688],
+            ),
+            (
+                OutputColorSpace::AdobeRgb,
+                -1.0,
+                [1129, 10083, 22229, 33853, 42352],
+            ),
+            (
+                OutputColorSpace::AdobeRgb,
+                1.0,
+                [4178, 24118, 48717, 65535, 65535],
+            ),
+            (
+                OutputColorSpace::AdobeRgb,
+                2.0,
+                [7471, 35849, 65535, 65535, 65535],
+            ),
+            (
+                OutputColorSpace::ProPhoto,
+                -2.0,
+                [1581, 10145, 19535, 27759, 33476],
+            ),
+            (
+                OutputColorSpace::ProPhoto,
+                -1.0,
+                [2885, 14761, 27282, 38263, 45890],
+            ),
+            (
+                OutputColorSpace::ProPhoto,
+                1.0,
+                [7952, 29121, 51435, 65535, 65535],
+            ),
+            (
+                OutputColorSpace::ProPhoto,
+                2.0,
+                [11833, 40081, 65535, 65535, 65535],
+            ),
+        ];
+        let dir = tempfile::tempdir().unwrap();
+        for &(space, exposure, c1) in measured {
+            let path = dir.path().join(format!("ramp_{space:?}.png"));
+            let icc = (space != OutputColorSpace::Srgb)
+                .then(|| rawtonic_engine::icc_profile::for_space(space));
+            ramp_png(&path, icc);
+            let read = rawtonic_engine::image_loader::load_image_with_orientation(
+                &fs::read(&path).unwrap(),
+                None,
+            )
+            .unwrap()
+            .into_rgb32f();
+            let layer = Layer {
+                name: "Fill".into(),
+                enabled: true,
+                opacity: 100.0,
+                settings: vec![("Exposure".into(), exposure.to_string())],
+                mask: Mask::Uniform { value: 255 },
+                frame: (256.0, 1.0),
+            };
+            let (recipe, _) =
+                recipe_for_with(&Develop::None, &[layer], &path, &|_: &Value, _: &Path| None)
+                    .unwrap();
+            let layer = &recipe["masks"][0]["adjustments"];
+            // sRGB: the law as the RGB curve; Adobe RGB and ProPhoto (pure
+            // power profiles): Rawtonic's Exposure E·γ/1.8, a gain on linear
+            // light clipped at white.
+            let render: Box<dyn Fn(f32) -> f64> = if space == OutputColorSpace::Srgb {
+                assert_eq!(layer["exposure"], 0.0, "{space:?} {exposure}");
+                let curve = rawtonic_engine::point_curve::curve_points(
+                    layer["curves"]["luma"].as_array().unwrap(),
+                );
+                Box::new(move |v| f64::from(rawtonic_engine::point_curve::curve_value(&curve, v)))
+            } else {
+                let gamma = if space == OutputColorSpace::AdobeRgb {
+                    563.0 / 256.0
+                } else {
+                    1.8
+                };
+                let ours = layer["exposure"].as_f64().unwrap();
+                assert!(
+                    (ours - exposure * gamma / 1.8).abs() < 1e-3,
+                    "{space:?} {exposure}: {ours}"
+                );
+                assert!(layer.get("curves").is_none());
+                let gain = ours.exp2();
+                Box::new(move |v| {
+                    let v = f64::from(v);
+                    let linear = if v <= 0.040_45 {
+                        v / 12.92
+                    } else {
+                        ((v + 0.055) / 1.055).powf(2.4)
+                    };
+                    let linear = (linear * gain).min(1.0);
+                    if linear <= 0.003_130_8 {
+                        linear * 12.92
+                    } else {
+                        1.055 * linear.powf(1.0 / 2.4) - 0.055
+                    }
+                })
+            };
+            // The sRGB file renders exactly; the others within the
+            // difference of the two editors' profile conversions, above the
+            // deepest shadows, where Capture One's conversion to sRGB itself
+            // runs a straight toe (its base render of these ramps: 726 at
+            // step 7 of the Adobe RGB one, Rawtonic's reading 312; equal
+            // from step 16).
+            let (tolerance, from) = if space == OutputColorSpace::Srgb {
+                (1.0, 0)
+            } else {
+                (0.5 * 257.0, 1)
+            };
+            for (i, step) in STEPS.into_iter().enumerate().skip(from) {
+                let input = read.get_pixel(step as u32, 0)[1];
+                let ours = render(input) * 65535.0;
+                assert!(
+                    (ours - f64::from(c1[i])).abs() <= tolerance,
+                    "{space:?} E {exposure} step {step}: ours {ours:.1}, Capture One {}",
+                    c1[i]
+                );
+            }
+            // The photo's own Exposure below 0 is the layer's (C1R16: global
+            // −1 renders as layer −1).
+            let develop = Develop::CaptureOne(vec![("Exposure".into(), exposure.to_string())]);
+            let (photo, _) =
+                recipe_for_with(&develop, &[], &path, &|_: &Value, _: &Path| None).unwrap();
+            assert_eq!(photo["exposure"], layer["exposure"]);
+            assert_eq!(photo.get("curves"), layer.get("curves"));
+            let report = capture_one_exposure_report(
+                Some(&[("Exposure".into(), exposure.to_string())]),
+                &[],
+                &path,
+            );
+            assert!(report.is_empty(), "{report:?}");
+        }
+        // Capture One's own RGB curve on an sRGB file holds the RGB curve:
+        // the Exposure stays Rawtonic's, and the report says so.
+        let curved = [
+            ("Exposure".to_string(), "1".to_string()),
+            ("GradationCurve".to_string(), "0,0;0.5,0.6;1,1".to_string()),
+        ];
+        let path = dir.path().join("ramp_Srgb.png");
+        let develop = Develop::CaptureOne(curved.to_vec());
+        let (kept, _) = recipe_for_with(&develop, &[], &path, &|_: &Value, _: &Path| None).unwrap();
+        assert_eq!(kept["exposure"], 1.0);
+        let report = capture_one_exposure_report(Some(&curved), &[], &path);
+        assert_eq!(report.len(), 1, "{report:?}");
+        assert!(report[0].contains("Rawtonic's Exposure"), "{report:?}");
+        // A variant with only a layer (no photo settings) is reported too.
+        let layer = Layer {
+            name: "Fill".into(),
+            enabled: true,
+            opacity: 100.0,
+            settings: curved.to_vec(),
+            mask: Mask::Uniform { value: 255 },
+            frame: (256.0, 1.0),
+        };
+        let mut only_layer = photo("p", path.clone(), Develop::None, None);
+        only_layer.capture_one_layers = vec![layer];
+        let warnings = import_warnings(&only_layer);
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("layer “Fill”: Exposure +1 comes over as Rawtonic's Exposure")),
+            "{warnings:?}"
+        );
+        // A layer the import leaves out gets no Exposure line.
+        only_layer.capture_one_layers[0].mask = Mask::Unsupported {
+            what: "test".into(),
+        };
+        let warnings = import_warnings(&only_layer);
+        assert!(
+            !warnings.iter().any(|w| w.contains("Exposure")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains("not imported")),
+            "{warnings:?}"
+        );
+        // RAW files keep Rawtonic's Exposure (another law, G50M).
+        let develop = Develop::CaptureOne(vec![("Exposure".into(), "1".into())]);
+        let (raw, _) = recipe_for_with(
+            &develop,
+            &[],
+            Path::new("missing/a.NEF"),
+            &|_: &Value, _: &Path| None,
+        )
+        .unwrap();
+        assert_eq!(raw["exposure"], 1.0);
+        assert!(raw.get("curves").is_none());
     }
 
     /// Capture One's lens choice: its amounts, never its profile curves; a

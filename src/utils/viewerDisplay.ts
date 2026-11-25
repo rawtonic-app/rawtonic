@@ -107,6 +107,24 @@ export function cropModeBox(
   return { width, height };
 }
 
+/**
+ * Where the crop selection is on screen while cropping: `box` is where the
+ * uncropped, oriented photo (`frame`, px) is placed (x, y, w, h); `crop` is
+ * the stored crop in px of that photo (or %). The whole box without a crop.
+ * The native display draws the photo's cached (cropped) thumbnail there
+ * after a lost device, until its live frame is back (G74 DVL6).
+ */
+export function cropSelectionOnScreen(
+  box: [number, number, number, number],
+  frame: { width: number; height: number },
+  crop: { x: number; y: number; width: number; height: number; unit?: string } | null | undefined
+): [number, number, number, number] {
+  if (!crop || !(crop.width > 0 && crop.height > 0) || !(frame.width > 0 && frame.height > 0)) return box;
+  const [x, y, w, h] = box;
+  const [fw, fh] = crop.unit === '%' ? [100, 100] : [frame.width, frame.height];
+  return [x + (crop.x / fw) * w, y + (crop.y / fh) * h, (crop.width / fw) * w, (crop.height / fh) * h];
+}
+
 export interface FittedSize {
   width: number;
   height: number;
