@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Capture One imports bring the whole keyword list: keywords no photo carries are kept in the Keyword List (with their hierarchy), names holding `;`, `,` or `>` stay one keyword instead of being split, and the import check shows how many keywords the list holds and how many keyword synonyms are not imported (Rawtonic has no synonyms). In the Keywords field a level in double quotes is one name (`Places > "Rome, Italy"`), and autocomplete offers keywords whose names hold `,`, `>` or `<` that way, so choosing one applies that keyword.
+- Capture One imports bring the whole keyword list: keywords no photo carries are kept in the Keyword List (with their hierarchy), names holding `;`, `,` or `>` stay one keyword instead of being split, and the import check shows how many keywords the list holds and how many keyword synonyms are not imported (Rawtonic has no synonyms). In the Keywords field a level in double quotes is one name (`Places > "Rome, Italy"`), and autocomplete offers keywords whose names hold `,`, `>` or `<` that way, so choosing one applies that keyword. Changed: a `;` in Capture One keyword text no longer separates keywords (older sessions' `a;b` imports as one keyword, was two).
 
 - CLI exports find catalog photos through the app’s recent libraries or `--catalog`, retaining their saved edits, catalog metadata, corrected capture times and sticky AI-generated-content marking after an external editor strips XMP; ambiguous ownership requires an explicit choice.
 
