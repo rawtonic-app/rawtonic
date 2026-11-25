@@ -6,7 +6,9 @@
 //! file's content to tell them from the RGB TIFFs editors and scanners write.
 
 pub mod camera_names;
+mod dng_sensor;
 pub mod extensions;
+pub use dng_sensor::{SensorKind, dng_sensor};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -56,7 +58,15 @@ pub fn classify(path: &Path) -> TiffKind {
 fn classify_local(path: &Path) -> TiffKind {
     match RawSource::new_lazy(path) {
         Ok(source) => classify_source(&source),
-        Err(_) => TiffKind::Raster,
+        Err(_) => {
+            if std::fs::File::open(path)
+                .is_ok_and(|mut file| dng_sensor::read_dng_header(&mut file))
+            {
+                TiffKind::Raw
+            } else {
+                TiffKind::Raster
+            }
+        }
     }
 }
 
@@ -112,6 +122,9 @@ fn classify_tiff(source: &RawSource) -> TiffKind {
     let buf = source.buf();
     if !(buf.starts_with(b"II*\0") || buf.starts_with(b"MM\0*")) {
         return TiffKind::Raster;
+    }
+    if dng_sensor(buf).is_some() {
+        return TiffKind::Raw;
     }
     // Phase One writes its IIQ container behind a TIFF header: "IIII" at
     // byte 8 is the IIQ directory's magic.

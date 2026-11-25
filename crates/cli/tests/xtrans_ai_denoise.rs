@@ -14,6 +14,7 @@
 //! `RAWTONIC_MODELS` holds `xtrans_denoise_v1.onnx` (model pack, from
 //! pack-2026-11-25d) and `nlmf.onnx`: an edit from before version 6 loads
 //! MatchFilter as it always did, which then leaves the X-Trans mosaic alone.
+//! On macOS the older edit also needs `nlmf_mixed640.mlpackage`.
 //! The RAF is copied first; the copy is checked unchanged.
 //! Runs on ONNX Runtime's CPU provider (`RAWTONIC_AI_PROVIDER=cpu`) so the
 //! result does not depend on a GPU provider's last bits.
@@ -94,6 +95,13 @@ fn models_in(dir: &Path, from: &Path) -> PathBuf {
     ] {
         std::fs::copy(from.join(name), models.join(name)).unwrap();
     }
+    #[cfg(target_os = "macos")]
+    {
+        use rawtonic_fs::Canonical;
+        let name = rawtonic_denoise::CORE_ML_MIXED_PACKAGE;
+        std::os::unix::fs::symlink(from.join(name).canonical().unwrap(), models.join(name))
+            .unwrap();
+    }
     models
 }
 
@@ -122,7 +130,8 @@ fn x_trans_ai_denoise_exports_deterministically_and_leaves_old_edits_alone() {
     std::fs::copy(&raf, &raw).unwrap();
     let original = std::fs::read(&raw).unwrap();
     assert!(
-        rawtonic_rawdecode::raw_processing::is_xtrans_at(&raw),
+        rawtonic_rawdecode::raw_processing::sensor_kind_at(&raw)
+            == rawtonic_rawdecode::raw_processing::SensorKind::XTrans,
         "not an X-Trans RAF"
     );
     let base: serde_json::Value = serde_json::from_str(include_str!(

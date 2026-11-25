@@ -3664,6 +3664,7 @@
         "qualityFastHint": "Rapide : environ 15× plus rapide sur le processeur, avec très légèrement moins de détails fins.",
         "qualityFull": "Complète",
         "qualityFullHint": "Complète : les détails les plus fins. Lente sans carte graphique rapide (plusieurs minutes par photo sur le processeur).",
+        "sensorReadFailed": "Impossible d’identifier un capteur RAW pris en charge par le débruitage IA.",
         "xtransHint": "Les capteurs X-Trans reçoivent le réseau X-Trans propre au débruitage IA, qui n’a qu’une qualité."
       },
       "noPhoto": "Ouvrez une photo dans Développement pour la régler.",

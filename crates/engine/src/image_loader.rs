@@ -12,6 +12,8 @@ pub use rawtonic_rawdecode::black_bias::BlackLevels;
 pub use rawtonic_rawdecode::dng_opcodes::WarpPlanes;
 pub use rawtonic_rawdecode::highlight_reconstruction::HighlightRebuild;
 pub use rawtonic_rawdecode::hot_pixels::DeadTest;
+use rawtonic_rawdecode::mosaic_denoise::{MosaicDenoise, MosaicDenoiser, SensorDenoisers};
+use rawtonic_rawdecode::raw_processing::SensorKind;
 use rawtonic_recipe::geometry;
 use rayon::prelude::*;
 use serde::Deserialize;
@@ -178,25 +180,54 @@ impl AiDenoiseSettings {
         )
     }
 
-    /// The model this recipe runs on a photo whose mosaic is X-Trans
-    /// (`xtrans`) or not: from version 6 the X-Trans network
-    /// (`XTRANS_AI_DENOISE_MODEL`, whatever the quality) for X-Trans, else
-    /// `model` (earlier versions leave X-Trans photos alone; their
-    /// MatchFilter model is what the decoder then skips).
-    pub fn model_for(&self, xtrans: bool) -> usize {
-        if xtrans && self.denoises_xtrans() {
-            XTRANS_AI_DENOISE_MODEL
+    /// The model or models needed for this source. Unknown sensors need both
+    /// networks for version 6 so a queued export can retry after reconnecting.
+    pub fn models_for_source(
+        &self,
+        source: &std::path::Path,
+    ) -> impl Iterator<Item = usize> + use<> {
+        self.models_for_sensor(self.sensor_for_source(source))
+            .into_iter()
+            .flatten()
+    }
+
+    pub fn sensor_for_source(&self, source: &std::path::Path) -> SensorKind {
+        if self.denoises_xtrans() {
+            rawtonic_rawdecode::raw_processing::sensor_kind_at(source)
         } else {
-            self.model()
+            SensorKind::Unknown
         }
     }
 
-    /// `model_for` the RAW at `source`, read from its tags only where the
-    /// version denoises X-Trans (`rawdecode::raw_processing::is_xtrans_at`).
-    pub fn model_for_source(&self, source: &std::path::Path) -> usize {
-        self.model_for(
-            self.denoises_xtrans() && rawtonic_rawdecode::raw_processing::is_xtrans_at(source),
-        )
+    pub fn models_for_sensor(&self, sensor: SensorKind) -> [Option<usize>; 2] {
+        match (self.denoises_xtrans(), sensor) {
+            (true, SensorKind::XTrans) => [Some(XTRANS_AI_DENOISE_MODEL), None],
+            (true, SensorKind::Unknown) => [Some(self.model()), Some(XTRANS_AI_DENOISE_MODEL)],
+            _ => [Some(self.model()), None],
+        }
+    }
+
+    pub fn mosaic_denoise_for(
+        &self,
+        sensor: SensorKind,
+        mut lookup: impl FnMut(usize) -> Option<std::sync::Arc<dyn MosaicDenoiser>>,
+    ) -> Option<MosaicDenoise> {
+        let [primary, secondary] = self.models_for_sensor(sensor);
+        let first = lookup(primary?);
+        let denoiser = match secondary {
+            Some(model) => {
+                let xtrans = lookup(model);
+                if first.is_none() && xtrans.is_none() {
+                    return None;
+                }
+                std::sync::Arc::new(SensorDenoisers {
+                    bayer: first,
+                    xtrans,
+                })
+            }
+            None => first?,
+        };
+        Some(self.mosaic_denoise(denoiser))
     }
 
     /// Whether this version denoises X-Trans mosaics (from version 6).
@@ -813,6 +844,24 @@ pub fn ensure_raw_developed(path: &str) -> Result<()> {
         )),
         None => Ok(()),
     }
+}
+
+/// Run the decode that will supply pixels for selections or export. Keep
+/// the fallback decision with this decode even if another render of the
+/// same file updates the fallback diagnostic.
+pub fn require_raw_development<T>(
+    path: &str,
+    decode: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    let (result, used_preview) = observe_preview_fallback(decode);
+    let result = result?;
+    if used_preview {
+        ensure_raw_developed(path).map_err(|e| e.to_string())?;
+        return Err(format!(
+            "Cannot develop '{path}': only the embedded camera preview is available."
+        ));
+    }
+    Ok(result)
 }
 
 /// Why `path` shows its embedded camera preview instead of a development,
@@ -2816,7 +2865,7 @@ pub(crate) mod private_preview_tests {
 
 #[cfg(test)]
 mod ai_denoise_tests {
-    use super::ai_denoise_amount;
+    use super::{SensorKind, ai_denoise_amount};
     use serde_json::json;
 
     #[test]
@@ -2970,14 +3019,27 @@ mod ai_denoise_tests {
             .unwrap()
         };
         assert_eq!(
-            (six("full").model_for(false), six("fast").model_for(false)),
+            (
+                six("full").models_for_sensor(SensorKind::Bayer)[0].unwrap(),
+                six("fast").models_for_sensor(SensorKind::Bayer)[0].unwrap()
+            ),
             (1, FAST_AI_DENOISE_MODEL)
         );
-        assert_eq!(six("full").model_for(true), XTRANS_AI_DENOISE_MODEL);
-        assert_eq!(six("fast").model_for(true), XTRANS_AI_DENOISE_MODEL);
+        assert_eq!(
+            six("full").models_for_sensor(SensorKind::XTrans),
+            [Some(XTRANS_AI_DENOISE_MODEL), None]
+        );
+        assert_eq!(
+            six("fast").models_for_sensor(SensorKind::XTrans),
+            [Some(XTRANS_AI_DENOISE_MODEL), None]
+        );
         assert!(six("full").sensor_means());
         for older in [v1, at(50.0), v3, v4, v5(50.0)] {
-            assert_eq!(older.model_for(true), older.model(), "{older:?}");
+            assert_eq!(
+                older.models_for_sensor(SensorKind::XTrans),
+                [Some(older.model()), None],
+                "{older:?}"
+            );
             assert!(!older.denoises_xtrans());
         }
         const { assert!(XTRANS_AI_DENOISE_MODEL < AI_DENOISE_MODELS) };

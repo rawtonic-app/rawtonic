@@ -1141,7 +1141,8 @@ pub async fn apply_ai_denoise(
         // Published as the load does (its pixels stand in for the recipe's
         // AI Denoise, under the preferences just in force); the editor is
         // told, shows them and marks the amount failed.
-        let xtrans = crate::ai_denoise::is_xtrans(&source_path).await;
+        let xtrans = crate::ai_denoise::sensor_kind(&source_path).await
+            == rawtonic_rawdecode::raw_processing::SensorKind::XTrans;
         return Err(CommandError::new(
             ErrorCode::Unsupported,
             skipped_reason(xtrans),
@@ -1550,7 +1551,8 @@ pub async fn load_image(
         // Why a skipped sensor was skipped: an X-Trans edit from before
         // version 6, or a sensor AI Denoise does not take.
         let xtrans = denoise.as_ref().is_some_and(|d| !d.was_applied())
-            && crate::ai_denoise::is_xtrans(&source_path).await;
+            && crate::ai_denoise::sensor_kind(&source_path).await
+                == rawtonic_rawdecode::raw_processing::SensorKind::XTrans;
         if let Some(skipped) = settle_decode(
             &develop,
             denoise.as_ref(),

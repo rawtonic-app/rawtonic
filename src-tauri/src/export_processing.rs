@@ -194,18 +194,37 @@ pub(crate) fn load_export_base_image(
     settings: &crate::app_settings::AppSettings,
     denoise_progress: Option<rawtonic_rawdecode::mosaic_denoise::DenoiseProgress>,
 ) -> Result<(DynamicImage, Option<crate::image_loader::DecodeMeasures>), String> {
+    load_export_base_image_with_mapping(
+        ai_state,
+        source_path,
+        is_raw,
+        adjustments,
+        settings,
+        denoise_progress,
+        read_file_mapped(Path::new(source_path)),
+    )
+}
+
+fn load_export_base_image_with_mapping(
+    ai_state: &AiState,
+    source_path: &str,
+    is_raw: bool,
+    adjustments: &Value,
+    settings: &crate::app_settings::AppSettings,
+    denoise_progress: Option<rawtonic_rawdecode::mosaic_denoise::DenoiseProgress>,
+    mapping: Result<memmap2::Mmap, rawtonic_engine::file_io::ReadFileError>,
+) -> Result<(DynamicImage, Option<crate::image_loader::DecodeMeasures>), String> {
     let ai = rawtonic_engine::image_loader::ai_denoise_settings(adjustments).filter(|_| is_raw);
     let denoise = if let Some(ai) = ai {
-        let model = ai.model_for_source(Path::new(source_path));
-        let denoiser = lock_recover(&ai_state.denoisers)[crate::ai_denoise::slot(model)]
-            .clone()
+        let sensor = ai.sensor_for_source(Path::new(source_path));
+        let models = lock_recover(&ai_state.denoisers);
+        let denoise = ai
+            .mosaic_denoise_for(sensor, |model| {
+                models[crate::ai_denoise::slot(model)].clone()
+            })
             .ok_or_else(|| {
-                format!(
-                    "{} uses AI Denoise, but its model is not available",
-                    source_path
-                )
+                format!("{source_path} uses AI Denoise, but its model is not available")
             })?;
-        let denoise = ai.mosaic_denoise(denoiser);
         Some(match denoise_progress {
             Some(progress) => denoise.with_progress(progress),
             None => denoise,
@@ -213,7 +232,7 @@ pub(crate) fn load_export_base_image(
     } else {
         None
     };
-    match read_file_mapped(Path::new(source_path)) {
+    rawtonic_engine::image_loader::require_raw_development(source_path, || match mapping {
         Ok(mmap) => crate::image_loader::load_base_image_for_recipe_measured(
             &mmap,
             source_path,
@@ -237,7 +256,7 @@ pub(crate) fn load_export_base_image(
             )
             .map_err(|e| export_load_error(e, "bytes"))
         }
-    }
+    })
 }
 
 // The persisted queue stores per-file errors as strings. Keep the codec
@@ -451,17 +470,18 @@ pub(crate) async fn prepare_ai_denoise<V: std::borrow::Borrow<Value>, P: AsRef<s
 /// The AI Denoise models `recipes` use.
 /// (each a recipe and its photo's path, `?vc=` included): an X-Trans
 /// photo's from version 6 is the X-Trans network (read from its tags,
-/// `AiDenoiseSettings::model_for_source`).
+/// `AiDenoiseSettings::models_for_source`).
 pub(crate) fn denoise_models<V: std::borrow::Borrow<Value>, P: AsRef<str>>(
     photos: impl IntoIterator<Item = (V, P)>,
 ) -> BTreeSet<usize> {
     photos
         .into_iter()
         .filter_map(|(adjustments, path)| {
-            rawtonic_engine::image_loader::ai_denoise_settings(adjustments.borrow()).map(|ai| {
-                ai.model_for_source(&crate::file_management::parse_virtual_path(path.as_ref()).0)
-            })
+            let ai = rawtonic_engine::image_loader::ai_denoise_settings(adjustments.borrow())?;
+            let source = crate::file_management::parse_virtual_path(path.as_ref()).0;
+            Some(ai.models_for_source(&source))
         })
+        .flatten()
         .collect()
 }
 
@@ -2729,6 +2749,9 @@ fn export_photo(
                 .as_ref()
                 .filter(|loaded| parse_virtual_path(&loaded.path).0 == source_path)
                 .filter(|loaded| offline_source.as_deref() != Some(loaded.path.as_str()))
+                // A RAW without measures may be a camera JPEG. Decode
+                // it here to tell it from a successful Apple RAW decode.
+                .filter(|loaded| !is_raw || loaded.measures.is_some())
                 // Developed for the decode variant and the AI Denoise
                 // exported: the open photograph's may have changed since
                 // this export was queued.
@@ -3959,14 +3982,43 @@ mod tests {
         .map(|planned| planned.path().to_path_buf())
     }
 
+    #[test]
+    fn export_refuses_preview_pixels_before_selection_when_mapping_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("unreadable-sensor.RAF");
+        let mut jpeg = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::new_rgb8(32, 32)
+            .write_to(&mut jpeg, image::ImageFormat::Jpeg)
+            .unwrap();
+        let jpeg = jpeg.into_inner();
+        let mut raf = vec![0; 148];
+        raf[..16].copy_from_slice(b"FUJIFILMCCD-RAW ");
+        raf[84..88].copy_from_slice(&148u32.to_be_bytes());
+        raf[88..92].copy_from_slice(&(jpeg.len() as u32).to_be_bytes());
+        raf.extend(jpeg);
+        rawtonic_fs::atomic_write(&path, &raf).unwrap();
+        let result = super::load_export_base_image_with_mapping(
+            &crate::state::ai::AiState::default(),
+            path.to_str().unwrap(),
+            true,
+            &serde_json::Value::Null,
+            &crate::app_settings::AppSettings::default(),
+            None,
+            Err(rawtonic_engine::file_io::ReadFileError::Io(
+                std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+            )),
+        );
+        assert!(matches!(result, Err(ref e) if e.contains("embedded camera preview")));
+    }
+
     /// An export loads the model its recipe's AI Denoise quality names and
     /// nothing about the machine: Full recipes (with or without the key)
     /// MatchFilter's model of their version, Fast ones the Fast network.
     #[test]
-    fn exports_load_the_model_of_the_recipes_quality() {
+    fn exports_load_the_recipe_models_including_an_offline_xtrans_photo() {
         use rawtonic_engine::image_loader::FAST_AI_DENOISE_MODEL;
         let models = |recipes: Vec<serde_json::Value>| {
-            super::denoise_models(recipes.into_iter().map(|r| (r, "missing/photo.NEF")))
+            super::denoise_models(recipes.into_iter().map(|r| (r, "missing/photo.RAF")))
         };
         let full = serde_json::json!({ "aiDenoise": 50, "aiDenoiseVersion": 5 });
         let mut explicit = full.clone();
@@ -3976,10 +4028,12 @@ mod tests {
         assert_eq!(models(vec![full.clone(), explicit]), [1].into());
         assert_eq!(models(vec![fast.clone()]), [FAST_AI_DENOISE_MODEL].into());
         assert_eq!(models(vec![full, fast]), [1, FAST_AI_DENOISE_MODEL].into());
-        // Version 6 is version 5 on a photo that is not X-Trans (the X-Trans
-        // network loads only for X-Trans photos, read from their tags).
+        // With the source offline, Retry must have either network available.
         let six = serde_json::json!({ "aiDenoise": 50, "aiDenoiseVersion": 6 });
-        assert_eq!(models(vec![six]), [1].into());
+        assert_eq!(
+            models(vec![six]),
+            [1, rawtonic_engine::image_loader::XTRANS_AI_DENOISE_MODEL].into()
+        );
         assert_eq!(
             crate::ai_denoise::slot(FAST_AI_DENOISE_MODEL),
             FAST_AI_DENOISE_MODEL

@@ -437,10 +437,12 @@ fn detect_photo(app: &AppHandle, path: &str) -> Result<(), String> {
         map.remove("aiDenoise");
     }
     let settings = crate::state::settings::current(app);
-    let base = crate::image_loader::load_base_image_for_recipe(
-        &bytes, &source, false, &settings, None, None, &decode,
-    )
-    .map_err(|e| format!("the photo cannot be decoded: {e}"))?;
+    let base = rawtonic_engine::image_loader::require_raw_development(&source, || {
+        crate::image_loader::load_base_image_for_recipe(
+            &bytes, &source, false, &settings, None, None, &decode,
+        )
+        .map_err(|e| format!("the photo cannot be decoded: {e}"))
+    })?;
     drop(bytes);
     let detected = rawtonic_engine::ai_selections::detect_missing(
         &mut recipe,

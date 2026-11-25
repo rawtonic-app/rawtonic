@@ -86,6 +86,72 @@ pub trait MosaicDenoiser: Send + Sync {
     }
 }
 
+/// Both models for a recipe whose source sensor could not be probed. The
+/// full decode chooses a branch from the mosaic it actually decodes.
+pub struct SensorDenoisers {
+    pub bayer: Option<Arc<dyn MosaicDenoiser>>,
+    pub xtrans: Option<Arc<dyn MosaicDenoiser>>,
+}
+
+impl SensorDenoisers {
+    fn bayer(&self) -> Result<&dyn MosaicDenoiser> {
+        self.bayer
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Bayer AI Denoise model is not available"))
+    }
+}
+
+impl MosaicDenoiser for SensorDenoisers {
+    fn denoise(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: [u8; 4],
+    ) -> Result<Vec<f32>> {
+        self.bayer()?.denoise(mosaic, width, height, pattern)
+    }
+
+    fn denoise_scaled(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: [u8; 4],
+        noise_scale: f32,
+    ) -> Result<Vec<f32>> {
+        self.bayer()?
+            .denoise_scaled(mosaic, width, height, pattern, noise_scale)
+    }
+
+    fn denoise_reporting(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: [u8; 4],
+        noise_scale: f32,
+        progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Result<Vec<f32>> {
+        self.bayer()?
+            .denoise_reporting(mosaic, width, height, pattern, noise_scale, progress)
+    }
+
+    fn denoise_xtrans(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: &[[u8; 6]; 6],
+        noise_scale: f32,
+        progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Option<Result<Vec<f32>>> {
+        self.xtrans
+            .as_ref()?
+            .denoise_xtrans(mosaic, width, height, pattern, noise_scale, progress)
+    }
+}
+
 /// Told `(done, total)` while a denoiser works, e.g. for an export's progress.
 pub type DenoiseProgress = Arc<dyn Fn(usize, usize) + Send + Sync>;
 
