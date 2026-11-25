@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Rawtonic no longer hides other apps in Open With for RAW files, and on macOS installing it no longer replaces the default app of a file type that already has one: it is offered for camera RAWs through the system's camera RAW type, so Preview and the other RAW programs stay listed and the default stays the system's or yours, and it is an alternative for JPEG, PNG, GIF, BMP, TIFF and EXR. Formats macOS does not know (Sigma X3F, Kodak KDC, QOI, …) now list Rawtonic too; for a format no other installed app opens, it is the default. Opening a file Rawtonic cannot read yet this way (such as a Nikon NEFX pixel-shift merge or a Sony AXR) shows a message naming the file instead of trying to develop it.
+
 - CLI exports find catalog photos through the app’s recent libraries or `--catalog`, retaining their saved edits, catalog metadata, corrected capture times and sticky AI-generated-content marking after an external editor strips XMP; ambiguous ownership requires an explicit choice.
 
 - Colour-noise preview tests use an injected memory-pressure level, so frame-marker checks stay reliable on a busy host; warning and critical pressure still disable the production lookup.

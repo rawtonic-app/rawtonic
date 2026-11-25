@@ -1371,7 +1371,8 @@
     "quitCancelled": "儲存尚未完成，Rawtonic 保持開啟。待處理的變更仍在儲存中。",
     "quitSaving": "正在儲存變更，隨後結束 Rawtonic…",
     "quitSavingPhotos": "正在儲存變更，隨後結束 Rawtonic…（{{done}}/{{total}}）",
-    "region": "通知"
+    "region": "通知",
+    "unsupportedFormat": "無法開啟 {{name}}：Rawtonic 尚不支援此檔案格式。"
   },
   "offline": {
     "badge": "離線",

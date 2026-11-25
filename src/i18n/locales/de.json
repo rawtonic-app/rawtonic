@@ -1388,7 +1388,8 @@
     "quitCancelled": "Rawtonic bleibt offen, weil das Speichern noch nicht abgeschlossen ist. Ausstehende Änderungen werden weiter gespeichert.",
     "quitSaving": "Änderungen werden vor dem Beenden von Rawtonic gespeichert…",
     "quitSavingPhotos": "Änderungen werden vor dem Beenden von Rawtonic gespeichert… ({{done}}/{{total}})",
-    "region": "Mitteilungen"
+    "region": "Mitteilungen",
+    "unsupportedFormat": "{{name}} lässt sich nicht öffnen: Rawtonic unterstützt dieses Dateiformat noch nicht."
   },
   "offline": {
     "badge": "Offline",

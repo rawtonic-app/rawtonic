@@ -1496,7 +1496,8 @@
     "quitCancelled": "Rawtonic pozostał otwarty, ponieważ zapisywanie nie zostało ukończone. Oczekujące zmiany są nadal zapisywane.",
     "quitSaving": "Zapisywanie zmian przed zamknięciem Rawtonic…",
     "quitSavingPhotos": "Zapisywanie zmian przed zamknięciem Rawtonic… ({{done}}/{{total}})",
-    "region": "Powiadomienia"
+    "region": "Powiadomienia",
+    "unsupportedFormat": "Nie można otworzyć {{name}}: Rawtonic nie obsługuje jeszcze tego formatu pliku."
   },
   "offline": {
     "badge": "Offline",
