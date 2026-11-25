@@ -2199,7 +2199,7 @@
       "showImported": "Show",
       "sidecarsCopied_one": "{{count}} XMP sidecar copied",
       "sidecarsCopied_other": "{{count}} XMP sidecars copied",
-      "sourceGeometryAll": "Apply Capture One straightening and replace crops using each frame’s aspect ratio ({{n}} photos)",
+      "sourceGeometryAll": "Apply Capture One straightening and replace crops using each frame’s aspect ratio (Photos: {{n}})",
       "sourceGeometryApplied": "Capture One straightening and crop applied to {{n}} photo(s) (Undo puts it back)",
       "sourceGeometryErrors": "Capture One straightening and crop not applied to some photos: {{n}}.",
       "sourceGeometryFailed": "Capture One straightening and crop could not be applied",
