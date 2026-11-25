@@ -594,14 +594,16 @@ fn capture_one_keyword_library_keeps_unused_terms_and_literal_separators() {
             "comma"
         ]
     );
-    // The library: every term without children, with its parents; unused
-    // ones too, the synonym not as a keyword.
+    // The library: every term with its path, parents and unused ones too,
+    // the synonym not as a keyword.
     let mut keywords = lib.keywords.clone();
     keywords.sort();
     assert_eq!(
         keywords,
         [
+            "Parent",
             "Parent|comma,term",
+            "angle",
             "angle>term",
             "angle|term",
             "colon",
@@ -609,6 +611,7 @@ fn capture_one_keyword_library_keeps_unused_terms_and_literal_separators() {
             "semi",
             "semi;colon",
             "slash/term",
+            "termpipe",
             "termpipe|term",
             "unused_alpha"
         ]

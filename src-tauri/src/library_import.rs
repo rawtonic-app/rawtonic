@@ -80,8 +80,8 @@ pub struct ImportPreview {
     pub copies: usize,
     pub edited: usize,
     pub albums: usize,
-    /// Keywords of the source's keyword library (without children), unused
-    /// ones too.
+    /// Keywords of the source's keyword library, parents and unused ones
+    /// too.
     pub keywords: usize,
     pub roots: Vec<Root>,
     pub not_read: NotRead,

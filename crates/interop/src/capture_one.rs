@@ -454,7 +454,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
         photos,
         albums,
         stacks: Vec::new(),
-        keywords: keyword_leaves(&keyword_library),
+        keywords: keyword_library,
         not_read,
     })
 }
@@ -519,24 +519,6 @@ fn keyword_library(
         }
     }
     Ok((paths.into_iter().collect(), synonyms))
-}
-
-/// The paths of `library` that no other path lies below.
-fn keyword_leaves(library: &[String]) -> Vec<String> {
-    use rawtonic_metadata::keywords::with_ancestors;
-    let parents: std::collections::HashSet<String> = library
-        .iter()
-        .flat_map(|path| {
-            let mut up = with_ancestors(path);
-            up.pop();
-            up
-        })
-        .collect();
-    library
-        .iter()
-        .filter(|path| !parents.contains(*path))
-        .cloned()
-        .collect()
 }
 
 /// The local adjustment layers by variant (`Z_PK`), bottom first, each with

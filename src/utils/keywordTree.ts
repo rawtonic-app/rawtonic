@@ -154,14 +154,35 @@ function spelledPath(levels: string[], known: Map<string, string>): string {
  * Keyword List offers its conversion.
  */
 export function resolveKeywordEntries(text: string, existing: readonly string[]): string[] {
-  const legacy = new Map<string, string>();
-  for (const keyword of existing) if (legacyHierarchy(keyword)) legacy.set(fold(keyword.trim()), keyword.trim());
+  // Existing keywords whose shown form would not parse back to them: a flat
+  // `places > asia` stored before hierarchies, or a level holding `,`, `>`
+  // or `<` (imported, `Parent|comma,term`). Entered as shown or as stored,
+  // as autocomplete offers them, they are kept.
+  const literal = new Map<string, string>();
+  for (const keyword of existing) {
+    const stored = keyword.trim();
+    const shown = displayKeyword(stored);
+    if (!stored.includes(',') && parseKeywordPath(shown).join(KEYWORD_SEPARATOR) === normalizeKeyword(stored)) continue;
+    literal.set(fold(shown), stored);
+    literal.set(fold(stored), stored);
+  }
+  const parts = text.split(',');
   const out: string[] = [];
-  for (const part of text.split(',')) {
-    const kept = legacy.get(fold(part.trim()));
-    const levels = kept ? null : parseKeywordPath(part);
+  for (let i = 0; i < parts.length;) {
+    // The longest run of comma-separated parts that names such a keyword.
+    let end = i + 1;
+    let kept: string | undefined;
+    for (let j = parts.length; j > i; j--) {
+      kept = literal.get(fold(parts.slice(i, j).join(',').trim()));
+      if (kept) {
+        end = j;
+        break;
+      }
+    }
+    const levels = kept ? null : parseKeywordPath(parts[i]);
     const keyword = kept ?? (levels!.length ? resolveKeyword(levels!, existing) : '');
     if (keyword && !out.some((k) => fold(k) === fold(keyword))) out.push(keyword);
+    i = end;
   }
   return out;
 }

@@ -67,6 +67,19 @@ describe('field entries', () => {
     ]);
     expect(resolveKeywordEntries('places > asia', [])).toEqual(['places|asia']);
   });
+
+  it('keeps an existing keyword whose name holds a comma or `>` when it is entered as shown', () => {
+    // Imported from Capture One (KWC1): one level each.
+    const existing = ['Parent|comma,term', 'angle>term', 'semi;colon', 'Animals|Dogs'];
+    // As autocomplete offers them (`Parent > comma,term`), and as stored.
+    expect(resolveKeywordEntries('Parent > comma,term', existing)).toEqual(['Parent|comma,term']);
+    expect(resolveKeywordEntries('Parent|comma,term, dogs', existing)).toEqual(['Parent|comma,term', 'Animals|Dogs']);
+    expect(resolveKeywordEntries('angle>term', existing)).toEqual(['angle>term']);
+    expect(resolveKeywordEntries('semi;colon', existing)).toEqual(['semi;colon']);
+    // Other text keeps the typing rule: commas separate, `>` makes levels.
+    expect(resolveKeywordEntries('comma,term', existing)).toEqual(['comma', 'term']);
+    expect(resolveKeywordEntries('angle > other', existing)).toEqual(['angle|other']);
+  });
 });
 
 describe('keyword tree', () => {
