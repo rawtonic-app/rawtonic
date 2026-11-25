@@ -318,7 +318,7 @@ SUPERRES_CPU_SHA256 = {"superres_compact_x2_cpu.onnx": "40bf5c362bad13ca57c1e449
 # Super Resolution's Fast quality: the same weights without the rotation
 # average (export_superres.py --single), ONNX for every provider (its
 # published name from pack-2026-11-25) and a Core ML program (from
-# pack-2026-11-25b).
+# pack-2026-11-25c).
 SUPERRES_SINGLE_SHA256 = {
     "superres_compact_x2_cpu_single.onnx": "3ad7b2ebfa053e930c5356db5d326b7587b458ae9fab4869f9e0534fbf563c1e",
     "superres_single_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
