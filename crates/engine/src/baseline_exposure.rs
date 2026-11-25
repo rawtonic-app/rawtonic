@@ -199,11 +199,7 @@ pub fn apply_base_look(
         crate::camera_profile::apply(global, path, library);
         crate::diffraction::apply(global, path);
     });
-    global.hdr_headroom = if global.hdr_rolloff != 0 {
-        crate::hdr_source::headroom(path).unwrap_or(0.0)
-    } else {
-        0.0
-    };
+    crate::hdr_source::apply(global, path);
     let registered = || crate::source_facts::registered(path);
     let (noise_level, image_key, airlight) = match measures {
         Some(measures) => (measures.noise_level, measures.image_key, measures.airlight),

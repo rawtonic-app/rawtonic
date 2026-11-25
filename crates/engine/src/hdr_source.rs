@@ -52,6 +52,67 @@ pub fn rolloff(m: f32, headroom: f32) -> f32 {
     KNEE + (1.0 - KNEE) * (a * t / (1.0 + (a - 1.0) * t))
 }
 
+/// Sets `global.hdr_headroom` for the photo at `path`: its headroom when
+/// the recipe's render version rolls PQ/HLG highlights off
+/// (`hdr_rolloff`, never for RAWs), else 0. Every render of a recipe calls
+/// it (`baseline_exposure::apply_base_look`, the mask images of an export).
+pub fn apply(global: &mut crate::image_processing::GlobalAdjustments, path: &str) {
+    global.hdr_headroom = if global.hdr_rolloff != 0 {
+        headroom(path).unwrap_or(0.0)
+    } else {
+        0.0
+    };
+}
+
+/// The shader's `hdr_source_rolloff` on an sRGB-encoded decode (32-bit
+/// float, as the PQ/HLG decode hands it over), for renders without the GPU:
+/// a never-edited photo's plain Library tile. Other pixel types (never an
+/// HDR decode) are left as they are.
+pub fn rolloff_image(image: &mut image::DynamicImage, headroom: f32) {
+    use rayon::prelude::*;
+    const SRGB_TO_PROPHOTO: [[f32; 3]; 3] = [
+        [0.529_345_8, 0.330_072_8, 0.140_581_2],
+        [0.098_374_4, 0.873_461_1, 0.028_164_7],
+        [0.016_883_2, 0.117_672_5, 0.865_444_3],
+    ];
+    let decode = |v: f32| {
+        let a = v.abs();
+        let l = if a <= 0.040_45 {
+            a / 12.92
+        } else {
+            ((a + 0.055) / 1.055).powf(2.4)
+        };
+        l.copysign(v)
+    };
+    let encode = |v: f32| {
+        let a = v.abs();
+        let e = if a <= 0.003_130_8 {
+            a * 12.92
+        } else {
+            1.055 * a.powf(1.0 / 2.4) - 0.055
+        };
+        e.copysign(v)
+    };
+    let pixel = |p: &mut [f32]| {
+        let c = [decode(p[0]), decode(p[1]), decode(p[2])];
+        let m = SRGB_TO_PROPHOTO
+            .iter()
+            .map(|r| r[0] * c[0] + r[1] * c[1] + r[2] * c[2])
+            .fold(f32::MIN, f32::max);
+        if m > KNEE {
+            let scale = rolloff(m, headroom) / m;
+            for (out, v) in p.iter_mut().zip(c) {
+                *out = encode(v * scale);
+            }
+        }
+    };
+    match image {
+        image::DynamicImage::ImageRgb32F(img) => img.par_chunks_mut(3).for_each(pixel),
+        image::DynamicImage::ImageRgba32F(img) => img.par_chunks_mut(4).for_each(pixel),
+        _ => {}
+    }
+}
+
 /// Whether `transfer` (ITU-T H.273) is PQ (16) or HLG (18).
 fn is_hdr_transfer(transfer: u16) -> bool {
     matches!(transfer, 16 | 18)
@@ -199,5 +260,26 @@ mod tests {
         assert_eq!(global(&pq, 19, false), (0, 0.0));
         assert_eq!(global(&sdr, 20, false), (1, 0.0));
         assert_eq!(global(&pq, 20, true).1, 0.0);
+    }
+
+    #[test]
+    fn rolloff_image_matches_the_curve_and_leaves_lower_tones() {
+        let encode = |v: f32| 1.055 * v.powf(1.0 / 2.4) - 0.055;
+        let values = [0.128f32, 0.5, 1.0, 2.0, HEADROOM];
+        let mut image =
+            image::DynamicImage::ImageRgb32F(image::ImageBuffer::from_fn(5, 1, |x, _| {
+                image::Rgb([encode(values[x as usize]); 3])
+            }));
+        rolloff_image(&mut image, HEADROOM);
+        let out = image.as_rgb32f().unwrap();
+        for (x, &v) in values.iter().enumerate() {
+            // A grey's largest ProPhoto channel is its value.
+            let expected = encode(rolloff(v, HEADROOM));
+            let got = out.get_pixel(x as u32, 0)[1];
+            assert!(
+                (got - expected).abs() < 2e-4,
+                "{v}: {got} against {expected}"
+            );
+        }
     }
 }

@@ -401,6 +401,12 @@ fn thumbnail_hash_with(
     {
         hasher.update(b"\0lut-renders-when-missing-v1\0");
     }
+    // PQ/HLG highlights clipped at diffuse white in every tile until
+    // 2026-11-25 (renderVersion 20, rawtonic_engine::hdr_source): such tiles
+    // are made again once.
+    if rawtonic_engine::hdr_source::headroom(&source_path.to_string_lossy()).is_some() {
+        hasher.update(b"\0hdr-rolloff-v1");
+    }
     if is_raw_file(&source_path) {
         // A never-edited Olympus / OM System RAW's tile was developed from
         // the sensor data until 2026-11-24; it now shows the camera's preview
@@ -754,7 +760,12 @@ fn develop_thumbnail_with_source(
                     // With the user's develop defaults, not the camera's JPEG
                     // (a JPEG or TIFF too when they are not for RAWs only).
                     || (rawtonic_engine::develop_defaults::follows_defaults(&adjustments)
-                        && rawtonic_engine::develop_defaults::for_path(&source_path).is_some())) =>
+                        && rawtonic_engine::develop_defaults::for_path(&source_path).is_some())
+                    // A PQ/HLG photo's highlights roll off from the newest
+                    // render version (rawtonic_engine::hdr_source).
+                    || (!is_raw
+                        && !adjustments.is_null()
+                        && rawtonic_engine::hdr_source::headroom(&source_path_str).is_some())) =>
         {
             let mut recipe = if adjustments.is_null() {
                 serde_json::json!({})
@@ -1231,6 +1242,10 @@ fn develop_thumbnail_with_source(
             crate::image_processing::apply_cpu_agx_tonemap(&mut final_image);
         } else if is_raw {
             apply_cpu_default_raw_processing(&mut final_image);
+        } else if let Some(headroom) = rawtonic_engine::hdr_source::headroom(&source_path_str) {
+            // Never edited: the newest render version's roll-off of PQ/HLG
+            // highlights, as Develop and the export show it.
+            rawtonic_engine::hdr_source::rolloff_image(&mut final_image, headroom);
         }
     }
     if let Some(recipe) = new_recipe {
