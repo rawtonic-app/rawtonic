@@ -4269,9 +4269,14 @@
         "resize": "Zmień rozmiar, aby dopasować",
         "superResolution": {
           "failed": "Superrozdzielczość jest niedostępna: {{error}}",
+          "fastFailed": "Jakość Szybka jest niedostępna: {{error}}",
           "hint": "Powiększa każde zdjęcie do dwukrotnej szerokości i wysokości za pomocą modelu AI, przed zmianą rozmiaru i wyostrzaniem. Oryginały nigdy nie są zmieniane.",
           "label": "Superrozdzielczość (2×, AI)",
           "preparing": "Przygotowywanie modelu superrozdzielczości…",
+          "quality": "Jakość",
+          "qualityFast": "Szybka",
+          "qualityFull": "Pełna",
+          "qualityHint": "Szybka powiększa każdą część zdjęcia raz zamiast uśredniać cztery obrócone kopie: około cztery razy szybciej, różnice widoczne tylko przy porównaniu pikseli.",
           "ready": "Model superrozdzielczości gotowy ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

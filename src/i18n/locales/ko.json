@@ -3815,9 +3815,14 @@
         "resize": "크기에 맞게 조정",
         "superResolution": {
           "failed": "슈퍼 해상도를 사용할 수 없습니다: {{error}}",
+          "fastFailed": "빠름 품질을 사용할 수 없습니다: {{error}}",
           "hint": "크기 조정과 선명도 처리 전에 AI 모델로 각 사진의 가로와 세로를 두 배로 확대합니다. 원본은 변경되지 않습니다.",
           "label": "슈퍼 해상도 (2×, AI)",
           "preparing": "슈퍼 해상도 모델 준비 중…",
+          "quality": "품질",
+          "qualityFast": "빠름",
+          "qualityFull": "전체",
+          "qualityHint": "빠름은 회전한 네 개의 사본을 평균하는 대신 사진의 각 부분을 한 번만 확대합니다. 약 네 배 빠르며 차이는 픽셀 비교에서만 보입니다.",
           "ready": "슈퍼 해상도 모델 준비 완료 ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

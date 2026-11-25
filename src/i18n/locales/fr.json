@@ -4099,9 +4099,14 @@
         "resize": "Redimensionner",
         "superResolution": {
           "failed": "La super résolution n’est pas disponible : {{error}}",
+          "fastFailed": "La qualité Rapide n’est pas disponible : {{error}}",
           "hint": "Agrandit chaque photo au double de sa largeur et de sa hauteur avec un modèle d’IA, avant le redimensionnement et l’accentuation. Les originaux ne sont jamais modifiés.",
           "label": "Super résolution (2×, IA)",
           "preparing": "Préparation du modèle de super résolution…",
+          "quality": "Qualité",
+          "qualityFast": "Rapide",
+          "qualityFull": "Complète",
+          "qualityHint": "Rapide agrandit chaque partie de la photo une seule fois au lieu de faire la moyenne de quatre copies tournées : environ quatre fois plus vite, différences visibles seulement en comparant les pixels.",
           "ready": "Modèle de super résolution prêt ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

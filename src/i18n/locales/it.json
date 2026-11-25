@@ -4099,9 +4099,14 @@
         "resize": "Ridimensiona per adattare",
         "superResolution": {
           "failed": "La super risoluzione non è disponibile: {{error}}",
+          "fastFailed": "La qualità Veloce non è disponibile: {{error}}",
           "hint": "Ingrandisce ogni foto al doppio di larghezza e altezza con un modello di IA, prima del ridimensionamento e della nitidezza. Gli originali non vengono mai modificati.",
           "label": "Super risoluzione (2×, IA)",
           "preparing": "Preparazione del modello di super risoluzione…",
+          "quality": "Qualità",
+          "qualityFast": "Veloce",
+          "qualityFull": "Completa",
+          "qualityHint": "Veloce ingrandisce ogni parte della foto una sola volta invece di fare la media di quattro copie ruotate: circa quattro volte più rapido, con differenze visibili solo confrontando i pixel.",
           "ready": "Modello di super risoluzione pronto ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"
