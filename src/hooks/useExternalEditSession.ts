@@ -10,6 +10,26 @@ import { debouncedSave } from './useEditorActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { submittedFrom } from '../utils/runExportJobs';
 import { photoWritesAndStepsSettled } from '../utils/photoWrites';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { notify } from '../activity/notify';
+import i18n from 'i18next';
+import type { SupportedTypes } from '../components/ui/AppProperties';
+
+/** Whether the app decodes a file of this name. macOS offers Rawtonic for
+ * every camera RAW type it knows (tauri.macos.conf.json), including a few
+ * Rawtonic cannot read yet, so a file handed over is checked first. */
+async function isSupportedFile(path: string): Promise<boolean> {
+  const name = path.split(/[\\/]/).pop() ?? path;
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0) return false;
+  const ext = name.slice(dot + 1).toLowerCase();
+  const types =
+    useSettingsStore.getState().supportedTypes ??
+    (await invoke<SupportedTypes>(Invokes.GetSupportedFileTypes).catch(() => null));
+  // Without the list the photo is opened as before; its decode reports a failure.
+  if (!Array.isArray(types?.raw) || !Array.isArray(types?.nonRaw)) return true;
+  return [...types.raw, ...types.nonRaw].some((known) => known.toLowerCase() === ext);
+}
 
 /**
  * Handles files handed to the app from outside (OS "open with" and the
@@ -51,7 +71,11 @@ export function useExternalEditSession(
       }
       const directory = await invoke<boolean>(Invokes.LaunchPathIsDirectory, { path: initialFileToOpen });
       if (directory === true) showFolderRef.current(initialFileToOpen);
-      else handleImageSelectRef.current(initialFileToOpen);
+      else if (await isSupportedFile(initialFileToOpen)) handleImageSelectRef.current(initialFileToOpen);
+      else {
+        const name = initialFileToOpen.split(/[\\/]/).pop() ?? initialFileToOpen;
+        notify.error(i18n.t('notifications.unsupportedFormat', { name }));
+      }
     })();
   }, [initialFileToOpen, startupLibraryReady]);
 

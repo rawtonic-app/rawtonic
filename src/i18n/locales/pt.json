@@ -1441,7 +1441,8 @@
     "quitCancelled": "O Rawtonic permaneceu aberto porque o salvamento não foi concluído. As alterações pendentes continuam sendo salvas.",
     "quitSaving": "Salvando as alterações antes de sair do Rawtonic…",
     "quitSavingPhotos": "Salvando as alterações antes de sair do Rawtonic… ({{done}}/{{total}})",
-    "region": "Notificações"
+    "region": "Notificações",
+    "unsupportedFormat": "Não é possível abrir {{name}}: o Rawtonic ainda não suporta este formato de ficheiro."
   },
   "offline": {
     "badge": "Offline",

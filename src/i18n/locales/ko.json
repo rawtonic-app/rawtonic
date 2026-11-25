@@ -1370,7 +1370,8 @@
     "quitCancelled": "저장이 완료되지 않아 Rawtonic이 종료되지 않았습니다. 보류 중인 변경 사항은 계속 저장되고 있습니다.",
     "quitSaving": "Rawtonic을 종료하기 전에 변경 사항을 저장하는 중…",
     "quitSavingPhotos": "Rawtonic을 종료하기 전에 변경 사항을 저장하는 중… ({{done}}/{{total}})",
-    "region": "알림"
+    "region": "알림",
+    "unsupportedFormat": "{{name}}을(를) 열 수 없습니다. Rawtonic은 아직 이 파일 형식을 지원하지 않습니다."
   },
   "offline": {
     "badge": "오프라인",

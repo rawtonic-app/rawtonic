@@ -4,10 +4,14 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const { invoke, exit } = vi.hoisted(() => ({ invoke: vi.fn(), exit: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/plugin-process', () => ({ exit }));
+const { notifyError } = vi.hoisted(() => ({ notifyError: vi.fn() }));
+vi.mock('../activity/notify', () => ({ notify: { error: notifyError } }));
 
 import { useExternalEditSession } from './useExternalEditSession';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
 import { useEditorStore } from '../store/useEditorStore';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { waitFor } from '@testing-library/react';
 
 afterEach(cleanup);
 
@@ -109,4 +113,27 @@ it('opens a library the launch names as that library, not as a folder', async ()
   expect(useProcessStore.getState().libraryToOpen).toBe('/lib/Wedding');
   expect(browse).not.toHaveBeenCalled();
   expect(select).not.toHaveBeenCalled();
+});
+
+// macOS lists Rawtonic for every camera RAW type it knows (tauri.macos.conf.json),
+// some of which Rawtonic cannot read yet (Nikon NEFX, Sony AXR, …).
+it.each([
+  ['/photos/merged.NEFX', false],
+  ['/photos/shot.nef', true],
+  ['/photos/noextension', false]
+])('a file handed over by Open With (%s) opens only when its format is supported', async (path, opens) => {
+  notifyError.mockReset();
+  invoke.mockReset();
+  invoke.mockImplementation(async (command: string) => (command === 'launch_path_library' ? null : false));
+  useSettingsStore.setState({ supportedTypes: { raw: ['nef', 'arw'], nonRaw: ['jpg'] } });
+  useProcessStore.setState({ externalEditSession: null, startupLibraryReady: true, initialFileToOpen: path } as never);
+  const select = vi.fn();
+  renderHook(() => useExternalEditSession(select));
+  if (opens) {
+    await waitFor(() => expect(select).toHaveBeenCalledWith(path));
+    expect(notifyError).not.toHaveBeenCalled();
+  } else {
+    await waitFor(() => expect(notifyError).toHaveBeenCalledTimes(1));
+    expect(select).not.toHaveBeenCalled();
+  }
 });
