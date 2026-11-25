@@ -89,6 +89,19 @@ describe('field entries', () => {
     // Typed quotes work for new keywords too; `;` is part of a name.
     expect(parseKeywordPath('Places > "Rome, Italy"')).toEqual(['Places', 'Rome, Italy']);
     expect(parseKeywordEntries('"a > b", c;d')).toEqual([['a > b'], ['c;d']]);
+    // A `"` inside a name is a character of it (an inch mark), not a quote.
+    expect(parseKeywordEntries('12" print, portfolio')).toEqual([['12" print'], ['portfolio']]);
+    expect(parseKeywordPath('Prints > 12" > Portfolio')).toEqual(['Prints', '12"', 'Portfolio']);
+    expect(typedKeyword('Prints|12"|Portfolio')).toBe('Prints > 12" > Portfolio');
+    expect(resolveKeywordEntries(typedKeyword('Prints|12"|Portfolio'), ['Prints|12"|Portfolio'])).toEqual([
+      'Prints|12"|Portfolio'
+    ]);
+  });
+
+  it('gives a flat `a > b` keyword and the hierarchy `a|b` their own suggestions', () => {
+    const existing = ['Travel > Europe', 'Travel|Europe'];
+    expect(existing.map(typedKeyword)).toEqual(['"Travel > Europe"', 'Travel > Europe']);
+    for (const keyword of existing) expect(resolveKeywordEntries(typedKeyword(keyword), existing)).toEqual([keyword]);
   });
 });
 

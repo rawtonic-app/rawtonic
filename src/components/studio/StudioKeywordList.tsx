@@ -31,6 +31,7 @@ import {
   buildKeywordTree,
   displayKeyword,
   isWithinKeyword,
+  keywordLevels,
   keywordParent,
   legacyHierarchy,
   movedKeyword,
@@ -185,7 +186,8 @@ export function StudioKeywordList() {
   const make = async (parent: string | null, text: string) => {
     const typed = parseKeywordPath(text);
     if (!typed.length || !directory) return;
-    const levels = [...(parent ? parseKeywordPath(parent) : []), ...typed];
+    // The parent is a stored path: its levels as they are (`People|A > B`).
+    const levels = [...(parent ? keywordLevels(parent) : []), ...typed];
     const path = resolveKeywordPath(levels, known);
     setBusy(true);
     try {
