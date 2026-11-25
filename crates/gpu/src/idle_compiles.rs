@@ -1832,9 +1832,7 @@ mod tests {
     /// until the slot is free and the variant is ready, neither with no
     /// photo shown nor while a frame of the photo waits for that variant
     /// (it must not rush the planned superset); then they compile, the
-    /// detail pass a measured RAW's frames read first, although no frame
-    /// asked for it before the window ended (it ends when the variant
-    /// settles, as in the Radeon 680M's cold starts). Where idle compiles and AI runs
+    /// detail pass the shown RAW's frames read first. Where idle compiles and AI runs
     /// take turns, a run made ahead waits for the plan too: it took the
     /// CPUs and its turn while the window held the plan (G76/WQA4, WCC6).
     #[test]
@@ -1930,6 +1928,53 @@ mod tests {
             .recv_timeout(Duration::from_secs(30))
             .expect("the run made ahead starts after the start window");
         run.join().unwrap();
+        drop(processor);
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
+    }
+
+    /// A reopened recipe whose sharpening reads another detail-cache pass
+    /// than a new RAW edit's (response 6: slot 0) gets its own first: its
+    /// frame marks it while it waits for its variant, before the start
+    /// window ends (G76/WCC6 review r3).
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
+    fn the_start_compiles_the_shown_recipes_detail_pass_first() {
+        if !alone("the_start_compiles_the_shown_recipes_detail_pass_first") {
+            return;
+        }
+        use super::super::preview_tests::context;
+        use std::time::Instant;
+        set_compile_limit(Some(1));
+        let small = super::super::small_slot();
+        let processor = GpuProcessor::new(context(), 256, 256).unwrap();
+        let reopened = new_raw_edit(serde_json::json!({ "sharpenVersion": 6 }));
+        assert_eq!(sharpen_level(&reopened), 0);
+        let new_edit = sharpen_level(&super::super::new_raw_edit(None));
+        assert_ne!(new_edit, 0);
+        processor.compile_ahead_for_new_raw(None);
+        std::thread::scope(|scope| {
+            let frame = scope.spawn(|| processor.preview_pipeline(&reopened, true).map(|_| ()));
+            std::thread::sleep(Duration::from_millis(500));
+            drop(small);
+            frame.join().unwrap().unwrap();
+        });
+        let deadline = Instant::now() + Duration::from_secs(300);
+        while [0, new_edit]
+            .iter()
+            .any(|&slot| processor.detail_pipeline[slot].get().is_none())
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the detail passes did not compile"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(
+            *super::super::DETAIL_COMPILE_ORDER.lock().unwrap(),
+            [0, new_edit],
+            "the reopened recipe's detail pass compiles first"
+        );
         drop(processor);
         std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
         set_compile_limit(None);

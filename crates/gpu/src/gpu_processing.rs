@@ -4748,9 +4748,10 @@ pub struct GpuProcessor {
     /// sharpening's mask view `SHARPEN_VIEW`).
     detail_pipeline: [Arc<std::sync::OnceLock<Option<wgpu::ComputePipeline>>>; 5],
     detail_compilation: [std::sync::OnceLock<()>; 5],
-    /// The detail-cache passes a frame has asked for
-    /// (`detail_pipelines_after_start` compiles them first).
-    detail_asked: Arc<[std::sync::atomic::AtomicBool; 5]>,
+    /// The detail-cache passes a frame has asked for or will read
+    /// (`detail_pipelines_after_start` compiles them first, as compiles a
+    /// frame waits for).
+    detail_wanted: [Arc<Wanted>; 5],
     preview_pipelines: Arc<VariantTable<std::sync::OnceLock<wgpu::ComputePipeline>>>,
     preview_compilation: Arc<VariantTable<std::sync::OnceLock<()>>>,
     /// Display variants that failed validation (never set in `preview_pipelines`).
@@ -6293,6 +6294,19 @@ fn sharpen_v7(adjustments: &AllAdjustments) -> bool {
 fn sharpen_v8(adjustments: &AllAdjustments) -> bool {
     let g = &adjustments.global;
     g.sharpen_falloff[3] >= 8.0 && g.is_raw_image == 1 && g.noise_level > 0.0
+}
+
+/// The detail-cache pass a display frame of `adjustments` reads
+/// (`GpuProcessor::detail_pipeline_slot`). For the sharpening's mask view
+/// the sharpening stores its Masking factor in the cache (shader
+/// `SHARPEN_VIEW_MARK`), which the frame's view variant reads (`DetailKey`
+/// keeps the two caches apart), with response 8's code for its recipes.
+fn detail_slot_of(adjustments: &AllAdjustments) -> usize {
+    if adjustments.global.show_clipping == SHARPEN_VIEW_MASK {
+        3 + usize::from(sharpen_v8(adjustments))
+    } else {
+        sharpen_level(adjustments)
+    }
 }
 
 /// The sharpening code a recipe's general and detail pipelines compile in:
@@ -9202,7 +9216,7 @@ impl GpuProcessor {
             detail_layout,
             detail_pipeline: Default::default(),
             detail_compilation: Default::default(),
-            detail_asked: Default::default(),
+            detail_wanted: Default::default(),
             preview_pipelines,
             preview_compilation,
             preview_failed,
@@ -10458,6 +10472,13 @@ impl GpuProcessor {
         let idle = self.idle_compiles.as_ref().map(|owner| &owner.0);
         if on_screen && let Some(idle) = idle {
             idle.frame();
+            // The start's detail passes compile the one this frame will
+            // read first (`detail_pipelines_after_start`): a reopened
+            // recipe may read another than a new RAW edit's, and the
+            // window can end before the frame's tiles ask for it.
+            if !idle.started() {
+                self.detail_wanted[detail_slot_of(adjustments)].set();
+            }
         }
         // Idle compiles wait while it does at the start (`StartWindow`;
         // `render_window` ends the window once the frame has every pipeline).
@@ -10860,11 +10881,8 @@ impl GpuProcessor {
         self.detail_pipeline_slot(level)
     }
 
-    /// The detail cache's pass for the mask view: the sharpening stores its
-    /// Masking factor in the cache (shader `SHARPEN_VIEW_MARK`), which the
-    /// frame's view variant reads (`DetailKey` keeps the two caches apart).
-    /// With response 8's code for its recipes (the view then shows its noise
-    /// gate times Masking's).
+    /// The detail cache's pass for the mask view (`detail_slot_of`).
+    #[cfg(test)]
     fn mask_view_detail_pipeline(&self, sharpen_v8: bool) -> Option<&wgpu::ComputePipeline> {
         self.detail_pipeline_slot(3 + usize::from(sharpen_v8))
     }
@@ -10873,7 +10891,7 @@ impl GpuProcessor {
     /// mask view (response 7's code), 4 the mask view with response 8's.
     fn detail_pipeline_slot(&self, slot: usize) -> Option<&wgpu::ComputePipeline> {
         if self.detail_pipeline[slot].get().is_none() {
-            self.detail_asked[slot].store(true, std::sync::atomic::Ordering::SeqCst);
+            self.detail_wanted[slot].set();
             self.detail_compilation[slot].get_or_init(|| {
                 let pipeline = Arc::clone(&self.detail_pipeline[slot]);
                 let device = Arc::clone(&self.context.device);
@@ -10914,9 +10932,14 @@ impl GpuProcessor {
         }
         let pipelines: Vec<_> = claimed
             .iter()
-            .map(|&slot| (slot, Arc::clone(&self.detail_pipeline[slot])))
+            .map(|&slot| {
+                (
+                    slot,
+                    Arc::clone(&self.detail_pipeline[slot]),
+                    Arc::clone(&self.detail_wanted[slot]),
+                )
+            })
             .collect();
-        let asked = Arc::clone(&self.detail_asked);
         let device = Arc::clone(&self.context.device);
         let shader = self.preview_shader.clone();
         let layout = self.detail_layout.clone();
@@ -10926,13 +10949,15 @@ impl GpuProcessor {
             }
             let mut pipelines = pipelines;
             while !pipelines.is_empty() {
-                let was_asked = |slot: usize| asked[slot].load(std::sync::atomic::Ordering::SeqCst);
                 let next = pipelines
                     .iter()
-                    .position(|&(slot, _)| was_asked(slot))
+                    .position(|(_, _, wanted)| wanted.is_set())
                     .unwrap_or(0);
-                let (slot, pipeline) = pipelines.remove(next);
-                let _ahead = (!was_asked(slot)).then(AheadCompile::new);
+                let (slot, pipeline, wanted) = pipelines.remove(next);
+                // Ahead of use until a frame asks for it, also while it
+                // waits for the small slot.
+                let _ahead = AheadCompile::new();
+                let _wanted = WantedHere::new(wanted);
                 #[cfg(test)]
                 {
                     DETAIL_COMPILES_STARTED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -12792,13 +12817,7 @@ impl GpuProcessor {
                                 detail_bytes
                             }
                             <= BLUR_CACHE_BYTES)
-                        .then(|| {
-                            if adjustments.global.show_clipping == SHARPEN_VIEW_MASK {
-                                self.mask_view_detail_pipeline(sharpen_v8(adjustments))
-                            } else {
-                                self.detail_pipeline_for(sharpen_level(adjustments))
-                            }
-                        })
+                        .then(|| self.detail_pipeline_slot(detail_slot_of(adjustments)))
                         .flatten()
                 });
                 let mut build_detail = false;
