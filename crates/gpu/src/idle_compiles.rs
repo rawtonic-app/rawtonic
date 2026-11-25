@@ -1785,6 +1785,7 @@ mod tests {
     /// and grain field pass waited behind them (G76/WQA4, WCC6).
     #[test]
     fn compiles_made_ahead_give_the_small_slot_to_others() {
+        let _alone = super::super::SMALL_SLOT_TESTS.lock();
         let held = super::super::small_slot();
         let (sender, order) = std::sync::mpsc::channel();
         let ahead = {
@@ -1820,45 +1821,6 @@ mod tests {
             let _ahead = super::super::AheadCompile::new();
             drop(super::super::small_slot());
         }
-        // A frame that comes to wait for a pipeline compiling ahead makes
-        // that compile one a frame waits for: it no longer gives way.
-        let held = super::super::small_slot();
-        let wanted = Arc::new(super::super::Wanted::default());
-        let (sender, taken) = std::sync::mpsc::channel();
-        let ahead = {
-            let wanted = Arc::clone(&wanted);
-            std::thread::spawn(move || {
-                let _ahead = super::super::AheadCompile::new();
-                let _wanted = super::super::WantedHere::new(wanted);
-                let slot = super::super::small_slot();
-                sender.send(()).unwrap();
-                drop(slot);
-            })
-        };
-        // Another compile waits for the slot and holds it for good.
-        let other = std::thread::spawn(|| {
-            let slot = super::super::small_slot();
-            std::thread::sleep(Duration::from_millis(1500));
-            drop(slot);
-        });
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        while super::super::SMALL_SLOT.lock().unwrap().waiting == 0 {
-            assert!(std::time::Instant::now() < deadline);
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        wanted.set();
-        // Both now count as waiting; the holder lets go.
-        while super::super::SMALL_SLOT.lock().unwrap().waiting < 2 {
-            assert!(std::time::Instant::now() < deadline);
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        drop(held);
-        other.join().unwrap();
-        taken
-            .recv_timeout(Duration::from_secs(5))
-            .expect("the wanted compile takes the slot");
-        ahead.join().unwrap();
-        assert_eq!(super::super::SMALL_SLOT.lock().unwrap().waiting, 0);
     }
 
     /// Under a compile limit the start's plan and its detail-cache passes
@@ -1870,7 +1832,9 @@ mod tests {
     /// until the slot is free and the variant is ready, neither with no
     /// photo shown nor while a frame of the photo waits for that variant
     /// (it must not rush the planned superset); then they compile, the
-    /// detail pass a frame asked for first. Where idle compiles and AI runs
+    /// detail pass a measured RAW's frames read first, although no frame
+    /// asked for it before the window ended (it ends when the variant
+    /// settles, as in the Radeon 680M's cold starts). Where idle compiles and AI runs
     /// take turns, a run made ahead waits for the plan too: it took the
     /// CPUs and its turn while the window held the plan (G76/WQA4, WCC6).
     #[test]
@@ -1934,8 +1898,6 @@ mod tests {
             assert!(small_display_variant(within_features));
             let processor = &processor;
             let other = scope.spawn(move || processor.preview_pipeline(&within, true).map(|_| ()));
-            // Its frame asks for the detail pass of its sharpening.
-            assert!(processor.detail_pipeline_slot(detail[1]).is_none());
             held("its frame waits");
             assert!(
                 ahead_run.try_recv().is_err(),
@@ -1960,7 +1922,7 @@ mod tests {
         assert_eq!(
             *super::super::DETAIL_COMPILE_ORDER.lock().unwrap(),
             [detail[1], detail[0]],
-            "the detail pass the frame asked for compiles first"
+            "the detail pass the photo's frames read compiles first"
         );
         // Not held for good. (Without a helper process the plan then waits
         // for frames to pause, and runs made ahead are not held for that.)

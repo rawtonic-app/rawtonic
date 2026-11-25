@@ -806,6 +806,66 @@ fn small_pipeline(
 mod tests {
     use super::*;
 
+    /// A frame that comes to need a pass compiling ahead of use
+    /// (`compile_ahead`), which waits for the small slot behind another
+    /// compile, makes it a compile a frame waits for (`pipeline_of`): it
+    /// stops giving the slot away (G76/WCC5 review, WCC6).
+    #[test]
+    fn a_frame_promotes_the_pass_it_waits_for() {
+        use std::time::{Duration, Instant};
+        let _alone = SMALL_SLOT_TESTS.lock();
+        let waiting = || SMALL_SLOT.lock().unwrap().waiting;
+        let until = |what: &str, done: &dyn Fn() -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !done() {
+                assert!(Instant::now() < deadline, "{what}");
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        };
+        let pipelines: Arc<Pipelines<()>> = Arc::default();
+        let held = small_slot();
+        // Another compile waits for the slot.
+        let other = std::thread::spawn(|| drop(small_slot()));
+        until("the other compile waits", &|| waiting() == 1);
+        // The pass compiles ahead and waits behind it.
+        let (sender, inside) = std::sync::mpsc::channel();
+        let ahead = {
+            let pipelines = Arc::clone(&pipelines);
+            std::thread::spawn(move || {
+                let _ahead = AheadCompile::new();
+                pipeline_of(&pipelines, (), || {
+                    sender.send(()).unwrap();
+                    let _slot = small_slot();
+                    Err("compiled ahead".to_string())
+                })
+            })
+        };
+        inside.recv_timeout(Duration::from_secs(5)).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        assert_eq!(waiting(), 1, "a compile made ahead does not count");
+        // A frame needs the same pass.
+        let frame = {
+            let pipelines = Arc::clone(&pipelines);
+            std::thread::spawn(move || {
+                pipeline_of(&pipelines, (), || Err("compiled again".to_string()))
+            })
+        };
+        until("the frame makes the pass one it waits for", &|| {
+            waiting() == 2
+        });
+        drop(held);
+        other.join().unwrap();
+        assert_eq!(
+            ahead.join().unwrap().err().as_deref(),
+            Some("compiled ahead")
+        );
+        assert_eq!(
+            frame.join().unwrap().err().as_deref(),
+            Some("compiled ahead")
+        );
+        assert_eq!(waiting(), 0);
+    }
+
     const SHADER: &str = include_str!("shaders/shader.wgsl");
 
     /// The terms pass compiles once per kind of tone stage

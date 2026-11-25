@@ -6834,6 +6834,11 @@ impl Drop for AheadCompile {
 static DETAIL_COMPILES_STARTED: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
+/// Tests of the small slot (`small_slot`), one at a time: it is the
+/// process's.
+#[cfg(test)]
+static SMALL_SLOT_TESTS: Mutex<()> = Mutex::new(());
+
 /// The slots of the detail-cache passes compiled after the start, in order
 /// (`GpuProcessor::detail_pipelines_after_start`).
 #[cfg(test)]
@@ -10396,7 +10401,10 @@ impl GpuProcessor {
         // After the first frame has its pipelines (`IdleCompiles::started`):
         // beside the RAW default variant they took the small compile slot
         // between its pipelines (G76/WCC4).
-        self.detail_pipelines_after_start(&[0, sharpen_level(adjustments)], Arc::clone(&idle.0));
+        // The measured RAW's first: a frame reads it from the first one on
+        // (its noise is measured while it loads), and the window may end
+        // before that frame asks for it (the RAW default variant settled).
+        self.detail_pipelines_after_start(&[sharpen_level(adjustments), 0], Arc::clone(&idle.0));
     }
 
     /// What an idle compile needs (`idle_compiles`).
@@ -10884,9 +10892,9 @@ impl GpuProcessor {
     /// Compiles the detail-cache passes of `slots` (`detail_pipeline_slot`)
     /// not compiled or compiling yet, one after another on one thread, once
     /// `start` has started (`IdleCompiles::wait_started`); a frame that asks
-    /// for one before computes the detail stage inline. The passes a frame
-    /// has asked for by then go first and as compiles a frame waits for
-    /// (`small_slot`), the others ahead of use: on a cold Radeon 680M the
+    /// for one before computes the detail stage inline. In the order of
+    /// `slots`, but the passes a frame has asked for by then go first and as
+    /// compiles a frame waits for (`small_slot`), the others ahead of use: on a cold Radeon 680M the
     /// pass a never-edited RAW's frames read (response 8) could come second,
     /// 7–10 s after the first frame, so a drag 3.5 s after that frame still
     /// computed the detail stage inline (37 ms a frame; G76/WQA4, WCC6).
