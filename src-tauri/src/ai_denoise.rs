@@ -261,7 +261,10 @@ async fn load_fast(
 /// about 1.3 min with Fast; notes: benchmark-results/dst1-2026-11-25), else
 /// Full. The choice is stored in the recipe, so exports never depend on the
 /// machine.
-pub fn default_quality(preference: Option<&str>, matchfilter_on_cpu: impl FnOnce() -> bool) -> &'static str {
+pub fn default_quality(
+    preference: Option<&str>,
+    matchfilter_on_cpu: impl FnOnce() -> bool,
+) -> &'static str {
     use rawtonic_engine::recipe_versions::{AI_DENOISE_FAST, AI_DENOISE_FULL};
     match preference {
         Some(AI_DENOISE_FAST) => AI_DENOISE_FAST,

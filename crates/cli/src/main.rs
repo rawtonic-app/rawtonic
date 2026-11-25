@@ -551,10 +551,12 @@ fn ai_denoiser(
     let models = models_dir(models)?;
     let cache = models.parent().map(|dir| dir.join("ai-denoise-cache"));
     if model == rawtonic_engine::image_loader::FAST_AI_DENOISE_MODEL {
-        return Ok(std::sync::Arc::new(rawtonic_denoise::MatchFilter::fast_onnx(
-            &models.join(rawtonic_denoise::FAST_ONNX_MODEL),
-            cache,
-        )?));
+        return Ok(std::sync::Arc::new(
+            rawtonic_denoise::MatchFilter::fast_onnx(
+                &models.join(rawtonic_denoise::FAST_ONNX_MODEL),
+                cache,
+            )?,
+        ));
     }
     #[cfg(target_os = "macos")]
     let filter = if model == 1 {

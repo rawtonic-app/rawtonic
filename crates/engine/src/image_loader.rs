@@ -2814,17 +2814,34 @@ mod ai_denoise_tests {
             "an unknown quality renders Full"
         );
         // Fast: the same slider mapping and sensor means, the Fast model.
-        let fast = at(json!({ "aiDenoise": 60, "aiDenoiseVersion": 5, "aiDenoiseQuality": "fast" }));
+        let fast =
+            at(json!({ "aiDenoise": 60, "aiDenoiseVersion": 5, "aiDenoiseQuality": "fast" }));
         assert!(fast.fast);
         assert_eq!(fast.model(), FAST_AI_DENOISE_MODEL);
         assert_eq!(
-            (fast.version, fast.blend, fast.noise_scale, fast.sensor_means()),
-            (before.version, before.blend, before.noise_scale, before.sensor_means())
+            (
+                fast.version,
+                fast.blend,
+                fast.noise_scale,
+                fast.sensor_means()
+            ),
+            (
+                before.version,
+                before.blend,
+                before.noise_scale,
+                before.sensor_means()
+            )
         );
-        assert_ne!(fast, before, "a source developed Full is not reused for Fast");
+        assert_ne!(
+            fast, before,
+            "a source developed Full is not reused for Fast"
+        );
         // Version 1 recipes switched to Fast keep version 1's blend.
         let v1 = at(json!({ "aiDenoise": 40, "aiDenoiseQuality": "fast" }));
-        assert_eq!((v1.blend, v1.noise_scale, v1.model()), (0.4, 1.0, FAST_AI_DENOISE_MODEL));
+        assert_eq!(
+            (v1.blend, v1.noise_scale, v1.model()),
+            (0.4, 1.0, FAST_AI_DENOISE_MODEL)
+        );
         assert_eq!(
             ai_denoise_settings(&json!({ "aiDenoise": 0, "aiDenoiseQuality": "fast" })),
             None

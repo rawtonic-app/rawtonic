@@ -144,7 +144,8 @@ pub struct FileExporter {
     image_cache: Mutex<Option<GpuImageCache>>,
     /// For recipes with AI Denoise; without it such exports fail.
     /// AI Denoise's denoisers by model (`AiDenoiseSettings::model`).
-    mosaic_denoisers: [Option<Arc<dyn MosaicDenoiser>>; rawtonic_engine::image_loader::AI_DENOISE_MODELS],
+    mosaic_denoisers:
+        [Option<Arc<dyn MosaicDenoiser>>; rawtonic_engine::image_loader::AI_DENOISE_MODELS],
     /// Computes the Sky and Subject selections a recipe holds without their
     /// bitmap (a never-opened import); without it such exports fail.
     selections: Option<Arc<dyn SelectionDetector>>,
