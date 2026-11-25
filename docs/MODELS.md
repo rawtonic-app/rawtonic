@@ -893,7 +893,7 @@ other load). Two builds produced the same encoder bytes.
 
 ## Hosting
 
-The pack is the release `pack-2026-11-21b` of
+The pack is the release `pack-2026-11-25` of
 [github.com/rawtonic-app/models](https://github.com/rawtonic-app/models)
 (README, `models.json`, `licenses/`), public together with Rawtonic. The app
 downloads `MODEL_PACK_URL/<file>`
@@ -955,7 +955,15 @@ uploaded assets (86 files, `models.json`, five license texts) were verified
 against GitHub's SHA-256 digests before the draft was published.
 [Model repository PR #10](https://github.com/rawtonic-app/models/pull/10)
 records the published manifest and adds the two EasyPortrait license texts.
-The app, `src-tauri/build.rs` and `install_models.sh` point to pack-2026-11-21b.
+The [pack-2026-11-25 release](https://github.com/rawtonic-app/models/releases/tag/pack-2026-11-25)
+was built with `build_model_pack.py --previous` (pack-2026-11-21b) and adds only
+Super Resolution's single-pass CPU conversion (`superres_compact_x2_cpu_single.onnx`,
+CC BY 4.0). All prior files are byte-identical and keep their manifest entries. All 93
+uploaded assets (87 files, `models.json`, five license texts) were verified
+against GitHub's SHA-256 digests before the draft was published.
+[Model repository PR #11](https://github.com/rawtonic-app/models/pull/11)
+records the published manifest.
+The app, `src-tauri/build.rs` and `install_models.sh` point to pack-2026-11-25.
 
 On an Apple M5 Pro laptop (24 GiB RAM, macOS 27.0.1), forced CPU inference
 on the same 117 tiles of a 6000×4000 float32 image took 460.896 → 145.915 s
@@ -972,7 +980,7 @@ A new pack is a new release (new tag): build it with
 commit. `build_model_pack.py --previous DIR` carries an earlier pack's
 files (downloaded with `gh release download`) over unchanged, checked
 against its `models.json`, and builds only what it lacks; that keeps the
-files older builds load. `pack-2026-11-21b` adds the eye and teeth parser to `pack-2026-11-21`, preserving every existing asset. `pack-2026-11-21` adds the landscape-parts model to `pack-2026-11-20`, preserving every existing asset. `pack-2026-11-20` adds the fp16 Super Resolution conversion for GPU providers to `pack-2026-11-19`, preserving every existing asset. `pack-2026-11-19` adds Rawtonic's own ONNX Runtime 1.30.0 libraries without telemetry to `pack-2026-11-12`, preserving every existing asset. `pack-2026-11-12` adds the sequential CPU Super Resolution conversion to `pack-2026-11-09`, preserving every existing asset. `pack-2026-11-09` is `pack-2026-11-07` plus the Super Resolution
+files older builds load. `pack-2026-11-25` adds Super Resolution's single-pass CPU conversion to `pack-2026-11-21b`, preserving every existing asset. `pack-2026-11-21b` adds the eye and teeth parser to `pack-2026-11-21`, preserving every existing asset. `pack-2026-11-21` adds the landscape-parts model to `pack-2026-11-20`, preserving every existing asset. `pack-2026-11-20` adds the fp16 Super Resolution conversion for GPU providers to `pack-2026-11-19`, preserving every existing asset. `pack-2026-11-19` adds Rawtonic's own ONNX Runtime 1.30.0 libraries without telemetry to `pack-2026-11-12`, preserving every existing asset. `pack-2026-11-12` adds the sequential CPU Super Resolution conversion to `pack-2026-11-09`, preserving every existing asset. `pack-2026-11-09` is `pack-2026-11-07` plus the Super Resolution
 model (ONNX and Core ML, with its CC BY 4.0 license text as an asset; built that way). `pack-2026-11-07` is `pack-2026-10-27b` plus ONNX Runtime 1.30.0
 for Apple silicon (built that way). `pack-2026-10-27b` is `pack-2026-10-27` plus
 Moebius and the SDXL VAE fp16-fix as ONNX models for Windows and Linux
