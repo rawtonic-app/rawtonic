@@ -2238,6 +2238,7 @@
         "Microsoft Visual C++ runtime": "On Windows, the C++ runtime libraries ONNX Runtime needs, bundled beside it (Microsoft).",
         "Moebius": "Removal of large objects (Huazhong University of Science and Technology, vivo AI Lab).",
         "moxcms": "Reads the ICC profiles embedded in JPEG, PNG, TIFF, WebP and AVIF sources.",
+        "naga": "wgpu의 셰이더 변환기로, Direct3D 12 셰이더 컴파일러가 HLSL을 받아들이도록 Rawtonic 수정이 적용되어 있습니다.",
         "NegPy": "Inspiration for the negative conversion.",
         "Nonlocal MatchFilter": "AI Denoise on the RAW mosaic.",
         "ONNX Runtime": "Runs the AI models, on Windows and Linux also on the GPU through its WebGPU plugin (Microsoft). Changed: on Apple silicon Macs, Linux and Windows x64 built by Rawtonic from its source without Microsoft's telemetry.",
