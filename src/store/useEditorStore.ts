@@ -9,6 +9,7 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import type { SharpenView } from '../utils/sharpenView';
+import type { CropReference } from '../utils/cropReference';
 import type { ColorRangePick, ColorTarget, ColorTargetMeasure } from '../utils/colorTarget';
 import { DEFAULT_SPLIT_POSITION, type SplitOrientation } from '../utils/beforeAfter';
 import { historyOrders, setHistoryOrders, inheritHistoryOrders, newEditOrder } from '../utils/undoOrder';
@@ -215,6 +216,9 @@ interface EditorState {
   /** The last Auto straighten answer applied (rotation and the crop object
    * fitted to it): the crop tool keeps that crop as it is. */
   autoStraightened: { rotation: number; crop: Adjustments['crop'] } | null;
+  /** What a crop ratio change fits into (utils/cropReference): the crop
+   * drawn by hand or the whole photo, never saved. */
+  cropReference: CropReference | null;
   brushSettings: BrushSettings | null;
   /** The tool settings popover is open at the pointer (right-click with a
    * brush or the spot tool): the brush ring stays where the right-click was,
@@ -394,6 +398,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isGuidedPerspectiveActive: false,
   liveRotation: null,
   autoStraightened: null,
+  cropReference: null,
 
   brushSettings: { size: DEFAULT_BRUSH_SIZE, feather: 50, tool: ToolType.Brush },
   toolPopoverOpen: false,

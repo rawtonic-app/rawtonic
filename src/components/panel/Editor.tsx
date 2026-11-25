@@ -21,6 +21,7 @@ import {
   moveCropInsideBounds,
   zoomCrop
 } from '../../utils/cropUtils';
+import { noteHandDrawnCrop } from '../../utils/cropReference';
 import ImageCanvas, { type LiveMaskDefinition } from './editor/ImageCanvas';
 import { CameraPreview, cameraPreviewOnScreen } from '../studio/CameraPreview';
 import { Mask, SubMask } from './right/Masks';
@@ -2592,6 +2593,15 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       const baseH = isSwapped ? selectedImage.width : selectedImage.height;
 
       const newPixelCrop: Crop = pixelCropFromPercent(pc, baseW, baseH);
+      // A crop the user drew, resized or moved: what later ratio changes fit
+      // into. ReactCrop's report of the crop it was given equals the recipe's.
+      const before = useEditorStore.getState().adjustments.crop;
+      if (
+        !(before === null && isWholeFrame(newPixelCrop, baseW, baseH)) &&
+        JSON.stringify(newPixelCrop) !== JSON.stringify(before)
+      ) {
+        noteHandDrawnCrop(before, newPixelCrop);
+      }
 
       setAdjustments((prev: Adjustments) => {
         // ReactCrop reports the frame it was first given as complete: the

@@ -15,7 +15,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
-import { calculateAreaPreservingCrop, calculateCenteredCrop } from '../../utils/cropUtils';
+import { cropForRatio } from '../../utils/cropReference';
 import type { CropGrid } from '../ui/AppProperties';
 import AdjustmentControl from './AdjustmentControl';
 import { useStudioTools } from './useStudioTools';
@@ -145,24 +145,9 @@ export default function StudioCropControls({
 
   const setRatio = (aspectRatio: number | null) => {
     if (!selectedImage?.isReady) return;
-    const next =
-      aspectRatio === null
-        ? adjustments.crop
-        : (calculateAreaPreservingCrop(
-            selectedImage.width,
-            selectedImage.height,
-            adjustments.orientationSteps,
-            aspectRatio,
-            adjustments.rotation,
-            adjustments.crop
-          ) ??
-          calculateCenteredCrop(
-            selectedImage.width,
-            selectedImage.height,
-            adjustments.orientationSteps,
-            aspectRatio,
-            adjustments.rotation
-          ));
+    // A ratio is fitted into the crop drawn by hand or the whole photo
+    // (utils/cropReference), never into the previous ratio's crop.
+    const next = aspectRatio === null ? adjustments.crop : cropForRatio(aspectRatio);
     setAdjustments((prev) => ({ ...prev, aspectRatio, crop: next }));
   };
   // The photo's own ratio (Lightroom's Original, Capture One's Original)
