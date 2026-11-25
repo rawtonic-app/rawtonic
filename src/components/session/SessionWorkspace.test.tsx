@@ -1140,11 +1140,17 @@ it('drops an import check answered after the library to import changed', async (
   await screen.findByText(/Second/);
   const importButton = () => screen.getByRole('button', { name: /Import into Acme/ }) as HTMLButtonElement;
   expect(importButton().disabled).toBe(false);
+  let fail: (error: Error) => void = () => {};
   vi.mocked(invoke).mockImplementation(async (command, args) =>
-    command === 'library_import_preview' ? Promise.reject(new Error('locked')) : base(command, args)
+    command === 'library_import_preview' ? new Promise((_, reject) => (fail = reject)) : base(command, args)
   );
   await user.click(screen.getByRole('button', { name: 'Check' }));
-  await waitFor(() => expect(screen.queryByText(/Second/)).toBeNull());
+  // Off while the check runs…
+  expect(screen.queryByText(/Second/)).toBeNull();
+  expect(importButton().disabled).toBe(true);
+  fail(new Error('locked'));
+  // …and after it fails.
+  await screen.findByText(/locked/);
   expect(importButton().disabled).toBe(true);
 });
 
