@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { cropReferenceKey, fitRatioCrop, referenceAfterHandEdit, referenceForRatioChange } from './cropReference';
+import {
+  cropReferenceKey,
+  fitRatioCrop,
+  referenceAfterHandEdit,
+  referenceAfterHistoryStep,
+  referenceForRatioChange
+} from './cropReference';
 import { calculateCenteredCrop, isCropWithinBounds } from './cropUtils';
 
 const px = (x: number, y: number, width: number, height: number) => ({ unit: 'px' as const, x, y, width, height });
@@ -50,5 +56,30 @@ describe('crop reference for ratio changes', () => {
       cx: 10,
       cy: 5
     });
+  });
+
+  it('on a straightened photo a moved crop the drawn one cannot hold any more becomes the reference', () => {
+    const drawn = referenceAfterHandEdit(null, 'k', null, px(700, 600, 4500, 2800), 6000, 4000, 4);
+    const square = fitRatioCrop(6000, 4000, 0, 1, 4, drawn)!;
+    const moved = { ...square, x: square.x + 1500, y: square.y + 300 };
+    const after = referenceAfterHandEdit(drawn, 'k', square, moved, 6000, 4000, 4);
+    const next = fitRatioCrop(6000, 4000, 0, 16 / 9, 4, referenceForRatioChange(after, 'k', moved, 6000, 4000, 1))!;
+    // Inside the reference the user made, never the whole photo.
+    expect(next.width).toBeLessThanOrEqual(after.rect!.width);
+    expect(next.x).toBeGreaterThanOrEqual(after.rect!.x);
+    expect(next.x + next.width).toBeLessThanOrEqual(after.rect!.x + after.rect!.width);
+  });
+
+  it('an undo that restores a free crop makes it the reference; a ratio crop restores the whole photo', () => {
+    const big = { key: 'k', rect: px(0, 0, 3000, 2000), cx: 1500, cy: 1000 };
+    const small = px(100, 100, 1200, 800);
+    const undone = referenceAfterHistoryStep(big, '/a.NEF', { crop: px(0, 0, 3000, 2000) }, { crop: small })!;
+    expect(undone.rect).toEqual(small);
+    expect(undone.key).toBe(cropReferenceKey('/a.NEF', { crop: small }));
+    expect(referenceAfterHistoryStep(big, '/a.NEF', { crop: small }, { crop: px(0, 0, 10, 10), aspectRatio: 1 })).toBe(
+      null
+    );
+    // An undo of another edit keeps it.
+    expect(referenceAfterHistoryStep(big, '/a.NEF', { crop: small }, { crop: { ...small } })).toBe(big);
   });
 });

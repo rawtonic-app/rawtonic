@@ -7,7 +7,7 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { debouncedSetHistory } from '../../hooks/useEditorActions';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
 import { useGeometryOffers } from '../../utils/sourceGeometry';
-import { noteHandDrawnCrop } from '../../utils/cropReference';
+import { noteHandDrawnCrop } from '../../utils/cropReferenceActions';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { invoke } from '@tauri-apps/api/core';
 import type { AppSettings, SelectedImage } from '../ui/AppProperties';
@@ -218,4 +218,20 @@ it('a crop reset forgets the drawn crop (ASP1)', () => {
   });
   fireEvent.change(screen.getByRole('combobox', { name: 'Crop aspect ratio' }), { target: { value: '1' } });
   expect(adjustments().crop).toEqual({ unit: 'px', x: 1224, y: 0, width: 4912, height: 4912 });
+});
+
+it('undoing an enlarged hand-drawn crop fits the next ratio into the restored crop (ASP1)', () => {
+  useEditorStore.setState({
+    selectedImage: { path: '/s/d800.NEF', width: 7360, height: 4912, isRaw: true, isReady: true } as SelectedImage
+  });
+  render(<StudioCropControls />);
+  const small = { unit: 'px' as const, x: 1000, y: 1000, width: 1200, height: 800 };
+  const big = { unit: 'px' as const, x: 1000, y: 1000, width: 3000, height: 2000 };
+  const a0 = { ...adjustments(), crop: small };
+  const a1 = { ...adjustments(), crop: big };
+  noteHandDrawnCrop(small, big);
+  useEditorStore.setState({ history: [a0, a1], historyIndex: 1, adjustments: a1 });
+  useEditorStore.getState().undo();
+  fireEvent.change(screen.getByRole('combobox', { name: 'Crop aspect ratio' }), { target: { value: '1' } });
+  expect(adjustments().crop).toEqual({ unit: 'px', x: 1200, y: 1000, width: 800, height: 800 });
 });

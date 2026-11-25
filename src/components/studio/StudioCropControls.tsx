@@ -15,7 +15,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
-import { cropForRatio } from '../../utils/cropReference';
+import { cropForRatio } from '../../utils/cropReferenceActions';
 import type { CropGrid } from '../ui/AppProperties';
 import AdjustmentControl from './AdjustmentControl';
 import { useStudioTools } from './useStudioTools';

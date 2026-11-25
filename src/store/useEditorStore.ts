@@ -9,7 +9,7 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import type { SharpenView } from '../utils/sharpenView';
-import type { CropReference } from '../utils/cropReference';
+import { referenceAfterHistoryStep, type CropReference } from '../utils/cropReference';
 import type { ColorRangePick, ColorTarget, ColorTargetMeasure } from '../utils/colorTarget';
 import { DEFAULT_SPLIT_POSITION, type SplitOrientation } from '../utils/beforeAfter';
 import { historyOrders, setHistoryOrders, inheritHistoryOrders, newEditOrder } from '../utils/undoOrder';
@@ -456,7 +456,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => {
       if (state.historyIndex > 0) {
         const newIndex = state.historyIndex - 1;
-        return { historyIndex: newIndex, adjustments: state.history[newIndex] };
+        return {
+          historyIndex: newIndex,
+          adjustments: state.history[newIndex],
+          cropReference: referenceAfterHistoryStep(
+            state.cropReference,
+            state.selectedImage?.path,
+            state.adjustments,
+            state.history[newIndex]
+          )
+        };
       }
       return state;
     });
@@ -468,7 +477,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => {
       if (state.historyIndex < state.history.length - 1) {
         const newIndex = state.historyIndex + 1;
-        return { historyIndex: newIndex, adjustments: state.history[newIndex] };
+        return {
+          historyIndex: newIndex,
+          adjustments: state.history[newIndex],
+          cropReference: referenceAfterHistoryStep(
+            state.cropReference,
+            state.selectedImage?.path,
+            state.adjustments,
+            state.history[newIndex]
+          )
+        };
       }
       return state;
     });
@@ -493,14 +511,33 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => {
       const currentIndex = state.history.indexOf(target);
       if (currentIndex >= 0) {
-        return { historyIndex: currentIndex, adjustments: target };
+        return {
+          historyIndex: currentIndex,
+          adjustments: target,
+          cropReference: referenceAfterHistoryStep(
+            state.cropReference,
+            state.selectedImage?.path,
+            state.adjustments,
+            target
+          )
+        };
       }
       // The clicked snapshot was evicted by the size cap or the new branch.
       // Record returning to it, retaining the just-committed edit for Undo.
       const order = newEditOrder();
       const history = [...state.history, target].slice(-50);
       setHistoryOrders(history, [...historyOrders(state.history), order].slice(-50));
-      return { history, historyIndex: history.length - 1, adjustments: target };
+      return {
+        history,
+        historyIndex: history.length - 1,
+        adjustments: target,
+        cropReference: referenceAfterHistoryStep(
+          state.cropReference,
+          state.selectedImage?.path,
+          state.adjustments,
+          target
+        )
+      };
     });
   }
 }));

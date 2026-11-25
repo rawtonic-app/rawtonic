@@ -21,7 +21,7 @@ import {
   moveCropInsideBounds,
   zoomCrop
 } from '../../utils/cropUtils';
-import { noteHandDrawnCrop } from '../../utils/cropReference';
+import { noteHandDrawnCrop } from '../../utils/cropReferenceActions';
 import ImageCanvas, { type LiveMaskDefinition } from './editor/ImageCanvas';
 import { CameraPreview, cameraPreviewOnScreen } from '../studio/CameraPreview';
 import { Mask, SubMask } from './right/Masks';
@@ -1013,6 +1013,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           const nextCrop = zoomCrop(baseCrop, scaleFactor, W, H, rotation, adjustments.aspectRatio, mouseX, mouseY);
 
           setAdjustments((prev) => ({ ...prev, crop: nextCrop }));
+          noteHandDrawnCrop(baseCrop, nextCrop);
 
           if (cropWheelTimeoutRef.current) clearTimeout(cropWheelTimeoutRef.current);
           cropWheelTimeoutRef.current = window.setTimeout(() => {
@@ -1355,6 +1356,14 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
       if (isCropPanningRef.current) {
         isCropPanningRef.current = false;
+        const moved = useEditorStore.getState().adjustments.crop;
+        if (
+          cropPanStartCropRef.current &&
+          moved &&
+          JSON.stringify(moved) !== JSON.stringify(cropPanStartCropRef.current)
+        ) {
+          noteHandDrawnCrop(cropPanStartCropRef.current, moved);
+        }
         cropPanStartRef.current = null;
         cropPanStartCropRef.current = null;
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {
