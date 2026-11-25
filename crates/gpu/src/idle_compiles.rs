@@ -84,6 +84,17 @@ fn memory_allows() -> Result<(), String> {
     MEMORY_GUARD.get().map_or(Ok(()), |guard| guard())
 }
 
+/// Whether `IDLE_QUIET` passed since `last` (milliseconds, `now_ms`; 0:
+/// never).
+fn quiet_since(last: u64) -> bool {
+    last == 0 || now_ms().saturating_sub(last) >= IDLE_QUIET.as_millis() as u64
+}
+
+/// Whether `IDLE_QUIET` passed since the last heavy compile.
+fn compiles_quiet() -> bool {
+    quiet_since(LAST_COMPILE_MS.load(Ordering::Relaxed))
+}
+
 /// One pipeline compiled in idle time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum IdleJob {
@@ -725,11 +736,9 @@ impl IdleCompiles {
     /// (G76/WCOLD1). At once when there was neither yet (the app's start,
     /// `GpuProcessor::compile_ahead_for_new_raw`).
     fn idle(&self) -> bool {
-        let quiet = IDLE_QUIET.as_millis() as u64;
-        let quiet_since = |last: u64| last == 0 || now_ms().saturating_sub(last) >= quiet;
         (super::idle_compile_child::idle_compiles_in_helpers()
             || quiet_since(self.last_frame_ms.load(Ordering::Relaxed)))
-            && quiet_since(LAST_COMPILE_MS.load(Ordering::Relaxed))
+            && compiles_quiet()
     }
 
     /// The idle worker thread. It gives up its device before it reports
@@ -771,6 +780,14 @@ impl IdleCompiles {
                 // Not before the first frame has what it needs (`StartWindow`);
                 // a job a frame or an export waits for goes all the same.
                 if !urgent && (!self.started() || !self.idle()) {
+                    // Held only for the first frame or a heavy compile's
+                    // quiet time, the plan still goes
+                    // before runs made ahead (`memory_turns`), which would
+                    // otherwise take their turn and the CPUs in the
+                    // meantime (G76/WQA4, WCC6).
+                    if !self.started() || !compiles_quiet() {
+                        crate::memory_turns::compile_waits();
+                    }
                     let queue = self.lock();
                     let _ = self
                         .changed
@@ -1762,6 +1779,50 @@ mod tests {
         assert!(!idle.wait_started());
     }
 
+    /// A small compile made ahead of use (the effect passes after a frame,
+    /// a detail-cache pass no frame asked for) takes the small slot only
+    /// when no other small compile waits for it: a drag's detail-cache pass
+    /// and grain field pass waited behind them (G76/WQA4, WCC6).
+    #[test]
+    fn compiles_made_ahead_give_the_small_slot_to_others() {
+        let _alone = super::super::SMALL_SLOT_TESTS.lock();
+        let held = super::super::small_slot();
+        let (sender, order) = std::sync::mpsc::channel();
+        let ahead = {
+            let sender = sender.clone();
+            std::thread::spawn(move || {
+                let _ahead = super::super::AheadCompile::new();
+                let slot = super::super::small_slot();
+                sender.send("ahead").unwrap();
+                drop(slot);
+            })
+        };
+        // The compile made ahead waits first.
+        std::thread::sleep(Duration::from_millis(200));
+        let frame = std::thread::spawn(move || {
+            let slot = super::super::small_slot();
+            sender.send("frame").unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+            drop(slot);
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while super::super::SMALL_SLOT.lock().unwrap().waiting == 0 {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        drop(held);
+        let first = order.recv_timeout(Duration::from_secs(5)).unwrap();
+        let second = order.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!((first, second), ("frame", "ahead"));
+        ahead.join().unwrap();
+        frame.join().unwrap();
+        // Alone, a compile made ahead takes the slot at once.
+        {
+            let _ahead = super::super::AheadCompile::new();
+            drop(super::super::small_slot());
+        }
+    }
+
     /// Under a compile limit the start's plan and its detail-cache passes
     /// wait until the RAW default variant settled (G76/WCC5): a helper
     /// beside it (28 s on a cold Radeon 680M) and the detail passes in the
@@ -1770,7 +1831,10 @@ mod tests {
     /// compile: nothing of the plan starts and no detail pass compiles
     /// until the slot is free and the variant is ready, neither with no
     /// photo shown nor while a frame of the photo waits for that variant
-    /// (it must not rush the planned superset); then they compile.
+    /// (it must not rush the planned superset); then they compile, the
+    /// detail pass the shown RAW's frames read first. Where idle compiles and AI runs
+    /// take turns, a run made ahead waits for the plan too: it took the
+    /// CPUs and its turn while the window held the plan (G76/WQA4, WCC6).
     #[test]
     #[ignore = "GPU; sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
     fn the_start_plan_waits_for_the_first_display_variant() {
@@ -1787,7 +1851,8 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(50));
             }
         };
-        let small = SMALL_SLOT.lock().unwrap();
+        let small = super::super::small_slot();
+        crate::memory_turns::enable();
         let processor = GpuProcessor::new(context(), 256, 256).unwrap();
         let photo = super::super::new_raw_edit(None);
         let shown = preview_features(&photo);
@@ -1795,6 +1860,8 @@ mod tests {
         processor.compile_ahead_for_new_raw(None);
         let idle = &processor.idle_compiles.as_ref().unwrap().0;
         let detail = [0, sharpen_level(&photo)];
+        assert_ne!(detail[0], detail[1]);
+        let (sender, ahead_run) = std::sync::mpsc::channel();
         let held = |what: &str| {
             let deadline = Instant::now() + Duration::from_secs(2);
             while Instant::now() < deadline {
@@ -1811,6 +1878,12 @@ mod tests {
             }
         };
         held("no photo shown");
+        // A Subject mask made ahead asks for its turn.
+        let run = std::thread::spawn(move || {
+            let turn = crate::memory_turns::ai_run(crate::memory_turns::AiRun::Ahead);
+            let _ = sender.send(());
+            drop(turn);
+        });
         std::thread::scope(|scope| {
             // The photo opened while its variant compiles: its frame waits
             // for that one and rushes no planned superset beside it.
@@ -1824,6 +1897,10 @@ mod tests {
             let processor = &processor;
             let other = scope.spawn(move || processor.preview_pipeline(&within, true).map(|_| ()));
             held("its frame waits");
+            assert!(
+                ahead_run.try_recv().is_err(),
+                "a run made ahead started while the start window held the plan"
+            );
             assert!(processor.preview_pipelines[shown].get().is_none());
             drop(small);
             frame.join().unwrap().unwrap();
@@ -1840,6 +1917,64 @@ mod tests {
                     .iter()
                     .all(|&slot| processor.detail_pipeline[slot].get().is_some())
         });
+        assert_eq!(
+            *super::super::DETAIL_COMPILE_ORDER.lock().unwrap(),
+            [detail[1], detail[0]],
+            "the detail pass the photo's frames read compiles first"
+        );
+        // Not held for good. (Without a helper process the plan then waits
+        // for frames to pause, and runs made ahead are not held for that.)
+        ahead_run
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the run made ahead starts after the start window");
+        run.join().unwrap();
+        drop(processor);
+        std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
+        set_compile_limit(None);
+    }
+
+    /// A reopened recipe whose sharpening reads another detail-cache pass
+    /// than a new RAW edit's (response 6: slot 0) gets its own first: its
+    /// frame marks it while it waits for its variant, before the start
+    /// window ends (G76/WCC6 review r3).
+    #[test]
+    #[ignore = "GPU; sets the process-wide compile limit, so it runs in a process of its own (`alone`): cargo test -p rawtonic-gpu --lib -- --ignored gpu_processing::idle_compiles::tests"]
+    fn the_start_compiles_the_shown_recipes_detail_pass_first() {
+        if !alone("the_start_compiles_the_shown_recipes_detail_pass_first") {
+            return;
+        }
+        use super::super::preview_tests::context;
+        use std::time::Instant;
+        set_compile_limit(Some(1));
+        let small = super::super::small_slot();
+        let processor = GpuProcessor::new(context(), 256, 256).unwrap();
+        let reopened = new_raw_edit(serde_json::json!({ "sharpenVersion": 6 }));
+        assert_eq!(sharpen_level(&reopened), 0);
+        let new_edit = sharpen_level(&super::super::new_raw_edit(None));
+        assert_ne!(new_edit, 0);
+        processor.compile_ahead_for_new_raw(None);
+        std::thread::scope(|scope| {
+            let frame = scope.spawn(|| processor.preview_pipeline(&reopened, true).map(|_| ()));
+            std::thread::sleep(Duration::from_millis(500));
+            drop(small);
+            frame.join().unwrap().unwrap();
+        });
+        let deadline = Instant::now() + Duration::from_secs(300);
+        while [0, new_edit]
+            .iter()
+            .any(|&slot| processor.detail_pipeline[slot].get().is_none())
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the detail passes did not compile"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(
+            *super::super::DETAIL_COMPILE_ORDER.lock().unwrap(),
+            [0, new_edit],
+            "the reopened recipe's detail pass compiles first"
+        );
         drop(processor);
         std::thread::sleep(IDLE_QUIET + Duration::from_secs(2));
         set_compile_limit(None);

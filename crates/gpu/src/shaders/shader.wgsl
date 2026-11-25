@@ -3064,13 +3064,31 @@ const HL_V23_FROM_SCENE: f32 = -3.0484676;
 // The same for version 20's second bound (SH_V20_TO).
 const SH_V20_TO_SCENE: f32 = -1.0384731;
 
-// `cr_curve_level(display)` for the anchors: `scene` is the default curve's
-// scene EV at `display`, so only a file's own curve is searched.
-fn anchor_v23_level(display: f32, scene: f32) -> f32 {
+// Where a file's own curve keeps the segments its anchors lie on: profile
+// curve value ANCHOR_V23_SEGMENTS + `slot` (after the curve's 49 values) is
+// the segment of the anchor `slot` — 0 SH_V23_FROM, 1 SH_V23_FROM −
+// SH_V23_WIDTH, 2 SH_V20_TO, 3 HL_V23_FROM, 4 white — found once per render
+// by the CPU (gpu_processing.rs `set_anchor_v23_segments`) as
+// `cr_curve_level`'s table scan finds it. The scan for every pixel made a
+// Shadows drag on such files 5.0 ms slower, Highlights 1.5 ms (Metal; notes:
+// benchmark-results/hsb2-2026-11-25/REPORT.md).
+const ANCHOR_V23_SEGMENTS: u32 = 49u;
+
+// `cr_curve_level(display)` for the anchor `slot`: `scene` is the default
+// curve's scene EV at `display`; a file's own curve reads the anchor's
+// segment, the same level as the scan's.
+fn anchor_v23_level(display: f32, scene: f32, slot: u32) -> f32 {
     let flag = adjustments.global.profile_curve[15].w;
     if ((flag > 0.5 && flag < 1.5) || (flag > 2.5 && flag < 4.5)) {
-        return cr_curve_level(display);
+        let i = min(u32(profile_curve_value(ANCHOR_V23_SEGMENTS + slot)), 47u);
+        let a = profile_curve_value(i);
+        let b = profile_curve_value(i + 1u);
+        let ev = DEFAULT_TONE_CURVE_START_EV + (f32(i) + clamp((display - a) / max(b - a, 1e-6), 0.0, 1.0)) * 0.25;
+        let black = camera_raw_black();
+        return (exp2(ev) * (1.0 - black) + black) / exp2(adjustments.global.baseline_exposure);
     }
+    // Kept apart from the branch above: `exp2(scene)` of the constant
+    // folds, as before the segments (exports byte-identical).
     let black = camera_raw_black();
     return (exp2(scene) * (1.0 - black) + black) / exp2(adjustments.global.baseline_exposure);
 }
@@ -3095,8 +3113,8 @@ fn shadows_v23_gain(gain: f32, level: f32, tonal: f32, pixel: f32, sh: f32, bl: 
     // in_order`).
     let above = clamp(1.0 - log2(safe_pixel / max(level, 1e-9)) / SH_V23_ABOVE, 0.0, 1.0);
     let boost = (SH_V23_LEVEL - 1.0) * max(share, 0.0) * above;
-    let top = log2(max(anchor_v23_level(SH_V23_FROM, SH_V23_FROM_SCENE), 1e-9));
-    let bottom = log2(max(anchor_v23_level(SH_V23_FROM - SH_V23_WIDTH, SH_V23_TO_SCENE), 1e-9));
+    let top = log2(max(anchor_v23_level(SH_V23_FROM, SH_V23_FROM_SCENE, 0u), 1e-9));
+    let bottom = log2(max(anchor_v23_level(SH_V23_FROM - SH_V23_WIDTH, SH_V23_TO_SCENE, 1u), 1e-9));
     let x = clamp((top - log2(safe_pixel)) / max(top - bottom, 1e-3), 0.0, 1.0);
     let anchor = -x * x * (3.0 - 2.0 * x);
     // Version 20's second bound holds for the stronger share too: where it
@@ -3104,7 +3122,7 @@ fn shadows_v23_gain(gain: f32, level: f32, tonal: f32, pixel: f32, sh: f32, bl: 
     // turn brighter pixels darker. Below 0 the share would render
     // the pixel darker than Shadows 0 does (the anchor's take-back where
     // the level's lift is small).
-    let bound = max(share, log2(max(anchor_v23_level(SH_V20_TO, SH_V20_TO_SCENE), 1e-9) / safe_pixel) - blacks_tonal);
+    let bound = max(share, log2(max(anchor_v23_level(SH_V20_TO, SH_V20_TO_SCENE, 2u), 1e-9) / safe_pixel) - blacks_tonal);
     let lifted = clamp(share + boost + amount * SH_V23_ANCHOR * anchor, 0.0, max(bound, 0.0));
     return exp2(blacks_tonal + lifted);
 }
@@ -4401,8 +4419,8 @@ const HL_V23_LEVEL: f32 = 1.1;
 fn highlights_v23_target(target_luma: f32, pixel_luma: f32, highlights_adj: f32) -> f32 {
     let amount = min(-highlights_adj / HL_K100, 1.0);
     let pull = log2(max(target_luma, 1e-9) / pixel_luma);
-    let start = log2(max(anchor_v23_level(HL_V23_FROM, HL_V23_FROM_SCENE), 1e-9));
-    let white = log2(max(anchor_v23_level(0.0, 0.0), 1e-9));
+    let start = log2(max(anchor_v23_level(HL_V23_FROM, HL_V23_FROM_SCENE, 3u), 1e-9));
+    let white = log2(max(anchor_v23_level(0.0, 0.0, 4u), 1e-9));
     let x = clamp((log2(pixel_luma) - start) / max(white - start, 1e-3), 0.0, 1.0);
     // The give-back is at most half of the pull: near Highlights 0 the pull
     // (amount^1.7, `HL_V2_AMOUNT_EXPONENT`) is smaller than the linear
