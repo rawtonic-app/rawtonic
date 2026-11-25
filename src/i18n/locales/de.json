@@ -1861,6 +1861,7 @@
     "import": {
       "albums_one": "{{count}} Album",
       "albums_other": "{{count}} Alben",
+      "catalogChanged": "Der Katalog wurde seit der Prüfung geändert. Prüfen Sie ihn erneut.",
       "check": "Prüfen",
       "chooseSource": "Zu importierende Bibliothek wählen",
       "copies_one": "{{count}} virtuelle Kopie",

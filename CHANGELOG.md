@@ -3,6 +3,7 @@
 ## Unreleased
 
 - AI Denoise has a Quality choice (Develop → Noise reduction): **Full** (MatchFilter, as before) or **Fast**, Rawtonic's own smaller network trained from MatchFilter, at 0.987× MatchFilter's finest detail at the same noise and very close in 100 % crops. Measured on a 6-core desktop processor (one 24 MP ISO 51200 photo, release CLI, busy machine): the denoising took 43–51 s instead of 664 s. Projected from per-tile timings on the same computer: 27.5 s instead of 470 s when it is idle, and about 1.2–1.4 min instead of 19–25 min on a Radeon 680M laptop (not yet measured there). The choice is stored in each photo's edit, so every computer exports the photo with the same network. A photo gets Preferences' "AI Denoise quality for new edits" when AI Denoise is first turned on: Automatic picks Fast where AI Denoise would run on the processor (computers that keep AI models on the processor, GPU AI off, no usable GPU provider, or a graphics card whose check rejected MatchFilter) and Full elsewhere (always on macOS). Edits that already use AI Denoise stay Full and render as before. The network (`fast_denoise_v1.onnx`, 38 MB) downloads on first use from the model pack (from pack-2026-11-25b) and is published under CC BY-SA 4.0, as it was trained on RawNIND (CC BY-SA 4.0). Not yet for X-Trans sensors.
+- Import from Lightroom or Capture One asks you to check the catalog again if it changes after the import preview.
 
 ## 0.1.0-alpha.20 — 2026-11-25
 

@@ -35,33 +35,137 @@ use rawtonic_recipe::masks;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
+    fs,
+    hash::{DefaultHasher, Hash, Hasher},
+    io,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
+const CATALOG_CHANGED: &str = "catalog_changed_since_check";
+
+struct CatalogSource {
+    database: PathBuf,
+    kind: &'static str,
+}
+
+impl CatalogSource {
+    fn resolve(path: &Path) -> Result<Self, String> {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let (database, kind) = if name.ends_with(".lrcat") {
+            (path.to_path_buf(), "lightroom")
+        } else if name.ends_with(".cosessiondb") || name.ends_with(".cocatalogdb") {
+            (path.to_path_buf(), "captureOne")
+        } else if name.ends_with(".cocatalog") {
+            // A Capture One package holds `<name>.cocatalogdb`.
+            let mut name = path.file_stem().unwrap_or_default().to_os_string();
+            name.push(".cocatalogdb");
+            (path.join(name), "captureOne")
+        } else {
+            return Err(
+                "Choose a Lightroom Classic catalog (.lrcat), a Capture One session (.cosessiondb) or a Capture One catalog (.cocatalog)."
+                    .into(),
+            );
+        };
+        Ok(Self { database, kind })
+    }
+
+    fn read(&self, observe_mask: impl FnMut(&Path)) -> Result<Source, String> {
+        let result = if self.kind == "lightroom" {
+            rawtonic_interop::lightroom::read(&self.database)
+        } else {
+            rawtonic_interop::capture_one::read_with_mask_observer(&self.database, observe_mask)
+        };
+        result.map_err(|e| format!("{e:#}"))
+    }
+
+    fn database_stamp(&self) -> io::Result<u64> {
+        // Keep this in step with interop::open_copy, including absent
+        // sidecars so their appearance or disappearance invalidates a check.
+        let mut hasher = DefaultHasher::new();
+        self.database.hash(&mut hasher);
+        for suffix in ["", "-wal", "-shm"] {
+            let mut path = self.database.as_os_str().to_os_string();
+            path.push(suffix);
+            file_stamp(Path::new(&path))?.hash(&mut hasher);
+        }
+        Ok(hasher.finish())
+    }
+
+    fn read_and_stamp(&self, database: u64) -> Result<(Source, SourceFingerprint), String> {
+        let mut masks = BTreeMap::new();
+        let result = self.read(|path| {
+            masks.insert(path.to_path_buf(), file_stamp(path));
+        });
+        // Discard a read if the database or a mask changed while copying
+        // or decoding the source, before previewing or writing anything.
+        if self.database_stamp().ok() != Some(database) {
+            return Err(CATALOG_CHANGED.into());
+        }
+        let mut hasher = DefaultHasher::new();
+        for (path, before) in masks {
+            let before = before.map_err(|e| e.to_string())?;
+            if file_stamp(&path).ok() != Some(before) {
+                return Err(CATALOG_CHANGED.into());
+            }
+            path.hash(&mut hasher);
+            before.hash(&mut hasher);
+        }
+        Ok((
+            result?,
+            SourceFingerprint(format!("{database:016x}/{:016x}", hasher.finish())),
+        ))
+    }
+}
+
+fn file_stamp(path: &Path) -> io::Result<Option<(u64, SystemTime)>> {
+    match fs::metadata(path) {
+        Ok(metadata) => Ok(Some((metadata.len(), metadata.modified()?))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct SourceFingerprint(String);
+
 fn read_source(path: &Path) -> Result<(Source, &'static str), String> {
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    let result = if name.ends_with(".lrcat") {
-        rawtonic_interop::lightroom::read(path).map(|lib| (lib, "lightroom"))
-    } else if name.ends_with(".cosessiondb") || name.ends_with(".cocatalogdb") {
-        rawtonic_interop::capture_one::read(path).map(|lib| (lib, "captureOne"))
-    } else if name.ends_with(".cocatalog") {
-        // A Capture One catalog is a folder (a package on macOS) holding
-        // `<name>.cocatalogdb`.
-        let mut name = path.file_stem().unwrap_or_default().to_os_string();
-        name.push(".cocatalogdb");
-        let db = path.join(name);
-        rawtonic_interop::capture_one::read(&db).map(|lib| (lib, "captureOne"))
-    } else {
-        return Err(
-            "Choose a Lightroom Classic catalog (.lrcat), a Capture One session (.cosessiondb) or a Capture One catalog (.cocatalog)."
-                .into(),
-        );
-    };
-    result.map_err(|e| format!("{e:#}"))
+    let source = CatalogSource::resolve(path)?;
+    Ok((source.read(|_| {})?, source.kind))
+}
+
+fn check_source(path: &Path, relinks: &[Relink]) -> Result<ImportPreview, String> {
+    let source = CatalogSource::resolve(path)?;
+    let stamp = source.database_stamp().map_err(|e| e.to_string())?;
+    let (mut lib, fingerprint) = source.read_and_stamp(stamp)?;
+    for relink in relinks {
+        lib.relink(&relink.from, &relink.to);
+    }
+    Ok(preview(&lib, source.kind, fingerprint))
+}
+
+fn read_checked_source(
+    path: &Path,
+    expected: Option<&SourceFingerprint>,
+) -> Result<Source, String> {
+    let expected = expected.ok_or(CATALOG_CHANGED)?;
+    let source = CatalogSource::resolve(path)?;
+    let stamp = source.database_stamp().map_err(|_| CATALOG_CHANGED)?;
+    if expected.0.split_once('/').map(|(database, _)| database)
+        != Some(format!("{stamp:016x}").as_str())
+    {
+        return Err(CATALOG_CHANGED.into());
+    }
+    let (lib, actual) = source.read_and_stamp(stamp)?;
+    if actual.0 != expected.0 {
+        return Err(CATALOG_CHANGED.into());
+    }
+    Ok(lib)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -74,6 +178,7 @@ pub struct Relink {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportPreview {
+    pub source_fingerprint: SourceFingerprint,
     pub name: String,
     pub kind: &'static str,
     pub photos: usize,
@@ -142,9 +247,14 @@ pub struct ImportReport {
     pub warnings: Vec<String>,
 }
 
-fn preview(source: &Source, kind: &'static str) -> ImportPreview {
+fn preview(
+    source: &Source,
+    kind: &'static str,
+    source_fingerprint: SourceFingerprint,
+) -> ImportPreview {
     let originals = || source.photos.iter().filter(|p| p.copy_of.is_none());
     ImportPreview {
+        source_fingerprint,
         name: source.name.clone(),
         kind,
         photos: originals().count(),
@@ -3233,15 +3343,9 @@ pub async fn library_import_preview(
     source: String,
     relinks: Vec<Relink>,
 ) -> Result<ImportPreview, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let (mut lib, kind) = read_source(Path::new(&source))?;
-        for relink in &relinks {
-            lib.relink(&relink.from, &relink.to);
-        }
-        Ok(preview(&lib, kind))
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || check_source(Path::new(&source), &relinks))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -3249,10 +3353,11 @@ pub async fn library_import(
     source: String,
     directory: String,
     relinks: Vec<Relink>,
+    source_fingerprint: Option<SourceFingerprint>,
     app_handle: tauri::AppHandle,
 ) -> Result<ImportReport, String> {
     let report = tauri::async_runtime::spawn_blocking(move || {
-        let (mut lib, _) = read_source(Path::new(&source))?;
+        let mut lib = read_checked_source(Path::new(&source), source_fingerprint.as_ref())?;
         for relink in &relinks {
             lib.relink(&relink.from, &relink.to);
         }
@@ -3283,6 +3388,84 @@ mod tests {
     use rawtonic_metadata::Metadata;
     use rusqlite::Connection;
     use std::fs;
+
+    #[test]
+    fn checked_catalog_import_requires_the_same_database_and_wal() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = capture_one_session(dir.path(), "Job");
+        let checked = check_source(&source, &[]).unwrap();
+        let preview_json = serde_json::to_value(&checked).unwrap();
+        let args = json!({
+            "source": source,
+            "directory": dir.path().join("Rawtonic"),
+            "relinks": [],
+            "sourceFingerprint": preview_json["sourceFingerprint"]
+        });
+        let fingerprint: Option<SourceFingerprint> =
+            serde_json::from_value(args["sourceFingerprint"].clone()).unwrap();
+        let source = Path::new(args["source"].as_str().unwrap());
+        let target = Path::new(args["directory"].as_str().unwrap());
+        let catalog = Library::create(target, "Main", Mode::Catalog).unwrap();
+        assert_eq!(
+            read_checked_source(source, None).unwrap_err(),
+            CATALOG_CHANGED
+        );
+        let lib = read_checked_source(source, fingerprint.as_ref()).unwrap();
+        assert_eq!(import_into(&catalog, &lib).unwrap().imported, 1);
+
+        let conn = Connection::open(source).unwrap();
+        conn.execute_batch("CREATE TABLE catalog_change (id INTEGER)")
+            .unwrap();
+        assert_eq!(
+            read_checked_source(source, fingerprint.as_ref()).unwrap_err(),
+            CATALOG_CHANGED
+        );
+
+        let checked = check_source(source, &[]).unwrap();
+        conn.execute_batch("PRAGMA journal_mode=WAL; INSERT INTO catalog_change VALUES(1)")
+            .unwrap();
+        assert_eq!(
+            read_checked_source(source, Some(&checked.source_fingerprint)).unwrap_err(),
+            CATALOG_CHANGED
+        );
+        let checked = check_source(source, &[]).unwrap();
+        assert!(read_checked_source(source, Some(&checked.source_fingerprint)).is_ok());
+        conn.execute_batch("INSERT INTO catalog_change VALUES(2)")
+            .unwrap();
+        assert_eq!(
+            read_checked_source(source, Some(&checked.source_fingerprint)).unwrap_err(),
+            CATALOG_CHANGED
+        );
+    }
+
+    #[test]
+    fn checked_capture_one_package_detects_a_mask_file_appearing_or_changing() {
+        let dir = tempfile::tempdir().unwrap();
+        let package = dir.path().join("Wedding.2026.cocatalog");
+        let fixture = capture_one_session(dir.path(), "Wedding.2026");
+        fs::rename(fixture.parent().unwrap(), &package).unwrap();
+        let db = package.join("Wedding.2026.cocatalogdb");
+        fs::rename(package.join(fixture.file_name().unwrap()), &db).unwrap();
+
+        let checked = check_source(&package, &[]).unwrap();
+        assert!(read_checked_source(&db, Some(&checked.source_fingerprint)).is_ok());
+
+        let adjustments = package.join("Adjustments");
+        fs::create_dir(&adjustments).unwrap();
+        let mask = adjustments.join("DSCF0001.RAF.comask");
+        fs::write(&mask, b"unreadable mask").unwrap();
+        assert_eq!(
+            read_checked_source(&package, Some(&checked.source_fingerprint)).unwrap_err(),
+            CATALOG_CHANGED
+        );
+        let checked = check_source(&package, &[]).unwrap();
+        let file = fs::File::options().write(true).open(&mask).unwrap();
+        file.set_modified(SystemTime::UNIX_EPOCH).unwrap();
+        assert_eq!(
+            read_checked_source(&package, Some(&checked.source_fingerprint)).unwrap_err(),
+            CATALOG_CHANGED
+        );
+    }
 
     /// Capture One's gradients go through the lens correction of the recipe
     /// as it renders: with its frame version stamped, so frame-dependent lens
@@ -4962,7 +5145,7 @@ mod tests {
             keywords: Vec::new(),
             not_read: NotRead::default(),
         };
-        let shown = preview(&source, "lightroom");
+        let shown = preview(&source, "lightroom", SourceFingerprint(String::new()));
         assert_eq!((shown.albums, shown.not_read.smart_albums), (2, 1));
         let report = import_into(&catalog, &source).unwrap();
         assert_eq!(
@@ -6762,7 +6945,7 @@ ProcessVersion = "15.4" }}"#,
         fs::create_dir_all(&out).unwrap();
         let catalog = Library::create(&out.join("Scratch"), "Scratch", Mode::Catalog).unwrap();
         let (lib, kind) = read_source(Path::new(&lrcat)).unwrap();
-        let shown = preview(&lib, kind);
+        let shown = preview(&lib, kind, SourceFingerprint(String::new()));
         let report = import_into(&catalog, &lib).unwrap();
         // The app's background pass: capture facts (dates, camera, lens).
         let cancel = AtomicBool::new(false);

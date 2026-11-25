@@ -396,6 +396,7 @@ export function countHotFolderCapture(status: HotFolderStatus | null, file: HotF
 
 /** Mirrors `library_import::ImportPreview`. */
 interface ImportPreview {
+  sourceFingerprint: string;
   name: string;
   kind: 'lightroom' | 'captureOne';
   photos: number;
@@ -1262,11 +1263,17 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
         source: importSource.trim(),
         relinks: relinkList()
       });
-      if (request === previewRequest.current) setImportPreview(preview);
+      if (request !== previewRequest.current) return;
+      if (relinkOnly && preview.sourceFingerprint !== importPreview?.sourceFingerprint) {
+        setImportPreview(null);
+        setError(t('session.import.catalogChanged'));
+        return;
+      }
+      setImportPreview(preview);
     } catch (e) {
       if (request === previewRequest.current) {
         setImportPreview(null);
-        setError(String(e));
+        setError(e === 'catalog_changed_since_check' ? t('session.import.catalogChanged') : String(e));
       }
     }
   };
@@ -1287,6 +1294,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       const report = await invoke<ImportReport>(Invokes.LibraryImport, {
         source: importSource.trim(),
         directory: session.directory,
+        sourceFingerprint: importPreview.sourceFingerprint,
         relinks: relinkList()
       });
       notify.success(
@@ -1371,7 +1379,12 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       await refresh();
       void refreshStacks(session.directory);
     } catch (e) {
-      setError(String(e));
+      if (e === 'catalog_changed_since_check') {
+        clearImportPreview();
+        setError(t('session.import.catalogChanged'));
+      } else {
+        setError(String(e));
+      }
     } finally {
       setBusy(false);
     }

@@ -934,6 +934,7 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
       : command === 'library_import_preview'
         ? {
             name: 'Lightroom Catalog',
+            sourceFingerprint: 'opaque-fingerprint',
             kind: 'lightroom',
             photos: 12,
             copies: 1,
@@ -986,6 +987,7 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
     expect(invoke).toHaveBeenCalledWith('library_import', {
       source: '/LR/Catalog.lrcat',
       directory: '/jobs/Acme',
+      sourceFingerprint: 'opaque-fingerprint',
       relinks: [{ from: '/Volumes/Old/2026', to: '/Volumes/New/2026' }]
     })
   );
@@ -1011,6 +1013,56 @@ it('previews and imports a Lightroom catalog into the open catalog', async () =>
   for (const [name, listener] of listeners) window.removeEventListener(name, listener);
 });
 
+it('requires another check when the catalog changed before import', async () => {
+  const user = userEvent.setup();
+  const catalog = { ...summary, manifest: { ...summary.manifest, mode: 'catalog' } };
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) =>
+    command === 'session_create' || command === 'session_summary'
+      ? catalog
+      : command === 'library_import_preview'
+        ? {
+            name: 'Lightroom Catalog',
+            sourceFingerprint: 'opaque-fingerprint',
+            kind: 'lightroom',
+            photos: 12,
+            copies: 1,
+            edited: 5,
+            albums: 2,
+            keywords: 0,
+            roots: [{ folder: '/Volumes/Old/2026', photos: 12, found: 0 }],
+            notRead: { smartAlbums: 3, localAdjustments: 0, unlocated: 0, keywordSynonyms: 0 }
+          }
+        : command === 'library_import'
+          ? Promise.reject('catalog_changed_since_check')
+          : base(command, args)
+  );
+  render(
+    <ContextMenuProvider>
+      <SessionWorkspace onNavigate={vi.fn(async () => {})} />
+    </ContextMenuProvider>
+  );
+  await user.click(screen.getByRole('button', { name: 'Create a session' }));
+  await user.type(screen.getByLabelText('Session name'), 'Acme');
+  await user.click(screen.getByRole('button', { name: 'Location' }));
+  await user.click(screen.getByRole('button', { name: 'Create session' }));
+  await waitFor(() => expect(screen.getByTitle('/jobs/Acme')).toBeTruthy());
+  await user.click(screen.getByTitle('/jobs/Acme'));
+  await user.click(await screen.findByRole('menuitem', { name: /Import from Lightroom/ }));
+  await user.type(screen.getByLabelText('Library to import'), '/LR/Catalog.lrcat');
+  await user.click(screen.getByRole('button', { name: 'Check' }));
+  expect(await screen.findByText(/12 photos, 5 with edits, 2 albums/)).toBeTruthy();
+  await user.type(screen.getByLabelText('New location of /Volumes/Old/2026'), '/Volumes/New/2026');
+  const check = screen.getByRole<HTMLButtonElement>('button', { name: 'Check' });
+  const importButton = screen.getByRole<HTMLButtonElement>('button', { name: /Import into Acme/ });
+  await user.click(importButton);
+  await screen.findByText('The catalog changed since it was checked. Check it again.');
+  expect(check.disabled).toBe(false);
+  expect(importButton.disabled).toBe(true);
+  await user.click(check);
+  await waitFor(() => expect(importButton.disabled).toBe(false));
+});
+
 // KWL1: Lightroom keyword attributes with no counterpart here are named in
 // the import check, never dropped silently.
 it('names the Lightroom keywords whose export, person or name attributes do not come over', async () => {
@@ -1023,6 +1075,7 @@ it('names the Lightroom keywords whose export, person or name attributes do not 
       ? catalog
       : command === 'library_import_preview'
         ? {
+            sourceFingerprint: 'opaque-fingerprint',
             name: 'KWL1',
             kind: 'lightroom',
             photos: 2,
@@ -1110,6 +1163,7 @@ it('drops an import check answered after the library to import changed', async (
   await user.click(screen.getByRole('button', { name: 'Check' }));
   await user.type(screen.getByLabelText('Library to import'), '-other');
   answer({
+    sourceFingerprint: 'first-fingerprint',
     name: 'First',
     kind: 'lightroom',
     photos: 1,
@@ -1127,6 +1181,7 @@ it('drops an import check answered after the library to import changed', async (
   // failed one leaves no preview behind.
   await user.click(screen.getByRole('button', { name: 'Check' }));
   answer({
+    sourceFingerprint: 'second-fingerprint',
     name: 'Second',
     kind: 'lightroom',
     photos: 1,
@@ -1172,6 +1227,7 @@ it('offers "Apply Capture One straightening and crop" for photos an earlier impo
       ? catalog
       : command === 'library_import_preview'
         ? {
+            sourceFingerprint: 'opaque-fingerprint',
             name: 'Session',
             kind: 'captureOne',
             photos: 2,
