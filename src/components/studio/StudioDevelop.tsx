@@ -1139,7 +1139,7 @@ export default function StudioDevelop() {
               aiDenoiseDefault,
               patch
             ),
-            sensor === 'xTrans' || sensorDeferred,
+            sensorDeferred ? 'deferred' : sensor,
             patch
           )
     );

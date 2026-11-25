@@ -129,27 +129,34 @@ describe('aiDenoiseToApply', () => {
 describe('withXTransAiDenoiseVersion', () => {
   it('brings an older X-Trans edit to the X-Trans version when its AI Denoise amount is changed', () => {
     const older = { aiDenoise: 50, aiDenoiseVersion: 5 };
-    expect(withXTransAiDenoiseVersion(older, { ...older, aiDenoise: 51 }, true)).toEqual({
+    expect(withXTransAiDenoiseVersion(older, { ...older, aiDenoise: 51 }, 'xTrans')).toEqual({
       aiDenoise: 51,
       aiDenoiseVersion: 6
     });
     // Turned off and on again, or on from a recipe without the key.
-    expect(withXTransAiDenoiseVersion(older, { ...older, aiDenoise: 0 }, true).aiDenoiseVersion).toBe(6);
+    expect(withXTransAiDenoiseVersion(older, { ...older, aiDenoise: 0 }, 'xTrans').aiDenoiseVersion).toBe(6);
     const turnedOn: { aiDenoise: number; aiDenoiseVersion?: number } = { aiDenoise: 40 };
-    expect(withXTransAiDenoiseVersion({}, turnedOn, true).aiDenoiseVersion).toBe(6);
+    expect(withXTransAiDenoiseVersion({}, turnedOn, 'xTrans').aiDenoiseVersion).toBe(6);
   });
 
   it('keeps Bayer photos, unchanged amounts, newer versions and versions the change sets', () => {
     const older = { aiDenoise: 50, aiDenoiseVersion: 5 };
     const moved = { ...older, aiDenoise: 60 };
-    expect(withXTransAiDenoiseVersion(older, moved, false)).toBe(moved);
+    expect(withXTransAiDenoiseVersion(older, moved, 'bayer')).toBe(moved);
     const other = { ...older, exposure: 1 };
-    expect(withXTransAiDenoiseVersion(older, other, true)).toBe(other);
+    expect(withXTransAiDenoiseVersion(older, other, 'xTrans')).toBe(other);
     const current = { aiDenoise: 70, aiDenoiseVersion: 6 };
-    expect(withXTransAiDenoiseVersion({ aiDenoise: 60, aiDenoiseVersion: 6 }, current, true)).toBe(current);
+    expect(withXTransAiDenoiseVersion({ aiDenoise: 60, aiDenoiseVersion: 6 }, current, 'xTrans')).toBe(current);
     // A reset or paste that sets the version keeps it.
     const pasted = { aiDenoise: 30, aiDenoiseVersion: 4 };
-    expect(withXTransAiDenoiseVersion(older, pasted, true, { aiDenoise: 30, aiDenoiseVersion: 4 })).toBe(pasted);
+    expect(withXTransAiDenoiseVersion(older, pasted, 'xTrans', { aiDenoise: 30, aiDenoiseVersion: 4 })).toBe(pasted);
+  });
+  it.each([undefined, 1, 2, 3, 4])('keeps active version %s until the original identifies its sensor', (version) => {
+    const before = { aiDenoise: 20, aiDenoiseVersion: version };
+    const moved = { ...before, aiDenoise: 25 };
+    expect(withXTransAiDenoiseVersion(before, moved, 'deferred')).toBe(moved);
+    expect(withXTransAiDenoiseVersion(before, moved, 'bayer')).toBe(moved);
+    expect(withXTransAiDenoiseVersion(before, moved, 'xTrans').aiDenoiseVersion).toBe(6);
   });
 });
 

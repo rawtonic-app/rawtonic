@@ -60,24 +60,24 @@ export function withAiDenoiseQualityOnTurnOn<T extends { aiDenoise?: number; aiD
 }
 
 /**
- * `next` with the AI Denoise version that denoises X-Trans sensors when an edit
- * changes the AI Denoise amount of a photo that may use X-Trans
- * (`mayBeXTrans`) whose recipe is older: such a recipe never denoised that photo (its version leaves X-Trans
- * alone, and it rendered so when it was made), so it keeps doing so until the
- * user moves the slider, which then applies AI Denoise. A version the change
- * itself sets (`patch`: reset, paste, presets) is kept. A changed amount
- * on an offline RAW of unknown kind also gets the version that can denoise
- * either sensor when the original returns.
+ * Upgrade a changed AI Denoise amount on a known X-Trans photo so the
+ * current network applies. For a deferred sensor, preserve an active
+ * legacy edit before version 5: its Bayer output must match an online
+ * adjustment. Version 5 and version 6 have the same Bayer behavior.
+ * A version explicitly set by a reset, paste or preset takes priority.
  */
 export function withXTransAiDenoiseVersion<T extends { aiDenoise?: number; aiDenoiseVersion?: number }>(
-  previous: { aiDenoise?: number; aiDenoiseVersion?: number },
+  previous: { aiDenoise?: number },
   next: T,
-  mayBeXTrans: boolean,
+  sensor: 'xTrans' | 'bayer' | 'deferred' | 'unknown' | null,
   patch: object = next
 ): T {
-  if (!mayBeXTrans || (patch !== next && 'aiDenoiseVersion' in patch)) return next;
-  if ((next.aiDenoise ?? 0) === (previous.aiDenoise ?? 0)) return next;
-  if ((next.aiDenoiseVersion ?? 1) >= XTRANS_AI_DENOISE_VERSION) return next;
+  if ((sensor !== 'xTrans' && sensor !== 'deferred') || (patch !== next && 'aiDenoiseVersion' in patch)) return next;
+  const before = previous.aiDenoise ?? 0;
+  const after = next.aiDenoise ?? 0;
+  const version = next.aiDenoiseVersion ?? 1;
+  if (before === after || version >= XTRANS_AI_DENOISE_VERSION) return next;
+  if (sensor === 'deferred' && version < 5 && (before > 0 || after <= 0)) return next;
   return { ...next, aiDenoiseVersion: XTRANS_AI_DENOISE_VERSION };
 }
 
