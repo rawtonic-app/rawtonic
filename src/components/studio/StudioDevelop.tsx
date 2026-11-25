@@ -1115,7 +1115,7 @@ export default function StudioDevelop() {
       useEditorStore.getState().setEditor({ isSliderDragging: active, grainSliderDrag: active ? 'detail' : null }),
     []
   );
-  const aiDenoiseDefault = useAiDenoiseDefaultQuality();
+  const aiDenoiseDefault = useAiDenoiseDefaultQuality(selectedImage?.path);
   const change = (patch: Partial<Adjustments>) =>
     selectedImage?.isReady &&
     setAdjustments((prev) =>

@@ -282,14 +282,27 @@ pub fn default_quality(
 /// or it would not run on a GPU (`rawtonic_onnx::runs_on_gpu`: no GPU
 /// provider offers a device, or MatchFilter's check there rejected it).
 fn matchfilter_on_cpu(models: &Path) -> bool {
-    if cfg!(target_os = "macos") {
+    on_cpu_of(
+        cfg!(target_os = "macos"),
+        rawtonic_onnx::models_run_on_cpu_only(),
+        || {
+            rawtonic_onnx::runs_on_gpu(
+                &models.join(rawtonic_denoise::ONNX_MODEL),
+                rawtonic_onnx::ModelKind::Denoise,
+            )
+        },
+    )
+}
+
+/// `matchfilter_on_cpu` from its parts: models kept on the CPU by policy
+/// (`keep_models_on_cpu`, e.g. a Radeon 680M under Windows; GPU AI off; a
+/// forced CPU) answer at once, without asking for a GPU or a check that
+/// never runs there.
+fn on_cpu_of(macos: bool, models_on_cpu: bool, runs_on_gpu: impl FnOnce() -> bool) -> bool {
+    if macos {
         return false;
     }
-    rawtonic_onnx::models_run_on_cpu_only()
-        || !rawtonic_onnx::runs_on_gpu(
-            &models.join(rawtonic_denoise::ONNX_MODEL),
-            rawtonic_onnx::ModelKind::Denoise,
-        )
+    models_on_cpu || !runs_on_gpu()
 }
 
 /// `default_quality` of Automatic on this machine. The editor resolves a
@@ -329,6 +342,32 @@ mod tests {
         let unasked = || panic!("the machine is not asked");
         assert_eq!(default_quality(Some("full"), unasked), "full");
         assert_eq!(default_quality(Some("fast"), unasked), "fast");
+    }
+
+    #[test]
+    fn models_kept_on_the_cpu_resolve_automatic_to_fast_at_once() {
+        use super::{default_quality, on_cpu_of};
+        let unasked = || -> bool { panic!("no GPU and no check is asked for") };
+        // keep_models_on_cpu (Radeon 680M under Windows), GPU AI off, forced CPU.
+        assert!(on_cpu_of(false, true, unasked));
+        assert_eq!(
+            default_quality(None, || on_cpu_of(false, true, unasked)),
+            "fast"
+        );
+        // A usable GPU, verdict unknown or passed: Full; no GPU or a rejected check: Fast.
+        assert_eq!(
+            default_quality(None, || on_cpu_of(false, false, || true)),
+            "full"
+        );
+        assert_eq!(
+            default_quality(None, || on_cpu_of(false, false, || false)),
+            "fast"
+        );
+        // macOS runs MatchFilter on Core ML.
+        assert_eq!(
+            default_quality(None, || on_cpu_of(true, true, unasked)),
+            "full"
+        );
     }
 
     #[test]

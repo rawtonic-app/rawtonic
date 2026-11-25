@@ -7,8 +7,9 @@ import { useSettingsStore } from '../store/useSettingsStore';
  * turned on: Preferences' choice as soon as it is made (the store holds it
  * before the backend has saved it), else for Automatic this computer's
  * (`ai_denoise_default_quality`: Fast where MatchFilter would run on the
- * processor); null until known. */
-export function useAiDenoiseDefaultQuality(): AiDenoiseQuality | null {
+ * processor), asked again for each `photo` so a GPU check's verdict that
+ * arrived meanwhile counts; null until known. */
+export function useAiDenoiseDefaultQuality(photo?: string): AiDenoiseQuality | null {
   const preference = useSettingsStore((s) => s.appSettings?.aiDenoiseDefaultQuality);
   const chosen = preference === 'fast' || preference === 'full' ? preference : null;
   const [automatic, setAutomatic] = useState<AiDenoiseQuality | null>(null);
@@ -23,6 +24,6 @@ export function useAiDenoiseDefaultQuality(): AiDenoiseQuality | null {
     return () => {
       current = false;
     };
-  }, [chosen]);
+  }, [chosen, photo]);
   return chosen ?? automatic;
 }
