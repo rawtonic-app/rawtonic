@@ -3419,6 +3419,7 @@ fn headless_targets(
         subfolder: None,
         output_sharpening: None,
         super_resolution: false,
+        super_resolution_quality: Default::default(),
         provenance: None,
         existing_files: session.existing_files,
         max_file_kb: None,
@@ -4084,6 +4085,7 @@ mod tests {
             fn enlarge_2x(
                 &self,
                 image: DynamicImage,
+                _quality: rawtonic_export::export_processing::SuperResolutionQuality,
                 cancelled: &dyn Fn() -> Result<(), String>,
             ) -> Result<DynamicImage, String> {
                 cancelled()?;

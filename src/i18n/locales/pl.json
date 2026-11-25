@@ -2589,7 +2589,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion, a single pass without the average in the Fast conversions; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
@@ -4273,9 +4273,14 @@
         "resize": "Zmień rozmiar, aby dopasować",
         "superResolution": {
           "failed": "Superrozdzielczość jest niedostępna: {{error}}",
+          "fastFailed": "Jakość Szybka jest niedostępna: {{error}}",
           "hint": "Powiększa każde zdjęcie do dwukrotnej szerokości i wysokości za pomocą modelu AI, przed zmianą rozmiaru i wyostrzaniem. Oryginały nigdy nie są zmieniane.",
           "label": "Superrozdzielczość (2×, AI)",
           "preparing": "Przygotowywanie modelu superrozdzielczości…",
+          "quality": "Jakość",
+          "qualityFast": "Szybka",
+          "qualityFull": "Pełna",
+          "qualityHint": "Szybka powiększa każdą część zdjęcia raz zamiast uśredniać cztery obrócone kopie: jedna czwarta pracy, różnice widoczne tylko przy porównaniu pikseli.",
           "ready": "Model superrozdzielczości gotowy ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

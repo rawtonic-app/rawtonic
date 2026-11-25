@@ -343,6 +343,25 @@ it('Super Resolution travels from the form through a saved recipe into the expor
   expect(draftFromPreset({ ...preset, superResolution: undefined }).superResolution).toBe(false);
 });
 
+it("Super Resolution's quality: Fast is saved and sent, Full and older recipes are not", () => {
+  const fast = { ...DEFAULT_RECIPE_DRAFT, superResolution: true, superResolutionQuality: 'fast' as const };
+  const preset = presetFromDraft(fast, 'sr', 'Quick print');
+  expect(preset.superResolutionQuality).toBe('fast');
+  expect(draftFromPreset(preset).superResolutionQuality).toBe('fast');
+  expect(exportSettingsFromDraft(fast).settings.superResolutionQuality).toBe('fast');
+  // Full: not written, so recipes from before keep their settings (and hash).
+  const full = { ...fast, superResolutionQuality: 'full' as const };
+  expect(presetFromDraft(full, 'sr', 'Print').superResolutionQuality).toBeUndefined();
+  expect('superResolutionQuality' in exportSettingsFromDraft(full).settings).toBe(false);
+  // A recipe saved before the choice is Full; a new form decides later.
+  const older = { ...preset, superResolutionQuality: undefined };
+  expect(draftFromPreset(older).superResolutionQuality).toBe('full');
+  expect(DEFAULT_RECIPE_DRAFT.superResolutionQuality).toBeUndefined();
+  // Without Super Resolution there is no quality to send.
+  const off = { ...fast, superResolution: false };
+  expect('superResolutionQuality' in exportSettingsFromDraft(off).settings).toBe(false);
+});
+
 it('saves provenance only when it is on, and sends it for every format', () => {
   const off = presetFromDraft(DEFAULT_RECIPE_DRAFT, 'r1', 'Plain');
   expect(off.provenance).toBeUndefined();

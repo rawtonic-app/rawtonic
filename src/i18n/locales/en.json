@@ -2312,7 +2312,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion, a single pass without the average in the Fast conversions; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
@@ -3932,9 +3932,14 @@
         "resize": "Resize to fit",
         "superResolution": {
           "failed": "Super Resolution is unavailable: {{error}}",
+          "fastFailed": "The Fast quality is unavailable: {{error}}",
           "hint": "Enlarges each photo to twice its width and height with an AI model, before resizing and sharpening. Originals are never changed.",
           "label": "Super Resolution (2×, AI)",
           "preparing": "Preparing the Super Resolution model…",
+          "quality": "Quality",
+          "qualityFast": "Fast",
+          "qualityFull": "Full",
+          "qualityHint": "Fast enlarges each part of the photo once instead of averaging four turned copies: a quarter of the work, with differences visible only in pixel comparisons.",
           "ready": "Super Resolution model ready ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

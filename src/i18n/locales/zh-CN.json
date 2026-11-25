@@ -2214,7 +2214,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion, a single pass without the average in the Fast conversions; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
@@ -3819,9 +3819,14 @@
         "resize": "调整尺寸以适合",
         "superResolution": {
           "failed": "超分辨率不可用：{{error}}",
+          "fastFailed": "快速质量不可用：{{error}}",
           "hint": "在调整大小和锐化之前，用 AI 模型将每张照片的宽和高放大一倍。原片不会被更改。",
           "label": "超分辨率（2×，AI）",
           "preparing": "正在准备超分辨率模型…",
+          "quality": "质量",
+          "qualityFast": "快速",
+          "qualityFull": "完整",
+          "qualityHint": "快速只放大照片的每个部分一次，而不是平均四个旋转副本：工作量为四分之一，差异只有在逐像素比较时才能看到。",
           "ready": "超分辨率模型已就绪（{{backend}}）。"
         },
         "valueLabel": "{{name}} ({{unit}})"

@@ -49,6 +49,29 @@ pub const CPU_ONNX_FILE: &str = "superres_compact_x2_cpu.onnx";
 pub const CPU_ONNX_SHA256: &str =
     "40bf5c362bad13ca57c1e4493f66f9ab5f2ce7f57156e1d20a77aad7322cd7a1";
 
+/// Super Resolution's Fast quality (`Quality::Fast`): the same weights on
+/// the tile as it is, without the four-rotation average (a quarter of the
+/// work), on every ONNX Runtime provider. On 34 crops of 17 RAWs PSNR
+/// 0.07 dB below the average, LPIPS 0.001 better, no direction dependence,
+/// 8-bit codes p99 ≤ 2.3 on full-resolution renders; nothing visible at
+/// 100 % or 300 % (notes: benchmark-results/srr1-2026-11-25/REPORT.md).
+/// The name is the one it was published under (pack-2026-11-25). Loaded
+/// from the model folder when a Fast tile first needs it; without it a Fast
+/// export fails with a clear error (never a Full result instead).
+pub const SINGLE_ONNX_FILE: &str = "superres_compact_x2_cpu_single.onnx";
+pub const SINGLE_ONNX_SHA256: &str =
+    "3ad7b2ebfa053e930c5356db5d326b7587b458ae9fab4869f9e0534fbf563c1e";
+
+/// Super Resolution's quality, the export recipe's choice
+/// (`superResolutionQuality`), honoured on every backend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Quality {
+    /// Each tile's four right-angle rotations enlarged and averaged.
+    Full,
+    /// Each tile enlarged once (`SINGLE_ONNX_FILE`, `CORE_ML_SINGLE_PACKAGE`).
+    Fast,
+}
+
 /// The same graph with fp16 weights and compute, fp32 input and output
 /// (`scripts/models/convert_superres_fp16.py`), for GPU providers only: on
 /// an RTX 3080 (Linux) a 45 MP photo took 15.4 s with CUDA instead of
@@ -83,6 +106,29 @@ pub const CORE_ML_FILES: [(&str, &str, &str); 3] = [
         "1df839340b0df1bb953ec97b0e084008c3d44557483d6009fed732d635b3a5fe",
     ),
 ];
+/// The Fast quality as a Core ML program (fp16; largest difference to the
+/// PyTorch pass 0.0026, mean 0.0002; 11 ms per tile instead of 46 ms on an
+/// M5 Pro). Same weights file as `CORE_ML_FILES`.
+#[cfg(target_os = "macos")]
+pub const CORE_ML_SINGLE_PACKAGE: &str = "superres_compact_x2_single.mlpackage";
+#[cfg(target_os = "macos")]
+pub const CORE_ML_SINGLE_FILES: [(&str, &str, &str); 3] = [
+    (
+        "superres_single_coreml_Manifest.json",
+        "Manifest.json",
+        "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    ),
+    (
+        "superres_single_coreml_model.mlmodel",
+        "Data/com.apple.CoreML/model.mlmodel",
+        "181860c6811ef1539244bf964b8570c8ff85ca377e39bf7f993ebcba5d461db3",
+    ),
+    (
+        "superres_single_coreml_weight.bin",
+        "Data/com.apple.CoreML/weights/weight.bin",
+        "1df839340b0df1bb953ec97b0e084008c3d44557483d6009fed732d635b3a5fe",
+    ),
+];
 /// CPU and GPU: 50 ms per tile on an M5 Pro; with the Neural Engine 54 ms
 /// (larger tiles were slower on both).
 #[cfg(target_os = "macos")]
@@ -102,14 +148,25 @@ enum Backend {
     /// (`GPU_ONNX_FILE`, on a GPU) it runs without ONNX Runtime's move to
     /// the CPU; once a run failed (`gpu_failed`) `fp32_cpu` takes over for
     /// good: the CPU conversion, else the original graph, loaded then.
+    /// `single_cpu` and `single_gpu` are the Fast graph
+    /// (`SINGLE_ONNX_FILE`) on the CPU and on the GPU provider the Full graph
+    /// runs on, each loaded the first time a Fast tile needs it (kept once
+    /// loaded, tried again while missing).
     Onnx {
         model: rawtonic_onnx::Model,
         cpu: Option<rawtonic_onnx::Model>,
+        single_cpu: OnceLock<rawtonic_onnx::Model>,
+        single_gpu: OnceLock<rawtonic_onnx::Model>,
         fp32_cpu: OnceLock<Option<rawtonic_onnx::Model>>,
         gpu_failed: AtomicBool,
     },
+    /// The Full program and, once installed (`attach_core_ml_fast`), the
+    /// Fast one.
     #[cfg(target_os = "macos")]
-    CoreMl(rawtonic_denoise::coreml::CoreMlModel),
+    CoreMl {
+        full: rawtonic_denoise::coreml::CoreMlModel,
+        fast: OnceLock<rawtonic_denoise::coreml::CoreMlModel>,
+    },
 }
 
 impl Model {
@@ -151,6 +208,8 @@ impl Model {
             backend: Backend::Onnx {
                 model,
                 cpu,
+                single_cpu: OnceLock::new(),
+                single_gpu: OnceLock::new(),
                 fp32_cpu: OnceLock::new(),
                 gpu_failed: AtomicBool::new(false),
             },
@@ -165,7 +224,7 @@ impl Model {
         let model = match &self.backend {
             Backend::Onnx { model, .. } => model,
             #[cfg(target_os = "macos")]
-            Backend::CoreMl(_) => return false,
+            Backend::CoreMl { .. } => return false,
         };
         let gpu_path = model.path().with_file_name(GPU_ONNX_FILE);
         !is_gpu_graph(model)
@@ -187,19 +246,23 @@ impl Model {
         })
     }
 
-    /// The ONNX graph that runs a tile now (`None` for Core ML).
-    fn onnx_graph(&self) -> Option<&rawtonic_onnx::Model> {
-        let (model, cpu, fp32_cpu, gpu_failed) = match &self.backend {
+    /// The ONNX graph that runs a tile now at `quality` (`Ok(None)` for
+    /// Core ML); an error when a Fast tile needs `SINGLE_ONNX_FILE` and it
+    /// is not installed.
+    fn onnx_graph(&self, quality: Quality) -> Result<Option<&rawtonic_onnx::Model>> {
+        let (model, cpu, single_cpu, single_gpu, fp32_cpu, gpu_failed) = match &self.backend {
             Backend::Onnx {
                 model,
                 cpu,
+                single_cpu,
+                single_gpu,
                 fp32_cpu,
                 gpu_failed,
-            } => (model, cpu, fp32_cpu, gpu_failed),
+            } => (model, cpu, single_cpu, single_gpu, fp32_cpu, gpu_failed),
             #[cfg(target_os = "macos")]
-            Backend::CoreMl(_) => return None,
+            Backend::CoreMl { .. } => return Ok(None),
         };
-        Some(graph_now(
+        let graph = graph_now(
             model,
             cpu.as_ref(),
             || {
@@ -210,7 +273,47 @@ impl Model {
             is_gpu_graph(model),
             model.provider() == rawtonic_onnx::Provider::Cpu,
             gpu_failed.load(Ordering::Relaxed),
-        ))
+        );
+        let provider = graph.provider();
+        for_quality(
+            graph,
+            quality,
+            provider == rawtonic_onnx::Provider::Cpu,
+            || Self::single_graph(single_cpu, model.path(), rawtonic_onnx::Provider::Cpu),
+            || Self::single_graph(single_gpu, model.path(), provider),
+        )
+        .map(Some)
+    }
+
+    /// The Fast graph beside `model_path` on `provider` (a GPU: that GPU when
+    /// its check passed, else the CPU until it has), loaded on first use;
+    /// `None` while it is not installed (or does not load).
+    fn single_graph<'a>(
+        slot: &'a OnceLock<rawtonic_onnx::Model>,
+        model_path: &Path,
+        provider: rawtonic_onnx::Provider,
+    ) -> Option<&'a rawtonic_onnx::Model> {
+        if let Some(graph) = slot.get() {
+            return Some(graph);
+        }
+        let path = model_path.with_file_name(SINGLE_ONNX_FILE);
+        if !verified(&path, SINGLE_ONNX_SHA256) {
+            return None;
+        }
+        let loaded = if provider == rawtonic_onnx::Provider::Cpu {
+            Self::load_cpu_graph(&path)
+        } else {
+            rawtonic_onnx::Model::load_on(
+                &path,
+                rawtonic_onnx::ModelKind::SuperResolution,
+                &[provider, rawtonic_onnx::Provider::Cpu],
+                &rawtonic_onnx::settings().plugin_dirs,
+            )
+        }
+        .ok()?;
+        // Another tile may have loaded it meanwhile: either copy will do.
+        let _ = slot.set(loaded);
+        slot.get()
     }
 
     /// Loads a known CPU conversion directly, without probing GPU providers
@@ -254,7 +357,32 @@ impl Model {
     #[cfg(target_os = "macos")]
     pub fn core_ml(model: rawtonic_denoise::coreml::CoreMlModel) -> Self {
         Self {
-            backend: Backend::CoreMl(model),
+            backend: Backend::CoreMl {
+                full: model,
+                fast: OnceLock::new(),
+            },
+        }
+    }
+
+    /// Adds the Fast Core ML program (`CORE_ML_SINGLE_PACKAGE`) to a Core ML
+    /// model; without it a Fast export on Core ML fails clearly.
+    #[cfg(target_os = "macos")]
+    pub fn attach_core_ml_fast(&self, model: rawtonic_denoise::coreml::CoreMlModel) {
+        if let Backend::CoreMl { fast, .. } = &self.backend {
+            let _ = fast.set(model);
+        }
+    }
+
+    /// Whether the Fast quality can run on this model's backend: the Fast
+    /// Core ML program attached, or `SINGLE_ONNX_FILE` beside the ONNX model.
+    pub fn fast_installed(&self) -> bool {
+        match &self.backend {
+            Backend::Onnx { model, .. } => verified(
+                &model.path().with_file_name(SINGLE_ONNX_FILE),
+                SINGLE_ONNX_SHA256,
+            ),
+            #[cfg(target_os = "macos")]
+            Backend::CoreMl { fast, .. } => fast.get().is_some(),
         }
     }
 
@@ -277,10 +405,22 @@ impl Model {
                     package.display()
                 );
             }
-            return Ok(Self::core_ml(rawtonic_denoise::coreml::CoreMlModel::load(
+            let model = Self::core_ml(rawtonic_denoise::coreml::CoreMlModel::load(
                 &package,
                 CORE_ML_UNITS,
-            )?));
+            )?);
+            // The Fast program, when the app assembled it.
+            let fast = dir.join(CORE_ML_SINGLE_PACKAGE);
+            if CORE_ML_SINGLE_FILES
+                .iter()
+                .all(|&(_, inner, sha)| verified(&fast.join(inner), sha))
+            {
+                model.attach_core_ml_fast(rawtonic_denoise::coreml::CoreMlModel::load(
+                    &fast,
+                    CORE_ML_UNITS,
+                )?);
+            }
+            return Ok(model);
         }
         let path: PathBuf = dir.join(ONNX_FILE);
         if !verified(&path, ONNX_SHA256) {
@@ -298,7 +438,7 @@ impl Model {
     }
 
     pub fn backend_name(&self) -> String {
-        match self.onnx_graph() {
+        match self.onnx_graph(Quality::Full).ok().flatten() {
             Some(graph) => {
                 let fp16 = if is_gpu_graph(graph) { ", fp16" } else { "" };
                 format!("ONNX Runtime ({}{fp16})", graph.provider())
@@ -307,9 +447,15 @@ impl Model {
         }
     }
 
+    /// Whether this model runs on ONNX Runtime (the app then installs
+    /// `SINGLE_ONNX_FILE` beside it), not Core ML.
+    pub fn uses_onnx(&self) -> bool {
+        matches!(self.backend, Backend::Onnx { .. })
+    }
+
     /// Enlarges one tile: `input` is [1, 3, TILE, TILE] (RGB, 0..1,
     /// first-major), the result [1, 3, 2·TILE, 2·TILE] in 0..1.
-    pub fn enlarge_tile(&self, input: &[f32]) -> Result<Vec<f32>> {
+    pub fn enlarge_tile(&self, input: &[f32], quality: Quality) -> Result<Vec<f32>> {
         ensure!(
             input.len() == 3 * TILE * TILE,
             "tile of {} values",
@@ -324,7 +470,9 @@ impl Model {
         };
         let values = match &self.backend {
             Backend::Onnx { gpu_failed, .. } => {
-                let graph = self.onnx_graph().expect("an ONNX backend has a graph");
+                let graph = self
+                    .onnx_graph(quality)?
+                    .expect("an ONNX backend has a graph");
                 if is_gpu_graph(graph) && graph.provider() != rawtonic_onnx::Provider::Cpu {
                     // No retry of the fp16 graph on the CPU: the photo
                     // starts again on the fp32 CPU graph (`enlarge`).
@@ -334,7 +482,15 @@ impl Model {
                 }
             }
             #[cfg(target_os = "macos")]
-            Backend::CoreMl(model) => {
+            Backend::CoreMl { full, fast } => {
+                let model = match quality {
+                    Quality::Full => full,
+                    Quality::Fast => fast.get().ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "the Super Resolution Fast model ({CORE_ML_SINGLE_PACKAGE}) is not installed (tick Super Resolution in the Export dialog again to download it)"
+                        )
+                    })?,
+                };
                 let values = model.predict(INPUT, &[1, 3, TILE, TILE], input, OUTPUT)?.1;
                 rawtonic_onnx::ensure_finite(&values)?;
                 values
@@ -349,8 +505,10 @@ impl Model {
     }
 
     /// The graph file and provider tiles run on now (`None`: Core ML).
-    fn path_now(&self) -> Option<(PathBuf, rawtonic_onnx::Provider)> {
-        self.onnx_graph()
+    fn path_now(&self, quality: Quality) -> Option<(PathBuf, rawtonic_onnx::Provider)> {
+        self.onnx_graph(quality)
+            .ok()
+            .flatten()
             .map(|graph| (graph.path().to_path_buf(), graph.provider()))
     }
 
@@ -361,10 +519,15 @@ impl Model {
     pub fn enlarge(
         &self,
         image: DynamicImage,
+        quality: Quality,
         cancelled: &dyn Fn() -> Result<(), String>,
     ) -> Result<DynamicImage, String> {
-        on_one_path(&|| self.path_now(), &mut || {
-            enlarge_ref(&image, &mut |tile| self.enlarge_tile(tile), cancelled)
+        on_one_path(&|| self.path_now(quality), &mut || {
+            enlarge_ref(
+                &image,
+                &mut |tile| self.enlarge_tile(tile, quality),
+                cancelled,
+            )
         })
     }
 }
@@ -425,6 +588,30 @@ fn graph_now<'a, T>(
         return fp32;
     }
     active_graph(model, cpu, on_cpu)
+}
+
+/// The graph that runs a tile at `quality`: Full the graph that runs now
+/// (`graph`), Fast the single-pass graph on the same kind of processor
+/// (`single_cpu` when `graph` is on the CPU, else `single_gpu`), looked up
+/// only then; an error when it is not installed (never a Full result for a
+/// Fast recipe).
+fn for_quality<'a, T>(
+    graph: &'a T,
+    quality: Quality,
+    on_cpu: bool,
+    single_cpu: impl FnOnce() -> Option<&'a T>,
+    single_gpu: impl FnOnce() -> Option<&'a T>,
+) -> Result<&'a T> {
+    let single = match quality {
+        Quality::Full => return Ok(graph),
+        Quality::Fast if on_cpu => single_cpu(),
+        Quality::Fast => single_gpu(),
+    };
+    single.ok_or_else(|| {
+        anyhow::anyhow!(
+            "the Super Resolution Fast model ({SINGLE_ONNX_FILE}) is not installed (tick Super Resolution in the Export dialog again to download it)"
+        )
+    })
 }
 
 /// `result` of a run of the fp16 graph on its GPU; a failure is recorded
@@ -892,6 +1079,75 @@ mod tests {
         std::fs::write(&path, b"abc").unwrap();
         let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
         assert!(verified(&path, abc));
+    }
+
+    #[test]
+    fn fast_runs_the_single_graph_on_the_processor_full_runs_on() {
+        let (graph, cpu, gpu) = ("full graph", "single on the CPU", "single on the GPU");
+        let unused = || -> Option<&&str> { panic!("looked up a single graph") };
+        // Full: the graph that runs now, whatever is installed.
+        assert_eq!(
+            for_quality(&graph, Quality::Full, true, unused, unused).unwrap(),
+            &graph
+        );
+        assert_eq!(
+            for_quality(&graph, Quality::Full, false, unused, unused).unwrap(),
+            &graph
+        );
+        // Fast on the CPU and on a GPU.
+        assert_eq!(
+            for_quality(&graph, Quality::Fast, true, || Some(&cpu), unused).unwrap(),
+            &cpu
+        );
+        assert_eq!(
+            for_quality(&graph, Quality::Fast, false, unused, || Some(&gpu)).unwrap(),
+            &gpu
+        );
+        // Not installed: the photo fails, never a Full result instead.
+        let missing = for_quality(&graph, Quality::Fast, true, || None, unused).unwrap_err();
+        assert!(missing.to_string().contains(SINGLE_ONNX_FILE), "{missing}");
+        assert!(for_quality(&graph, Quality::Fast, false, unused, || None).is_err());
+    }
+
+    /// A photo whose GPU failed restarts on the CPU (`on_one_path`): a Fast
+    /// recipe's second pass runs the single graph on the CPU, never the
+    /// four-rotation graph.
+    #[test]
+    fn a_fast_photo_moved_from_the_gpu_to_the_cpu_stays_fast() {
+        use std::cell::{Cell, RefCell};
+        let source = DynamicImage::ImageRgb32F(gradient(1200, 900));
+        let on_gpu = Cell::new(true);
+        let gpu_tiles = Cell::new(0);
+        let ran = RefCell::new(Vec::new());
+        let (full, single_cpu, single_gpu) = ("full", "single on the CPU", "single on the GPU");
+        let now = || {
+            *for_quality(
+                &full,
+                Quality::Fast,
+                !on_gpu.get(),
+                || Some(&single_cpu),
+                || Some(&single_gpu),
+            )
+            .unwrap()
+        };
+        let mut tile = |input: &[f32]| -> Result<Vec<f32>> {
+            let graph = now();
+            if graph == single_gpu {
+                gpu_tiles.set(gpu_tiles.get() + 1);
+                if gpu_tiles.get() == 3 {
+                    on_gpu.set(false);
+                    bail!("GPU device lost");
+                }
+            }
+            ran.borrow_mut().push(graph);
+            nearest(input)
+        };
+        let out = on_one_path(&now, &mut || enlarge_ref(&source, &mut tile, &|| Ok(())))
+            .expect("the CPU pass finishes");
+        assert_eq!(out.width(), 2400);
+        let ran = ran.into_inner();
+        assert!(ran.contains(&single_cpu));
+        assert!(!ran.contains(&full), "a Fast photo ran the Full graph");
     }
 
     #[test]

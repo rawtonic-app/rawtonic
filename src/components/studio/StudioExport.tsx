@@ -188,18 +188,30 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
 
   // Super Resolution's AI model, fetched once when an export would use it,
   // so the export itself downloads nothing.
-  const [superResolution, setSuperResolution] = useState<{ backend?: string; error?: string } | null>(null);
+  const [superResolution, setSuperResolution] = useState<{
+    backend?: string;
+    onCpu?: boolean;
+    fastError?: string | null;
+    error?: string;
+  } | null>(null);
   const superResolutionWanted = planned.some((job) => job.draft.superResolution);
   useEffect(() => {
     if (!superResolutionWanted || superResolution) return;
     let active = true;
-    invoke<string>(Invokes.PrepareSuperResolution)
-      .then((backend) => active && setSuperResolution({ backend }))
+    invoke<{ backend: string; onCpu: boolean; fastError: string | null }>(Invokes.PrepareSuperResolution)
+      .then((prepared) => active && setSuperResolution(prepared))
       .catch((error) => active && setSuperResolution({ error: String(error) }));
     return () => {
       active = false;
     };
   }, [superResolutionWanted, superResolution]);
+  // A new recipe's quality: Fast where the model runs on the processor
+  // (minutes per photo there), Full elsewhere. Saved recipes keep theirs.
+  useEffect(() => {
+    if (draft.superResolution && draft.superResolutionQuality === undefined && superResolution?.backend) {
+      set({ superResolutionQuality: superResolution.onCpu ? 'fast' : 'full' });
+    }
+  }, [draft.superResolution, draft.superResolutionQuality, superResolution, set]);
 
   // Estimated file size, as the inherited panel showed (first photograph
   // rendered, extrapolated by the backend to the whole selection).
@@ -797,21 +809,44 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
                 type="checkbox"
                 checked={draft.superResolution}
                 onChange={(e) => {
-                  // Ticked again after a failure: try to fetch the model again.
-                  if (e.target.checked && superResolution?.error) setSuperResolution(null);
+                  // Ticked again after a failure (the model's or the Fast
+                  // files'): try to fetch them again.
+                  if (e.target.checked && (superResolution?.error || superResolution?.fastError)) {
+                    setSuperResolution(null);
+                  }
                   set({ superResolution: e.target.checked });
                 }}
               />
               {t('studio.export.sizing.superResolution.label')}
             </label>
             {draft.superResolution && (
-              <small role="status">
-                {superResolution?.error
-                  ? t('studio.export.sizing.superResolution.failed', { error: superResolution.error })
-                  : superResolution?.backend
-                    ? t('studio.export.sizing.superResolution.ready', { backend: superResolution.backend })
-                    : t('studio.export.sizing.superResolution.preparing')}
-              </small>
+              <>
+                <label title={t('studio.export.sizing.superResolution.qualityHint')}>
+                  {t('studio.export.sizing.superResolution.quality')}
+                  <select
+                    value={draft.superResolutionQuality ?? 'full'}
+                    onChange={(e) => {
+                      const quality = e.target.value as 'full' | 'fast';
+                      // Fast chosen after its download failed: try again.
+                      if (quality === 'fast' && superResolution?.fastError) setSuperResolution(null);
+                      set({ superResolutionQuality: quality });
+                    }}
+                  >
+                    <option value="full">{t('studio.export.sizing.superResolution.qualityFull')}</option>
+                    <option value="fast">{t('studio.export.sizing.superResolution.qualityFast')}</option>
+                  </select>
+                </label>
+                <small>{t('studio.export.sizing.superResolution.qualityHint')}</small>
+                <small role="status">
+                  {superResolution?.error
+                    ? t('studio.export.sizing.superResolution.failed', { error: superResolution.error })
+                    : draft.superResolutionQuality === 'fast' && superResolution?.fastError
+                      ? t('studio.export.sizing.superResolution.fastFailed', { error: superResolution.fastError })
+                      : superResolution?.backend
+                        ? t('studio.export.sizing.superResolution.ready', { backend: superResolution.backend })
+                        : t('studio.export.sizing.superResolution.preparing')}
+                </small>
+              </>
             )}
             <label className="studio-check">
               <input type="checkbox" checked={draft.resize} onChange={(e) => set({ resize: e.target.checked })} />
