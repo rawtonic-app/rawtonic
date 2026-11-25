@@ -1581,6 +1581,18 @@ struct DevelopInput<'a> {
 /// closes ([`SecondBases::clear`]).
 static SECOND_WINDOW_SOURCE: Mutex<Option<gpu_processing::GpuImageCache>> = Mutex::new(None);
 
+/// Counts the second window's closes ([`SecondBases::clear`]): a render that
+/// began before a close drops the source it kept ([`drop_if_closed`]).
+static SECOND_WINDOW_CLOSES: AtomicU64 = AtomicU64::new(0);
+
+/// Empties `slot` when the window closed (`closes` moved on from `before`)
+/// while a render filled it: the source would outlive the window.
+fn drop_if_closed<T>(slot: &Mutex<Option<T>>, closes: &AtomicU64, before: u64) {
+    if closes.load(Ordering::SeqCst) != before {
+        *slot.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+}
+
 /// What identifies the pixels of the cut `rect` (x, y, width, height) of
 /// `base` of `path`: the same for every recipe that develops from the same
 /// base, so a kept upload of the region serves the next edit.
@@ -1702,6 +1714,7 @@ fn develop_rgba(
     } else {
         &develop.gpu_image_cache
     };
+    let closes = SECOND_WINDOW_CLOSES.load(Ordering::SeqCst);
     let developed = gpu_processing::process_and_get_dynamic_image_inner(
         context,
         &gpu.processor,
@@ -1732,6 +1745,9 @@ fn develop_rgba(
                 .unwrap_or_else(|e| e.into_inner()) = None;
         }
     })?;
+    if input.caller == gpu_processing::SECOND_WINDOW_CALLER {
+        drop_if_closed(&SECOND_WINDOW_SOURCE, &SECOND_WINDOW_CLOSES, closes);
+    }
     Ok(developed.to_rgba8())
 }
 
@@ -1868,6 +1884,8 @@ impl SecondBases {
     /// Forgets everything (the window closed).
     pub(crate) fn clear(&self) {
         *self.memory.lock().unwrap_or_else(|e| e.into_inner()) = Memory::default();
+        // Before emptying: a render still filling it drops what it kept.
+        SECOND_WINDOW_CLOSES.fetch_add(1, Ordering::SeqCst);
         *SECOND_WINDOW_SOURCE
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = None;
@@ -4735,6 +4753,18 @@ mod tests {
             source_kind: "base-cache",
             prepare_ms: 0.0,
         }
+    }
+
+    #[test]
+    fn a_render_across_a_close_drops_the_source_it_kept() {
+        let closes = AtomicU64::new(0);
+        let slot = Mutex::new(Some(1));
+        drop_if_closed(&slot, &closes, 0);
+        assert_eq!(*slot.lock().unwrap(), Some(1), "no close: kept");
+        // The window closed while the render filled the slot.
+        closes.fetch_add(1, Ordering::SeqCst);
+        drop_if_closed(&slot, &closes, 0);
+        assert_eq!(*slot.lock().unwrap(), None);
     }
 
     #[test]

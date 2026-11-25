@@ -20906,7 +20906,9 @@ fn a_kept_region_source_renders_each_edit_as_a_fresh_upload() {
                   cache: &Mutex<Option<GpuImageCache>>,
                   whole: bool| {
         let mut adjustments = get_all_adjustments_from_json(profile, true, Some(1));
-        let measured = measures_noise(&adjustments.global)
+        // A region filters as the whole photograph does (its measurement);
+        // the whole fit frame measures itself, as in the app.
+        let measured = (!whole && measures_noise(&adjustments.global))
             .then(|| measure_color_noise(&context, &processor, &image, &adjustments, "test"))
             .transpose()
             .unwrap()

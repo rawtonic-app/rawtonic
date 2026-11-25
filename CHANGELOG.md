@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The second window at Fit, when it is larger than the main window's photograph, shows the edit sharp about 50–95 ms after a settled edit on macOS (p50 to its present, was about 360–370 ms): its own fit frame keeps its upload and colour noise pyramid from edit to edit and starts at once after the main window's frame. Pixels are unchanged.
+- The second window at Fit, when it is larger than the main window's photograph, shows the edit sharp about 57–89 ms after a settled edit on macOS (p50 to its frame's submission to the window server, was about 350–370 ms): its own fit frame keeps its upload and colour noise pyramid from edit to edit and starts at once after the main window's frame. Pixels are unchanged.
 
 - Virtual copies are photos of their own in the Library, as in Lightroom: a copy has its own pick or reject flag (a new copy starts with its photo's; existing copies keep the flag they showed), an ordinary album can hold a copy without its photo (adding or removing a copy leaves the photo as it is), smart albums have a "Is a virtual copy" rule (Lightroom's Copy Status rules now import), and the value lists in the filter bar count copies like the grid lists them. Lightroom imports bring each copy's own pick and put copies into their albums as copies (they used to become their photo).
 
