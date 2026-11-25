@@ -199,6 +199,7 @@ pub fn apply_base_look(
         crate::camera_profile::apply(global, path, library);
         crate::diffraction::apply(global, path);
     });
+    crate::hdr_source::apply(global, path);
     let registered = || crate::source_facts::registered(path);
     let (noise_level, image_key, airlight) = match measures {
         Some(measures) => (measures.noise_level, measures.image_key, measures.airlight),

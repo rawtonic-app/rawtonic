@@ -2994,6 +2994,91 @@ fn sharpen_version_6_reaches_further_on_non_raw_photos() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; renders a PQ/HLG highlight ramp under render versions 19 and 20"]
+fn pq_hlg_highlights_roll_off_into_white_from_render_version_20() {
+    use rawtonic_engine::hdr_source::{HEADROOM, KNEE, rolloff};
+    // A grey ramp as a PQ/HLG decode hands it over (avif.rs): linear light,
+    // 1.0 = diffuse white, up to the reference peak, sRGB-encoded unclipped.
+    let (width, height) = (256u32, 8u32);
+    let encode = |v: f32| {
+        if v <= 0.003_130_8 {
+            12.92 * v
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        }
+    };
+    let linear = |x: u32| 1.2 * HEADROOM * x as f32 / (width - 1) as f32;
+    let ramp: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let v = f16::from_f32(encode(linear(i % width)));
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input_from(&context, width, height, &ramp);
+    // `headroom`: what apply_base_look sets for a PQ/HLG file when the
+    // recipe's version rolls off (`hdr_rolloff`).
+    let render = |version: u64, hdr: bool| {
+        let mut adjustments =
+            get_all_adjustments_from_json(&json!({"renderVersion": version}), false, None);
+        if hdr && adjustments.global.hdr_rolloff != 0 {
+            adjustments.uniforms.global.hdr_headroom = HEADROOM;
+        }
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let saved = render(19, true);
+    let new = render(20, true);
+    // Saved edits and photos that are not HDR render exactly as before.
+    assert_eq!(render(20, false), saved);
+    let green = |pixels: &[u16], x: u32| pixels[(4 * (width * 4 + x) + 1) as usize];
+    let mut last = 0;
+    for x in 0..width {
+        let m = linear(x);
+        let (old, rolled) = (green(&saved, x), green(&new, x));
+        if m <= KNEE * 0.99 {
+            assert_eq!(rolled, old, "below the knee at {m}");
+        }
+        if m >= 1.0 {
+            assert_eq!(old, u16::MAX, "version 19 clips above diffuse white ({m})");
+        }
+        if m < 0.97 * HEADROOM {
+            assert!(rolled < u16::MAX, "{m} clips: {rolled}");
+        }
+        assert!(rolled >= last, "not monotone at {m}");
+        last = rolled;
+        // The shader's roll-off is the engine's.
+        let expected = encode(rolloff(m, HEADROOM)) * 65535.0;
+        assert!(
+            (rolled as f32 - expected).abs() <= 80.0,
+            "{m}: {rolled} against {expected}"
+        );
+    }
+    // Diffuse white sits just under SDR white.
+    let white = (0..width).find(|&x| linear(x) >= 1.0).unwrap();
+    let w = green(&new, white) as f32 / 65535.0;
+    assert!((0.93..0.96).contains(&w), "diffuse white at {w}");
+}
+
+#[test]
 #[ignore = "requires a native GPU; compares the cached and inline detail stage of responses 7 and 8"]
 fn cached_detail_of_sharpening_7_and_8_matches_inline_detail_and_follows_the_tone_curve() {
     let (width, height) = (1280u32, 853u32);
