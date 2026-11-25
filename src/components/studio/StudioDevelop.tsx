@@ -24,6 +24,7 @@ import { debouncedSetHistory, panelsShowReady, useEditorStore } from '../../stor
 import { sharpenViewFor } from '../../utils/sharpenView';
 import { layersInToneVersion, toneSliderIn, toneVersionAfterReset } from '../../utils/pastedVersions';
 import { storedSliderValue, withAiDenoiseQualityOnTurnOn, withXTransAiDenoiseVersion } from '../../utils/aiDenoise';
+import { useRawIsXTrans } from '../../hooks/useRawIsXTrans';
 import { useAiDenoiseDefaultQuality } from '../../hooks/useAiDenoiseDefaultQuality';
 import type { AiDenoiseQuality } from '../ui/AppProperties';
 import { useUIStore } from '../../store/useUIStore';
@@ -1116,6 +1117,10 @@ export default function StudioDevelop() {
     []
   );
   const aiDenoiseDefault = useAiDenoiseDefaultQuality(selectedImage?.path);
+  // X-Trans photos: one AI Denoise network, from version 6. Until the sensor
+  // is known the AI Denoise slider waits, so a change never keeps an old
+  // X-Trans edit's version (it would stay undenoised).
+  const xtrans = useRawIsXTrans(selectedImage?.path, selectedImage?.isRaw);
   const change = (patch: Partial<Adjustments>) =>
     selectedImage?.isReady &&
     setAdjustments((prev) =>
@@ -1134,7 +1139,7 @@ export default function StudioDevelop() {
               aiDenoiseDefault,
               patch
             ),
-            selectedImage.xtrans === true,
+            xtrans === true,
             patch
           )
     );
@@ -1213,7 +1218,7 @@ export default function StudioDevelop() {
       max={max}
       step={step}
       defaultValue={(defaults[key] ?? 0) as number}
-      disabled={!panelsReady}
+      disabled={!panelsReady || (key === 'aiDenoise' && xtrans === null)}
       track={track}
       keys={key === 'exposure' ? EXPOSURE_KEYS : undefined}
       optionView={optionViewOf(key)}
@@ -2085,7 +2090,7 @@ export default function StudioDevelop() {
                   {/* Which network: stored in the recipe, so every export
                       renders it; a photo without the key renders Full.
                       X-Trans photos have one network, so no choice. */}
-                  {selectedImage.xtrans ? (
+                  {xtrans ? (
                     <p className="studio-help">{t('studio.develop.noise.xtransHint')}</p>
                   ) : (
                     <>

@@ -125,6 +125,7 @@ export enum Invokes {
   ReplaceRecipes = 'replace_recipes',
   ApplyAiDenoise = 'apply_ai_denoise',
   AiDenoiseDefaultQuality = 'ai_denoise_default_quality',
+  RawIsXTrans = 'raw_is_xtrans',
   ThirdPartyLicenses = 'third_party_licenses',
   CalculateAutoAdjustments = 'calculate_auto_adjustments',
   CalculateManualTransform = 'calculate_manual_transform',
@@ -882,9 +883,6 @@ export interface LoadImageResult {
   ai_denoise_error?: string | null;
   /** The source is that skipped sensor's rawler decode (`aiDenoiseStandIn`). */
   ai_denoise_stand_in?: boolean;
-  /** The RAW's mosaic is X-Trans: its AI Denoise needs `aiDenoiseVersion` 6
-   * and has one quality (false for preview data). */
-  xtrans?: boolean;
   /** The RAW is offline; the photograph opened on its 1:1 or Standard preview. */
   offline?: OfflinePreview | null;
   /** The source was developed for the multi-scale colour noise filter (no
@@ -984,10 +982,6 @@ export interface SelectedImage {
    * recipe's AI Denoise although Apple RAW 9 would develop it without
    * (`ai_denoise_stand_in`): developed again when AI Denoise is off. */
   aiDenoiseStandIn?: boolean;
-  /** The RAW's mosaic is X-Trans (`xtrans` of the decode): AI Denoise runs
-   * its X-Trans network, which has one quality, from `aiDenoiseVersion` 6
-   * (`withXTransAiDenoiseVersion`). */
-  xtrans?: boolean;
   /** Decode preferences (linear RAW mode, preprocessing, Apple RAW 9) changed
    * since the source was developed: the revision (a count of the changes) to
    * develop it again for (`decode-preferences-changed`); 0 or missing: none. */

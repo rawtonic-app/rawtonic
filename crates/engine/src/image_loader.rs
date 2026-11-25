@@ -214,7 +214,8 @@ impl AiDenoiseSettings {
         crate::recipe_versions::AiDenoiseVersion::from_raw(self.version).sensor_means()
     }
 
-    /// The decoder's option for `denoiser` (this version's model).
+    /// The decoder's option for `denoiser` (this version's model; from
+    /// version 6 an X-Trans mosaic needs the X-Trans network).
     pub fn mosaic_denoise(
         &self,
         denoiser: std::sync::Arc<dyn rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser>,
@@ -222,6 +223,7 @@ impl AiDenoiseSettings {
         rawtonic_rawdecode::mosaic_denoise::MosaicDenoise::new(denoiser, self.blend)
             .with_noise_scale(self.noise_scale)
             .with_sensor_means(self.sensor_means())
+            .with_xtrans_required(self.denoises_xtrans())
     }
 }
 

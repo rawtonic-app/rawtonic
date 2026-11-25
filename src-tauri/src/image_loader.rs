@@ -50,10 +50,6 @@ pub struct LoadImageResult {
     /// (`skipped_stands_in`): the editor develops it again once AI Denoise
     /// is off.
     pub ai_denoise_stand_in: bool,
-    /// The RAW's mosaic is X-Trans (`raw_processing::is_xtrans`): its AI
-    /// Denoise runs the X-Trans network from `aiDenoiseVersion` 6, which has
-    /// one quality; false for preview data.
-    pub xtrans: bool,
     /// The RAW is offline and the photograph opened on its preview proxy:
     /// "full" (its 1:1 preview, full resolution) or "standard".
     pub offline: Option<&'static str>,
@@ -1043,8 +1039,7 @@ pub async fn apply_ai_denoise(
     // it becomes (the model may take a while to load).
     let settings = crate::state::settings::current(&app_handle);
     let decoder = decode_preferences(&settings);
-    let xtrans = crate::ai_denoise::is_xtrans(&source_path).await;
-    let denoise = crate::ai_denoise::option_for(&app_handle, &recipe, xtrans).await?;
+    let denoise = crate::ai_denoise::option_for(&app_handle, &recipe, &source_path).await?;
     let applied_ai = ai_denoise_settings(&recipe).filter(|_| denoise.is_some());
     let applied = if denoise.is_some() {
         amount.clamp(0.0, 100.0)
@@ -1146,6 +1141,7 @@ pub async fn apply_ai_denoise(
         // Published as the load does (its pixels stand in for the recipe's
         // AI Denoise, under the preferences just in force); the editor is
         // told, shows them and marks the amount failed.
+        let xtrans = crate::ai_denoise::is_xtrans(&source_path).await;
         return Err(CommandError::new(
             ErrorCode::Unsupported,
             skipped_reason(xtrans),
@@ -1348,9 +1344,9 @@ pub async fn load_image(
 
     // AI Denoise from the recipe; if its model cannot be had, the photograph
     // still opens and the frontend reports why.
-    let xtrans = is_raw_file(&source_path_str) && crate::ai_denoise::is_xtrans(&source_path).await;
     let (denoise, mut ai_denoise_error) = if is_raw_file(&source_path_str) {
-        match crate::ai_denoise::option_for(&app_handle, &metadata.adjustments, xtrans).await {
+        match crate::ai_denoise::option_for(&app_handle, &metadata.adjustments, &source_path).await
+        {
             Ok(denoise) => (denoise, None),
             Err(e) => (None, Some(e.message)),
         }
@@ -1551,6 +1547,10 @@ pub async fn load_image(
         .map_err(|e| e.to_string())??;
 
         let arc_img = pristine_img;
+        // Why a skipped sensor was skipped: an X-Trans edit from before
+        // version 6, or a sensor AI Denoise does not take.
+        let xtrans = denoise.as_ref().is_some_and(|d| !d.was_applied())
+            && crate::ai_denoise::is_xtrans(&source_path).await;
         if let Some(skipped) = settle_decode(
             &develop,
             denoise.as_ref(),
@@ -1705,7 +1705,6 @@ pub async fn load_image(
         ai_denoise_quality,
         ai_denoise_error,
         ai_denoise_stand_in,
-        xtrans,
         offline: None,
         color_noise_multiscale: Some(variant.multiscale),
         dead_pixel_adjacent: Some(variant.dead_test != DeadTest::SameColour),
@@ -1948,7 +1947,6 @@ async fn open_offline(
             ai_denoise_quality: AI_DENOISE_FULL,
             ai_denoise_error: None,
             ai_denoise_stand_in: false,
-            xtrans: false,
             offline: Some("full"),
             color_noise_multiscale: None,
             dead_pixel_adjacent: None,
@@ -2038,7 +2036,6 @@ async fn open_offline(
         ai_denoise_quality: AI_DENOISE_FULL,
         ai_denoise_error: None,
         ai_denoise_stand_in: false,
-        xtrans: false,
         offline: Some("standard"),
         color_noise_multiscale: None,
         dead_pixel_adjacent: None,

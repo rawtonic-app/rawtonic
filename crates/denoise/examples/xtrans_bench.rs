@@ -12,8 +12,9 @@
 //! `MOSAIC.f32` holds `WIDTH × HEIGHT` little-endian f32 samples
 //! (black-subtracted, white 1), the canonical X-Trans phase at the origin
 //! unless `XTRANS_PHASE=dy,dx` names the sample that holds it. No cache:
-//! every run computes. `OUT.f32` gets the result in the same layout; the
-//! noise profile and the time are printed.
+//! every run computes. `OUT.f32` (a new file; an existing one is never
+//! replaced) gets the result in the same layout; the noise profile and the
+//! time are printed.
 
 use std::path::Path;
 use std::time::Instant;
@@ -69,6 +70,18 @@ fn main() -> Result<()> {
     for v in out {
         bytes.extend_from_slice(&v.to_le_bytes());
     }
-    std::fs::write(&args[4], bytes)?;
+    // Never over an existing file (a mistyped path must not replace the
+    // mosaic or a RAW): a temporary file beside it, published only if the
+    // name is free.
+    let target = Path::new(&args[4]);
+    let dir = target
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let mut staged = tempfile::NamedTempFile::new_in(dir)?;
+    std::io::Write::write_all(&mut staged, &bytes)?;
+    staged
+        .persist_noclobber(target)
+        .map_err(|e| anyhow::anyhow!("{} not written: {}", target.display(), e.error))?;
     Ok(())
 }

@@ -433,7 +433,6 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             // Offline: the preview proxy is all there is (no decode follows).
             offline: loadImageResult.offline ?? null,
             unsupportedNikonHighEfficiency: loadImageResult.unsupported_nikon_high_efficiency,
-            xtrans: loadImageResult.xtrans ?? false,
             ...(loadImageResult.ai_denoise_error
               ? {
                   aiDenoiseFailed: Number(storedMetadata?.adjustments?.aiDenoise ?? 0),

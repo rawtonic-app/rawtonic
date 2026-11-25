@@ -962,9 +962,11 @@ pub fn is_xtrans(source: &RawSource) -> bool {
     .unwrap_or(false)
 }
 
-/// `is_xtrans` of the file at `path`, memory-mapped.
+/// `is_xtrans` of the file at `path`, mapped without reading ahead
+/// (`RawSource::new_lazy`): only the pages its tags are on are read, which
+/// matters on network shares.
 pub fn is_xtrans_at(path: &std::path::Path) -> bool {
-    RawSource::new(path).is_ok_and(|source| is_xtrans(&source))
+    RawSource::new_lazy(path).is_ok_and(|source| is_xtrans(&source))
 }
 
 /// `developed_frame` of the file at `path`, memory-mapped (rawler's

@@ -100,6 +100,10 @@ pub struct MosaicDenoise {
     /// Whether the result keeps the sensor's local means (`keep_means`;
     /// AI Denoise from version 4).
     pub sensor_means: bool,
+    /// The recipe denoises X-Trans mosaics (AI Denoise from version 6): an
+    /// X-Trans mosaic whose denoiser has no X-Trans path is an error, not a
+    /// development without AI Denoise (the wrong model was loaded).
+    pub xtrans_required: bool,
     /// Set once a development ran the denoiser (it skips non-Bayer sensors).
     pub applied: Arc<std::sync::atomic::AtomicBool>,
     /// Where the denoiser reports how far it is, if anywhere.
@@ -113,6 +117,7 @@ impl MosaicDenoise {
             amount,
             noise_scale: 1.0,
             sensor_means: false,
+            xtrans_required: false,
             applied: Arc::default(),
             progress: None,
         }
@@ -133,6 +138,11 @@ impl MosaicDenoise {
         self
     }
 
+    pub fn with_xtrans_required(mut self, xtrans_required: bool) -> Self {
+        self.xtrans_required = xtrans_required;
+        self
+    }
+
     /// Whether a development ran the denoiser.
     pub fn was_applied(&self) -> bool {
         self.applied.load(std::sync::atomic::Ordering::SeqCst)
@@ -145,6 +155,7 @@ impl std::fmt::Debug for MosaicDenoise {
             .field("amount", &self.amount)
             .field("noise_scale", &self.noise_scale)
             .field("sensor_means", &self.sensor_means)
+            .field("xtrans_required", &self.xtrans_required)
             .finish_non_exhaustive()
     }
 }
@@ -225,7 +236,8 @@ pub(crate) fn apply<T: Copy>(
 /// per 2 × 2 position, and the X-Trans network keeps levels: it was trained
 /// against clean frames matched to the noisy ones' levels, notes:
 /// benchmark-results/xts1-2026-11-25). `None` when the denoiser does not
-/// denoise X-Trans.
+/// denoise X-Trans, an error instead where the recipe asks for it
+/// (`MosaicDenoise::xtrans_required`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_xtrans<T: Copy>(
     denoise: &MosaicDenoise,
@@ -261,9 +273,15 @@ pub(crate) fn apply_xtrans<T: Copy>(
         pattern,
         denoise.noise_scale,
         progress,
-    )? {
-        Ok(denoised) => denoised,
-        Err(e) => return Some(Err(e)),
+    ) {
+        Some(Ok(denoised)) => denoised,
+        Some(Err(e)) => return Some(Err(e)),
+        None if denoise.xtrans_required => {
+            return Some(Err(anyhow::anyhow!(
+                "this X-Trans photo's AI Denoise needs the X-Trans network, but another model was loaded"
+            )));
+        }
+        None => return None,
     };
     if denoised.len() != mosaic.len() {
         return Some(Err(anyhow::anyhow!(
@@ -756,6 +774,23 @@ mod tests {
             .is_none()
         );
         assert!(!bayer.was_applied());
+        assert_eq!(untouched, vec![100; 72]);
+        // Where the recipe asks for X-Trans denoising, the wrong model is an
+        // error, never a development without it.
+        let wrong =
+            MosaicDenoise::new(Arc::new(Flat(Default::default())), 0.5).with_xtrans_required(true);
+        let error = apply_xtrans(
+            &wrong,
+            &mut untouched,
+            9,
+            (1, 1, 7, 7),
+            &pattern,
+            |v: u16| v as f32,
+            |l: f32| l as u16,
+        )
+        .unwrap()
+        .unwrap_err();
+        assert!(error.to_string().contains("X-Trans network"), "{error}");
         assert_eq!(untouched, vec![100; 72]);
     }
 }

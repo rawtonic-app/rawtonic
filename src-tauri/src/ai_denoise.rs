@@ -357,19 +357,32 @@ pub async fn ai_denoise_default_quality(app_handle: tauri::AppHandle) -> Result<
     .map_err(|e| e.to_string())
 }
 
-/// The decoder option for a recipe on a photo whose mosaic is X-Trans
-/// (`xtrans`, `is_xtrans`) or not: `None` without AI Denoise.
+/// The decoder option for a recipe on the RAW at `source`: `None` without
+/// AI Denoise. Versions that denoise X-Trans read the file's tags for its
+/// sensor (`is_xtrans`); the decode fails clearly if that read was wrong
+/// (`MosaicDenoise::xtrans_required`).
 pub async fn option_for(
     app_handle: &tauri::AppHandle,
     adjustments: &serde_json::Value,
-    xtrans: bool,
+    source: &Path,
 ) -> Result<Option<MosaicDenoise>, CommandError> {
     let Some(ai) = rawtonic_engine::image_loader::ai_denoise_settings(adjustments) else {
         return Ok(None);
     };
+    let xtrans = ai.denoises_xtrans() && is_xtrans(source).await;
     Ok(Some(ai.mosaic_denoise(
         denoiser(app_handle, ai.model_for(xtrans)).await?,
     )))
+}
+
+/// Whether the RAW at `path` (`?vc=` allowed) has an X-Trans sensor: its AI
+/// Denoise runs the X-Trans network from `aiDenoiseVersion` 6, which has one
+/// quality. Asked by Develop when a photo opens (its tags only, a few
+/// milliseconds), so the answer is there before the full decode.
+#[tauri::command]
+pub async fn raw_is_xtrans(path: String) -> bool {
+    let (source, _) = crate::file_management::parse_virtual_path(&path);
+    is_xtrans(&source).await
 }
 
 /// Whether the RAW at `source` is an X-Trans mosaic

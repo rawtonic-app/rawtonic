@@ -1163,6 +1163,7 @@ fn start(args: Vec<String>) {
             image_loader::load_image,
             image_loader::apply_ai_denoise,
             ai_denoise::ai_denoise_default_quality,
+            ai_denoise::raw_is_xtrans,
             image_loader::load_embedded_preview,
             export_processing::export_images,
             export_processing::export_images_batch,
