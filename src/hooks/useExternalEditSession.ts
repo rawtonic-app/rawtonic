@@ -10,26 +10,9 @@ import { debouncedSave } from './useEditorActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { submittedFrom } from '../utils/runExportJobs';
 import { photoWritesAndStepsSettled } from '../utils/photoWrites';
-import { useSettingsStore } from '../store/useSettingsStore';
 import { notify } from '../activity/notify';
 import i18n from 'i18next';
-import type { SupportedTypes } from '../components/ui/AppProperties';
-
-/** Whether the app decodes a file of this name. macOS offers Rawtonic for
- * every camera RAW type it knows (tauri.macos.conf.json), including a few
- * Rawtonic cannot read yet, so a file handed over is checked first. */
-async function isSupportedFile(path: string): Promise<boolean> {
-  const name = path.split(/[\\/]/).pop() ?? path;
-  const dot = name.lastIndexOf('.');
-  if (dot <= 0) return false;
-  const ext = name.slice(dot + 1).toLowerCase();
-  const types =
-    useSettingsStore.getState().supportedTypes ??
-    (await invoke<SupportedTypes>(Invokes.GetSupportedFileTypes).catch(() => null));
-  // Without the list the photo is opened as before; its decode reports a failure.
-  if (!Array.isArray(types?.raw) || !Array.isArray(types?.nonRaw)) return true;
-  return [...types.raw, ...types.nonRaw].some((known) => known.toLowerCase() === ext);
-}
+import { useActivityStore } from '../store/useActivityStore';
 
 /**
  * Handles files handed to the app from outside (OS "open with" and the
@@ -71,10 +54,17 @@ export function useExternalEditSession(
       }
       const directory = await invoke<boolean>(Invokes.LaunchPathIsDirectory, { path: initialFileToOpen });
       if (directory === true) showFolderRef.current(initialFileToOpen);
-      else if (await isSupportedFile(initialFileToOpen)) handleImageSelectRef.current(initialFileToOpen);
+      // macOS offers the app for every camera RAW type it knows
+      // (tauri.macos.conf.json), a few of which it cannot read yet: such a
+      // file is named at once instead of being decoded. Without an answer
+      // the photo opens as before and its decode reports any failure.
+      else if (await invoke<boolean>(Invokes.LaunchPathIsPhoto, { path: initialFileToOpen }).catch(() => true))
+        handleImageSelectRef.current(initialFileToOpen);
       else {
         const name = initialFileToOpen.split(/[\\/]/).pop() ?? initialFileToOpen;
-        notify.error(i18n.t('notifications.unsupportedFormat', { name }));
+        notify.error(i18n.t('notifications.unsupportedFormat', { name }), { paths: [initialFileToOpen] });
+        // The user's own open failed: the activity centre opens on its notice.
+        useActivityStore.getState().setOpen(true);
       }
     })();
   }, [initialFileToOpen, startupLibraryReady]);

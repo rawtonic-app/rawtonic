@@ -4,13 +4,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const { invoke, exit } = vi.hoisted(() => ({ invoke: vi.fn(), exit: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/plugin-process', () => ({ exit }));
-const { notifyError } = vi.hoisted(() => ({ notifyError: vi.fn() }));
-vi.mock('../activity/notify', () => ({ notify: { error: notifyError } }));
 
 import { useExternalEditSession } from './useExternalEditSession';
 import { useProcessStore, type ExportJob } from '../store/useProcessStore';
 import { useEditorStore } from '../store/useEditorStore';
-import { useSettingsStore } from '../store/useSettingsStore';
+import { useActivityStore } from '../store/useActivityStore';
 import { waitFor } from '@testing-library/react';
 
 afterEach(cleanup);
@@ -75,7 +73,9 @@ it('keeps a launch photo queued until remembered-library navigation has finished
     startupLibraryReady: false,
     initialFileToOpen: '/outside/photo.ARW'
   });
-  invoke.mockImplementation(async (command: string) => (command === 'launch_path_library' ? null : false));
+  invoke.mockImplementation(async (command: string) =>
+    command === 'launch_path_library' ? null : command === 'launch_path_is_photo'
+  );
   const select = vi.fn();
   renderHook(() => useExternalEditSession(select));
   expect(select).not.toHaveBeenCalled();
@@ -116,24 +116,29 @@ it('opens a library the launch names as that library, not as a folder', async ()
 });
 
 // macOS lists Rawtonic for every camera RAW type it knows (tauri.macos.conf.json),
-// some of which Rawtonic cannot read yet (Nikon NEFX, Sony AXR, …).
+// some of which Rawtonic cannot read yet (Nikon NEFX, Sony AXR, …); the backend
+// says which files are photos it can show (formats::is_openable_photo).
 it.each([
   ['/photos/merged.NEFX', false],
-  ['/photos/shot.nef', true],
-  ['/photos/noextension', false]
-])('a file handed over by Open With (%s) opens only when its format is supported', async (path, opens) => {
-  notifyError.mockReset();
+  ['/photos/shot.nef', true]
+])('a file handed over by Open With (%s) opens only when the app can show it', async (path, photo) => {
   invoke.mockReset();
-  invoke.mockImplementation(async (command: string) => (command === 'launch_path_library' ? null : false));
-  useSettingsStore.setState({ supportedTypes: { raw: ['nef', 'arw'], nonRaw: ['jpg'] } });
+  invoke.mockImplementation(async (command: string) =>
+    command === 'launch_path_library' ? null : command === 'launch_path_is_photo' ? photo : false
+  );
+  useActivityStore.setState({ entries: [], open: false });
   useProcessStore.setState({ externalEditSession: null, startupLibraryReady: true, initialFileToOpen: path } as never);
   const select = vi.fn();
   renderHook(() => useExternalEditSession(select));
-  if (opens) {
+  if (photo) {
     await waitFor(() => expect(select).toHaveBeenCalledWith(path));
-    expect(notifyError).not.toHaveBeenCalled();
+    expect(useActivityStore.getState().entries).toEqual([]);
   } else {
-    await waitFor(() => expect(notifyError).toHaveBeenCalledTimes(1));
+    // What the user sees: the activity centre opens on a failure naming the file.
+    await waitFor(() => expect(useActivityStore.getState().open).toBe(true));
+    const [entry] = useActivityStore.getState().entries;
+    expect(entry.status).toBe('failure');
+    expect(entry.paths).toEqual([path]);
     expect(select).not.toHaveBeenCalled();
   }
 });

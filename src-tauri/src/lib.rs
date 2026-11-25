@@ -1086,6 +1086,7 @@ fn start(args: Vec<String>) {
             lut_processing::remove_lut,
             startup::frontend_ready,
             startup::launch_path_is_directory,
+            startup::launch_path_is_photo,
             startup::launch_path_library,
             editor_preview::cancel_thumbnail_generation,
             editor_preview::update_wgpu_transform,

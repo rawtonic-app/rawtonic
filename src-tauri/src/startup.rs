@@ -1373,6 +1373,15 @@ pub async fn launch_path_is_directory(path: String) -> Result<bool, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Whether a launch path is a photo the app can show (`formats::is_openable_photo`);
+/// any other file is named to the user instead of being decoded.
+#[tauri::command]
+pub async fn launch_path_is_photo(path: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || rawtonic_engine::formats::is_openable_photo(&path))
+        .await
+        .map_err(|error| error.to_string())
+}
+
 fn is_launch_directory(path: &str) -> bool {
     std::path::Path::new(path).is_dir()
 }
