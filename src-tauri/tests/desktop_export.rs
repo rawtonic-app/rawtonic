@@ -14,18 +14,19 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::utils::config::AppDirectoriesOverride;
 
+fn assert_isolated_app(identifier: &str, root: &str) {
+    let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+    assert_eq!(context.config().identifier, identifier);
+    assert_eq!(
+        context.config().app.app_directories_override,
+        Some(AppDirectoriesOverride::Root(PathBuf::from(root)))
+    );
+}
+
 #[test]
 #[ignore = "requires a GPU, access to the model pack, and an isolated cc.rawtonic.qa.src1 build"]
 fn super_resolution_flag_matches_the_export_recipe() {
-    let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
-    assert_eq!(context.config().identifier, "cc.rawtonic.qa.src1");
-    assert_eq!(
-        context.config().app.app_directories_override,
-        Some(AppDirectoriesOverride::Root(PathBuf::from(
-            "$TEMP/src1-app-data"
-        )))
-    );
-
+    assert_isolated_app("cc.rawtonic.qa.src1", "$TEMP/src1-app-data");
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().canonical().unwrap();
     let source = root.join("photo.png");
@@ -87,14 +88,7 @@ fn super_resolution_flag_matches_the_export_recipe() {
 #[test]
 #[ignore = "requires a GPU and the isolated desktop QA build described above"]
 fn replace_if_changed_through_the_desktop_worker() {
-    let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
-    assert_eq!(context.config().identifier, "cc.rawtonic.qa.exs2");
-    assert_eq!(
-        context.config().app.app_directories_override,
-        Some(AppDirectoriesOverride::Root(PathBuf::from(
-            "$TEMP/exs2-app-data"
-        )))
-    );
+    assert_isolated_app("cc.rawtonic.qa.exs2", "$TEMP/exs2-app-data");
 
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().canonical().unwrap();
