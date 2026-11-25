@@ -429,11 +429,15 @@ const KEYWORD_NOTES = [
 ] as const;
 
 /** The keywords of one `KEYWORD_NOTES` line as typed here; a literal name
- * holding `|` keeps its quotes, so it reads apart from a real hierarchy. */
+ * holding `|` is shown in quotes as the other editor holds it, then the path
+ * it becomes here (which a real hierarchy of those names shares). */
 function keywordNoteNames(notRead: ImportPreview['notRead'], field: (typeof KEYWORD_NOTES)[number]): string[] {
   if (field === 'keywordsWithLevelSeparator')
     return (notRead[field] ?? []).map((levels) =>
-      levels.map((level) => (/[,<>|]|^"/.test(level) ? `"${level}"` : level)).join(' > ')
+      [
+        levels.map((level) => (/[,<>|]|^"/.test(level) ? `"${level}"` : level)).join(' > '),
+        typedKeyword(levels.join('|'))
+      ].join(' → ')
     );
   return (notRead[field] ?? []).map(typedKeyword);
 }
@@ -1242,9 +1246,17 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     previewRequest.current += 1;
     setImportPreview(null);
   };
-  const previewImport = async () => {
+  /** Checks the library to import. `relinkOnly`: the same library again
+   * for a changed folder location (the relink field's blur), which keeps the
+   * shown preview until it answers so a click on Import right after typing
+   * still imports; a Check turns Import off until it answers, since the
+   * catalog may have changed since the last one. A failed check leaves no
+   * preview. */
+  const previewImport = async (relinkOnly = false) => {
     setError('');
-    const request = ++previewRequest.current;
+    if (relinkOnly) previewRequest.current += 1;
+    else clearImportPreview();
+    const request = previewRequest.current;
     try {
       const preview = await invoke<ImportPreview>(Invokes.LibraryImportPreview, {
         source: importSource.trim(),
@@ -1252,7 +1264,10 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
       });
       if (request === previewRequest.current) setImportPreview(preview);
     } catch (e) {
-      if (request === previewRequest.current) setError(String(e));
+      if (request === previewRequest.current) {
+        setImportPreview(null);
+        setError(String(e));
+      }
     }
   };
   const runImport = async (event: React.FormEvent) => {
@@ -2709,7 +2724,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                           placeholder={t('session.import.relinkPlaceholder')}
                           value={relinks[root.folder] ?? ''}
                           onChange={(e) => setRelinks({ ...relinks, [root.folder]: e.target.value })}
-                          onBlur={() => void previewImport()}
+                          onBlur={() => void previewImport(true)}
                         />
                       )}
                     </li>

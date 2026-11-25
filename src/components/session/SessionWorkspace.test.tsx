@@ -1076,7 +1076,7 @@ it('names the Lightroom keywords whose export, person or name attributes do not 
   ).toBeTruthy();
   expect(screen.getByText('Person keywords (imported as keywords; Rawtonic has no people): Jane Doe')).toBeTruthy();
   // The literal name as Lightroom holds it, apart from a real `pipe > term`.
-  expect(screen.getByText('Keyword names holding | (imported as levels): "pipe|term"')).toBeTruthy();
+  expect(screen.getByText('Keyword names holding | (imported as levels): "pipe|term" → pipe > term')).toBeTruthy();
 });
 
 // KWL1 review: a check answered after the source changed is dropped, so
@@ -1123,6 +1123,29 @@ it('drops an import check answered after the library to import changed', async (
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(screen.queryByText(/First/)).toBeNull();
   expect((screen.getByRole('button', { name: /Import into Acme/ }) as HTMLButtonElement).disabled).toBe(true);
+  // A recheck of the same library turns Import off until it answers, and a
+  // failed one leaves no preview behind.
+  await user.click(screen.getByRole('button', { name: 'Check' }));
+  answer({
+    name: 'Second',
+    kind: 'lightroom',
+    photos: 1,
+    copies: 0,
+    edited: 0,
+    albums: 0,
+    keywords: 0,
+    roots: [],
+    notRead: { smartAlbums: 0, localAdjustments: 0, unlocated: 0, keywordSynonyms: 0 }
+  });
+  await screen.findByText(/Second/);
+  const importButton = () => screen.getByRole('button', { name: /Import into Acme/ }) as HTMLButtonElement;
+  expect(importButton().disabled).toBe(false);
+  vi.mocked(invoke).mockImplementation(async (command, args) =>
+    command === 'library_import_preview' ? Promise.reject(new Error('locked')) : base(command, args)
+  );
+  await user.click(screen.getByRole('button', { name: 'Check' }));
+  await waitFor(() => expect(screen.queryByText(/Second/)).toBeNull());
+  expect(importButton().disabled).toBe(true);
 });
 
 it('offers "Apply Capture One straightening and crop" for photos an earlier import did not read, never by itself', async () => {
