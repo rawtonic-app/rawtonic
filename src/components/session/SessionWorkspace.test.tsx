@@ -1036,10 +1036,10 @@ it('names the Lightroom keywords whose export, person or name attributes do not 
               localAdjustments: 0,
               unlocated: 0,
               keywordSynonyms: 3,
-              keywordsNotExported: ['Clients', 'private_term'],
+              keywordsNotExported: ['Clients', 'private_term', ...Array.from({ length: 10 }, (_, i) => `k${i + 1}`)],
               keywordsExportedWithoutParents: ['Clients|Acme'],
               personKeywords: ['Jane Doe'],
-              keywordsWithLevelSeparator: ['pipe|term']
+              keywordsWithLevelSeparator: [['pipe|term']]
             }
           }
         : base(command, args)
@@ -1059,14 +1059,70 @@ it('names the Lightroom keywords whose export, person or name attributes do not 
   await user.type(screen.getByLabelText('Library to import'), '/LR/KWL1.lrcat');
   await user.click(screen.getByRole('button', { name: 'Check' }));
   expect(await screen.findByText(/19 keywords in the keyword list, 3 keyword synonyms \(not imported\)/)).toBeTruthy();
-  expect(
-    screen.getByText('Keywords Lightroom leaves out of exports (Rawtonic exports them): Clients, private_term')
-  ).toBeTruthy();
+  // Twelve names: ten in the line, all of them behind a native disclosure
+  // (a focusable summary that browsers open with Enter or Space; jsdom only
+  // implements the click).
+  const line = screen.getByText(
+    'Keywords Lightroom leaves out of exports (Rawtonic exports them): Clients, private_term, k1, k2, k3, k4, k5, k6, k7, k8, …'
+  );
+  expect(line.tagName).toBe('SUMMARY');
+  const details = line.closest('details')!;
+  expect(details.open).toBe(false);
+  await user.click(line);
+  expect(details.open).toBe(true);
+  expect(details.textContent).toContain('k8, k9, k10');
   expect(
     screen.getByText('Keywords Lightroom exports without their parents (Rawtonic exports every level): Clients > Acme')
   ).toBeTruthy();
   expect(screen.getByText('Person keywords (imported as keywords; Rawtonic has no people): Jane Doe')).toBeTruthy();
-  expect(screen.getByText('Keyword names holding | (imported as levels): pipe > term')).toBeTruthy();
+  // The literal name as Lightroom holds it, apart from a real `pipe > term`.
+  expect(screen.getByText('Keyword names holding | (imported as levels): "pipe|term"')).toBeTruthy();
+});
+
+// KWL1 review: a check answered after the source changed is dropped, so
+// Import never submits a library whose keyword notes were not shown.
+it('drops an import check answered after the library to import changed', async () => {
+  const user = userEvent.setup();
+  localStorage.clear();
+  const catalog = { ...summary, manifest: { ...summary.manifest, mode: 'catalog' } };
+  let answer: (value: unknown) => void = () => {};
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) =>
+    command === 'session_create' || command === 'session_summary'
+      ? catalog
+      : command === 'library_import_preview'
+        ? new Promise((resolve) => (answer = resolve))
+        : base(command, args)
+  );
+  render(
+    <ContextMenuProvider>
+      <SessionWorkspace onNavigate={vi.fn(async () => {})} />
+    </ContextMenuProvider>
+  );
+  await user.click(screen.getByRole('button', { name: 'Create a session' }));
+  await user.type(screen.getByLabelText('Session name'), 'Acme');
+  await user.click(screen.getByRole('button', { name: 'Location' }));
+  await user.click(screen.getByRole('button', { name: 'Create session' }));
+  await waitFor(() => expect(screen.getByTitle('/jobs/Acme')).toBeTruthy());
+  await user.click(screen.getByTitle('/jobs/Acme'));
+  await user.click(await screen.findByRole('menuitem', { name: /Import from Lightroom/ }));
+  await user.type(screen.getByLabelText('Library to import'), '/LR/First.lrcat');
+  await user.click(screen.getByRole('button', { name: 'Check' }));
+  await user.type(screen.getByLabelText('Library to import'), '-other');
+  answer({
+    name: 'First',
+    kind: 'lightroom',
+    photos: 1,
+    copies: 0,
+    edited: 0,
+    albums: 0,
+    keywords: 0,
+    roots: [],
+    notRead: { smartAlbums: 0, localAdjustments: 0, unlocated: 0, keywordSynonyms: 0 }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(screen.queryByText(/First/)).toBeNull();
+  expect((screen.getByRole('button', { name: /Import into Acme/ }) as HTMLButtonElement).disabled).toBe(true);
 });
 
 it('offers "Apply Capture One straightening and crop" for photos an earlier import did not read, never by itself', async () => {

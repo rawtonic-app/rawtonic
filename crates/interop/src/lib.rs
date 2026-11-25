@@ -163,9 +163,12 @@ pub struct NotRead {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub person_keywords: Vec<String>,
     /// Keywords whose own name holds `|`, Rawtonic's level separator (and
-    /// Lightroom's in `lr:hierarchicalSubject`): they arrive as levels.
+    /// Lightroom's in `lr:hierarchicalSubject`): they arrive as levels. Each
+    /// is given by its names from the top as the other editor holds them
+    /// (`["pipe|term"]`), so the literal name can be told from a real
+    /// hierarchy that now has the same path.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub keywords_with_level_separator: Vec<String>,
+    pub keywords_with_level_separator: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -328,7 +328,8 @@ fn lightroom_keyword_list_keeps_unused_terms_and_lists_what_has_no_counterpart()
            (399,'k399',1,1,1,NULL,'semi;colon',43),(401,'k401',1,1,1,NULL,'angle>term',43),
            (403,'k403',1,1,1,NULL,'lt<term',43),(405,'k405',1,1,1,NULL,'pipe|term',43),
            (407,'k407',1,1,1,NULL,'slash/term',43),(409,'k409',1,1,1,NULL,'quote"term',43),
-           (411,'k411',1,1,1,NULL,'Rome, Italy',369);
+           (411,'k411',1,1,1,NULL,'Rome, Italy',369),
+           (413,'k413',1,1,1,NULL,'pipe',43),(415,'k415',1,1,1,NULL,'term',413);
          INSERT INTO AgLibraryKeywordSynonym VALUES(377,375,'roma','Roma'),(385,383,'hound','Hound'),
            (387,383,'canine','Canine');
          INSERT INTO AgLibraryKeywordImage VALUES(1,1,375),(2,1,383),(3,2,397),(4,2,389),(5,2,393);"#,
@@ -352,7 +353,8 @@ fn lightroom_keyword_list_keeps_unused_terms_and_lists_what_has_no_counterpart()
     assert_eq!(held("1"), ["Dog", "Places|Europe|Italy|Rome"]);
     assert_eq!(held("2"), ["Clients|Acme", "comma,term", "private_term"]);
     // The keyword list whole: unused terms and every parent, literal names
-    // one level each (a `|` is Rawtonic's level separator: two levels).
+    // one level each (a `|` is Rawtonic's level separator: two levels, the
+    // same path as the real hierarchy `pipe ▸ term`).
     assert_eq!(
         lib.keywords,
         [
@@ -369,6 +371,7 @@ fn lightroom_keyword_list_keeps_unused_terms_and_lists_what_has_no_counterpart()
             "angle>term",
             "comma,term",
             "lt<term",
+            "pipe",
             "pipe|term",
             "private_term",
             "quote\"term",
@@ -383,7 +386,8 @@ fn lightroom_keyword_list_keeps_unused_terms_and_lists_what_has_no_counterpart()
     assert_eq!(n.keywords_not_exported, ["Clients", "private_term"]);
     assert_eq!(n.keywords_exported_without_parents, ["Clients|Acme"]);
     assert_eq!(n.person_keywords, ["Jane Doe"]);
-    assert_eq!(n.keywords_with_level_separator, ["pipe|term"]);
+    // The literal name as Lightroom holds it, not the shared path.
+    assert_eq!(n.keywords_with_level_separator, [["pipe|term"]]);
 }
 
 // A catalog without Lightroom's keyword flags or synonym table (the older

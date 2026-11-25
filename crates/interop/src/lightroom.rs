@@ -387,6 +387,8 @@ struct Keywords {
     persons: Vec<i64>,
     /// Ids whose own name holds `|`.
     with_separator: Vec<i64>,
+    /// Every keyword's names from the top, as Lightroom holds them.
+    levels: HashMap<i64, Vec<String>>,
     /// Synonyms (`AgLibraryKeywordSynonym`).
     synonyms: usize,
 }
@@ -420,6 +422,7 @@ fn keyword_list(conn: &rusqlite::Connection) -> Result<Keywords> {
         .map(|(id, name, parent, ..)| (*id, (name.clone(), *parent)))
         .collect();
     let mut paths = HashMap::new();
+    let mut levels = HashMap::new();
     for (&id, (name, _)) in &nodes {
         if name.as_deref().is_none_or(str::is_empty) {
             continue;
@@ -439,6 +442,7 @@ fn keyword_list(conn: &rusqlite::Connection) -> Result<Keywords> {
         }
         parts.reverse();
         paths.insert(id, parts.join("|"));
+        levels.insert(id, parts);
     }
     let named = |pick: &dyn Fn(&Row) -> bool| -> Vec<i64> {
         rows.iter()
@@ -461,6 +465,7 @@ fn keyword_list(conn: &rusqlite::Connection) -> Result<Keywords> {
         persons: named(&|r| r.5.as_deref() == Some("person")),
         with_separator: named(&|r| r.1.as_deref().is_some_and(|n| n.contains('|'))),
         paths,
+        levels,
         synonyms,
     })
 }
@@ -486,7 +491,16 @@ fn keyword_library(list: &Keywords, not_read: &mut NotRead) -> Vec<String> {
     not_read.person_keywords = sorted(&list.persons);
     // A name holding `|` (Rawtonic's level separator, also Lightroom's in
     // `lr:hierarchicalSubject`) arrives as levels.
-    not_read.keywords_with_level_separator = sorted(&list.with_separator);
+    // Shown as Lightroom names them, so the literal name stays recognisable
+    // beside a real `pipe ▸ term` hierarchy it now shares a path with.
+    let mut literal: Vec<Vec<String>> = list
+        .with_separator
+        .iter()
+        .filter_map(|id| list.levels.get(id).cloned())
+        .collect();
+    literal.sort();
+    literal.dedup();
+    not_read.keywords_with_level_separator = literal;
     let ids: Vec<i64> = list.paths.keys().copied().collect();
     sorted(&ids)
 }

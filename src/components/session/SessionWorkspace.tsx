@@ -414,7 +414,8 @@ interface ImportPreview {
     keywordsNotExported?: string[];
     keywordsExportedWithoutParents?: string[];
     personKeywords?: string[];
-    keywordsWithLevelSeparator?: string[];
+    /** Names from the top as the other editor holds them. */
+    keywordsWithLevelSeparator?: string[][];
   };
 }
 
@@ -426,6 +427,16 @@ const KEYWORD_NOTES = [
   'personKeywords',
   'keywordsWithLevelSeparator'
 ] as const;
+
+/** The keywords of one `KEYWORD_NOTES` line as typed here; a literal name
+ * holding `|` keeps its quotes, so it reads apart from a real hierarchy. */
+function keywordNoteNames(notRead: ImportPreview['notRead'], field: (typeof KEYWORD_NOTES)[number]): string[] {
+  if (field === 'keywordsWithLevelSeparator')
+    return (notRead[field] ?? []).map((levels) =>
+      levels.map((level) => (/[,<>|]|^"/.test(level) ? `"${level}"` : level)).join(' > ')
+    );
+  return (notRead[field] ?? []).map(typedKeyword);
+}
 
 interface ImportReport {
   imported: number;
@@ -1224,17 +1235,24 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     Object.entries(relinks)
       .filter(([, to]) => to.trim())
       .map(([from, to]) => ({ from, to: to.trim() }));
+  // A check answered after the source changed, or after a newer check
+  // started, is dropped: Import must submit the library the preview shows.
+  const previewRequest = useRef(0);
+  const clearImportPreview = () => {
+    previewRequest.current += 1;
+    setImportPreview(null);
+  };
   const previewImport = async () => {
     setError('');
+    const request = ++previewRequest.current;
     try {
-      setImportPreview(
-        await invoke<ImportPreview>(Invokes.LibraryImportPreview, {
-          source: importSource.trim(),
-          relinks: relinkList()
-        })
-      );
+      const preview = await invoke<ImportPreview>(Invokes.LibraryImportPreview, {
+        source: importSource.trim(),
+        relinks: relinkList()
+      });
+      if (request === previewRequest.current) setImportPreview(preview);
     } catch (e) {
-      setError(String(e));
+      if (request === previewRequest.current) setError(String(e));
     }
   };
   const runImport = async (event: React.FormEvent) => {
@@ -1711,7 +1729,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     }
   };
   const openImport = () => {
-    setImportPreview(null);
+    clearImportPreview();
     setRelinks({});
     setForm('import');
   };
@@ -2590,7 +2608,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                   required
                   onChange={(e) => {
                     setImportSource(e.target.value);
-                    setImportPreview(null);
+                    clearImportPreview();
                   }}
                 />
                 <button
@@ -2612,7 +2630,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                     }).then((value) => {
                       if (typeof value === 'string') {
                         setImportSource(value);
-                        setImportPreview(null);
+                        clearImportPreview();
                       }
                     })
                   }
@@ -2652,16 +2670,26 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                 {KEYWORD_NOTES.some((field) => importPreview.notRead[field]?.length) && (
                   <ul className="session-import-keyword-notes">
                     {KEYWORD_NOTES.map((field) => {
-                      const paths = importPreview.notRead[field] ?? [];
-                      // At most ten names in the line; all of them on hover.
-                      const names = paths.map(typedKeyword);
-                      return paths.length ? (
-                        <li key={field} title={names.join(', ')}>
-                          {t(`session.import.${field}`, {
-                            names: names.slice(0, 10).join(', ') + (names.length > 10 ? ', …' : '')
-                          })}
+                      const names = keywordNoteNames(importPreview.notRead, field);
+                      if (!names.length) return null;
+                      const line = (shown: string[]) =>
+                        t(`session.import.${field}`, {
+                          names: shown.join(', ') + (shown.length < names.length ? ', …' : '')
+                        });
+                      // At most ten names in the line; a longer list opens
+                      // (also from the keyboard) to show all of them.
+                      return (
+                        <li key={field}>
+                          {names.length > 10 ? (
+                            <details>
+                              <summary>{line(names.slice(0, 10))}</summary>
+                              {names.join(', ')}
+                            </details>
+                          ) : (
+                            line(names)
+                          )}
                         </li>
-                      ) : null;
+                      );
                     })}
                   </ul>
                 )}
