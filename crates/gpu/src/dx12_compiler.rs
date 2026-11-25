@@ -33,18 +33,20 @@ pub(crate) fn choose(
     env_set: bool,
     dir: Option<&Path>,
     exists: impl Fn(&Path) -> bool,
-) -> (wgpu::Dx12Compiler, String) {
+) -> (wgpu::Dx12Compiler, String, bool) {
     if env_set {
         let chosen = wgpu::Dx12Compiler::from_env().unwrap_or_default();
         return (
             chosen,
             "GPU: DX12 shader compiler from WGPU_DX12_COMPILER".into(),
+            false,
         );
     }
     let Some(dir) = dir else {
         return (
             wgpu::Dx12Compiler::Auto,
             "GPU: DX12 shader compiler Auto (no bundled DXC folder given)".into(),
+            false,
         );
     };
     let missing: Vec<&str> = LIBRARIES
@@ -59,6 +61,7 @@ pub(crate) fn choose(
                 missing.join(", "),
                 dir.display()
             ),
+            false,
         );
     }
     let dxc = dir.join("dxcompiler.dll");
@@ -67,12 +70,13 @@ pub(crate) fn choose(
             dxc_path: dxc.display().to_string(),
         },
         format!("GPU: DX12 shader compiler DXC from {}", dxc.display()),
+        true,
     )
 }
 
 /// Sets the DX12 compiler on `descriptor` and logs the choice once.
-/// Returns whether it is the bundled DXC, which the caller drops for
-/// `Auto` when it exposes no adapter (`without_bundled`): wgpu hides an
+/// Returns whether it is the bundled DXC, which the caller drops for FXC
+/// when it exposes no usable adapter (`without_bundled`): wgpu hides an
 /// adapter whose driver reports only Shader Model 5.1 under DXC, while FXC
 /// can still drive it.
 pub(crate) fn apply(descriptor: &mut wgpu::InstanceDescriptor) -> bool {
@@ -80,10 +84,10 @@ pub(crate) fn apply(descriptor: &mut wgpu::InstanceDescriptor) -> bool {
         return false;
     }
     let env_set = std::env::var_os("WGPU_DX12_COMPILER").is_some();
-    let (mut compiler, mut line) = choose(env_set, BUNDLED_DIR.get().map(PathBuf::as_path), |p| {
-        p.is_file()
-    });
-    let bundled = !env_set && matches!(compiler, wgpu::Dx12Compiler::DynamicDxc { .. });
+    let (mut compiler, mut line, bundled) =
+        choose(env_set, BUNDLED_DIR.get().map(PathBuf::as_path), |p| {
+            p.is_file()
+        });
     let mut bundled_loaded = bundled;
     if bundled
         && let Some(dir) = BUNDLED_DIR.get()
@@ -101,12 +105,13 @@ pub(crate) fn apply(descriptor: &mut wgpu::InstanceDescriptor) -> bool {
     bundled_loaded
 }
 
-/// `descriptor` with wgpu's own choice (`Auto`) instead of the bundled DXC.
+/// `descriptor` with FXC instead of the bundled DXC (not `Auto`, which can
+/// pick a DXC again), as DX12 started before the bundled DXC was used.
 pub(crate) fn without_bundled(descriptor: &mut wgpu::InstanceDescriptor) {
     log::warn!(
-        "GPU: no DX12 adapter with the bundled DXC (Shader Model 6 not reported?); retrying with Auto"
+        "GPU: no usable DX12 adapter with the bundled DXC (Shader Model 6 not reported?); retrying with FXC"
     );
-    descriptor.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Auto;
+    descriptor.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
 }
 
 #[cfg(windows)]
@@ -143,7 +148,8 @@ mod tests {
     #[test]
     fn the_bundled_dxc_is_used_by_full_path_when_both_libraries_are_there() {
         let dir = Path::new("R/resources");
-        let (compiler, line) = choose(false, Some(dir), |_| true);
+        let (compiler, line, bundled) = choose(false, Some(dir), |_| true);
+        assert!(bundled);
         let expected = dir.join("dxcompiler.dll").display().to_string();
         assert!(
             matches!(&compiler, wgpu::Dx12Compiler::DynamicDxc { dxc_path } if *dxc_path == expected),
@@ -155,7 +161,8 @@ mod tests {
     #[test]
     fn a_missing_library_or_folder_keeps_auto() {
         let dir = Path::new("R/resources");
-        let (compiler, line) = choose(false, Some(dir), |p| !p.ends_with("dxil.dll"));
+        let (compiler, line, bundled) = choose(false, Some(dir), |p| !p.ends_with("dxil.dll"));
+        assert!(!bundled);
         assert!(matches!(compiler, wgpu::Dx12Compiler::Auto));
         assert!(line.contains("dxil.dll not in"), "{line}");
         assert!(matches!(
@@ -166,7 +173,10 @@ mod tests {
 
     #[test]
     fn the_environment_wins() {
-        let (_, line) = choose(true, Some(Path::new("R")), |_| true);
+        // An explicit choice (even `dxc`) is never the bundled one: no
+        // bundled validator preload, no FXC retry.
+        let (_, line, bundled) = choose(true, Some(Path::new("R")), |_| true);
+        assert!(!bundled);
         assert!(line.contains("WGPU_DX12_COMPILER"), "{line}");
     }
 }

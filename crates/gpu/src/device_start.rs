@@ -230,16 +230,22 @@ pub fn start_device(
                     }));
                 adapter.map(|adapter| (instance, adapter, surface))
             };
+            // Under the bundled DXC an adapter wgpu hides (Shader Model 5.1)
+            // can leave no adapter or only one Rawtonic refuses (WARP).
             match pick(descriptor) {
-                Ok(picked) => Ok(picked),
-                Err(_) if bundled_dxc => {
+                Ok(picked)
+                    if !bundled_dxc || unsupported_adapter(&picked.1.get_info()).is_none() =>
+                {
+                    Ok(picked)
+                }
+                Err(e) if !bundled_dxc => Err(e.to_string()),
+                _ => {
                     let mut descriptor =
                         wgpu::InstanceDescriptor::new_without_display_handle_from_env();
                     descriptor.backends = backends;
                     crate::dx12_compiler::without_bundled(&mut descriptor);
                     pick(descriptor).map_err(|e| e.to_string())
                 }
-                Err(e) => Err(e.to_string()),
             }
         },
         |(_, adapter, _)| adapter.get_info().backend,
