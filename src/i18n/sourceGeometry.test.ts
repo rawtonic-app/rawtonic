@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
-import i18n from './index';
+import i18n from 'i18next';
+import './index';
 
 it.each([1, 2, 5, 12, 22])('labels the bulk crop action without an incorrect plural for %i photos', (n) => {
   expect(i18n.t('session.toasts.sourceGeometryAll', { lng: 'en', n })).toBe(
