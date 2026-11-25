@@ -1811,6 +1811,12 @@
       "copies_other": "仮想コピー {{count}} 件",
       "edited_other": "補正あり {{count}} 枚",
       "filterName": "カタログとセッション",
+      "keywordLibrary_other": "キーワードリストのキーワード {{count}} 個",
+      "keywordsExportedWithoutParents": "Lightroom が親キーワードなしで書き出すキーワード（Rawtonic はすべての階層を書き出します）：{{names}}",
+      "keywordsNotExported": "Lightroom が書き出さないキーワード（Rawtonic は書き出します）：{{names}}",
+      "keywordsWithLevelSeparator": "| を含むキーワード名（階層として読み込み）：{{names}}",
+      "keywordSynonymsNotImported_other": "キーワードの同義語 {{count}} 個（読み込みません）",
+      "personKeywords": "人物キーワード（キーワードとして読み込み。Rawtonic には人物がありません）：{{names}}",
       "photos_other": "写真 {{count}} 枚",
       "preview": ": {{items}}。",
       "relinkAria": "{{folder}} の新しい場所",
@@ -2208,7 +2214,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion, a single pass without the average in the Fast conversions; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
@@ -3827,9 +3833,14 @@
         "resize": "サイズを調整",
         "superResolution": {
           "failed": "スーパー解像度を使用できません: {{error}}",
+          "fastFailed": "高速の品質は利用できません: {{error}}",
           "hint": "サイズ変更とシャープ処理の前に、AI モデルで各写真の幅と高さを 2 倍に拡大します。元の写真は変更されません。",
           "label": "スーパー解像度（2×、AI）",
           "preparing": "スーパー解像度モデルを準備しています…",
+          "quality": "品質",
+          "qualityFast": "高速",
+          "qualityFull": "フル",
+          "qualityHint": "高速は、回転した4つのコピーを平均する代わりに写真の各部分を1回だけ拡大します。処理量は4分の1で、違いはピクセル単位の比較でしか見えません。",
           "ready": "スーパー解像度モデルの準備ができました（{{backend}}）。"
         },
         "valueLabel": "{{name}} ({{unit}})"

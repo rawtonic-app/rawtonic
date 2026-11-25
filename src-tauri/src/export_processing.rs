@@ -966,7 +966,10 @@ fn export_masks_for_image(
     }
 
     if !mask_bitmaps.is_empty() {
-        let all_adjustments = get_all_adjustments_from_json(js_adjustments, is_raw, tm_override);
+        let mut all_adjustments =
+            get_all_adjustments_from_json(js_adjustments, is_raw, tm_override);
+        // The layer images show a PQ/HLG photo's highlights as the main image does.
+        rawtonic_engine::hdr_source::apply(&mut all_adjustments.uniforms.global, source_path_str);
         let unique_hash = calculate_full_job_hash(source_path_str, js_adjustments);
         let extension = output_path_obj
             .extension()
@@ -3416,6 +3419,7 @@ fn headless_targets(
         subfolder: None,
         output_sharpening: None,
         super_resolution: false,
+        super_resolution_quality: Default::default(),
         provenance: None,
         existing_files: session.existing_files,
         max_file_kb: None,
@@ -4105,6 +4109,7 @@ mod tests {
             fn enlarge_2x(
                 &self,
                 image: DynamicImage,
+                _quality: rawtonic_export::export_processing::SuperResolutionQuality,
                 cancelled: &dyn Fn() -> Result<(), String>,
             ) -> Result<DynamicImage, String> {
                 cancelled()?;

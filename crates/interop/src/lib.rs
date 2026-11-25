@@ -145,6 +145,30 @@ pub struct NotRead {
     pub local_adjustments: usize,
     /// Photos whose folder the library no longer records.
     pub unlocated: usize,
+    /// Synonyms in the keyword library (Capture One's): Rawtonic has no
+    /// synonyms, and a synonym is not made a keyword of its own.
+    pub keyword_synonyms: usize,
+    /// Keywords the other editor leaves out of exported files (Lightroom's
+    /// "Include on Export" off), by path. Rawtonic has no such switch: they
+    /// come over, and an export that keeps keywords writes them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords_not_exported: Vec<String>,
+    /// Keywords the other editor exports without their parents (Lightroom's
+    /// "Export Containing Keywords" off), by path: Rawtonic writes every
+    /// level.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords_exported_without_parents: Vec<String>,
+    /// Person keywords (Lightroom's): they come over as keywords; Rawtonic
+    /// has no people.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub person_keywords: Vec<String>,
+    /// Keywords whose own name holds `|`, Rawtonic's level separator (and
+    /// Lightroom's in `lr:hierarchicalSubject`): they arrive as levels. Each
+    /// is given by its names from the top as the other editor holds them
+    /// (`["pipe|term"]`), so the literal name can be told from a real
+    /// hierarchy that now has the same path.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords_with_level_separator: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,6 +179,11 @@ pub struct Library {
     pub albums: Vec<Album>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub stacks: Vec<Stack>,
+    /// The keyword library: every keyword's path, parents included (each is
+    /// a keyword of its own there), whether photographs hold it or not, so
+    /// the other editor's keyword list arrives whole, unused terms too.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
     pub not_read: NotRead,
 }
 

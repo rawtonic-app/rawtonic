@@ -68,6 +68,7 @@ import { holdSavedView, isInside, samePath, savedView, settleSavedView, type Sav
 import { outermost, relativePathBelow, type CatalogFoldersView } from '../../utils/catalogFolders';
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, openMissingView, watchVolumes } from '../../utils/offline';
 import { watchXmpSidecars } from '../../utils/xmpCheck';
+import { typedKeyword } from '../../utils/keywordTree';
 import { requestAutoAdvance } from '../../utils/photoStepping';
 import { importEndView, watchUserActivity, type UserActivity } from '../../utils/importInteraction';
 import { hotFolderCommand } from '../../utils/hotFolderCommands';
@@ -401,8 +402,44 @@ interface ImportPreview {
   copies: number;
   edited: number;
   albums: number;
+  keywords: number;
   roots: { folder: string; photos: number; found: number }[];
-  notRead: { smartAlbums: number; localAdjustments: number; unlocated: number };
+  notRead: {
+    smartAlbums: number;
+    localAdjustments: number;
+    unlocated: number;
+    keywordSynonyms: number;
+    /** Lightroom keyword attributes Rawtonic has no counterpart for (KWL1),
+     * by path; absent when none. */
+    keywordsNotExported?: string[];
+    keywordsExportedWithoutParents?: string[];
+    personKeywords?: string[];
+    /** Names from the top as the other editor holds them. */
+    keywordsWithLevelSeparator?: string[][];
+  };
+}
+
+/** The import check's lines for keywords whose other-editor attributes do
+ * not come over (KWL1), each naming its keywords as typed here. */
+const KEYWORD_NOTES = [
+  'keywordsNotExported',
+  'keywordsExportedWithoutParents',
+  'personKeywords',
+  'keywordsWithLevelSeparator'
+] as const;
+
+/** The keywords of one `KEYWORD_NOTES` line as typed here; a literal name
+ * holding `|` is shown in quotes as the other editor holds it, then the path
+ * it becomes here (which a real hierarchy of those names shares). */
+function keywordNoteNames(notRead: ImportPreview['notRead'], field: (typeof KEYWORD_NOTES)[number]): string[] {
+  if (field === 'keywordsWithLevelSeparator')
+    return (notRead[field] ?? []).map((levels) =>
+      [
+        levels.map((level) => (/[,<>|]|^"/.test(level) ? `"${level}"` : level)).join(' > '),
+        typedKeyword(levels.join('|'))
+      ].join(' → ')
+    );
+  return (notRead[field] ?? []).map(typedKeyword);
 }
 
 interface ImportReport {
@@ -1202,17 +1239,35 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     Object.entries(relinks)
       .filter(([, to]) => to.trim())
       .map(([from, to]) => ({ from, to: to.trim() }));
-  const previewImport = async () => {
+  // A check answered after the source changed, or after a newer check
+  // started, is dropped: Import must submit the library the preview shows.
+  const previewRequest = useRef(0);
+  const clearImportPreview = () => {
+    previewRequest.current += 1;
+    setImportPreview(null);
+  };
+  /** Checks the library to import. `relinkOnly`: the same library again
+   * for a changed folder location (the relink field's blur), which keeps the
+   * shown preview until it answers so a click on Import right after typing
+   * still imports; a Check turns Import off until it answers, since the
+   * catalog may have changed since the last one. A failed check leaves no
+   * preview. */
+  const previewImport = async (relinkOnly = false) => {
     setError('');
+    if (relinkOnly) previewRequest.current += 1;
+    else clearImportPreview();
+    const request = previewRequest.current;
     try {
-      setImportPreview(
-        await invoke<ImportPreview>(Invokes.LibraryImportPreview, {
-          source: importSource.trim(),
-          relinks: relinkList()
-        })
-      );
+      const preview = await invoke<ImportPreview>(Invokes.LibraryImportPreview, {
+        source: importSource.trim(),
+        relinks: relinkList()
+      });
+      if (request === previewRequest.current) setImportPreview(preview);
     } catch (e) {
-      setError(String(e));
+      if (request === previewRequest.current) {
+        setImportPreview(null);
+        setError(String(e));
+      }
     }
   };
   const runImport = async (event: React.FormEvent) => {
@@ -1689,7 +1744,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     }
   };
   const openImport = () => {
-    setImportPreview(null);
+    clearImportPreview();
     setRelinks({});
     setForm('import');
   };
@@ -2568,7 +2623,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                   required
                   onChange={(e) => {
                     setImportSource(e.target.value);
-                    setImportPreview(null);
+                    clearImportPreview();
                   }}
                 />
                 <button
@@ -2590,7 +2645,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                     }).then((value) => {
                       if (typeof value === 'string') {
                         setImportSource(value);
-                        setImportPreview(null);
+                        clearImportPreview();
                       }
                     })
                   }
@@ -2609,6 +2664,14 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                       t('session.import.edited', { count: importPreview.edited }),
                       t('session.import.albums', { count: importPreview.albums }),
                       importPreview.copies ? t('session.import.copies', { count: importPreview.copies }) : null,
+                      importPreview.keywords
+                        ? t('session.import.keywordLibrary', { count: importPreview.keywords })
+                        : null,
+                      importPreview.notRead.keywordSynonyms
+                        ? t('session.import.keywordSynonymsNotImported', {
+                            count: importPreview.notRead.keywordSynonyms
+                          })
+                        : null,
                       importPreview.notRead.smartAlbums
                         ? t('session.import.smartAlbumsNotImported', {
                             count: importPreview.notRead.smartAlbums
@@ -2619,6 +2682,32 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                       .join(t('session.import.separator'))
                   })}
                 </p>
+                {KEYWORD_NOTES.some((field) => importPreview.notRead[field]?.length) && (
+                  <ul className="session-import-keyword-notes">
+                    {KEYWORD_NOTES.map((field) => {
+                      const names = keywordNoteNames(importPreview.notRead, field);
+                      if (!names.length) return null;
+                      const line = (shown: string[]) =>
+                        t(`session.import.${field}`, {
+                          names: shown.join(', ') + (shown.length < names.length ? ', …' : '')
+                        });
+                      // At most ten names in the line; a longer list opens
+                      // (also from the keyboard) to show all of them.
+                      return (
+                        <li key={field}>
+                          {names.length > 10 ? (
+                            <details>
+                              <summary>{line(names.slice(0, 10))}</summary>
+                              {names.join(', ')}
+                            </details>
+                          ) : (
+                            line(names)
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
                 <ul>
                   {importPreview.roots.map((root) => (
                     <li key={root.folder}>
@@ -2635,7 +2724,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                           placeholder={t('session.import.relinkPlaceholder')}
                           value={relinks[root.folder] ?? ''}
                           onChange={(e) => setRelinks({ ...relinks, [root.folder]: e.target.value })}
-                          onBlur={() => void previewImport()}
+                          onBlur={() => void previewImport(true)}
                         />
                       )}
                     </li>

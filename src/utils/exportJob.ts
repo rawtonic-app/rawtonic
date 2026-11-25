@@ -56,6 +56,11 @@ export function readFormDraft(library: string | null): RecipeDraft | null {
       if (same) draft[name] = saved[name];
     }
     if (typeof saved.folder === 'string') draft.folder = saved.folder;
+    // A chosen quality comes back; a form remembered with Super Resolution
+    // from before the choice keeps Full (what it exported with).
+    if (draft.superResolutionQuality !== 'full' && draft.superResolutionQuality !== 'fast') {
+      draft.superResolutionQuality = draft.superResolution === true ? 'full' : undefined;
+    }
     return draft as unknown as RecipeDraft;
   } catch {
     return null;

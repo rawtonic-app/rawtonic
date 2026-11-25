@@ -253,7 +253,16 @@ fn thumbnail_hash_for_engine(
     adjustments_bytes: &[u8],
     engine: u32,
 ) -> Option<String> {
-    thumbnail_hash_with(path_str, adjustments_bytes, engine, true, None, true, true)
+    thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        engine,
+        true,
+        None,
+        true,
+        true,
+        true,
+    )
 }
 
 /// The key a tile was cached under before a photo's camera matched its
@@ -269,6 +278,7 @@ fn thumbnail_hash_before_camera_identity(
         crate::preview_proxy::ENGINE_VERSION,
         true,
         None,
+        false,
         false,
         false,
     )
@@ -287,6 +297,7 @@ fn thumbnail_hash_with_display_copy_held(
         crate::preview_proxy::ENGINE_VERSION,
         true,
         Some(true),
+        false,
         false,
         false,
     )
@@ -308,6 +319,7 @@ fn thumbnail_hash_with_display_copy_renewed(
         Some(false),
         false,
         false,
+        false,
     )
 }
 
@@ -322,6 +334,7 @@ fn thumbnail_hash_before_refreshes(path_str: &str, adjustments_bytes: &[u8]) -> 
         crate::preview_proxy::ENGINE_VERSION,
         false,
         None,
+        false,
         false,
         false,
     )
@@ -339,9 +352,33 @@ fn thumbnail_hash_before_orf_preview(path_str: &str, adjustments_bytes: &[u8]) -
         None,
         true,
         false,
+        false,
     )
 }
 
+/// The key a HEIF or AVIF tile was cached under before PQ/HLG highlights
+/// rolled off (2026-11-25): while the original is unavailable, that tile is
+/// better than none.
+fn thumbnail_hash_before_hdr_rolloff(path_str: &str, adjustments_bytes: &[u8]) -> Option<String> {
+    let (source_path, _) = parse_virtual_path(path_str);
+    if is_raw_file(&source_path)
+        || !rawtonic_engine::hdr_source::may_be_hdr_file(&source_path.to_string_lossy())
+    {
+        return None;
+    }
+    thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
+        true,
+        None,
+        true,
+        true,
+        false,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn thumbnail_hash_with(
     path_str: &str,
     adjustments_bytes: &[u8],
@@ -350,6 +387,7 @@ fn thumbnail_hash_with(
     display_copy: Option<bool>,
     camera_identity: bool,
     orf_preview: bool,
+    hdr_rolloff: bool,
 ) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
@@ -400,6 +438,17 @@ fn thumbnail_hash_with(
             .is_some_and(|adjustments| adjustments[effects::LUT_PATH.into_name()].is_string())
     {
         hasher.update(b"\0lut-renders-when-missing-v1\0");
+    }
+    // PQ/HLG highlights clipped at diffuse white in every tile until
+    // 2026-11-25 (renderVersion 20, rawtonic_engine::hdr_source): HEIF and
+    // AVIF tiles are made again once.
+    // Decided by the name alone (HEIF and AVIF; SDR ones too), so the key
+    // never reads the original (cloud placeholders, offline photos).
+    if hdr_rolloff
+        && !is_raw_file(&source_path)
+        && rawtonic_engine::hdr_source::may_be_hdr_file(&source_path.to_string_lossy())
+    {
+        hasher.update(b"\0hdr-rolloff-v1");
     }
     if is_raw_file(&source_path) {
         // A never-edited Olympus / OM System RAW's tile was developed from
@@ -754,7 +803,12 @@ fn develop_thumbnail_with_source(
                     // With the user's develop defaults, not the camera's JPEG
                     // (a JPEG or TIFF too when they are not for RAWs only).
                     || (rawtonic_engine::develop_defaults::follows_defaults(&adjustments)
-                        && rawtonic_engine::develop_defaults::for_path(&source_path).is_some())) =>
+                        && rawtonic_engine::develop_defaults::for_path(&source_path).is_some())
+                    // A PQ/HLG photo's highlights roll off from the newest
+                    // render version (rawtonic_engine::hdr_source).
+                    || (!is_raw
+                        && !adjustments.is_null()
+                        && rawtonic_engine::hdr_source::headroom(&source_path_str).is_some())) =>
         {
             let mut recipe = if adjustments.is_null() {
                 serde_json::json!({})
@@ -1232,6 +1286,19 @@ fn develop_thumbnail_with_source(
         } else if is_raw {
             apply_cpu_default_raw_processing(&mut final_image);
         }
+    }
+    // Never edited (no recipe, or one normalized to the newest render
+    // version above when no GPU renders it): PQ/HLG highlights roll off as
+    // Develop and the export show them. Not under the AgX look, which
+    // compresses them itself.
+    let agx = crate::image_processing::resolve_tonemapper_override(&settings, is_raw) == Some(1);
+    if !is_raw
+        && !agx
+        && (adjustments.is_null()
+            || rawtonic_engine::recipe_versions::RenderVersion::of(&adjustments).hdr_rolloff())
+        && let Some(headroom) = rawtonic_engine::hdr_source::headroom(&source_path_str)
+    {
+        rawtonic_engine::hdr_source::rolloff_image(&mut final_image, headroom);
     }
     if let Some(recipe) = new_recipe {
         final_image = cut_to_camera_crop(final_image, &recipe, &source_path_str);
@@ -1764,9 +1831,10 @@ fn preferred_thumbnail_hash<'a>(
 }
 
 /// The keys a tile of `path_str` may have been cached under, newest
-/// first: before ORF maker-note previews, before camera identities, with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
+/// first: before the PQ/HLG roll-off, before ORF maker-note previews, before camera identities, with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
 fn older_tile_keys(path_str: &str, adjustments_bytes: &[u8]) -> Vec<String> {
     [
+        thumbnail_hash_before_hdr_rolloff(path_str, adjustments_bytes),
         thumbnail_hash_before_orf_preview(path_str, adjustments_bytes),
         thumbnail_hash_before_camera_identity(path_str, adjustments_bytes),
         thumbnail_hash_with_display_copy_renewed(path_str, adjustments_bytes),
@@ -2708,6 +2776,49 @@ mod kept_sidecar_tests {
 
 #[cfg(test)]
 mod share_lookup_tests {
+
+    /// HEIF and AVIF tiles get a new key with the PQ/HLG roll-off
+    /// (2026-11-25), decided by the file name alone; a tile cached under the
+    /// key before stays reachable while the original is unavailable.
+    #[cfg(unix)]
+    #[test]
+    fn a_heif_tile_cached_before_the_hdr_rolloff_stays_while_the_original_is_away() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let cache = temp.path().join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        let source = temp.path().join("IMG_0001.HIF");
+        std::fs::write(&source, b"not read for the key").unwrap();
+        let path = source.to_string_lossy().into_owned();
+        let recipe = b"null";
+        let new = super::compute_thumbnail_cache_hash(&path, recipe).unwrap();
+        let before = super::thumbnail_hash_before_hdr_rolloff(&path, recipe).unwrap();
+        assert_ne!(new, before);
+        assert_eq!(super::older_tile_keys(&path, recipe).first(), Some(&before));
+        for size in ["small", "medium"] {
+            std::fs::write(cache.join(format!("{before}_{size}.jpg")), b"tile").unwrap();
+        }
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let offline = std::fs::File::open(&source).is_err();
+        let chosen = super::keep_tile_of_unavailable_original(
+            &cache,
+            &source,
+            &serde_json::Value::Null,
+            new.clone(),
+            || super::older_tile_keys(&path, recipe),
+        );
+        std::fs::set_permissions(&source, std::fs::Permissions::from_mode(0o644)).unwrap();
+        if offline {
+            assert_eq!(chosen, before);
+        }
+        // Other files keep their key: no older one for the roll-off.
+        let jpeg = temp.path().join("IMG_0002.JPG");
+        std::fs::write(&jpeg, b"jpeg").unwrap();
+        assert_eq!(
+            super::thumbnail_hash_before_hdr_rolloff(&jpeg.to_string_lossy(), recipe),
+            None
+        );
+    }
 
     fn set_mtime(path: &std::path::Path, time: std::time::SystemTime) {
         std::fs::File::options()

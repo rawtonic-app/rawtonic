@@ -323,6 +323,10 @@ pub struct ExportPreset {
     /// saves it; it was dropped on save before).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub super_resolution: Option<bool>,
+    /// Super Resolution's quality, `"fast"` when chosen; absent = Full
+    /// (recipes saved before the choice).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub super_resolution_quality: Option<String>,
     pub keep_metadata: bool,
     pub strip_gps: bool,
     #[serde(default)]
@@ -424,6 +428,7 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             resize_value2: None,
             dont_enlarge: true,
             super_resolution: None,
+            super_resolution_quality: None,
             keep_metadata: true,
             strip_gps: false,
             keep_creator_contact: false,
@@ -475,6 +480,7 @@ pub fn default_export_presets() -> Vec<ExportPreset> {
             resize_value2: None,
             dont_enlarge: true,
             super_resolution: None,
+            super_resolution_quality: None,
             keep_metadata: false,
             strip_gps: true,
             keep_creator_contact: false,

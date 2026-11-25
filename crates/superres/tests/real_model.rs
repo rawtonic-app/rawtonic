@@ -8,7 +8,7 @@
 use std::time::Instant;
 
 use image::{DynamicImage, ImageBuffer, Rgb};
-use rawtonic_superres::{MARGIN, Model, SCALE, TILE};
+use rawtonic_superres::{MARGIN, Model, Quality, SCALE, TILE};
 
 fn models() -> Option<std::path::PathBuf> {
     std::env::var_os("SUPERRES_MODELS").map(Into::into)
@@ -54,10 +54,10 @@ fn enlarges_24_mp_and_tiles_join() {
         }
     }
     let first = Instant::now();
-    let reference = model.enlarge_tile(&whole).expect("tile");
+    let reference = model.enlarge_tile(&whole, Quality::Full).expect("tile");
     println!("first tile {:.3} s", first.elapsed().as_secs_f64());
     let tiled = model
-        .enlarge(DynamicImage::ImageRgb32F(source), &|| Ok(()))
+        .enlarge(DynamicImage::ImageRgb32F(source), Quality::Full, &|| Ok(()))
         .expect("enlarge")
         .into_rgb32f();
     let out = TILE * SCALE;
@@ -85,7 +85,7 @@ fn enlarges_24_mp_and_tiles_join() {
         image,
         &mut |tile| {
             let t = Instant::now();
-            let out = model.enlarge_tile(tile);
+            let out = model.enlarge_tile(tile, Quality::Full);
             in_model += t.elapsed();
             tiles += 1;
             out
@@ -103,7 +103,9 @@ fn enlarges_24_mp_and_tiles_join() {
     let start = Instant::now();
     let image =
         DynamicImage::ImageRgb16(DynamicImage::ImageRgb32F(pattern(6000, 4000)).into_rgb16());
-    let enlarged = model.enlarge(image, &|| Ok(())).expect("enlarge");
+    let enlarged = model
+        .enlarge(image, Quality::Full, &|| Ok(()))
+        .expect("enlarge");
     assert!(matches!(enlarged, DynamicImage::ImageRgb16(_)));
     println!("24 MP 16-bit in {:.2} s", start.elapsed().as_secs_f64());
 }
@@ -136,7 +138,7 @@ fn sequential_cpu_matches_original_graph() {
             Ok(outputs["enlarged"].try_extract_tensor::<f32>()?.1.to_vec())
         })
         .unwrap();
-    let got = sequential.enlarge_tile(&tile).unwrap();
+    let got = sequential.enlarge_tile(&tile, Quality::Full).unwrap();
     assert_eq!(got.len(), reference.len());
     let worst = got
         .iter()
@@ -156,7 +158,9 @@ fn cpu_legacy_pack_without_optional_conversion_still_runs() {
     assert!(!dir.join(rawtonic_superres::CPU_ONNX_FILE).exists());
     let model = Model::onnx(&dir.join(rawtonic_superres::ONNX_FILE)).unwrap();
     assert!(model.uses_cpu());
-    let output = model.enlarge_tile(&vec![0.0; 3 * TILE * TILE]).unwrap();
+    let output = model
+        .enlarge_tile(&vec![0.0; 3 * TILE * TILE], Quality::Full)
+        .unwrap();
     assert_eq!(output.len(), 3 * (TILE * SCALE).pow(2));
     assert!(output.iter().all(|v| v.is_finite()));
 }

@@ -179,6 +179,10 @@ pub fn read(session_db: &Path) -> Result<Library> {
         .collect::<rusqlite::Result<_>>()?
     };
 
+    let (keyword_library, keyword_synonyms) = keyword_library(&conn, &entity)?;
+    let keyword_paths: std::collections::HashSet<&str> =
+        keyword_library.iter().map(String::as_str).collect();
+
     // Settings columns this database has (older ones lack some).
     let present: std::collections::HashSet<String> = {
         let mut q = conn.prepare("SELECT name FROM pragma_table_info('ZVARIANTLAYER')")?;
@@ -242,7 +246,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
         let text = |i: usize| -> rusqlite::Result<String> {
             Ok(r.get::<_, Option<String>>(i)?.unwrap_or_default())
         };
-        let keywords = content_keywords(&text(7)?);
+        let keywords = content_keywords(&text(7)?, &keyword_paths);
         let metadata = Metadata {
             rating: r
                 .get::<_, Option<i64>>(5)?
@@ -364,6 +368,7 @@ pub fn read(session_db: &Path) -> Result<Library> {
     let mut not_read = NotRead {
         local_adjustments: unread_layers,
         unlocated,
+        keyword_synonyms,
         ..Default::default()
     };
     not_read.smart_albums = conn.query_row(
@@ -449,8 +454,71 @@ pub fn read(session_db: &Path) -> Result<Library> {
         photos,
         albums,
         stacks: Vec::new(),
+        keywords: keyword_library,
         not_read,
     })
+}
+
+/// The keyword library (`ZKEYWORD`, Capture One 16): every keyword's path
+/// from the top in stored form (`angle|term`), with or without photographs,
+/// and how many synonyms it holds. Names are taken as they are: Capture
+/// One's library dialog splits `,` and `;` and makes levels of `>`, so a
+/// name holding one reached the catalog another way and stays one level
+/// (a `|`, the levels' separator here and in XMP, cannot). Synonyms are rows
+/// of the same table (entity `Synonym`) under their keyword; they are counted,
+/// not made keywords. A catalog without the table has no library.
+fn keyword_library(
+    conn: &rusqlite::Connection,
+    entity: &dyn Fn(&str) -> i64,
+) -> rusqlite::Result<(Vec<String>, usize)> {
+    let has_table: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='ZKEYWORD')",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_table {
+        return Ok((Vec::new(), 0));
+    }
+    let (keyword, synonym) = (entity("Keyword"), entity("Synonym"));
+    let mut q = conn.prepare("SELECT Z_ENT, Z_PK, ZNAME, ZPARENT FROM ZKEYWORD")?;
+    // Without the entity names (not seen), every row but a synonym counts.
+    let is_keyword = |ent: Option<i64>| match ent {
+        Some(e) if e == synonym => false,
+        Some(e) if keyword >= 0 => e == keyword,
+        _ => true,
+    };
+    let mut synonyms = 0;
+    let mut nodes: HashMap<i64, (String, Option<i64>)> = HashMap::new();
+    let mut rows = q.query([])?;
+    while let Some(r) = rows.next()? {
+        let ent: Option<i64> = r.get(0)?;
+        if ent == Some(synonym) {
+            synonyms += 1;
+        } else if is_keyword(ent)
+            && let Some(name) = r.get::<_, Option<String>>(2)?
+        {
+            nodes.insert(r.get(1)?, (name, r.get(3)?));
+        }
+    }
+    let mut paths = std::collections::BTreeSet::new();
+    for (name, parent) in nodes.values() {
+        let mut levels = vec![name.as_str()];
+        let mut up = *parent;
+        // A parent that is missing or loops ends the path there.
+        while let Some((name, parent)) = up.and_then(|p| nodes.get(&p)) {
+            if levels.len() > nodes.len() {
+                break;
+            }
+            levels.push(name);
+            up = *parent;
+        }
+        levels.reverse();
+        let path = rawtonic_metadata::keywords::normalize(&levels.join("|"));
+        if !path.is_empty() {
+            paths.insert(path);
+        }
+    }
+    Ok((paths.into_iter().collect(), synonyms))
 }
 
 /// The local adjustment layers by variant (`Z_PK`), bottom first, each with
@@ -524,32 +592,67 @@ fn read_layers(
 /// Capture One lists every keyword the photograph carries, separated by
 /// `,`; each entry is its path from the top, levels joined by `|`, followed
 /// by `||<n>` (`Animals|Dogs||1`; `n` counts the entries from 0, as seen in
-/// a Capture One 16.9.1 session). Applying a keyword also lists its ancestors
-/// as entries of their own (`Animals||0` beside `Animals|Dogs||1`). Keep each
-/// listed path so parent assignments survive import and XMP export.
-/// Entries without the `||<n>` suffix (older sessions, hand-typed text) are
-/// plain paths; `;` and newlines separate as well. Not seen, so not handled:
-/// whether Capture One escapes a `,` or `|` inside a keyword's name (such a
-/// name splits at the comma).
-fn content_keywords(text: &str) -> Vec<String> {
+/// Capture One 16.9.1 sessions and catalogs). Applying a keyword also lists
+/// its ancestors as entries of their own (`Animals||0` beside
+/// `Animals|Dogs||1`). Keep each listed path so parent assignments survive
+/// import and XMP export. Capture One does not escape a `,` inside a name,
+/// so a run of comma-separated parts that is a path of the keyword
+/// `library` is one keyword (`comma,term`); other commas separate. Entries
+/// without the `||<n>` suffix (older sessions, hand-typed text) are plain
+/// paths, and newlines separate as well; a `;` is part of a name (Capture
+/// One stores no `;` lists).
+fn content_keywords(text: &str, library: &std::collections::HashSet<&str>) -> Vec<String> {
     use rawtonic_metadata::keywords::normalize;
     let mut paths: Vec<String> = Vec::new();
-    for entry in text.split([',', ';', '\n']) {
-        let entry = entry.trim();
-        let path = match entry.rsplit_once("||") {
-            Some((path, index))
-                if !index.is_empty() && index.bytes().all(|b| b.is_ascii_digit()) =>
-            {
-                path
-            }
-            _ => entry,
-        };
-        let path = normalize(path);
+    let mut push = |path: String| {
         if !path.is_empty() && !paths.contains(&path) {
             paths.push(path);
         }
+    };
+    for line in text.split('\n') {
+        for segment in entries(line) {
+            let parts: Vec<&str> = segment.split(',').collect();
+            let mut i = 0;
+            while i < parts.len() {
+                // The longest run of parts from here that the library names.
+                let end = (i + 2..=parts.len())
+                    .rev()
+                    .find(|&end| library.contains(normalize(&parts[i..end].join(",")).as_str()))
+                    .unwrap_or(i + 1);
+                push(normalize(&parts[i..end].join(",")));
+                i = end;
+            }
+        }
     }
     paths
+}
+
+/// `line` cut after each `||<digits>` that ends an entry (before a `,` or at
+/// the end), the suffixes taken off; the rest after the last one is a
+/// segment of its own.
+fn entries(line: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    let mut from = 0;
+    while let Some(found) = line[from..].find("||") {
+        let at = from + found;
+        let digits = line[at + 2..]
+            .bytes()
+            .take_while(u8::is_ascii_digit)
+            .count();
+        let after = at + 2 + digits;
+        if digits > 0 && (after == line.len() || line.as_bytes()[after] == b',') {
+            out.push(&line[start..at]);
+            start = (after + 1).min(line.len());
+            from = start;
+        } else {
+            from = at + 2;
+        }
+    }
+    if start < line.len() {
+        out.push(&line[start..]);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -565,7 +668,7 @@ mod tests {
     #[test]
     fn a_nested_tree_keeps_every_path_without_the_index_suffix() {
         assert_eq!(
-            content_keywords(C1R5),
+            content_keywords(C1R5, &Default::default()),
             [
                 "Animals",
                 "Animals|Dogs",
@@ -580,7 +683,10 @@ mod tests {
     #[test]
     fn siblings_and_other_branches_stay_separate() {
         assert_eq!(
-            content_keywords("Animals||0,Animals|Cats||1,Animals|Dogs||2,Animals|Dogs|Puppies||3"),
+            content_keywords(
+                "Animals||0,Animals|Cats||1,Animals|Dogs||2,Animals|Dogs|Puppies||3",
+                &Default::default()
+            ),
             [
                 "Animals",
                 "Animals|Cats",
@@ -589,21 +695,34 @@ mod tests {
             ]
         );
         // A top-level keyword that is only a number is a keyword, not an index.
-        assert_eq!(content_keywords("2024||0,Places||1"), ["2024", "Places"]);
+        assert_eq!(
+            content_keywords("2024||0,Places||1", &Default::default()),
+            ["2024", "Places"]
+        );
     }
 
     #[test]
     fn plain_and_older_strings_are_read_as_before() {
         assert_eq!(
-            content_keywords("beach, sunset, Places | Ascona,Places,Places|Ascona"),
+            content_keywords(
+                "beach, sunset, Places | Ascona,Places,Places|Ascona",
+                &Default::default()
+            ),
             ["beach", "sunset", "Places|Ascona", "Places"]
         );
-        assert_eq!(content_keywords("a;b\nc"), ["a", "b", "c"]);
-        assert!(content_keywords("").is_empty());
-        assert!(content_keywords("||0").is_empty());
+        // A `;` is part of a name; a newline separates.
+        assert_eq!(
+            content_keywords("a;b\nc", &Default::default()),
+            ["a;b", "c"]
+        );
+        assert!(content_keywords("", &Default::default()).is_empty());
+        assert!(content_keywords("||0", &Default::default()).is_empty());
         // Deduplicate the same normalized path in indexed and plain entries.
         assert_eq!(
-            content_keywords("Animals||0,Animals|Dogs||1,Animals | Dogs,beach"),
+            content_keywords(
+                "Animals||0,Animals|Dogs||1,Animals | Dogs,beach",
+                &Default::default()
+            ),
             ["Animals", "Animals|Dogs", "beach"]
         );
     }

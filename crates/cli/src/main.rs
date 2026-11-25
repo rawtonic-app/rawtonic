@@ -363,6 +363,11 @@ struct ExportArgs {
     /// before any resize and output sharpening, as the app's export option.
     #[arg(long)]
     super_resolution: bool,
+    /// Super Resolution's quality: `full` averages each tile's four
+    /// rotations, `fast` enlarges it once (a quarter of the work), as the
+    /// app's export recipe.
+    #[arg(long, value_enum, default_value_t = SuperResolutionQualityArg::Full)]
+    super_resolution_quality: SuperResolutionQualityArg,
     /// Sign a provenance manifest (C2PA) into each JPEG, PNG, TIFF, WebP, AVIF
     /// or JPEG XL with the signing identity in DIR, as the app keeps it (its data folder's
     /// `provenance/`, holding `signing-identity.json`).
@@ -571,6 +576,24 @@ fn ai_denoiser(
     Ok(std::sync::Arc::new(filter))
 }
 
+/// `--super-resolution-quality`.
+#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+enum SuperResolutionQualityArg {
+    Full,
+    Fast,
+}
+
+impl From<SuperResolutionQualityArg>
+    for rawtonic_export::export_processing::SuperResolutionQuality
+{
+    fn from(quality: SuperResolutionQualityArg) -> Self {
+        match quality {
+            SuperResolutionQualityArg::Full => Self::Full,
+            SuperResolutionQualityArg::Fast => Self::Fast,
+        }
+    }
+}
+
 /// Super Resolution's model of the app's model folder (`--super-resolution`).
 struct SuperResolution(rawtonic_superres::Model);
 
@@ -578,17 +601,33 @@ impl rawtonic_export::export_processing::Enlarger for SuperResolution {
     fn enlarge_2x(
         &self,
         image: image::DynamicImage,
+        quality: rawtonic_export::export_processing::SuperResolutionQuality,
         cancelled: &dyn Fn() -> Result<(), String>,
     ) -> Result<image::DynamicImage, String> {
         let started = std::time::Instant::now();
         let (width, height) = (image.width(), image.height());
-        let enlarged = self.0.enlarge(image, cancelled)?;
+        let quality = superres_quality(quality);
+        let enlarged = self.0.enlarge(image, quality, cancelled)?;
         cli_eprintln!(
-            "Super Resolution: {width}x{height} enlarged on {} in {:.2} s",
+            "Super Resolution ({quality:?}): {width}x{height} enlarged on {} in {:.2} s",
             self.0.backend_name(),
             started.elapsed().as_secs_f64()
         );
         Ok(enlarged)
+    }
+}
+
+/// The export recipe's quality as the model's.
+fn superres_quality(
+    quality: rawtonic_export::export_processing::SuperResolutionQuality,
+) -> rawtonic_superres::Quality {
+    match quality {
+        rawtonic_export::export_processing::SuperResolutionQuality::Full => {
+            rawtonic_superres::Quality::Full
+        }
+        rawtonic_export::export_processing::SuperResolutionQuality::Fast => {
+            rawtonic_superres::Quality::Fast
+        }
     }
 }
 
@@ -1262,6 +1301,7 @@ fn export(args: ExportArgs) -> Result<()> {
         models,
         output_sharpening,
         super_resolution,
+        super_resolution_quality,
         provenance_identity,
         provenance_author,
         face_retouch,
@@ -1321,6 +1361,7 @@ fn export(args: ExportArgs) -> Result<()> {
         subfolder: None,
         output_sharpening,
         super_resolution,
+        super_resolution_quality: super_resolution_quality.into(),
         provenance: provenance_identity.as_ref().map(|_| {
             rawtonic_export::export_processing::ProvenanceSettings {
                 include_author: provenance_author,

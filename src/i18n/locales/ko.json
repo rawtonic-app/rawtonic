@@ -1811,6 +1811,12 @@
       "copies_other": "가상 복사본 {{count}}개",
       "edited_other": "조정됨 {{count}}장",
       "filterName": "카탈로그 및 세션",
+      "keywordLibrary_other": "키워드 목록의 키워드 {{count}}개",
+      "keywordsExportedWithoutParents": "Lightroom이 상위 키워드 없이 내보내는 키워드(Rawtonic은 모든 단계를 내보냄): {{names}}",
+      "keywordsNotExported": "Lightroom이 내보내지 않는 키워드(Rawtonic은 내보냄): {{names}}",
+      "keywordsWithLevelSeparator": "|가 들어간 키워드 이름(단계로 가져옴): {{names}}",
+      "keywordSynonymsNotImported_other": "키워드 동의어 {{count}}개(가져오지 않음)",
+      "personKeywords": "인물 키워드(키워드로 가져옴, Rawtonic에는 인물이 없음): {{names}}",
       "photos_other": "사진 {{count}}장",
       "preview": ": {{items}}.",
       "relinkAria": "{{folder}}의 새 위치",
@@ -2208,7 +2214,7 @@
       "build": "this build",
       "copyright": "Copyright © 2026 Rawtonic contributors. Portions copyright Timon Käch and the RapidRAW contributors.",
       "creditDescriptions": {
-        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion; fp16 weights and computation in the GPU conversion).",
+        "2xBHI_small_compact_pretrain": "Super Resolution at export (Philip Hofmann). Changed: converted to ONNX and Core ML, averaging four rotations of each tile (sequentially in the CPU conversion, a single pass without the average in the Fast conversions; fp16 weights and computation in the GPU conversion).",
         "avif-parse": "Reads the AVIF container.",
         "BiRefNet": "Subject and background masks (Peng Zheng et al.).",
         "ConvNeXt UperNet": "Sky and Landscape masks (Meta, ADE20K).",
@@ -3827,9 +3833,14 @@
         "resize": "크기에 맞게 조정",
         "superResolution": {
           "failed": "슈퍼 해상도를 사용할 수 없습니다: {{error}}",
+          "fastFailed": "빠름 품질을 사용할 수 없습니다: {{error}}",
           "hint": "크기 조정과 선명도 처리 전에 AI 모델로 각 사진의 가로와 세로를 두 배로 확대합니다. 원본은 변경되지 않습니다.",
           "label": "슈퍼 해상도 (2×, AI)",
           "preparing": "슈퍼 해상도 모델 준비 중…",
+          "quality": "품질",
+          "qualityFast": "빠름",
+          "qualityFull": "전체",
+          "qualityHint": "빠름은 회전한 네 개의 사본을 평균하는 대신 사진의 각 부분을 한 번만 확대합니다. 작업량은 4분의 1이며 차이는 픽셀 비교에서만 보입니다.",
           "ready": "슈퍼 해상도 모델 준비 완료 ({{backend}})."
         },
         "valueLabel": "{{name}} ({{unit}})"

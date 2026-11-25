@@ -629,6 +629,12 @@ pub(crate) fn primary_colour(bytes: &[u8]) -> (Option<Vec<u8>>, Option<Cicp>) {
     primary_properties(bytes).map_or((None, None), |p| (p.icc, p.nclx))
 }
 
+/// The primary item's `nclx` code points (`colr`) of any HEIF file, read
+/// from the container (hdr_source.rs: PQ and HLG sources).
+pub(crate) fn primary_nclx(bytes: &[u8]) -> Option<Cicp> {
+    primary_properties(bytes)?.nclx
+}
+
 /// The crop (x, y, width, height) of a clean aperture on a `width`×`height`
 /// image, if it lies on whole pixels inside the image (as libavif requires).
 fn clean_aperture(clap: [i64; 8], width: usize, height: usize) -> Option<[usize; 4]> {

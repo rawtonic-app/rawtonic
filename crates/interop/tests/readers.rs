@@ -296,6 +296,112 @@ fn lightroom_smart_collections_carry_their_rules() {
     );
 }
 
+// KWL1: the keyword list of a scratch catalog made in Lightroom Classic 15.6
+// (rows, flags and synonyms as Lightroom stored them, notes
+// benchmark-results/kwl1-2026-11-25): unused terms and parents arrive,
+// names holding `,` `;` `>` `<` `"` stay one level, and what Rawtonic has no
+// counterpart for is listed, not dropped silently.
+#[test]
+fn lightroom_keyword_list_keeps_unused_terms_and_lists_what_has_no_counterpart() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = lightroom_catalog(dir.path(), dir.path());
+    let conn = Connection::open(&cat).unwrap();
+    conn.execute_batch(
+        r#"DROP TABLE AgLibraryKeyword;
+         DELETE FROM AgLibraryKeywordImage;
+         CREATE TABLE AgLibraryKeyword (id_local INTEGER PRIMARY KEY, id_global UNIQUE NOT NULL,
+           dateCreated NOT NULL DEFAULT '', genealogy NOT NULL DEFAULT '', imageCountCache DEFAULT -1,
+           includeOnExport INTEGER NOT NULL DEFAULT 1, includeParents INTEGER NOT NULL DEFAULT 1,
+           includeSynonyms INTEGER NOT NULL DEFAULT 1, keywordType, lastApplied, lc_name, name,
+           parent INTEGER);
+         CREATE TABLE AgLibraryKeywordSynonym (id_local INTEGER PRIMARY KEY,
+           keyword INTEGER NOT NULL DEFAULT 0, lc_name, name);
+         INSERT INTO AgLibraryKeyword (id_local, id_global, includeOnExport, includeParents,
+           includeSynonyms, keywordType, name, parent) VALUES
+           (43,'k43',1,1,1,NULL,NULL,NULL),
+           (369,'k369',1,1,1,NULL,'Places',43),(371,'k371',1,1,1,NULL,'Europe',369),
+           (373,'k373',1,1,1,NULL,'Italy',371),(375,'k375',1,1,1,NULL,'Rome',373),
+           (379,'k379',1,1,1,NULL,'France',371),(381,'k381',1,1,1,NULL,'unused_solo',43),
+           (383,'k383',1,1,0,NULL,'Dog',43),(389,'k389',0,1,1,NULL,'private_term',43),
+           (391,'k391',0,1,1,NULL,'Clients',43),(393,'k393',1,0,1,NULL,'Acme',391),
+           (395,'k395',1,1,1,'person','Jane Doe',43),(397,'k397',1,1,1,NULL,'comma,term',43),
+           (399,'k399',1,1,1,NULL,'semi;colon',43),(401,'k401',1,1,1,NULL,'angle>term',43),
+           (403,'k403',1,1,1,NULL,'lt<term',43),(405,'k405',1,1,1,NULL,'pipe|term',43),
+           (407,'k407',1,1,1,NULL,'slash/term',43),(409,'k409',1,1,1,NULL,'quote"term',43),
+           (411,'k411',1,1,1,NULL,'Rome, Italy',369),
+           (413,'k413',1,1,1,NULL,'pipe',43),(415,'k415',1,1,1,NULL,'term',413);
+         INSERT INTO AgLibraryKeywordSynonym VALUES(377,375,'roma','Roma'),(385,383,'hound','Hound'),
+           (387,383,'canine','Canine');
+         INSERT INTO AgLibraryKeywordImage VALUES(1,1,375),(2,1,383),(3,2,397),(4,2,389),(5,2,393);"#,
+    )
+    .unwrap();
+    drop(conn);
+    let lib = lightroom::read(&cat).unwrap();
+    // The photographs' keywords as before: one path each.
+    let held = |key: &str| {
+        let mut k = lib
+            .photos
+            .iter()
+            .find(|p| p.key == key)
+            .unwrap()
+            .metadata
+            .keywords
+            .clone();
+        k.sort();
+        k
+    };
+    assert_eq!(held("1"), ["Dog", "Places|Europe|Italy|Rome"]);
+    assert_eq!(held("2"), ["Clients|Acme", "comma,term", "private_term"]);
+    // The keyword list whole: unused terms and every parent, literal names
+    // one level each (a `|` is Rawtonic's level separator: two levels, the
+    // same path as the real hierarchy `pipe ▸ term`).
+    assert_eq!(
+        lib.keywords,
+        [
+            "Clients",
+            "Clients|Acme",
+            "Dog",
+            "Jane Doe",
+            "Places",
+            "Places|Europe",
+            "Places|Europe|France",
+            "Places|Europe|Italy",
+            "Places|Europe|Italy|Rome",
+            "Places|Rome, Italy",
+            "angle>term",
+            "comma,term",
+            "lt<term",
+            "pipe",
+            "pipe|term",
+            "private_term",
+            "quote\"term",
+            "semi;colon",
+            "slash/term",
+            "unused_solo",
+        ]
+    );
+    // No counterpart here: listed by name for the import check.
+    let n = &lib.not_read;
+    assert_eq!(n.keyword_synonyms, 3);
+    assert_eq!(n.keywords_not_exported, ["Clients", "private_term"]);
+    assert_eq!(n.keywords_exported_without_parents, ["Clients|Acme"]);
+    assert_eq!(n.person_keywords, ["Jane Doe"]);
+    // The literal name as Lightroom holds it, not the shared path.
+    assert_eq!(n.keywords_with_level_separator, [["pipe|term"]]);
+}
+
+// A catalog without Lightroom's keyword flags or synonym table (the older
+// schema the other tests build) still gives its keyword list.
+#[test]
+fn lightroom_keyword_list_of_an_older_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let cat = lightroom_catalog(dir.path(), dir.path());
+    let lib = lightroom::read(&cat).unwrap();
+    assert_eq!(lib.keywords, ["Places", "Places|Rome"]);
+    assert_eq!(lib.not_read.keyword_synonyms, 0);
+    assert!(lib.not_read.keywords_not_exported.is_empty());
+}
+
 #[test]
 fn an_open_lightroom_catalog_is_refused() {
     let dir = tempfile::tempdir().unwrap();
@@ -552,4 +658,89 @@ fn capture_one_catalog_capture_date_keeps_the_fraction_without_inventing_a_zone(
             )
         );
     }
+}
+
+// KWC1: the keyword library (`ZKEYWORD`). The first ten rows are the C1R11
+// scratch catalog's (Capture One 16.9.1, read back; notes
+// benchmark-results/c1r11-2026-11-24/MANIFEST.md §6), including the unused
+// `unused_alpha`. Capture One's library dialog splits `,` and `;` and makes a
+// hierarchy of `>`, so the names holding them (rows 11–13) and the synonym
+// (row 14, entity `Synonym`) are synthetic: they stand for names that reached
+// a catalog another way, which must stay one keyword each.
+#[test]
+fn capture_one_keyword_library_keeps_unused_terms_and_literal_separators() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = capture_one_session(dir.path(), "Keywords");
+    let conn = Connection::open(&db).unwrap();
+    conn.execute_batch(
+        "INSERT INTO ZENTITIES VALUES(44,'Keyword'),(45,'Synonym');
+         CREATE TABLE ZKEYWORD (Z_ENT INTEGER, Z_PK INTEGER PRIMARY KEY, ZNAME VARCHAR, ZPARENT INTEGER,
+           ZLEFT INTEGER UNIQUE, ZRIGHT INTEGER UNIQUE, ZISEXPORTABLE BOOLEAN, ZDESCRIPTION VARCHAR);
+         INSERT INTO ZKEYWORD VALUES(44,1,'angle',NULL,1,4,1,NULL),(44,2,'term',1,2,3,1,NULL),
+           (44,3,'comma',NULL,5,6,1,NULL),(44,4,'Parent',NULL,7,8,1,NULL),(44,5,'colon',NULL,9,10,1,NULL),
+           (44,6,'termpipe',NULL,11,14,1,NULL),(44,7,'term',6,12,13,1,NULL),(44,8,'semi',NULL,15,16,1,NULL),
+           (44,9,'unused_alpha',NULL,17,18,1,NULL),(44,10,'slash/term',NULL,19,20,1,NULL),
+           (44,11,'semi;colon',NULL,21,22,1,NULL),(44,12,'comma,term',4,23,24,1,NULL),
+           (44,13,'angle>term',NULL,25,26,1,NULL),(45,14,'Doggo',1,27,28,1,NULL);
+         UPDATE ZVARIANTMETADATA SET ZCONTENT_KEYWORDS =
+           'Parent||0,Parent|comma,term||1,slash/term||2,semi;colon||3,angle>term||4,comma||5' WHERE Z_PK = 1;",
+    )
+    .unwrap();
+    drop(conn);
+    let lib = capture_one::read(&db).unwrap();
+    // The photograph's keywords: a name holding `,` or `;` is one keyword.
+    assert_eq!(
+        lib.photos[0].metadata.keywords,
+        [
+            "Parent",
+            "Parent|comma,term",
+            "slash/term",
+            "semi;colon",
+            "angle>term",
+            "comma"
+        ]
+    );
+    // The library: every term with its path, parents and unused ones too,
+    // the synonym not as a keyword.
+    let mut keywords = lib.keywords.clone();
+    keywords.sort();
+    assert_eq!(
+        keywords,
+        [
+            "Parent",
+            "Parent|comma,term",
+            "angle",
+            "angle>term",
+            "angle|term",
+            "colon",
+            "comma",
+            "semi",
+            "semi;colon",
+            "slash/term",
+            "termpipe",
+            "termpipe|term",
+            "unused_alpha"
+        ]
+    );
+    assert_eq!(lib.not_read.keyword_synonyms, 1);
+}
+
+// Without a keyword library (sessions of older versions) the plain list
+// splits at its commas. A `;` is part of a name: a change, since the first
+// reader also split at `;` without a sample of Capture One writing `;` lists
+// (every catalog and session measured writes `,` and `||<n>`).
+#[test]
+fn capture_one_keywords_without_a_library_split_only_at_commas() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = capture_one_session(dir.path(), "Plain");
+    let conn = Connection::open(&db).unwrap();
+    conn.execute(
+        "UPDATE ZVARIANTMETADATA SET ZCONTENT_KEYWORDS = 'a;b, c||0,d' WHERE Z_PK = 1",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+    let lib = capture_one::read(&db).unwrap();
+    assert_eq!(lib.photos[0].metadata.keywords, ["a;b", "c", "d"]);
+    assert!(lib.keywords.is_empty());
 }

@@ -331,6 +331,16 @@ SUPERRES_SHA256 = {
     "superres_coreml_weight.bin": "1df839340b0df1bb953ec97b0e084008c3d44557483d6009fed732d635b3a5fe",
 }
 SUPERRES_CPU_SHA256 = {"superres_compact_x2_cpu.onnx": "40bf5c362bad13ca57c1e4493f66f9ab5f2ce7f57156e1d20a77aad7322cd7a1"}
+# Super Resolution's Fast quality: the same weights without the rotation
+# average (export_superres.py --single), ONNX for every provider (its
+# published name from pack-2026-11-25) and a Core ML program (from
+# pack-2026-11-25c).
+SUPERRES_SINGLE_SHA256 = {
+    "superres_compact_x2_cpu_single.onnx": "3ad7b2ebfa053e930c5356db5d326b7587b458ae9fab4869f9e0534fbf563c1e",
+    "superres_single_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    "superres_single_coreml_model.mlmodel": "181860c6811ef1539244bf964b8570c8ff85ca377e39bf7f993ebcba5d461db3",
+    "superres_single_coreml_weight.bin": "1df839340b0df1bb953ec97b0e084008c3d44557483d6009fed732d635b3a5fe",
+}
 
 # fp16 compute for GPU providers, converted from the pinned fp32 graph by
 # convert_superres_fp16.py (fp32 input and output; the app uses it only on a
@@ -798,6 +808,21 @@ def main() -> None:
                 entries.append(place(superres / name, args.out, name, expected) | SUPERRES_ENTRY | {
                     "source": SUPERRES_ENTRY["source"] + "; CPU conversion runs the rotations sequentially (same weights and average)",
                 })
+
+    if todo(SUPERRES_SINGLE_SHA256):
+        superres = args.cache / "superres-single"
+        subprocess.run(SUPERRES_EXPORT + [str(superres), "--single"], check=True)
+        for name, expected in SUPERRES_SINGLE_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            coreml = "_coreml_" in name
+            entries.append(place(superres / name, args.out, name, expected) | SUPERRES_ENTRY | {
+                "used_by": SUPERRES_ENTRY["used_by"] + ", Fast quality" + (" (Core ML, macOS)" if coreml else ""),
+                "source": SUPERRES_ENTRY["source"].replace(
+                    "with each tile's four right-angle rotations averaged and clamped (ONNX fp32; Core ML fp16)",
+                    "--single: each tile enlarged once (no rotation average) and clamped ("
+                    + ("Core ML fp16)" if coreml else "ONNX fp32)")),
+            })
 
     if todo(SUPERRES_FP16_SHA256):
         superres = args.cache / "superres-fp16"

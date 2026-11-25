@@ -31,10 +31,12 @@ import {
   buildKeywordTree,
   displayKeyword,
   isWithinKeyword,
+  keywordLevels,
   keywordParent,
   legacyHierarchy,
   movedKeyword,
   parseKeywordPath,
+  typedKeyword,
   renameKeyword,
   resolveKeywordPath,
   KEYWORD_SEPARATOR,
@@ -184,7 +186,8 @@ export function StudioKeywordList() {
   const make = async (parent: string | null, text: string) => {
     const typed = parseKeywordPath(text);
     if (!typed.length || !directory) return;
-    const levels = [...(parent ? parseKeywordPath(parent) : []), ...typed];
+    // The parent is a stored path: its levels as they are (`People|A > B`).
+    const levels = [...(parent ? keywordLevels(parent) : []), ...typed];
     const path = resolveKeywordPath(levels, known);
     setBusy(true);
     try {
@@ -353,7 +356,7 @@ export function StudioKeywordList() {
             className="studio-metadata-input studio-album-name"
             style={{ marginLeft: depth * 14 }}
             aria-label={t('studio.library.keywordList.renameLabel', { keyword: displayKeyword(node.path) })}
-            defaultValue={displayKeyword(node.path)}
+            defaultValue={typedKeyword(node.path)}
             autoFocus
             onKeyDown={(e) => renameKeys(e, node.path)}
             onBlur={() => setRenaming(null)}

@@ -460,6 +460,18 @@ describe('Linux region frames at 100 %', () => {
   });
 });
 
+it('retries an interim loading response when the full source arrives without showing a failure', async () => {
+  useEditorStore.setState({ selectedImage: { ...photo('/first.dng', false), isPreviewReady: true } });
+  mount();
+  expect(calls()).toHaveLength(1);
+  await act(async () => fail.shift()!({ code: 'internal', message: 'The photograph is still loading' }));
+  expect(toast.error).not.toHaveBeenCalled();
+  act(() => useEditorStore.setState({ selectedImage: photo('/first.dng') }));
+  expect(calls()).toHaveLength(2);
+  await finish();
+  expect(toast.error).not.toHaveBeenCalled();
+});
+
 it('reports a native render failure but not a superseded preview', async () => {
   mount();
   await act(async () => {

@@ -31,3 +31,16 @@ it('brings back a JPEG file size limit and drops a nonsensical one', () => {
   localStorage.setItem('rawtonic.export.form:/Shoots/A', JSON.stringify({ maxFileKb: 0 }));
   expect(readFormDraft('/Shoots/A')?.maxFileKb).toBeNull();
 });
+
+it("remembers Super Resolution's quality and keeps Full for forms from before the choice", () => {
+  writeFormDraft('/Shoots/Q', { ...DEFAULT_RECIPE_DRAFT, superResolution: true, superResolutionQuality: 'full' });
+  expect(readFormDraft('/Shoots/Q')?.superResolutionQuality).toBe('full');
+  writeFormDraft('/Shoots/Q', { ...DEFAULT_RECIPE_DRAFT, superResolution: true, superResolutionQuality: 'fast' });
+  expect(readFormDraft('/Shoots/Q')?.superResolutionQuality).toBe('fast');
+  // Remembered before the choice existed: Full, never the machine default.
+  writeFormDraft('/Shoots/Q', { ...DEFAULT_RECIPE_DRAFT, superResolution: true });
+  expect(readFormDraft('/Shoots/Q')?.superResolutionQuality).toBe('full');
+  // Without Super Resolution the new-recipe default is still open.
+  writeFormDraft('/Shoots/Q', { ...DEFAULT_RECIPE_DRAFT });
+  expect(readFormDraft('/Shoots/Q')?.superResolutionQuality).toBeUndefined();
+});

@@ -442,7 +442,8 @@ compute the same masks; Select Subject is `subject_selection` at the component's
 
 `superres` — Super Resolution: the export's 2× enlargement (Compact network, CC BY 4.0) in 512 px tiles with 24 px of
 context, on Core ML on macOS or ONNX Runtime, the pixel type kept (`enlarge_with`). The export crate calls it through
-its `Enlarger` trait (`enlarge_for_export`, before resize, border and output sharpening when `superResolution` is set);
+its `Enlarger` trait (`enlarge_for_export`, before resize, border and output sharpening when `superResolution` is set,
+at the recipe's `superResolutionQuality`: Full averages four rotations, Fast runs one pass on every backend);
 glue `src-tauri/src/super_resolution.rs` (`prepare_super_resolution` fetches the model when the option is ticked,
 `ExportEnlarger` for the export workers) and the CLI's `--super-resolution`. Whether it marks exports as generated
 content is the one switch `export_marks_generated`.

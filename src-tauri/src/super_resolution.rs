@@ -75,7 +75,9 @@ async fn model(
             "Super Resolution: Core ML model loaded in {} ms",
             start.elapsed().as_millis()
         );
-        return Ok(Some(slot.insert(Arc::new(Model::core_ml(core_ml))).clone()));
+        let model = Model::core_ml(core_ml);
+        attach_core_ml_fast(app_handle, &models_dir, &model, download).await;
+        return Ok(Some(slot.insert(Arc::new(model)).clone()));
     }
     let path = models_dir.join(rawtonic_superres::ONNX_FILE);
     if !download && !verify_sha256(&path, rawtonic_superres::ONNX_SHA256)? {
@@ -141,6 +143,65 @@ async fn model(
     );
     crate::register_exit_handler();
     Ok(Some(slot.insert(Arc::new(model)).clone()))
+}
+
+/// Installs Super Resolution's Fast quality beside `model` when it is
+/// missing: the single-pass ONNX graph (`SINGLE_ONNX_FILE`, 2.4 MB; the
+/// model loads it when a Fast tile first needs it) or, on Core ML, the Fast
+/// program (`CORE_ML_SINGLE_PACKAGE`, 1.2 MB). Run on every preparation, so
+/// a download that failed offline is tried again; `Err` with the reason
+/// when the Fast quality cannot run (a Fast export then fails clearly).
+async fn install_fast(
+    app_handle: &tauri::AppHandle,
+    models_dir: &std::path::Path,
+    model: &Model,
+) -> Result<(), String> {
+    if model.fast_installed() {
+        return Ok(());
+    }
+    #[cfg(target_os = "macos")]
+    if !model.uses_onnx() {
+        attach_core_ml_fast(app_handle, models_dir, model, true).await;
+        return if model.fast_installed() {
+            Ok(())
+        } else {
+            Err("the Fast quality's Core ML model could not be downloaded".to_string())
+        };
+    }
+    download_verified(
+        app_handle,
+        models_dir,
+        rawtonic_superres::SINGLE_ONNX_FILE,
+        rawtonic_superres::SINGLE_ONNX_SHA256,
+        "Super Resolution Fast Model",
+    )
+    .await
+    .map_err(|error| format!("{error:#}"))
+}
+
+/// Loads the Fast Core ML program (with `download`, fetched and assembled
+/// first) and adds it to a Core ML model; without it Fast exports on Core
+/// ML fail with a clear error.
+#[cfg(target_os = "macos")]
+async fn attach_core_ml_fast(
+    app_handle: &tauri::AppHandle,
+    models_dir: &std::path::Path,
+    model: &Model,
+    download: bool,
+) {
+    if let Some(fast) = crate::ai_processing::load_core_ml(
+        app_handle,
+        models_dir,
+        rawtonic_superres::CORE_ML_SINGLE_PACKAGE,
+        &rawtonic_superres::CORE_ML_SINGLE_FILES,
+        download,
+        "super-resolution-fast",
+        "Super Resolution Fast Model",
+    )
+    .await
+    {
+        model.attach_core_ml_fast(fast);
+    }
 }
 
 /// Reloads of the loaded model take turns (`refreshed`), apart from the
@@ -255,16 +316,39 @@ async fn fetch_gpu_graph(app_handle: &tauri::AppHandle, models_dir: &std::path::
     }
 }
 
+/// What `prepare_super_resolution` found: the backend the model runs on,
+/// whether that is ONNX Runtime's CPU provider (the Export dialog then
+/// suggests the Fast quality for a new recipe) and, when the Fast quality
+/// cannot run there, why.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Prepared {
+    backend: String,
+    on_cpu: bool,
+    fast_error: Option<String>,
+}
+
 /// Fetches and loads the model when Super Resolution is ticked in the
-/// Export dialog, so the export itself downloads nothing. Returns the
-/// backend it runs on.
+/// Export dialog, or an export with it starts from a recipe (File menu), so
+/// the export itself downloads nothing; also installs the Fast quality's
+/// files (`install_fast`).
 #[tauri::command]
-pub async fn prepare_super_resolution(app_handle: tauri::AppHandle) -> Result<String, String> {
+pub async fn prepare_super_resolution(app_handle: tauri::AppHandle) -> Result<Prepared, String> {
     let model = model(&app_handle, true)
         .await
         .map_err(|e| format!("Super Resolution model unavailable: {e:#}"))?
         .ok_or_else(|| "Super Resolution model unavailable".to_string())?;
-    Ok(model.backend_name())
+    let models_dir = get_models_dir(&app_handle)
+        .map_err(|e| format!("Super Resolution model unavailable: {e:#}"))?;
+    let fast_error = install_fast(&app_handle, &models_dir, &model).await.err();
+    if let Some(error) = &fast_error {
+        log::warn!("Super Resolution Fast quality unavailable: {error}");
+    }
+    Ok(Prepared {
+        backend: model.backend_name(),
+        on_cpu: model.uses_cpu(),
+        fast_error,
+    })
 }
 
 /// Super Resolution for the export workers (outside the async runtime),
@@ -277,6 +361,7 @@ impl rawtonic_export::export_processing::Enlarger for ExportEnlarger<'_> {
     fn enlarge_2x(
         &self,
         image: image::DynamicImage,
+        quality: rawtonic_export::export_processing::SuperResolutionQuality,
         cancelled: &dyn Fn() -> Result<(), String>,
     ) -> Result<image::DynamicImage, String> {
         let model = tauri::async_runtime::block_on(model(self.app_handle, false))
@@ -287,9 +372,17 @@ impl rawtonic_export::export_processing::Enlarger for ExportEnlarger<'_> {
             })?;
         let started = std::time::Instant::now();
         let (width, height) = (image.width(), image.height());
-        let enlarged = model.enlarge(image, cancelled)?;
+        let quality = match quality {
+            rawtonic_export::export_processing::SuperResolutionQuality::Full => {
+                rawtonic_superres::Quality::Full
+            }
+            rawtonic_export::export_processing::SuperResolutionQuality::Fast => {
+                rawtonic_superres::Quality::Fast
+            }
+        };
+        let enlarged = model.enlarge(image, quality, cancelled)?;
         log::info!(
-            "Super Resolution: {width}x{height} enlarged on {} in {} ms",
+            "Super Resolution ({quality:?}): {width}x{height} enlarged on {} in {} ms",
             model.backend_name(),
             started.elapsed().as_millis()
         );
