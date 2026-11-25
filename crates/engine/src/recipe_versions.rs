@@ -132,12 +132,6 @@ impl RenderVersion {
         self.0 >= crate::image_loader::MEDIAN_DEAD_RENDER_VERSION
     }
 
-    /// Super Resolution enlarges each tile once on ONNX Runtime's CPU
-    /// provider, without the four-rotation average.
-    pub fn single_pass_super_resolution_on_cpu(self) -> bool {
-        self.0 >= ip::SINGLE_PASS_SUPER_RESOLUTION_RENDER_VERSION
-    }
-
     /// Colours outside the output space keep their hue.
     pub fn gamut_mapping(self) -> bool {
         self.0 >= ip::GAMUT_MAPPING_RENDER_VERSION

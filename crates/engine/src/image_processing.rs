@@ -6484,22 +6484,9 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// (2026-11-24) gives a dead photosite the median of three repairs (colour
 /// ratio, ratio of the neighbours nearest in the other colours, colour
 /// difference along the smoothest direction;
-/// `image_loader::MEDIAN_DEAD_RENDER_VERSION`). 20 (2026-11-25) runs
-/// Super Resolution on ONNX Runtime's CPU provider without the four-rotation
-/// average, a quarter of the work
-/// (`SINGLE_PASS_SUPER_RESOLUTION_RENDER_VERSION`).
+/// `image_loader::MEDIAN_DEAD_RENDER_VERSION`).
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 20;
-
-/// The render version from which an export's Super Resolution enlarges each
-/// tile once instead of averaging its four right-angle rotations where it
-/// runs on ONNX Runtime's CPU provider (`rawtonic_superres::Rotations`);
-/// GPUs and Core ML keep the average. 0.07 dB PSNR below the average on 34
-/// crops of 17 RAWs, LPIPS 0.001 better, nothing visible at 100 % (notes:
-/// benchmark-results/srr1-2026-11-25/REPORT.md); a 24 MP photo on the CPU
-/// in about a quarter of the time. The single-rotation graph is required
-/// there (no silent four-rotation fallback).
-pub const SINGLE_PASS_SUPER_RESOLUTION_RENDER_VERSION: u64 = 20;
+pub const RENDER_VERSION: u64 = 19;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the
