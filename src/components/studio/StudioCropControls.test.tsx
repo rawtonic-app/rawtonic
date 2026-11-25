@@ -202,3 +202,20 @@ describe('changing the crop ratio (ASP1: Capture One and Lightroom re-fit from t
     expect(adjustments().crop).toEqual({ unit: 'px', x: 1224, y: 0, width: 4912, height: 4912 });
   });
 });
+
+it('a crop reset forgets the drawn crop (ASP1)', () => {
+  useEditorStore.setState({
+    selectedImage: { path: '/s/d800.NEF', width: 7360, height: 4912, isRaw: true, isReady: true } as SelectedImage
+  });
+  render(<StudioCropControls />);
+  const drawn = { unit: 'px' as const, x: 1000, y: 1000, width: 3000, height: 2000 };
+  noteHandDrawnCrop(null, drawn);
+  useEditorStore.setState({ adjustments: { ...adjustments(), crop: drawn } });
+  fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+  // The crop tool fits the whole frame to an uncropped photo.
+  useEditorStore.setState({
+    adjustments: { ...adjustments(), crop: { unit: 'px', x: 0, y: 0, width: 7360, height: 4912 } }
+  });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Crop aspect ratio' }), { target: { value: '1' } });
+  expect(adjustments().crop).toEqual({ unit: 'px', x: 1224, y: 0, width: 4912, height: 4912 });
+});

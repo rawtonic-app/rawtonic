@@ -32,6 +32,12 @@ export function cropReferenceKey(path: string, adjustments: Record<string, unkno
 
 const centre = (crop: Crop) => ({ cx: crop.x + crop.width / 2, cy: crop.y + crop.height / 2 });
 
+const within = (crop: Crop, rect: Crop) =>
+  crop.x >= rect.x - 1 &&
+  crop.y >= rect.y - 1 &&
+  crop.x + crop.width <= rect.x + rect.width + 1 &&
+  crop.y + crop.height <= rect.y + rect.height + 1;
+
 /** The reference a ratio change uses: the kept one for this photo and frame,
  * or the whole photo around the current crop's centre. */
 export function referenceForRatioChange(
@@ -39,10 +45,20 @@ export function referenceForRatioChange(
   key: string,
   crop: Crop | null | undefined,
   orientedW: number,
-  orientedH: number
+  orientedH: number,
+  /** The recipe's ratio now: a whole-photo crop without one is a reset. */
+  aspectRatio: number | null = null
 ): CropReference {
-  if (reference && reference.key === key) return reference;
-  const c = crop && crop.width > 0 && crop.height > 0 ? centre(crop) : { cx: orientedW / 2, cy: orientedH / 2 };
+  const hasCrop = !!crop && crop.width > 0 && crop.height > 0;
+  // Kept while the crop is one this reference made or the user moved within
+  // it; a reset (no crop, the whole photo), an undo or a refit drops it.
+  if (reference && reference.key === key && hasCrop) {
+    const inside = reference.rect
+      ? within(crop, reference.rect)
+      : !!aspectRatio || !(crop.x <= 0 && crop.y <= 0 && crop.width >= orientedW && crop.height >= orientedH);
+    if (inside) return reference;
+  }
+  const c = hasCrop ? centre(crop) : { cx: orientedW / 2, cy: orientedH / 2 };
   return { key, rect: null, ...c };
 }
 
@@ -107,6 +123,8 @@ export function fitRatioCrop(
   if (!largest) return null;
   const dx = Math.round(reference.cx - (largest.x + largest.width / 2));
   const dy = Math.round(reference.cy - (largest.y + largest.height / 2));
+  // Centred within rounding: the largest crop as it is.
+  if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) return largest;
   if (rotation === 0) {
     // Exact: slide it as far towards the centre as the photo allows.
     const moved = forceCropInBounds({ ...largest, x: largest.x + dx, y: largest.y + dy }, W, H, 0);
@@ -148,7 +166,14 @@ export function cropForRatio(aspectRatio: number): Crop | null {
   const now = current();
   const { selectedImage, adjustments, cropReference } = useEditorStore.getState();
   if (!now || !selectedImage) return null;
-  const reference = referenceForRatioChange(cropReference, now.key, adjustments.crop, now.width, now.height);
+  const reference = referenceForRatioChange(
+    cropReference,
+    now.key,
+    adjustments.crop,
+    now.width,
+    now.height,
+    adjustments.aspectRatio
+  );
   if (reference !== cropReference) useEditorStore.setState({ cropReference: reference });
   return fitRatioCrop(
     selectedImage.width,
