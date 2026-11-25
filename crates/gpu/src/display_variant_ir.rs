@@ -1127,6 +1127,57 @@ mod tests {
             .any(|(_, f)| f.name.as_deref() == Some(name))
     }
 
+    /// The HLSL wgpu's DX12 backend gets: names of helper functions defined
+    /// more than once. DXC rejects a redefinition (FXC did not), so every
+    /// display variant fell back to the general shader with DXC.
+    fn hlsl_redefinitions(module: &Module) -> Vec<String> {
+        let info = validate(module).unwrap();
+        let options = naga::back::hlsl::Options {
+            shader_model: naga::back::hlsl::ShaderModel::V6_0,
+            ..Default::default()
+        };
+        let pipeline = naga::back::hlsl::PipelineOptions::default();
+        let mut hlsl = String::new();
+        let mut writer = naga::back::hlsl::Writer::new(&mut hlsl, &options, &pipeline);
+        writer.write(module, &info, None).unwrap();
+        let mut seen = std::collections::HashSet::new();
+        let mut twice = Vec::new();
+        for line in hlsl.lines().filter(|l| !l.starts_with(char::is_whitespace)) {
+            let Some(name) = line
+                .split(['(', ' '])
+                .find(|w| w.starts_with("Naga"))
+                .filter(|_| line.trim_end().ends_with(')') || line.ends_with('{'))
+            else {
+                continue;
+            };
+            let signature = line.to_string();
+            if !seen.insert(signature) {
+                twice.push(name.to_string());
+            }
+        }
+        twice
+    }
+
+    #[test]
+    fn hlsl_defines_each_image_query_helper_once() {
+        let source = "
+            @group(0) @binding(0) var a: texture_storage_2d<rgba16float, write>;
+            @group(0) @binding(1) var b: texture_storage_2d<rgba32float, write>;
+            @compute @workgroup_size(1) fn main() {
+                let s = textureDimensions(a) + textureDimensions(b);
+                textureStore(a, s, vec4<f32>(0.0));
+                textureStore(b, s, vec4<f32>(0.0));
+            }";
+        let module = naga::front::wgsl::parse_str(source).unwrap();
+        assert_eq!(hlsl_redefinitions(&module), Vec::<String>::new());
+        let shader = DisplayShader::new(SHADER);
+        let effects = [("ENABLE_EFFECTS", 1.0)];
+        for constants in [&[][..], &effects[..]] {
+            let module = shader.variant_module(constants).unwrap();
+            assert_eq!(hlsl_redefinitions(&module), Vec::<String>::new());
+        }
+    }
+
     #[test]
     fn decided_branches_and_the_functions_only_they_call_are_removed() {
         let shader = DisplayShader::new(SHADER);

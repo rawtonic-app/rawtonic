@@ -37,8 +37,14 @@ pollster = { workspace = true }
 # The idle compile helper's private folder (`idle_compile_child`).
 tempfile = { workspace = true }
 
+[target.'cfg(windows)'.dependencies]
+# Loads the bundled DXC validator by full path (dx12_compiler.rs).
+windows-sys = { version = "0.61", features = ["Win32_System_LibraryLoader"] }
+
 [dev-dependencies]
 base64 = { workspace = true }
 rawtonic-engine = { path = "../engine", version = "0.1.0", features = ["test-support"] }
 # compile_probe writes SPIR-V itself (its `spirv` candidates).
-naga = { version = "30.0.1", features = ["spv-out"] }
+# hlsl-out: the DX12 HLSL of display variants is checked off Windows
+# (display_variant_ir tests; vendor/naga/RAWTONIC_PATCH.md).
+naga = { version = "30.0.1", features = ["spv-out", "hlsl-out"] }

@@ -218,6 +218,7 @@ pub fn start_device(
             on_step(StartStep::Adapter(backends));
             let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
             descriptor.backends = backends;
+            crate::dx12_compiler::apply(&mut descriptor);
             let instance = wgpu::Instance::new(descriptor);
             let surface = surface_for(&instance);
             let adapter =

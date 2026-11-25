@@ -99,6 +99,10 @@ lto = "thin"
 strip = true
 
 [patch.crates-io]
+# The DX12 (HLSL) backend wrote one image-size helper twice for storage
+# textures of formats sharing an HLSL type; DXC rejects that
+# (vendor/naga/RAWTONIC_PATCH.md). Remove when upstream fixes it.
+naga = { path = "vendor/naga" }
 # Serialize the shared-handle Windows WAL lock transition (see patch note).
 libsqlite3-sys = { path = "vendor/libsqlite3-sys" }
 # jxl-oxide reads no ANS state for an empty Modular stream, as libjxl
