@@ -706,6 +706,9 @@ impl EffectPasses {
         let passes = Arc::clone(self);
         let device = Arc::clone(device);
         rawtonic_runtime::spawn_render_thread("pipeline-compile", move || {
+            // Ahead of use: a compile a frame waits for (its detail-cache
+            // pass, a drag's grain field pass) takes the small slot first.
+            let _ahead = AheadCompile::new();
             for layer_sums in [false, true] {
                 if let Err(error) = passes.terms_pipeline(&device, key, layer_sums) {
                     log::error!("Effect terms pass {key} unavailable: {error}");

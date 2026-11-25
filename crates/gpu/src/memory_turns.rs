@@ -210,6 +210,18 @@ pub(crate) fn compile(awaited: bool) -> Option<CompileTurn> {
     granted.then_some(CompileTurn(Some(&TURNS)))
 }
 
+/// An idle compile waits for its turn elsewhere (the start's first frame,
+/// `idle_compiles::StartWindow`): runs made ahead do not start for
+/// `COMPILE_WAITS`, as when a compile found a run in its way. Without it a
+/// Subject mask made ahead took the CPUs and its turn while the start
+/// window held the plan, and the Basic-panel variant's helper then waited
+/// 12 s more for that run on a cold Radeon 680M (G76/WQA4, WCC6).
+pub(crate) fn compile_waits() {
+    if enabled() {
+        TURNS.compile_waits();
+    }
+}
+
 /// Whether a run the photographer asked for waits for the compile in
 /// progress: an idle compile nobody waits for stops for it.
 pub(crate) fn asked_run_waits() -> bool {
@@ -311,6 +323,13 @@ impl Turns {
         state.compiling = true;
         state.compile_waited = None;
         (true, state.ahead_runs)
+    }
+
+    fn compile_waits(&self) {
+        let mut state = self.lock();
+        if !state.compiling {
+            state.compile_waited = Some(Instant::now());
+        }
     }
 
     fn compile_ended(&self) {
@@ -415,6 +434,35 @@ mod tests {
         turns.export_ended();
         assert_eq!(asked.recv_timeout(SOON), Ok(true));
         assert_eq!(ahead.recv_timeout(SOON), Ok(true));
+    }
+
+    /// An idle compile held elsewhere (the start's first frame) keeps runs
+    /// made ahead from starting while it says so, not runs asked for, and
+    /// not after it stopped saying so; a run in progress is not held
+    /// (G76/WQA4, WCC6).
+    #[test]
+    fn a_held_idle_compile_goes_before_runs_made_ahead() {
+        let turns = turns();
+        turns.compile_waits();
+        let ahead = start_run(&turns, AiRun::Ahead);
+        let asked = start_run(&turns, AiRun::Asked);
+        assert_eq!(asked.recv_timeout(SOON), Ok(true));
+        turns.run_ended(AiRun::Asked);
+        for _ in 0..4 {
+            assert!(
+                ahead.recv_timeout(COMPILE_WAITS / 2).is_err(),
+                "a run made ahead started while an idle compile waits"
+            );
+            turns.compile_waits();
+        }
+        // The compile has its turn and ends: the run starts.
+        assert!(turns.compile(false).0);
+        turns.compile_ended();
+        assert_eq!(ahead.recv_timeout(COMPILE_WAITS + SOON), Ok(true));
+        // A run made ahead in progress goes on; the next waits again.
+        turns.compile_waits();
+        let next = start_run(&turns, AiRun::Ahead);
+        assert_eq!(next.recv_timeout(SOON), Ok(true));
     }
 
     /// A compile that found a run in its way goes before the runs made
