@@ -8,7 +8,7 @@
 //! so after a crash an existing planned output is a finished photo.
 use anyhow::{Context, Result, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -168,27 +168,9 @@ pub struct Job {
 
 const QUEUE_VERSION: u32 = 6;
 
-/// The notices a `size_limit_miss` column holds (unreadable: none). A row of
-/// an earlier build holds one object of limit and size, without a file: it
-/// concerns the photo's `output`.
-fn read_notices(json: &str, output: Option<&str>) -> Vec<crate::size_limit::SizeLimitNotice> {
-    #[derive(Deserialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Earlier {
-        limit_bytes: u64,
-        bytes: u64,
-    }
-    if let Ok(notices) = serde_json::from_str(json) {
-        return notices;
-    }
-    match (serde_json::from_str::<Earlier>(json), output) {
-        (Ok(earlier), Some(output)) => vec![crate::size_limit::SizeLimitNotice {
-            file: PathBuf::from(output),
-            limit_bytes: earlier.limit_bytes,
-            bytes: earlier.bytes,
-        }],
-        _ => Vec::new(),
-    }
+/// The notices a `size_limit_miss` column holds (unreadable: none).
+fn read_notices(json: &str) -> Vec<crate::size_limit::SizeLimitNotice> {
+    serde_json::from_str(json).unwrap_or_default()
 }
 
 pub struct ExportQueue {
@@ -595,10 +577,7 @@ impl ExportQueue {
             params![job, index as i64],
             |r| r.get(0),
         )?;
-        let mut notices = kept
-            .as_deref()
-            .map(|json| read_notices(json, None))
-            .unwrap_or_default();
+        let mut notices = kept.as_deref().map(read_notices).unwrap_or_default();
         notices.retain(|kept| kept.file != notice.file);
         notices.push(notice);
         tx.execute(
@@ -938,10 +917,7 @@ impl ExportQueue {
                 outcome,
                 miss,
             ) = row?;
-            let size_limit_misses = miss
-                .as_deref()
-                .map(|json| read_notices(json, output.as_deref()))
-                .unwrap_or_default();
+            let size_limit_misses = miss.as_deref().map(read_notices).unwrap_or_default();
             Ok(Item {
                 index: index as usize,
                 path,
@@ -964,16 +940,13 @@ impl ExportQueue {
     /// wrote above their limit, also of a photo that failed on a later file.
     fn job_size_limit_misses(&self, job: &str) -> Result<Vec<crate::size_limit::SizeLimitNotice>> {
         let mut q = self.conn.prepare_cached(
-            "SELECT size_limit_miss, output FROM items
+            "SELECT size_limit_miss FROM items
              WHERE job_id=? AND size_limit_miss IS NOT NULL ORDER BY idx",
         )?;
-        let rows = q.query_map([job], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
-        })?;
+        let rows = q.query_map([job], |r| r.get::<_, String>(0))?;
         let mut notices = Vec::new();
-        for row in rows {
-            let (json, output) = row?;
-            notices.extend(read_notices(&json, output.as_deref()));
+        for json in rows {
+            notices.extend(read_notices(&json?));
         }
         Ok(notices)
     }
@@ -1357,33 +1330,6 @@ mod tests {
         q.item_began(&job, 1).unwrap();
         assert!(q.item(&job, 1).unwrap().size_limit_misses.is_empty());
         assert!(q.job(&job).unwrap().size_limit_misses.is_empty());
-    }
-
-    #[test]
-    fn a_size_limit_row_of_an_earlier_build_names_the_photos_output() {
-        let (dir, q) = queue();
-        let job = q.enqueue("Export", &json!({}), &paths(1)).unwrap();
-        q.start_next().unwrap();
-        q.item_began(&job, 0).unwrap();
-        let output = dir.path().join("0.jpg");
-        q.item_started(&job, 0, &output).unwrap();
-        q.conn
-            .execute(
-                "UPDATE items SET size_limit_miss='{\"limitBytes\":1000,\"bytes\":4321}'",
-                [],
-            )
-            .unwrap();
-        q.item_done(&job, 0).unwrap();
-        let kept = q.item(&job, 0).unwrap().size_limit_misses;
-        assert_eq!(
-            kept,
-            vec![crate::size_limit::SizeLimitNotice {
-                file: output,
-                limit_bytes: 1000,
-                bytes: 4321
-            }]
-        );
-        assert_eq!(q.job(&job).unwrap().size_limit_misses, kept);
     }
 
     #[test]

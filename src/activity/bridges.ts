@@ -15,7 +15,7 @@ import { describeCompletedExports, describeSizeLimitMisses } from '../utils/expo
 import { formatBytes } from '../utils/previews';
 import { useActivityStore } from '../store/useActivityStore';
 import { useEditorStore } from '../store/useEditorStore';
-import { useProcessStore, type ExportJob } from '../store/useProcessStore';
+import { useProcessStore, type ExportJob, type SizeLimitMiss } from '../store/useProcessStore';
 import { batchPhotoCount, onPhotoBatchChanged, onPhotoWritesSettled, type PhotoBatch } from '../utils/photoWrites';
 import {
   DUPLICATES_FINISHED,
@@ -45,13 +45,13 @@ const act = (command: Invokes, args: Record<string, unknown>) =>
   );
 
 const SIZE_NOTICES_SEEN = 'rawtonic.export.sizeLimitNoticesSeen';
-const SIZE_NOTICES_KEPT = 100;
+const SIZE_NOTICES_KEPT = 1000;
 let sizeNoticesSeen: string[] | null = null;
 
-/** The files above their size limit the user dismissed in Activity, as the
- * job and a fingerprint of those files: kept across restarts, so a finished
- * job in the queue does not raise the same warning again, while a resumed
- * job that wrote more such files does. */
+/** The files above their size limit the user dismissed in Activity (job,
+ * file and sizes): kept across restarts, so a finished job in the queue does
+ * not raise the same warning again, while a resumed job that wrote more such
+ * files warns about those only. */
 function seenSizeNotices(): string[] {
   if (!sizeNoticesSeen) {
     try {
@@ -64,16 +64,22 @@ function seenSizeNotices(): string[] {
   return sizeNoticesSeen;
 }
 
-function sizeNoticeKey(job: ExportJob): string {
+function sizeNoticeKey(job: ExportJob, miss: SizeLimitMiss): string {
   let hash = 2166136261;
-  for (const miss of job.sizeLimitMisses ?? [])
-    for (const char of `${miss.file}\0${miss.bytes}\0${miss.limitBytes}\n`)
-      hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+  for (const char of `${miss.file}\0${miss.bytes}\0${miss.limitBytes}`)
+    hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
   return `${job.id}:${hash.toString(36)}`;
 }
 
-function markSizeNoticesSeen(key: string) {
-  sizeNoticesSeen = [...seenSizeNotices().filter((seen) => seen !== key), key].slice(-SIZE_NOTICES_KEPT);
+/** The files of `job` above their size limit that the user has not dismissed. */
+function undismissedMisses(job: ExportJob): SizeLimitMiss[] {
+  const seen = seenSizeNotices();
+  return (job.sizeLimitMisses ?? []).filter((miss) => !seen.includes(sizeNoticeKey(job, miss)));
+}
+
+function markSizeNoticesSeen(job: ExportJob, misses: SizeLimitMiss[]) {
+  const keys = misses.map((miss) => sizeNoticeKey(job, miss));
+  sizeNoticesSeen = [...seenSizeNotices().filter((seen) => !keys.includes(seen)), ...keys].slice(-SIZE_NOTICES_KEPT);
   try {
     localStorage.setItem(SIZE_NOTICES_SEEN, JSON.stringify(sizeNoticesSeen));
   } catch {
@@ -130,19 +136,17 @@ export function modelName(model: string): string {
   return key ? i18n.t(`activity.download.names.${key}`) : model;
 }
 
-const needsSizeNotice = (job: ExportJob) =>
-  !!job.sizeLimitMisses?.length && !seenSizeNotices().includes(sizeNoticeKey(job));
 const sizeNoticeTitle = (job: ExportJob) => i18n.t('activity.export.sizeLimitMissed', { label: job.label });
 
 /** A file above the size limit the photographer asked for needs a look (an
  * upload may refuse it): the warning stays until dismissed, and stays dismissed. */
-function sizeNotice(job: ExportJob, title: string) {
+function sizeNotice(job: ExportJob, misses: SizeLimitMiss[], title: string) {
   return {
     id: `export:${job.id}`,
     source: 'export' as const,
     title,
-    detail: describeSizeLimitMisses(job.sizeLimitMisses ?? []).join('\n'),
-    onDismiss: () => markSizeNoticesSeen(sizeNoticeKey(job))
+    detail: describeSizeLimitMisses(misses).join('\n'),
+    onDismiss: () => markSizeNoticesSeen(job, misses)
   };
 }
 
@@ -177,7 +181,7 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
       const failures = job.failures ?? [];
       const title = i18n.t('activity.export.failed', { count: job.failed, label: job.label });
       const completed = job.failed > 0 ? describeCompletedExports(job) : '';
-      const missed = needsSizeNotice(job) ? (job.sizeLimitMisses ?? []) : [];
+      const missed = undismissedMisses(job);
       activity.report('failure', {
         id,
         source: 'export',
@@ -188,7 +192,7 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
             ...describeSizeLimitMisses(missed)
           ].join('\n') || undefined,
         paths: failures.map((failure) => failure.path),
-        onDismiss: missed.length ? () => markSizeNoticesSeen(sizeNoticeKey(job)) : undefined,
+        onDismiss: missed.length ? () => markSizeNoticesSeen(job, missed) : undefined,
         // An Edit With render is not resumed: nothing would hand it over.
         actions: job.editWith
           ? undefined
@@ -220,11 +224,12 @@ export function syncExportJobs(jobs: ExportJob[], held: boolean) {
         job.skipped === job.total
           ? i18n.t('activity.export.nothingExported', { label: job.label, existing: completed })
           : `${job.label} · ${completed}`;
-      if (needsSizeNotice(job)) activity.report('warning', sizeNotice(job, `${sizeNoticeTitle(job)} · ${completed}`));
+      const missed = undismissedMisses(job);
+      if (missed.length) activity.report('warning', sizeNotice(job, missed, `${sizeNoticeTitle(job)} · ${completed}`));
       else activity.finish(id, { source: 'export', title });
-    } else if (job.state === 'cancelled' && needsSizeNotice(job)) {
+    } else if (job.state === 'cancelled' && undismissedMisses(job).length) {
       // Files already written stay above their limit.
-      activity.report('warning', sizeNotice(job, sizeNoticeTitle(job)));
+      activity.report('warning', sizeNotice(job, undismissedMisses(job), sizeNoticeTitle(job)));
     } else {
       // Cancelled or paused by the user, or waiting while the queue is held.
       activity.resolve(id);
