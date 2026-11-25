@@ -121,7 +121,7 @@ describe('Develop tool contracts', () => {
     'an offline photo with a remembered $stored sensor gets its online controls',
     async ({ stored, expected, quality }) => {
       const original = vi.mocked(invoke).getMockImplementation()!;
-      vi.mocked(invoke).mockImplementation((name: string, args?: unknown) =>
+      vi.mocked(invoke).mockImplementation((name, args) =>
         name === Invokes.RawSensorKind ? Promise.resolve(stored) : original(name, args)
       );
       onTestFinished(() => {
