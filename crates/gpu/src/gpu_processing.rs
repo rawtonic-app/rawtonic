@@ -2494,6 +2494,24 @@ pub struct DisplayGeometry {
     pub rect: [f32; 4],
     pub crop_rect: [f32; 4],
     pub crop_rotation: f32,
+    /// While cropping: where the crop selection is on screen (within
+    /// `crop_rect`), i.e. where the cropped photograph's pixels are drawn
+    /// in the crop-editing frame.
+    pub crop_selection: Option<[f32; 4]>,
+}
+
+/// Where a frame placed by `geometry` shows the photograph as developed
+/// (cropped and turned, as its cached thumbnail shows it): the normal
+/// frame's rect; in the crop-editing frame (`uncropped`) the crop
+/// selection within the uncropped photograph (G74 DVL6: with the Crop tool
+/// open the primary was blank after a lost device). None without one.
+pub fn primary_placement_of(geometry: &DisplayGeometry, uncropped: bool) -> Option<[f32; 4]> {
+    if uncropped {
+        geometry.crop_selection
+    } else {
+        Some(geometry.rect)
+    }
+    .filter(|rect| rect[2] > 0.0 && rect[3] > 0.0)
 }
 
 impl DisplayGeometry {
@@ -2894,6 +2912,7 @@ impl DisplayPlacement {
                         rect,
                         crop_rect: rect,
                         crop_rotation: 0.0,
+                        crop_selection: None,
                     },
                 }
             }
@@ -2981,6 +3000,7 @@ impl WgpuDisplay {
                 rect: [0.0, 0.0, 100.0, 100.0],
                 crop_rect: [0.0, 0.0, 100.0, 100.0],
                 crop_rotation: 0.0,
+                crop_selection: None,
             },
             pending_geometry: None,
             viewport: None,
@@ -3162,6 +3182,7 @@ impl WgpuDisplay {
             rect,
             crop_rect: rect,
             crop_rotation: 0.0,
+            crop_selection: None,
         };
         self.frame_uncropped = false;
         self.frame_split_key = 0;
@@ -3435,16 +3456,14 @@ impl WgpuDisplay {
     /// multi view only when it shows the primary photograph where the
     /// webview placed it (not the previous primary held while the next one's
     /// first frame is on its way, nor a frame the webview has hidden).
-    /// Where the live frame of the multi view's primary is drawn now
-    /// (window device px), for a new display after a lost device: None when
-    /// no frame shows the primary, while cropping or in a split.
+    /// Where the live frame of the multi view's primary shows the developed
+    /// (cropped) photograph now (window device px), for its cached
+    /// thumbnail on a new display after a lost device: None when no frame
+    /// shows the primary (`primary_placement_of`).
     pub fn primary_placement(&self) -> Option<[f32; 4]> {
-        (self.multi.is_active()
-            && self.live_frame_shown()
-            && !self.frame_uncropped
-            && self.split_x.is_none())
-        .then_some(self.geometry.rect)
-        .filter(|rect| rect[2] > 0.0 && rect[3] > 0.0)
+        (self.multi.is_active() && self.live_frame_shown())
+            .then(|| primary_placement_of(&self.geometry, self.frame_uncropped))
+            .flatten()
     }
 
     fn live_frame_shown(&self) -> bool {
@@ -3659,6 +3678,7 @@ impl WgpuDisplay {
             rect,
             crop_rect: rect,
             crop_rotation: 0.0,
+            crop_selection: None,
         };
         self.viewport = Some(area);
         self.apply_geometry();
@@ -15967,7 +15987,7 @@ fn rendered_image(pixels: RenderedPixels, width: u32, height: u32) -> Result<Dyn
 
 #[cfg(test)]
 mod display_geometry_tests {
-    use super::{DisplayGeometry, split_shows};
+    use super::{DisplayGeometry, primary_placement_of, split_shows};
 
     #[test]
     fn the_split_shows_only_beside_frames_of_its_framing() {
@@ -15985,6 +16005,7 @@ mod display_geometry_tests {
             rect: [10.0, 20.0, 300.0, 200.0],
             crop_rect: [0.0, 0.0, 400.0, 300.0],
             crop_rotation: 0.1,
+            crop_selection: None,
         };
         assert_eq!(
             geometry.placement(false),
@@ -15994,6 +16015,33 @@ mod display_geometry_tests {
             geometry.placement(true),
             ([0.0, 0.0, 400.0, 300.0], 0.1, [0.0, 0.0, 400.0, 300.0])
         );
+    }
+
+    #[test]
+    fn a_stand_in_goes_where_the_frame_shows_the_developed_photograph() {
+        let geometry = DisplayGeometry {
+            rect: [10.0, 20.0, 300.0, 200.0],
+            crop_rect: [0.0, 0.0, 400.0, 300.0],
+            crop_rotation: 0.1,
+            crop_selection: Some([50.0, 40.0, 200.0, 150.0]),
+        };
+        assert_eq!(
+            primary_placement_of(&geometry, false),
+            Some([10.0, 20.0, 300.0, 200.0])
+        );
+        // Cropping (G74 DVL6): the selection, where the cropped photograph
+        // is, not the uncropped frame's box.
+        assert_eq!(
+            primary_placement_of(&geometry, true),
+            Some([50.0, 40.0, 200.0, 150.0])
+        );
+        let empty = DisplayGeometry {
+            rect: [0.0; 4],
+            crop_selection: None,
+            ..geometry
+        };
+        assert_eq!(primary_placement_of(&empty, false), None);
+        assert_eq!(primary_placement_of(&empty, true), None);
     }
 
     use super::{DisplayPlacement, fit_placement, split_x_resized};
@@ -16018,6 +16066,7 @@ mod display_geometry_tests {
                 rect,
                 crop_rect: rect,
                 crop_rotation: 0.0,
+                crop_selection: None,
             },
         }
     }

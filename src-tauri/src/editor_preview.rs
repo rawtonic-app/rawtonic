@@ -91,6 +91,10 @@ pub struct WgpuTransformPayload {
     pub crop_rect: Option<[f32; 4]>,
     #[serde(default)]
     pub crop_rotation: f32,
+    /// While cropping: the crop selection on screen (x, y, w, h), where the
+    /// cropped photograph shows (a stand-in after a lost device, G74 DVL6).
+    #[serde(default)]
+    pub crop_selection: Option<[f32; 4]>,
     /// Keep showing the current frame where it is; this placement applies
     /// with the next frame bound (the next photograph's first frame).
     #[serde(default)]
@@ -1053,6 +1057,7 @@ pub(crate) async fn update_wgpu_transform(
                 rect,
                 crop_rect: payload.crop_rect.unwrap_or(rect),
                 crop_rotation: payload.crop_rotation.to_radians(),
+                crop_selection: payload.crop_selection,
             };
             display.viewport = payload.viewport;
             display.viewer_area = payload.viewer_area.or(display.viewer_area);
@@ -3848,6 +3853,7 @@ fn submit_activation_frame(
             rect,
             crop_rect: rect,
             crop_rotation: 0.0,
+            crop_selection: None,
         });
     }
     let preview_dim = match state.preview.last_preview_dim.load(Ordering::Relaxed) {

@@ -55,6 +55,7 @@ import { isFullPreviewZoom, isOneToOne, snapToDevicePixel } from '../../utils/pi
 import {
   MIN_VIEWER_ZOOM,
   cropModeBox,
+  cropSelectionOnScreen,
   isOutsidePhoto,
   photoScreenRect,
   resolveViewerBackground,
@@ -115,6 +116,8 @@ interface WgpuRenderState {
    * for the frame the native display shows while cropping. */
   cropBox: { width: number; height: number } | null;
   cropRotation: number;
+  /** The stored crop (px of `cropBox`), for where the selection is on screen. */
+  crop: Adjustments['crop'];
   bgPrimary: [number, number, number, number];
   bgSecondary: [number, number, number, number];
 }
@@ -1609,6 +1612,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     showOriginal,
     cropBox: null,
     cropRotation: 0,
+    crop: null,
     bgPrimary: [24 / 255, 24 / 255, 24 / 255, 1.0],
     bgSecondary: [35 / 255, 35 / 255, 35 / 255, 1.0]
   });
@@ -1644,6 +1648,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       showOriginal,
       cropBox,
       cropRotation,
+      crop: adjustments.crop,
       bgPrimary: isFullScreen ? viewerRgba : parseRgb(bgPrimaryStr),
       // Around the photograph (proof margin and empty viewer) natively.
       bgSecondary: viewerRgba
@@ -1662,6 +1667,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     showOriginal,
     cropBox,
     cropRotation,
+    adjustments.crop,
     finalPreviewUrl
   ]);
 
@@ -1681,6 +1687,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     showOriginal,
     cropBox,
     cropRotation,
+    adjustments.crop,
     finalPreviewUrl,
     transformState,
     imageRenderSize
@@ -1799,6 +1806,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       // ImageCanvas) and turns it by the straighten angle itself. The
       // backend picks this placement for crop-editing frames only.
       let cropRect: [number, number, number, number] | null = null;
+      let cropSelection: [number, number, number, number] | null = null;
       if (state.cropBox && irs.width > 0 && irs.height > 0) {
         const viewportW = irs.width + 2 * irs.offsetX;
         const viewportH = irs.height + 2 * irs.offsetY;
@@ -1815,6 +1823,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           Math.max(boxW * scale * dpr, 1),
           Math.max(boxH * scale * dpr, 1)
         ];
+        cropSelection = cropSelectionOnScreen(cropRect, state.cropBox, state.crop);
       }
 
       // The split's divider: a place in the viewer, not on the photograph,
@@ -1844,7 +1853,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         Math.max(ch - 2 * margin, 1) * dpr
       ];
 
-      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split},${splitOrientation},${paneOffset},${viewerArea.join(',')}`;
+      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${cropSelection?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split},${splitOrientation},${paneOffset},${viewerArea.join(',')}`;
 
       if (lastWgpuTransformRef.current !== currentTransform && !isInvoking) {
         lastWgpuTransformRef.current = currentTransform;
@@ -1868,6 +1877,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             bgSecondary: state.bgSecondary || [0, 0, 0, 1],
             pixelated: isZoomedIn,
             cropRect,
+            cropSelection,
             cropRotation: state.cropRotation,
             hold: holding,
             split,
