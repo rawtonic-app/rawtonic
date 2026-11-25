@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- CLI exports find catalog photos through the app’s recent libraries or `--catalog`, retaining their saved edits, catalog metadata, corrected capture times and sticky AI-generated-content marking after an external editor strips XMP; ambiguous ownership requires an explicit choice.
+
 - Colour-noise preview tests use an injected memory-pressure level, so frame-marker checks stay reliable on a busy host; warning and critical pressure still disable the production lookup.
 
 - Edit With also renders photos with generated areas (object removal, generative fill). The render is marked as containing AI-generated content (IPTC Digital Source Type in its XMP, as any export of it), and the library marks the stacked render for good when it registers it: the mark stays when the other program saves the file without it, and a metadata edit or Use XMP does not remove it. The "Source type" search finds the render, and its exports are marked, also with metadata stripped (from the app, and from `rawtonic export` for photos of a session). Libraries are upgraded to schema 37 when opened.
