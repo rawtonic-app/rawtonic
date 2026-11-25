@@ -1075,6 +1075,45 @@ impl AiDenoiseVersion {
     }
 }
 
+/// The recipe key of AI Denoise's quality (`AiDenoiseQuality`).
+pub const AI_DENOISE_QUALITY_KEY: &str = "aiDenoiseQuality";
+/// Its value for the Fast network.
+pub const AI_DENOISE_FAST: &str = "fast";
+/// Its value for MatchFilter (what a recipe without the key renders).
+pub const AI_DENOISE_FULL: &str = "full";
+
+/// `aiDenoiseQuality`: `"fast"` runs the Fast network, anything else
+/// (`"full"`, missing) the recipe version's MatchFilter model, so every
+/// recipe saved before the key renders as it did. A choice stored in the
+/// recipe, never the machine's: an export renders the recipe's quality
+/// wherever it runs (docs/RECIPE_SCHEMA.md).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AiDenoiseQuality {
+    Full,
+    Fast,
+}
+
+impl AiDenoiseQuality {
+    pub fn of(recipe: &Value) -> Self {
+        match recipe[AI_DENOISE_QUALITY_KEY].as_str() {
+            Some(AI_DENOISE_FAST) => Self::Fast,
+            _ => Self::Full,
+        }
+    }
+
+    pub fn is_fast(self) -> bool {
+        self == Self::Fast
+    }
+
+    /// The key's value.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Full => AI_DENOISE_FULL,
+            Self::Fast => AI_DENOISE_FAST,
+        }
+    }
+}
+
 /// The photo-wide versions of one recipe, each read as its key's type
 /// reads it. `is_raw` decides the colour noise default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

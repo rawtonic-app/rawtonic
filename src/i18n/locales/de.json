@@ -2343,6 +2343,7 @@
         "RapidRAW": "Der quelloffene RAW-Editor von Timon Käch, auf dem Rawtonics Editor aufbaut (Commit a82251f); die Prüfung auf heiße und tote Fotodioden neuer Bearbeitungen und Teile der Foto-Zusammenführungen (Punktsuche für Panoramen, Geisterprüfung für HDR) stammen aus RapidRAW v1.7.1.",
         "rav1d": "Dekodiert AVIF-Dateien (die Rust-Portierung von dav1d).",
         "rawler": "RAW-Dekodierung (dnglab über RapidRAW-DngLab), mit Rawtonic-Patches; Sony ARW 6 aus LibRaw portiert.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Trainingsbilder des schnellen KI-Entrauschen-Netzes, das Rawtonic von MatchFilter gelernt hat (B. Brummer, C. De Vleeschouwer, UCLouvain). Das Netz ist unter CC BY-SA 4.0 veröffentlicht.",
         "ring": "Signieren der Herkunftsnachweise (C2PA) in Exporten: ECDSA-, RSA-PSS- und Ed25519-Signaturen, SHA-256.",
         "SAM 2": "Klick- und Rahmenmasken (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Bildkodierer und -dekodierer von Moebius (madebyollin, aus Stability AIs SDXL VAE).",
@@ -2615,6 +2616,13 @@
       "title": "Meine Objektive"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automatisch",
+        "fast": "Schnell",
+        "full": "Voll"
+      },
+      "aiDenoiseQuality": "Qualität von KI-Entrauschen für neue Bearbeitungen",
+      "aiDenoiseQualityDesc": "Die Qualität, die ein Foto beim ersten Einschalten von KI-Entrauschen erhält; jedes Foto behält seine eigene, umschalten lässt sie sich in Entwickeln. Automatisch wählt Schnell auf Computern, auf denen KI-Entrauschen auf dem Prozessor läuft, sonst Voll.",
       "aiGpu": "KI auf der Grafikkarte",
       "aiGpuDesc": "Führt KI-Masken, Stichwörter, Objektentfernung und KI-Entrauschen auf der Grafikkarte aus (WebGPU; CUDA, falls installiert), wo sie dasselbe Ergebnis liefert und auf diesem Computer schneller ist als der Prozessor (einmal je KI-Modell gemessen), sonst auf dem Prozessor. Ausschalten, wenn ein KI-Werkzeug Probleme macht.",
       "aiGpuLabel": "GPU für KI verwenden",
@@ -3486,7 +3494,13 @@
         "colorSmoothnessAria": "Glättung Farbrauschen",
         "denoising": "RAW wird entrauscht … Beim ersten Mal dauert das etwa eine halbe Minute.",
         "lumaContrastAria": "Kontrast Luminanzrauschen",
-        "lumaDetailAria": "Details Luminanzrauschen"
+        "lumaDetailAria": "Details Luminanzrauschen",
+        "quality": "Qualität",
+        "qualityAria": "KI-Entrauschen: Qualität",
+        "qualityFast": "Schnell",
+        "qualityFastHint": "Schnell: auf dem Prozessor etwa 15× schneller, mit minimal weniger feinen Details.",
+        "qualityFull": "Voll",
+        "qualityFullHint": "Voll: feinste Details. Langsam ohne schnelle Grafikkarte (auf dem Prozessor viele Minuten pro Foto)."
       },
       "noPhoto": "Öffne ein Foto in „Entwickeln“, um es anzupassen.",
       "params": {

@@ -2245,6 +2245,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
         "ring": "내보내기의 출처 정보(C2PA) 매니페스트 서명: ECDSA, RSA-PSS, Ed25519 서명, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -2517,6 +2518,13 @@
       "title": "내 렌즈"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "자동",
+        "fast": "빠름",
+        "full": "전체"
+      },
+      "aiDenoiseQuality": "새 편집의 AI 노이즈 제거 품질",
+      "aiDenoiseQualityDesc": "사진에서 AI 노이즈 제거를 처음 켤 때 적용되는 품질입니다. 사진마다 자신의 품질을 유지하며 현상에서 바꿀 수 있습니다. 자동은 AI 노이즈 제거가 프로세서에서 실행되는 컴퓨터에서는 빠름, 그 외에는 전체를 선택합니다.",
       "aiGpu": "그래픽 카드에서 AI 실행",
       "aiGpuDesc": "가능하면 AI 마스크, 태그, 개체 제거, AI 노이즈 제거를 그래픽 카드에서 실행합니다(WebGPU, 설치된 경우 CUDA). 그렇지 않으면 프로세서에서 실행합니다. AI 도구가 이상하게 동작하면 끄세요.",
       "aiGpuLabel": "AI에 GPU 사용",
@@ -3382,7 +3390,13 @@
         "colorSmoothnessAria": "색상 노이즈 부드럽게",
         "denoising": "RAW 노이즈를 제거하는 중… 처음에는 30초 정도 걸립니다.",
         "lumaContrastAria": "휘도 노이즈 대비",
-        "lumaDetailAria": "휘도 노이즈 디테일"
+        "lumaDetailAria": "휘도 노이즈 디테일",
+        "quality": "품질",
+        "qualityAria": "AI 노이즈 제거 품질",
+        "qualityFast": "빠름",
+        "qualityFastHint": "빠름: 프로세서에서 약 15배 빠르며, 미세한 디테일이 아주 약간 줄어듭니다.",
+        "qualityFull": "전체",
+        "qualityFullHint": "전체: 가장 미세한 디테일. 빠른 그래픽 카드가 없으면 느립니다(프로세서에서는 사진당 수 분 이상)."
       },
       "noPhoto": "조정하려면 현상에서 사진을 여세요.",
       "params": {

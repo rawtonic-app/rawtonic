@@ -2343,6 +2343,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
         "ring": "Signing of provenance (C2PA) manifests in exports: ECDSA, RSA-PSS and Ed25519 signatures, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -2615,6 +2616,13 @@
       "title": "My Lenses"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automatic",
+        "fast": "Fast",
+        "full": "Full"
+      },
+      "aiDenoiseQuality": "AI Denoise quality for new edits",
+      "aiDenoiseQualityDesc": "The quality a photo gets when you first turn on AI Denoise; each photo keeps its own, and you can switch it in Develop. Automatic picks Fast on computers where AI Denoise runs on the processor, otherwise Full.",
       "aiGpu": "AI on the graphics card",
       "aiGpuDesc": "Runs AI masks, tags, object removal and AI Denoise on the graphics card (WebGPU; CUDA when installed) where it gives the same result and is faster than the processor on this computer, measured once per AI model; otherwise on the processor. Turn off if an AI tool misbehaves.",
       "aiGpuLabel": "Use the GPU for AI",
@@ -3486,7 +3494,13 @@
         "colorSmoothnessAria": "Color noise smoothness",
         "denoising": "Denoising the RAW… The first time takes about half a minute.",
         "lumaContrastAria": "Luminance noise contrast",
-        "lumaDetailAria": "Luminance noise detail"
+        "lumaDetailAria": "Luminance noise detail",
+        "quality": "Quality",
+        "qualityAria": "AI Denoise quality",
+        "qualityFast": "Fast",
+        "qualityFastHint": "Fast: about 15× quicker on the processor, with very slightly less fine detail.",
+        "qualityFull": "Full",
+        "qualityFullHint": "Full: the finest detail. Slow without a fast graphics card (many minutes per photo on the processor)."
       },
       "noPhoto": "Open a photo in Develop to make adjustments.",
       "params": {

@@ -23,7 +23,9 @@ import {
 import { debouncedSetHistory, panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { sharpenViewFor } from '../../utils/sharpenView';
 import { layersInToneVersion, toneSliderIn, toneVersionAfterReset } from '../../utils/pastedVersions';
-import { storedSliderValue } from '../../utils/aiDenoise';
+import { storedSliderValue, withAiDenoiseQualityOnTurnOn } from '../../utils/aiDenoise';
+import { useAiDenoiseDefaultQuality } from '../../hooks/useAiDenoiseDefaultQuality';
+import type { AiDenoiseQuality } from '../ui/AppProperties';
 import { useUIStore } from '../../store/useUIStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
@@ -1113,6 +1115,7 @@ export default function StudioDevelop() {
       useEditorStore.getState().setEditor({ isSliderDragging: active, grainSliderDrag: active ? 'detail' : null }),
     []
   );
+  const aiDenoiseDefault = useAiDenoiseDefaultQuality(selectedImage?.path);
   const change = (patch: Partial<Adjustments>) =>
     selectedImage?.isReady &&
     setAdjustments((prev) =>
@@ -1123,8 +1126,17 @@ export default function StudioDevelop() {
               m.id === layer.id ? { ...m, adjustments: { ...m.adjustments, ...patch } } : m
             )
           }
-        : withNewGrainStructure(prev, { ...prev, ...patch })
+        : withAiDenoiseQualityOnTurnOn(
+            prev,
+            withNewGrainStructure(prev, { ...prev, ...patch }),
+            aiDenoiseDefault,
+            patch
+          )
     );
+  // The quality control shows the recipe's; a recipe already using AI Denoise
+  // without one renders Full; otherwise what turning it on will give.
+  const shownAiDenoiseQuality: AiDenoiseQuality =
+    adjustments.aiDenoiseQuality ?? ((adjustments.aiDenoise ?? 0) > 0 ? 'full' : (aiDenoiseDefault ?? 'full'));
   // One callback per value for the sliders, calling this render's `change`:
   // the memoized controls then skip re-rendering while another slider moves.
   const latestChange = useRef(change);
@@ -2056,7 +2068,7 @@ export default function StudioDevelop() {
                   'colorNoiseSmoothness',
                   // The photo's colour and luminance noise filters and AI
                   // Denoise version go back to a new edit's.
-                  ...(layer ? [] : ['colorNoiseVersion', 'lumaNoiseVersion', 'aiDenoiseVersion'])
+                  ...(layer ? [] : ['colorNoiseVersion', 'lumaNoiseVersion', 'aiDenoiseVersion', 'aiDenoiseQuality'])
                 ])
               }
             >
@@ -2065,6 +2077,27 @@ export default function StudioDevelop() {
               {!layer && selectedImage?.isRaw && (
                 <>
                   {control(t('studio.develop.sliders.aiDenoise'), 'aiDenoise', 0, 100)}
+                  {/* Which network: stored in the recipe, so every export
+                      renders it; a photo without the key renders Full. */}
+                  <label className="studio-inline">
+                    <span>{t('studio.develop.noise.quality')}</span>
+                    <select
+                      aria-label={t('studio.develop.noise.qualityAria')}
+                      value={shownAiDenoiseQuality}
+                      disabled={!panelsReady}
+                      onChange={(e) => change({ aiDenoiseQuality: e.target.value as AiDenoiseQuality })}
+                    >
+                      <option value="full">{t('studio.develop.noise.qualityFull')}</option>
+                      <option value="fast">{t('studio.develop.noise.qualityFast')}</option>
+                    </select>
+                  </label>
+                  <p className="studio-help">
+                    {t(
+                      shownAiDenoiseQuality === 'fast'
+                        ? 'studio.develop.noise.qualityFastHint'
+                        : 'studio.develop.noise.qualityFullHint'
+                    )}
+                  </p>
                   {aiDenoiseBusy && (
                     <p className="studio-help" role="status">
                       {t('studio.develop.noise.denoising')}

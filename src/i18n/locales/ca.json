@@ -2482,6 +2482,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
         "ring": "Signatura dels manifests de procedència (C2PA) a les exportacions: signatures ECDSA, RSA-PSS i Ed25519, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -2757,6 +2758,13 @@
       "title": "Els meus objectius"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automàtica",
+        "fast": "Ràpida",
+        "full": "Completa"
+      },
+      "aiDenoiseQuality": "Qualitat de la reducció de soroll amb IA a les edicions noves",
+      "aiDenoiseQualityDesc": "La qualitat que rep una foto quan actives per primer cop la reducció de soroll amb IA; cada foto conserva la seva i la pots canviar a Revelat. Automàtica tria Ràpida als ordinadors on la reducció de soroll amb IA s’executa al processador; si no, Completa.",
       "aiGpu": "IA a la targeta gràfica",
       "aiGpuDesc": "Executa les màscares d'IA, les etiquetes, l'eliminació d'objectes i la reducció de soroll amb IA a la targeta gràfica quan és possible (WebGPU; CUDA si està instal·lat); si no, al processador. Desactiva-ho si una eina d'IA falla.",
       "aiGpuLabel": "Utilitza la GPU per a la IA",
@@ -3648,7 +3656,13 @@
         "colorSmoothnessAria": "Suavitat del soroll de color",
         "denoising": "Reduint el soroll del RAW… La primera vegada triga uns trenta segons.",
         "lumaContrastAria": "Contrast del soroll de luminància",
-        "lumaDetailAria": "Detall del soroll de luminància"
+        "lumaDetailAria": "Detall del soroll de luminància",
+        "quality": "Qualitat",
+        "qualityAria": "Qualitat de la reducció de soroll amb IA",
+        "qualityFast": "Ràpida",
+        "qualityFastHint": "Ràpida: unes 15× més ràpida al processador, amb un detall fi lleugerament menor.",
+        "qualityFull": "Completa",
+        "qualityFullHint": "Completa: el detall més fi. Lenta sense una targeta gràfica ràpida (molts minuts per foto al processador)."
       },
       "noPhoto": "Obre una foto a Revelatge per ajustar-la.",
       "params": {

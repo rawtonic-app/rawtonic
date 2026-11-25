@@ -2245,6 +2245,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
         "ring": "为导出文件的来源证明 (C2PA) 清单签名：ECDSA、RSA-PSS 和 Ed25519 签名，SHA-256。",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -2517,6 +2518,13 @@
       "title": "我的镜头"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "自动",
+        "fast": "快速",
+        "full": "完整"
+      },
+      "aiDenoiseQuality": "新编辑的 AI 降噪质量",
+      "aiDenoiseQualityDesc": "照片首次开启 AI 降噪时获得的质量；每张照片保留自己的质量，可在“冲印”中切换。“自动”在 AI 降噪于处理器上运行的电脑上选择“快速”，否则选择“完整”。",
       "aiGpu": "在显卡上运行 AI",
       "aiGpuDesc": "在可能时于显卡上运行 AI 蒙版、标签、对象移除和 AI 降噪（WebGPU；已安装时使用 CUDA），否则在处理器上运行。如果某个 AI 工具工作异常，请关闭此项。",
       "aiGpuLabel": "使用 GPU 运行 AI",
@@ -3382,7 +3390,13 @@
         "colorSmoothnessAria": "颜色噪点平滑度",
         "denoising": "正在对 RAW 降噪… 首次约需半分钟。",
         "lumaContrastAria": "亮度噪点对比度",
-        "lumaDetailAria": "亮度噪点细节"
+        "lumaDetailAria": "亮度噪点细节",
+        "quality": "质量",
+        "qualityAria": "AI 降噪质量",
+        "qualityFast": "快速",
+        "qualityFastHint": "快速：在处理器上约快 15 倍，细节略微减少。",
+        "qualityFull": "完整",
+        "qualityFullHint": "完整：最精细的细节。没有快速显卡时较慢（在处理器上每张照片需要许多分钟）。"
       },
       "noPhoto": "在显影中打开照片以进行调整。",
       "params": {

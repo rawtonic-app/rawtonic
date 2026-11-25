@@ -182,6 +182,12 @@ export const CREDITS: Credit[] = [
     license: 'MIT'
   },
   {
+    name: 'RawNIND (Raw Natural Image Noise Dataset)',
+    url: 'https://doi.org/10.14428/DVN/DEQCIM',
+    what: 'Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.',
+    license: 'CC BY-SA 4.0'
+  },
+  {
     name: 'MI-GAN',
     url: 'https://github.com/Picsart-AI-Research/MI-GAN',
     what: 'Object removal (Picsart AI Research).',

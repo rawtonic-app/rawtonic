@@ -2482,6 +2482,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
         "ring": "Assinatura dos manifestos de proveniência (C2PA) nas exportações: assinaturas ECDSA, RSA-PSS e Ed25519, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -2757,6 +2758,13 @@
       "title": "Minhas Lentes"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automática",
+        "fast": "Rápida",
+        "full": "Completa"
+      },
+      "aiDenoiseQuality": "Qualidade da redução de ruído por IA em novas edições",
+      "aiDenoiseQualityDesc": "A qualidade que uma foto recebe quando você ativa a redução de ruído por IA pela primeira vez; cada foto mantém a sua, e você pode alterá-la em Revelar. Automática escolhe Rápida em computadores onde a redução de ruído por IA roda no processador; caso contrário, Completa.",
       "aiGpu": "IA na placa gráfica",
       "aiGpuDesc": "Executa máscaras de IA, etiquetas, remoção de objetos e redução de ruído por IA na placa gráfica quando possível (WebGPU; CUDA se instalado); caso contrário, no processador. Desative se uma ferramenta de IA falhar.",
       "aiGpuLabel": "Usar a GPU para IA",
@@ -3648,7 +3656,13 @@
         "colorSmoothnessAria": "Suavidade do ruído de cor",
         "denoising": "Removendo o ruído do RAW… Na primeira vez, leva cerca de meio minuto.",
         "lumaContrastAria": "Contraste do ruído de luminância",
-        "lumaDetailAria": "Detalhe do ruído de luminância"
+        "lumaDetailAria": "Detalhe do ruído de luminância",
+        "quality": "Qualidade",
+        "qualityAria": "Qualidade da redução de ruído por IA",
+        "qualityFast": "Rápida",
+        "qualityFastHint": "Rápida: cerca de 15× mais rápida no processador, com detalhe fino ligeiramente menor.",
+        "qualityFull": "Completa",
+        "qualityFullHint": "Completa: o detalhe mais fino. Lenta sem uma placa gráfica rápida (muitos minutos por foto no processador)."
       },
       "noPhoto": "Abra uma foto em Revelação para ajustá-la.",
       "params": {

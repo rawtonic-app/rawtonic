@@ -112,9 +112,12 @@ pub struct AiState {
     pub warm_up_fell_back: AtomicBool,
     /// Use, running computations and unloads of the masking models.
     pub lifecycle: Arc<crate::ai_lifecycle::Lifecycle>,
-    /// AI Denoise (`ai_denoise`) by `aiDenoiseVersion` (index 0: version 1),
+    /// AI Denoise's denoisers (`ai_denoise`) by slot (`ai_denoise::slot`),
     /// each loaded on first use.
-    pub denoisers: Mutex<[Option<Arc<dyn rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser>>; 2]>,
+    pub denoisers: Mutex<
+        [Option<Arc<dyn rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser>>;
+            rawtonic_engine::image_loader::AI_DENOISE_MODELS],
+    >,
     /// Face models and the open photo's faces (`ai_faces`), loaded on first use.
     pub faces: crate::ai_faces::SharedFaceState,
     /// Running AI tasks by the webview's task id, for `cancel_ai_task`.
@@ -140,7 +143,7 @@ impl Default for AiState {
             landscape_lock: TokioMutex::new(()),
             warm_up_fell_back: AtomicBool::new(false),
             lifecycle: Arc::new(crate::ai_lifecycle::Lifecycle::new()),
-            denoisers: Mutex::new([None, None]),
+            denoisers: Mutex::new(Default::default()),
             faces: Mutex::new(Default::default()),
             tasks: Mutex::new(HashMap::new()),
             indexing_task: Mutex::new(None),

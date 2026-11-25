@@ -18,7 +18,10 @@ Usage:
       --with timm==1.0.30 --with kornia==0.8.3 --with einops==0.8.2 \
       --with onnx==1.23.2 --with onnxruntime==1.22.0 \
       python scripts/models/build_model_pack.py OUT_DIR [--cache CACHE_DIR] [--previous PACK_DIR] \
-      [--own-runtime DIR]
+      [--own-runtime DIR] [--fast-denoise FILE]
+`--fast-denoise FILE` is Rawtonic's own trained Fast AI Denoise network
+(FAST_DENOISE below), needed until a previous pack carries it: its weights
+come from Rawtonic's training run, not from an upstream release.
 `--own-runtime` is the folder of the ONNX Runtime libraries Rawtonic builds
 itself (scripts/models/build_onnxruntime.sh and .ps1; ORT130_OWN below), needed
 until a previous pack carries them.
@@ -241,6 +244,19 @@ MATCHFILTER_MIXED_EXPORT = [
     "--with", "numpy==2.2.6", "--with", "einops==0.8.1", "--with", "omegaconf==2.3.0",
     "python", str(Path(__file__).resolve().parent / "convert_nlmf_coreml.py"),
 ]
+
+# AI Denoise's Fast quality: Rawtonic's own U-Net (fast_denoise_net.py, size
+# L) distilled from MatchFilter on 110 RawNIND frames (CC BY-SA 4.0), so the
+# weights are published under CC BY-SA 4.0; trained by Rawtonic, so the file
+# comes from `--fast-denoise` (or a previous pack) and is pinned here.
+FAST_DENOISE = {
+    "file": "fast_denoise_v1.onnx",
+    "sha256": "95e4e3f168d98f030b25f4f0c7d44337cc168d80d63af48227357d6f616914a6",
+    "used_by": "AI Denoise, Fast quality (ONNX Runtime, every platform)",
+    "source": "Rawtonic's own network (scripts/models/fast_denoise_net.py, size L, 9.6 M parameters) trained by Rawtonic by distillation from Nonlocal MatchFilter (Sanchez-Beeckman and Buades, MIT) on 110 noisy Bayer frames of RawNIND (Brummer and De Vleeschouwer, UCLouvain, doi:10.14428/DVN/DEQCIM, CC BY-SA 4.0); exported to ONNX (opset 17, fp32, 512 px tiles)",
+    "license": "CC BY-SA 4.0",
+    "license_files": ["fast-denoise-CC-BY-SA-4.0.txt", "nonlocal-matchfilter-MIT.txt"],
+}
 
 # Moebius (hustvl, Apache-2.0), Remove's guide for large holes on macOS, and
 # the SDXL VAE fp16-fix (MIT) it works in, as Core ML programs converted by
@@ -618,6 +634,8 @@ def main() -> None:
     parser.add_argument("out", type=Path)
     parser.add_argument("--cache", type=Path, default=Path("model-pack-cache"))
     parser.add_argument("--previous", type=Path, help="earlier pack whose files are carried over unchanged")
+    parser.add_argument("--fast-denoise", type=Path,
+                        help="Rawtonic's trained Fast AI Denoise network (FAST_DENOISE)")
     parser.add_argument("--own-runtime", type=Path,
                         help="folder with the ONNX Runtime libraries build_onnxruntime.sh built (ORT130_OWN)")
     args = parser.parse_args()
@@ -738,6 +756,12 @@ def main() -> None:
             if name in carried:  # a group step builds all its files; carried ones stay
                 continue
             entries.append(place(subject_coreml / name, args.out, name, expected) | SUBJECT_COREML_ENTRY)
+
+    if todo({FAST_DENOISE["file"]: FAST_DENOISE["sha256"]}):
+        if args.fast_denoise is None:
+            sys.exit(f"{FAST_DENOISE['file']}: missing; pass --fast-denoise FILE or --previous with a pack that has it")
+        meta = {k: v for k, v in FAST_DENOISE.items() if k not in ("file", "sha256")}
+        entries.append(place(args.fast_denoise, args.out, FAST_DENOISE["file"], FAST_DENOISE["sha256"]) | meta)
 
     if todo(MATCHFILTER_MIXED_SHA256):
         nlmf_mixed = args.cache / "nlmf-mixed"

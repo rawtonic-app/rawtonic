@@ -215,7 +215,7 @@ impl ModelKind {
 
     /// The model a file of the model pack holds, by its name.
     pub fn from_file_name(name: &str) -> Option<Self> {
-        const PREFIXES: [(&str, ModelKind); 20] = [
+        const PREFIXES: [(&str, ModelKind); 21] = [
             ("birefnet", ModelKind::Subject),
             ("sam2.1_tiny_encoder", ModelKind::SamEncoder),
             ("sam2.1_tiny_decoder", ModelKind::SamDecoder),
@@ -228,6 +228,7 @@ impl ModelKind {
             ("siglip2_text", ModelKind::TagText),
             ("migan", ModelKind::Inpaint),
             ("nlmf", ModelKind::Denoise),
+            ("fast_denoise", ModelKind::Denoise),
             ("face_detection", ModelKind::FaceDetector),
             ("face_mesh", ModelKind::FaceMesh),
             ("selfie_multiclass", ModelKind::FaceParser),
@@ -533,6 +534,29 @@ fn first_gpu(
         .into_iter()
         .filter(|&provider| provider != Provider::Cpu)
         .find_map(|provider| device(provider, &settings.plugin_dirs).ok())
+}
+
+/// Whether `path` (a model of `kind`) runs on a GPU in this process, as far
+/// as known without loading it: a candidate GPU provider (`candidates`)
+/// offers a device and the check of `path` there did not reject it
+/// (`Verdict::Differs` or `Slower`). A check not run yet counts as the GPU:
+/// the load then checks at once or queues the check, which moves the model
+/// to the GPU once it passes. Registers that provider's plugin, as loading
+/// the model would; loads and queues nothing.
+pub fn runs_on_gpu(path: &Path, kind: ModelKind) -> bool {
+    let settings = settings();
+    let Some(device) = first_gpu(kind, &settings, forced_provider()) else {
+        return false;
+    };
+    let (known, _) = check::known(path, kind, &device, settings.checks_file.as_ref());
+    gpu_verdict_allows(known)
+}
+
+fn gpu_verdict_allows(known: Option<check::Verdict>) -> bool {
+    !matches!(
+        known,
+        Some(check::Verdict::Differs | check::Verdict::Slower)
+    )
 }
 
 /// `RAWTONIC_AI_PROVIDER`, if set to a provider's name.
@@ -1363,6 +1387,30 @@ mod tests {
             check_when_idle: false,
             optimized_graphs: None,
         }
+    }
+
+    #[test]
+    fn a_rejected_gpu_check_keeps_a_model_off_the_gpu_and_a_pending_one_does_not() {
+        use check::Verdict;
+        assert!(gpu_verdict_allows(Some(Verdict::Faster)));
+        assert!(
+            gpu_verdict_allows(None),
+            "not checked yet: checked or queued at load"
+        );
+        assert!(!gpu_verdict_allows(Some(Verdict::Differs)));
+        assert!(!gpu_verdict_allows(Some(Verdict::Slower)));
+    }
+
+    #[test]
+    fn both_denoise_networks_are_files_of_the_pack() {
+        assert_eq!(
+            ModelKind::from_file_name("nlmf.onnx"),
+            Some(ModelKind::Denoise)
+        );
+        assert_eq!(
+            ModelKind::from_file_name("fast_denoise_v1.onnx"),
+            Some(ModelKind::Denoise)
+        );
     }
 
     #[test]

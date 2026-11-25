@@ -539,16 +539,25 @@ fn resolve_models_dir(models: Option<PathBuf>) -> Result<PathBuf> {
         .context("no model folder; pass --models")
 }
 
-/// The MatchFilter denoiser for AI Denoise `model`
-/// (`AiDenoiseSettings::model`) from the app's model folder (Core ML on
-/// macOS: 1 the mixed-precision package; ONNX Runtime elsewhere, which needs
-/// `ORT_DYLIB_PATH`, with one model for every version).
+/// The denoiser for AI Denoise `model` (`AiDenoiseSettings::model`) from
+/// the app's model folder: MatchFilter on Core ML on macOS (1 the
+/// mixed-precision package) and on ONNX Runtime elsewhere (one model for
+/// every version); the Fast network on ONNX Runtime everywhere. ONNX
+/// Runtime needs `ORT_DYLIB_PATH`.
 fn ai_denoiser(
     models: Option<PathBuf>,
     model: usize,
 ) -> Result<std::sync::Arc<dyn rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser>> {
     let models = models_dir(models)?;
     let cache = models.parent().map(|dir| dir.join("ai-denoise-cache"));
+    if model == rawtonic_engine::image_loader::FAST_AI_DENOISE_MODEL {
+        return Ok(std::sync::Arc::new(
+            rawtonic_denoise::MatchFilter::fast_onnx(
+                &models.join(rawtonic_denoise::FAST_ONNX_MODEL),
+                cache,
+            )?,
+        ));
+    }
     #[cfg(target_os = "macos")]
     let filter = if model == 1 {
         rawtonic_denoise::MatchFilter::core_ml_mixed(

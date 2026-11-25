@@ -4,6 +4,7 @@ import {
   aiDenoiseAmount,
   aiDenoiseToApply,
   developmentSignature,
+  withAiDenoiseQualityOnTurnOn,
   sourceDevelopToApply,
   storedSliderValue,
   warpPlanesMatter
@@ -45,6 +46,69 @@ describe('aiDenoiseToApply', () => {
       aiDenoise: 60,
       aiDenoiseVersion: 2,
       multiscale: true
+    });
+  });
+
+  it('develops again when the AI Denoise quality changes with AI Denoise on', () => {
+    const full = { ...decoded, aiDenoise: 60, aiDenoiseVersion: 5 };
+    const fast = { aiDenoise: 60, aiDenoiseVersion: 5, aiDenoiseQuality: 'fast' as const };
+    expect(aiDenoiseToApply(full, fast, false)).toBe(60);
+    // A recipe without the key renders Full: the Full source is its own.
+    expect(aiDenoiseToApply(full, { aiDenoise: 60, aiDenoiseVersion: 5 }, false)).toBeNull();
+    expect(aiDenoiseToApply({ ...full, aiDenoiseQuality: 'fast' }, fast, false)).toBeNull();
+    expect(aiDenoiseToApply({ ...full, aiDenoiseQuality: 'fast' }, { ...fast, aiDenoiseQuality: 'full' }, false)).toBe(
+      60
+    );
+    // Off: the quality does not matter.
+    expect(aiDenoiseToApply(decoded, { ...fast, aiDenoise: 0 }, false)).toBeNull();
+    expect(sourceDevelopToApply({ ...full, colorNoiseMultiscale: true }, fast, false)).toEqual({
+      aiDenoise: 60,
+      aiDenoiseVersion: 5,
+      aiDenoiseQuality: 'fast',
+      multiscale: true
+    });
+    // A quality that failed is not retried; the other one is.
+    const failed = {
+      ...full,
+      aiDenoise: 0,
+      aiDenoiseFailed: 60,
+      aiDenoiseFailedVersion: 5,
+      aiDenoiseFailedQuality: 'fast' as const
+    };
+    expect(aiDenoiseToApply(failed, fast, false)).toBeNull();
+    expect(aiDenoiseToApply(failed, { ...fast, aiDenoiseQuality: 'full' }, false)).toBe(60);
+  });
+
+  it("gives a recipe that turns AI Denoise on the computer's quality, and nothing else", () => {
+    expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 50 }, 'fast')).toEqual({
+      aiDenoise: 50,
+      aiDenoiseQuality: 'fast'
+    });
+    expect(withAiDenoiseQualityOnTurnOn({}, { aiDenoise: 50 }, 'full')).toEqual({
+      aiDenoise: 50,
+      aiDenoiseQuality: 'full'
+    });
+    // Already on (a recipe from before the key renders Full): kept as it renders.
+    expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 40 }, { aiDenoise: 50 }, 'fast')).toEqual({ aiDenoise: 50 });
+    // A chosen quality stays; an unknown default writes nothing.
+    expect(
+      withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 50, aiDenoiseQuality: 'full' as const }, 'fast')
+    ).toEqual({ aiDenoise: 50, aiDenoiseQuality: 'full' });
+    expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 50 }, null)).toEqual({ aiDenoise: 50 });
+    // A recipe from before the key turned off says Full, so turning it on
+    // again renders Full, not this computer's default.
+    const off = withAiDenoiseQualityOnTurnOn({ aiDenoise: 40 }, { aiDenoise: 0 }, 'fast');
+    expect(off).toEqual({ aiDenoise: 0, aiDenoiseQuality: 'full' });
+    expect(withAiDenoiseQualityOnTurnOn(off, { ...off, aiDenoise: 40 }, 'fast')).toEqual({
+      aiDenoise: 40,
+      aiDenoiseQuality: 'full'
+    });
+    // A change that removes the key itself (the Noise reduction reset) keeps it removed.
+    const reset = { aiDenoise: 0, aiDenoiseQuality: undefined };
+    expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 40 }, { ...reset }, 'fast', reset)).toEqual(reset);
+    expect(withAiDenoiseQualityOnTurnOn({ aiDenoise: 0 }, { aiDenoise: 0, exposure: 1 }, 'fast')).toEqual({
+      aiDenoise: 0,
+      exposure: 1
     });
   });
 
@@ -495,6 +559,15 @@ describe('sourceDevelopToApply', () => {
 });
 
 describe('developmentSignature', () => {
+  it('tells Fast apart from Full with AI Denoise on, and Full from a recipe without the key not', () => {
+    const at = (extra: object) => developmentSignature({ aiDenoise: 50, aiDenoiseVersion: 5, ...extra }, true);
+    expect(at({ aiDenoiseQuality: 'fast' })).not.toBe(at({ aiDenoiseQuality: 'full' }));
+    expect(at({ aiDenoiseQuality: 'full' })).toBe(at({}));
+    const off = (q: 'fast' | 'full') =>
+      developmentSignature({ aiDenoise: 0, aiDenoiseVersion: 5, aiDenoiseQuality: q }, true);
+    expect(off('fast')).toBe(off('full'));
+  });
+
   const recipe = { aiDenoise: 0, aiDenoiseVersion: 1, colorNoiseVersion: 2 };
   it("tells a lens warp's planes apart only where they change the decode", () => {
     const v13 = { ...recipe, renderVersion: 13 };

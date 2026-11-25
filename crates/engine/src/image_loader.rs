@@ -61,6 +61,11 @@ pub use rawtonic_metadata::provenance::{
 /// a stronger slider 50 (`V5_SCALE_AT_50`).
 pub const AI_DENOISE_VERSION: u8 = 5;
 
+/// The model index of AI Denoise's Fast network (`AiDenoiseSettings::model`).
+pub const FAST_AI_DENOISE_MODEL: usize = 2;
+/// How many models AI Denoise has (`AiDenoiseSettings::model`).
+pub const AI_DENOISE_MODELS: usize = 3;
+
 /// How a recipe's AI Denoise develops the mosaic.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AiDenoiseSettings {
@@ -77,6 +82,10 @@ pub struct AiDenoiseSettings {
     pub blend: f32,
     /// Noise the network is told about, relative to the photo's.
     pub noise_scale: f32,
+    /// `aiDenoiseQuality` is `"fast"`: the Fast network instead of this
+    /// version's MatchFilter model, with the version's slider mapping and
+    /// sensor means (`AiDenoiseQuality`).
+    pub fast: bool,
 }
 
 /// Noise scale of version 2 at slider 50, chosen so the effect there is
@@ -112,6 +121,7 @@ pub fn ai_denoise_settings(adjustments: &Value) -> Option<AiDenoiseSettings> {
         return None;
     }
     let version = crate::recipe_versions::AiDenoiseVersion::of(adjustments);
+    let fast = crate::recipe_versions::AiDenoiseQuality::of(adjustments).is_fast();
     let blend_only = version.blend_only();
     let at_50 = if version.stronger_50() {
         V5_SCALE_AT_50
@@ -124,12 +134,14 @@ pub fn ai_denoise_settings(adjustments: &Value) -> Option<AiDenoiseSettings> {
             version,
             blend: amount,
             noise_scale: 1.0,
+            fast,
         }
     } else if amount <= 0.5 {
         AiDenoiseSettings {
             version,
             blend: amount / 0.5,
             noise_scale: at_50,
+            fast,
         }
     } else {
         let t = (amount - 0.5) / 0.5;
@@ -137,18 +149,23 @@ pub fn ai_denoise_settings(adjustments: &Value) -> Option<AiDenoiseSettings> {
             version,
             blend: 1.0,
             noise_scale: at_50 * (V2_SCALE_AT_100 / at_50).powf(t),
+            fast,
         }
     })
 }
 
 impl AiDenoiseSettings {
-    /// The model this version runs: 0 the first package (`nlmf_coreml_*`,
-    /// the ONNX model elsewhere), 1 the mixed-precision package (version 3).
+    /// The model this recipe runs: 0 the first package (`nlmf_coreml_*`,
+    /// the ONNX model elsewhere), 1 the mixed-precision package (version 3),
+    /// `FAST_AI_DENOISE_MODEL` the Fast network (`fast`, any version).
     /// Version 2 stays on the first package: between its introduction and
     /// this split the model pack never carried the mixed package, so the
     /// app rendered every version 2 edit with the first one (the macOS CLI
     /// refused such recipes instead).
     pub fn model(&self) -> usize {
+        if self.fast {
+            return FAST_AI_DENOISE_MODEL;
+        }
         usize::from(
             crate::recipe_versions::AiDenoiseVersion::from_raw(self.version).mixed_precision(),
         )
@@ -2779,6 +2796,59 @@ mod ai_denoise_tests {
     }
 
     #[test]
+    fn fast_quality_runs_the_fast_model_with_the_versions_mapping() {
+        use super::{FAST_AI_DENOISE_MODEL, ai_denoise_settings};
+        let at = |recipe: serde_json::Value| ai_denoise_settings(&recipe).unwrap();
+        // A recipe without the key (every recipe before it) and "full"
+        // render the version's MatchFilter model, as before.
+        let before = at(json!({ "aiDenoise": 60, "aiDenoiseVersion": 5 }));
+        assert!(!before.fast);
+        assert_eq!(before.model(), 1);
+        assert_eq!(
+            at(json!({ "aiDenoise": 60, "aiDenoiseVersion": 5, "aiDenoiseQuality": "full" })),
+            before
+        );
+        assert_eq!(
+            at(json!({ "aiDenoise": 60, "aiDenoiseVersion": 5, "aiDenoiseQuality": "other" })),
+            before,
+            "an unknown quality renders Full"
+        );
+        // Fast: the same slider mapping and sensor means, the Fast model.
+        let fast =
+            at(json!({ "aiDenoise": 60, "aiDenoiseVersion": 5, "aiDenoiseQuality": "fast" }));
+        assert!(fast.fast);
+        assert_eq!(fast.model(), FAST_AI_DENOISE_MODEL);
+        assert_eq!(
+            (
+                fast.version,
+                fast.blend,
+                fast.noise_scale,
+                fast.sensor_means()
+            ),
+            (
+                before.version,
+                before.blend,
+                before.noise_scale,
+                before.sensor_means()
+            )
+        );
+        assert_ne!(
+            fast, before,
+            "a source developed Full is not reused for Fast"
+        );
+        // Version 1 recipes switched to Fast keep version 1's blend.
+        let v1 = at(json!({ "aiDenoise": 40, "aiDenoiseQuality": "fast" }));
+        assert_eq!(
+            (v1.blend, v1.noise_scale, v1.model()),
+            (0.4, 1.0, FAST_AI_DENOISE_MODEL)
+        );
+        assert_eq!(
+            ai_denoise_settings(&json!({ "aiDenoise": 0, "aiDenoiseQuality": "fast" })),
+            None
+        );
+    }
+
+    #[test]
     fn ai_denoise_version_2_maps_the_slider_to_the_noise_scale() {
         use super::{AiDenoiseSettings, ai_denoise_settings};
         assert_eq!(
@@ -2796,7 +2866,8 @@ mod ai_denoise_tests {
             AiDenoiseSettings {
                 version: 2,
                 blend: 0.5,
-                noise_scale: 0.8
+                noise_scale: 0.8,
+                fast: false,
             }
         );
         assert_eq!(
@@ -2804,7 +2875,8 @@ mod ai_denoise_tests {
             AiDenoiseSettings {
                 version: 2,
                 blend: 1.0,
-                noise_scale: 0.8
+                noise_scale: 0.8,
+                fast: false,
             }
         );
         assert!(

@@ -112,11 +112,18 @@ impl RenderInputs {
                 "black": format!("{:?}", base.black),
                 "highlights": format!("{:?}", base.highlights),
                 "warp_planes": format!("{:?}", base.warp_planes),
-                "ai_denoise": ai.map(|ai| json!({
-                    "version": ai.version,
-                    "blend": ai.blend,
-                    "noise_scale": ai.noise_scale,
-                })),
+                "ai_denoise": ai.map(|ai| {
+                    let mut entry = json!({
+                        "version": ai.version,
+                        "blend": ai.blend,
+                        "noise_scale": ai.noise_scale,
+                    });
+                    // Full keeps the entry snapshots had before the quality.
+                    if ai.fast {
+                        entry["quality"] = json!("fast");
+                    }
+                    entry
+                }),
             }),
         );
     }

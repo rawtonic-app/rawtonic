@@ -2482,6 +2482,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
         "ring": "Firma dei manifesti di provenienza (C2PA) nelle esportazioni: firme ECDSA, RSA-PSS ed Ed25519, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -2757,6 +2758,13 @@
       "title": "I Miei Obiettivi"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automatica",
+        "fast": "Veloce",
+        "full": "Completa"
+      },
+      "aiDenoiseQuality": "Qualità della riduzione rumore IA per le nuove modifiche",
+      "aiDenoiseQualityDesc": "La qualità che una foto riceve quando attivi per la prima volta la riduzione rumore IA; ogni foto mantiene la propria e puoi cambiarla in Sviluppo. Automatica sceglie Veloce sui computer in cui la riduzione rumore IA gira sul processore, altrimenti Completa.",
       "aiGpu": "IA sulla scheda grafica",
       "aiGpuDesc": "Esegue maschere IA, tag, rimozione oggetti e riduzione del rumore IA sulla scheda grafica quando possibile (WebGPU; CUDA se installato), altrimenti sul processore. Disattivalo se uno strumento IA non funziona bene.",
       "aiGpuLabel": "Usa la GPU per l'IA",
@@ -3648,7 +3656,13 @@
         "colorSmoothnessAria": "Uniformità rumore di colore",
         "denoising": "Riduzione del rumore del RAW… La prima volta richiede circa mezzo minuto.",
         "lumaContrastAria": "Contrasto rumore di luminanza",
-        "lumaDetailAria": "Dettaglio rumore di luminanza"
+        "lumaDetailAria": "Dettaglio rumore di luminanza",
+        "quality": "Qualità",
+        "qualityAria": "Qualità della riduzione rumore IA",
+        "qualityFast": "Veloce",
+        "qualityFastHint": "Veloce: circa 15× più rapida sul processore, con dettagli fini appena inferiori.",
+        "qualityFull": "Completa",
+        "qualityFullHint": "Completa: i dettagli più fini. Lenta senza una scheda grafica veloce (molti minuti per foto sul processore)."
       },
       "noPhoto": "Apri una foto in Sviluppo per regolarla.",
       "params": {

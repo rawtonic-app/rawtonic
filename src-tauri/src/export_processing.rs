@@ -3948,6 +3948,27 @@ mod tests {
         .map(|planned| planned.path().to_path_buf())
     }
 
+    /// An export loads the model its recipe's AI Denoise quality names and
+    /// nothing about the machine: Full recipes (with or without the key)
+    /// MatchFilter's model of their version, Fast ones the Fast network.
+    #[test]
+    fn exports_load_the_model_of_the_recipes_quality() {
+        use rawtonic_engine::image_loader::FAST_AI_DENOISE_MODEL;
+        let models = |recipes: Vec<serde_json::Value>| super::denoise_models(recipes);
+        let full = serde_json::json!({ "aiDenoise": 50, "aiDenoiseVersion": 5 });
+        let mut explicit = full.clone();
+        explicit["aiDenoiseQuality"] = serde_json::json!("full");
+        let mut fast = full.clone();
+        fast["aiDenoiseQuality"] = serde_json::json!("fast");
+        assert_eq!(models(vec![full.clone(), explicit]), [1].into());
+        assert_eq!(models(vec![fast.clone()]), [FAST_AI_DENOISE_MODEL].into());
+        assert_eq!(models(vec![full, fast]), [1, FAST_AI_DENOISE_MODEL].into());
+        assert_eq!(
+            crate::ai_denoise::slot(FAST_AI_DENOISE_MODEL),
+            FAST_AI_DENOISE_MODEL
+        );
+    }
+
     /// A queued export of the open photograph reuses its pixels only when
     /// they were developed with the export's AI Denoise: after the user
     /// turned it off, moved the slider or changed its version, the export
@@ -3976,11 +3997,14 @@ mod tests {
             source,
             &settings
         ));
+        let mut fast = recipe(50.0, 4);
+        fast["aiDenoiseQuality"] = serde_json::json!("fast");
         for changed in [
             recipe(0.0, 4),
             recipe(30.0, 4),
             recipe(50.0, 3),
             recipe(50.0, 1),
+            fast,
         ] {
             assert!(
                 !reusable_for_export(&open(&changed, true), &queued, source, &settings),

@@ -52,6 +52,7 @@ interface OldAdjustments {
   moirePattern?: number;
   aiDenoise?: number;
   aiDenoiseVersion?: number;
+  aiDenoiseQuality?: 'full' | 'fast';
   blacks: number;
   brightness: number;
   centré: number;

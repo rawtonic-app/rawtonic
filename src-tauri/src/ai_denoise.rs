@@ -14,6 +14,7 @@ use crate::state::lock::lock_recover;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use rawtonic_engine::image_loader::FAST_AI_DENOISE_MODEL;
 use rawtonic_rawdecode::mosaic_denoise::{MosaicDenoise, MosaicDenoiser};
 use tauri::Manager;
 
@@ -60,6 +61,9 @@ const CORE_ML_MIXED_FILES: [(&str, &str, &str); 3] = [
 ];
 #[cfg(not(target_os = "macos"))]
 const ONNX_SHA256: &str = "ba788a97f247058ea03d14bbf2f289adc8f4666039f27d0d530e6f67d23dd73c";
+/// The Fast network (`rawtonic_denoise::FAST_ONNX_MODEL`, CC BY-SA 4.0; in
+/// the packs from pack-2026-11-25b), on ONNX Runtime on every platform.
+const FAST_ONNX_SHA256: &str = "95e4e3f168d98f030b25f4f0c7d44337cc168d80d63af48227357d6f616914a6";
 
 pub fn cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(app_handle
@@ -69,11 +73,13 @@ pub fn cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("ai-denoise-cache"))
 }
 
-/// Where `AppState::ai_denoiser` keeps the denoiser of `model`
-/// (`AiDenoiseSettings::model`): ONNX Runtime (Windows, Linux) has one model
-/// for every version.
+/// Where `AiState::denoisers` keeps the denoiser of `model`
+/// (`AiDenoiseSettings::model`): ONNX Runtime (Windows, Linux) has one
+/// MatchFilter model for every version; the Fast network has its own slot.
 pub fn slot(model: usize) -> usize {
-    if cfg!(target_os = "macos") {
+    if model == FAST_AI_DENOISE_MODEL {
+        FAST_AI_DENOISE_MODEL
+    } else if cfg!(target_os = "macos") {
         model.min(1)
     } else {
         0
@@ -99,14 +105,19 @@ pub async fn denoiser(
     }
     let models = crate::ai_processing::models_dir(app_handle).map_err(|e| e.to_string())?;
     let cache = cache_dir(app_handle)?;
-    #[cfg(target_os = "macos")]
-    let denoiser: Arc<dyn MosaicDenoiser> = if slot == 0 {
-        Arc::new(load(app_handle, &models, cache).await?)
+    let denoiser: Arc<dyn MosaicDenoiser> = if slot == FAST_AI_DENOISE_MODEL {
+        Arc::new(load_fast(app_handle, &models, cache).await?)
     } else {
-        Arc::new(load_mixed(app_handle, &models, cache).await?)
+        #[cfg(target_os = "macos")]
+        let denoiser: Arc<dyn MosaicDenoiser> = if slot == 0 {
+            Arc::new(load(app_handle, &models, cache).await?)
+        } else {
+            Arc::new(load_mixed(app_handle, &models, cache).await?)
+        };
+        #[cfg(not(target_os = "macos"))]
+        let denoiser: Arc<dyn MosaicDenoiser> = Arc::new(load(app_handle, &models, cache).await?);
+        denoiser
     };
-    #[cfg(not(target_os = "macos"))]
-    let denoiser: Arc<dyn MosaicDenoiser> = Arc::new(load(app_handle, &models, cache).await?);
     lock_recover(&ai_state.denoisers)[slot] = Some(denoiser.clone());
     Ok(denoiser)
 }
@@ -209,6 +220,102 @@ async fn load(
     .map_err(CommandError::from)
 }
 
+/// The Fast network on ONNX Runtime (every platform), downloaded from the
+/// pack and checked by its SHA-256 on first use.
+async fn load_fast(
+    app_handle: &tauri::AppHandle,
+    models: &Path,
+    cache: PathBuf,
+) -> Result<rawtonic_denoise::MatchFilter, CommandError> {
+    crate::ai_processing::ensure_runtime()?;
+    let file = rawtonic_denoise::FAST_ONNX_MODEL;
+    crate::ai_processing::download_verified(
+        app_handle,
+        models,
+        file,
+        FAST_ONNX_SHA256,
+        "AI Denoise model (Fast)",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let model = models.join(file);
+    tokio::task::spawn_blocking(move || {
+        rawtonic_denoise::MatchFilter::fast_onnx(&model, Some(cache))
+            .map(|filter| {
+                filter
+                    .with_cache_use_observer(crate::storage_fs::mark_used)
+                    .with_cache_access(|path| Box::new(crate::storage_fs::pin_file(path)))
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(CommandError::from)
+}
+
+/// The AI Denoise quality (`aiDenoiseQuality`) a photo gets when AI Denoise
+/// is first turned on, by the preference (`ai_denoise_default_quality`):
+/// "full" or "fast" as chosen; otherwise Fast where MatchFilter would run
+/// on the processor (`matchfilter_on_cpu`; its denoising took 664 s of a
+/// 24 MP export on a loaded 6-core desktop against 43–51 s with Fast, and a
+/// Radeon 680M laptop exports in 19–25 min, about 1.3 min with Fast
+/// projected; notes: benchmark-results/dst1-2026-11-25, dst2-2026-11-25),
+/// else Full. The choice is stored in the recipe, so every machine exports
+/// the photo with the same network.
+pub fn default_quality(
+    preference: Option<&str>,
+    matchfilter_on_cpu: impl FnOnce() -> bool,
+) -> &'static str {
+    use rawtonic_engine::recipe_versions::{AI_DENOISE_FAST, AI_DENOISE_FULL};
+    match preference {
+        Some(AI_DENOISE_FAST) => AI_DENOISE_FAST,
+        Some(AI_DENOISE_FULL) => AI_DENOISE_FULL,
+        _ if matchfilter_on_cpu() => AI_DENOISE_FAST,
+        _ => AI_DENOISE_FULL,
+    }
+}
+
+/// Whether MatchFilter (`models/nlmf.onnx`) runs on the processor in this
+/// process: never on macOS (Core ML, on the GPU); elsewhere when every
+/// model stays on the CPU (`keep_models_on_cpu`, GPU AI off, a forced CPU)
+/// or it would not run on a GPU (`rawtonic_onnx::runs_on_gpu`: no GPU
+/// provider offers a device, or MatchFilter's check there rejected it).
+fn matchfilter_on_cpu(models: &Path) -> bool {
+    on_cpu_of(
+        cfg!(target_os = "macos"),
+        rawtonic_onnx::models_run_on_cpu_only(),
+        || {
+            rawtonic_onnx::runs_on_gpu(
+                &models.join(rawtonic_denoise::ONNX_MODEL),
+                rawtonic_onnx::ModelKind::Denoise,
+            )
+        },
+    )
+}
+
+/// `matchfilter_on_cpu` from its parts: models kept on the CPU by policy
+/// (`keep_models_on_cpu`, e.g. a Radeon 680M under Windows; GPU AI off; a
+/// forced CPU) answer at once, without asking for a GPU or a check that
+/// never runs there.
+fn on_cpu_of(macos: bool, models_on_cpu: bool, runs_on_gpu: impl FnOnce() -> bool) -> bool {
+    if macos {
+        return false;
+    }
+    models_on_cpu || !runs_on_gpu()
+}
+
+/// `default_quality` of Automatic on this machine. The editor resolves a
+/// chosen preference itself (it holds the choice before it is saved).
+#[tauri::command]
+pub async fn ai_denoise_default_quality(app_handle: tauri::AppHandle) -> Result<String, String> {
+    let models = crate::ai_processing::models_dir(&app_handle).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        default_quality(None, || matchfilter_on_cpu(&models)).to_string()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// The decoder option for a recipe: `None` without AI Denoise.
 pub async fn option_for(
     app_handle: &tauri::AppHandle,
@@ -225,10 +332,51 @@ pub async fn option_for(
 #[cfg(test)]
 mod tests {
     #[test]
+    fn new_edits_get_fast_where_matchfilter_runs_on_the_cpu_unless_chosen() {
+        use super::default_quality;
+        assert_eq!(default_quality(None, || true), "fast");
+        assert_eq!(default_quality(None, || false), "full");
+        assert_eq!(default_quality(Some("auto"), || true), "fast");
+        // A chosen quality wins and never asks for the machine.
+        let unasked = || panic!("the machine is not asked");
+        assert_eq!(default_quality(Some("full"), unasked), "full");
+        assert_eq!(default_quality(Some("fast"), unasked), "fast");
+    }
+
+    #[test]
+    fn models_kept_on_the_cpu_resolve_automatic_to_fast_at_once() {
+        use super::{default_quality, on_cpu_of};
+        let unasked = || -> bool { panic!("no GPU and no check is asked for") };
+        // keep_models_on_cpu (Radeon 680M under Windows), GPU AI off, forced CPU.
+        assert!(on_cpu_of(false, true, unasked));
+        assert_eq!(
+            default_quality(None, || on_cpu_of(false, true, unasked)),
+            "fast"
+        );
+        // A usable GPU, verdict unknown or passed: Full; no GPU or a rejected check: Fast.
+        assert_eq!(
+            default_quality(None, || on_cpu_of(false, false, || true)),
+            "full"
+        );
+        assert_eq!(
+            default_quality(None, || on_cpu_of(false, false, || false)),
+            "fast"
+        );
+        // macOS runs MatchFilter on Core ML.
+        assert_eq!(
+            default_quality(None, || on_cpu_of(true, true, unasked)),
+            "full"
+        );
+    }
+
+    #[test]
     fn every_model_has_a_slot_and_onnx_shares_one() {
         assert_eq!(super::slot(0), 0);
         let mixed = super::slot(1);
         assert_eq!(mixed, if cfg!(target_os = "macos") { 1 } else { 0 });
         assert!(super::slot(7) < 2);
+        let fast = rawtonic_engine::image_loader::FAST_AI_DENOISE_MODEL;
+        assert_eq!(super::slot(fast), fast, "the Fast network has its own slot");
+        assert!(fast < rawtonic_engine::image_loader::AI_DENOISE_MODELS);
     }
 }

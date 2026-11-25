@@ -2620,6 +2620,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
         "ring": "Подпись манифестов происхождения (C2PA) при экспорте: подписи ECDSA, RSA-PSS и Ed25519, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -2898,6 +2899,13 @@
       "title": "Мои объективы"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Автоматически",
+        "fast": "Быстрое",
+        "full": "Полное"
+      },
+      "aiDenoiseQuality": "Качество ИИ-шумоподавления для новых правок",
+      "aiDenoiseQualityDesc": "Качество, которое снимок получает при первом включении ИИ-шумоподавления; у каждого снимка оно своё, и его можно переключить в «Проявке». «Автоматически» выбирает «Быстрое» на компьютерах, где ИИ-шумоподавление работает на процессоре, иначе «Полное».",
       "aiGpu": "ИИ на видеокарте",
       "aiGpuDesc": "Выполняет ИИ-маски, теги, удаление объектов и ИИ-шумоподавление на видеокарте, когда это возможно (WebGPU; CUDA, если установлена), иначе на процессоре. Отключите, если ИИ-инструмент работает неправильно.",
       "aiGpuLabel": "Использовать GPU для ИИ",
@@ -3809,7 +3817,13 @@
         "colorSmoothnessAria": "Сглаживание цветового шума",
         "denoising": "Шумоподавление RAW… В первый раз это занимает около полуминуты.",
         "lumaContrastAria": "Контраст яркостного шума",
-        "lumaDetailAria": "Детали яркостного шума"
+        "lumaDetailAria": "Детали яркостного шума",
+        "quality": "Качество",
+        "qualityAria": "Качество ИИ-шумоподавления",
+        "qualityFast": "Быстрое",
+        "qualityFastHint": "Быстрое: примерно в 15 раз быстрее на процессоре, мелких деталей чуть меньше.",
+        "qualityFull": "Полное",
+        "qualityFullHint": "Полное: самые мелкие детали. Медленно без быстрой видеокарты (много минут на снимок на процессоре)."
       },
       "noPhoto": "Откройте фото в модуле «Проявка», чтобы настроить его.",
       "params": {

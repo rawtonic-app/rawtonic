@@ -305,7 +305,22 @@ describe('Edit all selected', () => {
       vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
     });
     expect(pasted()).toEqual([
-      { paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { aiDenoise: 50, aiDenoiseVersion: 5 } }
+      // The primary renders Full (no quality): so do the others.
+      { paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { aiDenoise: 50, aiDenoiseVersion: 5, aiDenoiseQuality: 'full' } }
+    ]);
+  });
+
+  it("sends the primary's AI Denoise quality with an AI Denoise edit", async () => {
+    useEditorStore.setState((state) => ({
+      adjustments: { ...state.adjustments, aiDenoiseVersion: 5, aiDenoiseQuality: 'fast' } as Adjustments
+    }));
+    renderHook(() => useEditAllSelected(true, selection));
+    edit({ aiDenoise: 50 });
+    await act(async () => {
+      vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10);
+    });
+    expect(pasted()).toEqual([
+      { paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { aiDenoise: 50, aiDenoiseVersion: 5, aiDenoiseQuality: 'fast' } }
     ]);
   });
 

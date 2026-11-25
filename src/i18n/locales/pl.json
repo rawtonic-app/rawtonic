@@ -2620,6 +2620,7 @@
         "RapidRAW": "The open-source RAW editor by Timon Käch that Rawtonic's editor derives from (commit a82251f); the hot and dead photosite test of new edits and parts of the photo merges (panorama point search, HDR ghost test) are ported from RapidRAW v1.7.1.",
         "rav1d": "Decodes AVIF sources (the Rust port of dav1d).",
         "rawler": "RAW decoding (dnglab, via RapidRAW-DngLab), with Rawtonic patches; Sony ARW 6 ported from LibRaw.",
+        "RawNIND (Raw Natural Image Noise Dataset)": "Training images of the Fast AI Denoise network, which Rawtonic trained from MatchFilter (B. Brummer, C. De Vleeschouwer, UCLouvain). The network is published under CC BY-SA 4.0.",
         "ring": "Podpisywanie manifestów pochodzenia (C2PA) w eksportach: podpisy ECDSA, RSA-PSS i Ed25519, SHA-256.",
         "SAM 2": "Click and box masks (SAM 2.1 Hiera-T, Meta).",
         "SDXL-VAE-FP16-Fix": "Image encoder and decoder of Moebius (madebyollin, from Stability AI's SDXL VAE).",
@@ -2898,6 +2899,13 @@
       "title": "Moje obiektywy"
     },
     "processing": {
+      "aiDenoiseQualities": {
+        "auto": "Automatyczna",
+        "fast": "Szybka",
+        "full": "Pełna"
+      },
+      "aiDenoiseQuality": "Jakość odszumiania AI dla nowych edycji",
+      "aiDenoiseQualityDesc": "Jakość, którą zdjęcie otrzymuje przy pierwszym włączeniu odszumiania AI; każde zdjęcie zachowuje własną, a zmienić ją można w Wywoływaniu. Automatyczna wybiera Szybką na komputerach, na których odszumianie AI działa na procesorze, w przeciwnym razie Pełną.",
       "aiGpu": "AI na karcie graficznej",
       "aiGpuDesc": "Uruchamia maski AI, tagi, usuwanie obiektów i odszumianie AI na karcie graficznej, gdy to możliwe (WebGPU; CUDA, jeśli zainstalowana), w przeciwnym razie na procesorze. Wyłącz, jeśli narzędzie AI działa niepoprawnie.",
       "aiGpuLabel": "Używaj GPU do AI",
@@ -3809,7 +3817,13 @@
         "colorSmoothnessAria": "Wygładzenie szumu koloru",
         "denoising": "Odszumianie pliku RAW… Za pierwszym razem trwa to około pół minuty.",
         "lumaContrastAria": "Kontrast szumu luminancji",
-        "lumaDetailAria": "Szczegóły szumu luminancji"
+        "lumaDetailAria": "Szczegóły szumu luminancji",
+        "quality": "Jakość",
+        "qualityAria": "Jakość odszumiania AI",
+        "qualityFast": "Szybka",
+        "qualityFastHint": "Szybka: około 15× szybsza na procesorze, z minimalnie mniejszą ilością drobnych szczegółów.",
+        "qualityFull": "Pełna",
+        "qualityFullHint": "Pełna: najdrobniejsze szczegóły. Wolna bez szybkiej karty graficznej (wiele minut na zdjęcie na procesorze)."
       },
       "noPhoto": "Otwórz zdjęcie w module Wywoływanie, aby je skorygować.",
       "params": {
