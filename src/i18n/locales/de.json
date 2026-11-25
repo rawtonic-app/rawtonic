@@ -2337,6 +2337,7 @@
         "Microsoft Visual C++ runtime": "Unter Windows die C++-Laufzeitbibliotheken, die ONNX Runtime braucht, daneben mitgeliefert (Microsoft).",
         "Moebius": "Entfernung großer Objekte (Huazhong University of Science and Technology, vivo AI Lab).",
         "moxcms": "Liest ICC-Profile in JPEG-, PNG-, TIFF-, WebP- und AVIF-Dateien.",
+        "naga": "Shader-Übersetzer von wgpu, mit einer Rawtonic-Korrektur, damit der Shader-Compiler von Direct3D 12 sein HLSL annimmt.",
         "NegPy": "Inspiration für die Negativkonvertierung.",
         "Nonlocal MatchFilter": "KI-Entrauschen auf dem RAW-Mosaik.",
         "ONNX Runtime": "Führt KI-Modelle aus, unter Windows und Linux über das WebGPU-Plugin auch auf der GPU (Microsoft). Geändert: auf Macs mit Apple-Chip, unter Linux und Windows x64 von Rawtonic ohne Microsofts Telemetrie aus dem Quellcode gebaut.",

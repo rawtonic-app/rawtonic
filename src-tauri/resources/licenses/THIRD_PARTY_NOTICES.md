@@ -27,6 +27,8 @@ AVIF sources are decoded with [rav1d](https://github.com/memorysafety/rav1d) 1.1
 
 `vendor/jxl-modular` contains jxl-modular 0.11.3, part of jxl-oxide 0.12.6 (Copyright Wonwoo Choi and contributors, MIT OR Apache-2.0; both license texts are preserved there). Rawtonic's correction, that a Modular stream without pixels reads no ANS state (as libjxl's decoder), is AGPL-3.0-or-later; see `RAWTONIC_PATCH.md` and `LICENSE_RAWTONIC_AGPL-3.0` in that directory. It is patched through the workspace Cargo.toml.
 
+`vendor/naga` contains naga 30.0.1, part of wgpu 30 (Copyright the gfx-rs developers, MIT OR Apache-2.0; both license texts are preserved there). Rawtonic's correction, that the HLSL backend writes each image-size helper once per HLSL signature (DXC rejected the duplicates), is AGPL-3.0-or-later; see `RAWTONIC_PATCH.md` and `LICENSE_RAWTONIC_AGPL-3.0` in that directory. It is patched through the workspace Cargo.toml.
+
 `vendor/kamadak-exif` contains kamadak-exif 0.6.1 (Copyright KAMADA Ken'ichi, BSD-2-Clause; the license text is preserved there). Rawtonic's correction, that a HEIF Exif item may exceed 64 KiB (the limit is 16 MiB), is AGPL-3.0-or-later; see `RAWTONIC_PATCH.md` in that directory. It is patched through the workspace Cargo.toml.
 
 Lossless JPEG XL exports are encoded with [zune-jpegxl](https://github.com/etemesi254/zune-image) 0.5.2 (Copyright Caleb Etemesi, MIT OR Apache-2.0 OR Zlib), a Rust port of libjxl's fast-lossless encoder (BSD-3-Clause, Copyright the JPEG XL Project Authors).

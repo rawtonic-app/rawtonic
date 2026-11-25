@@ -38,6 +38,12 @@ export const CREDITS: Credit[] = [
     license: 'Apache-2.0 OR MIT'
   },
   {
+    name: 'naga',
+    url: 'https://github.com/gfx-rs/wgpu',
+    what: "wgpu's shader translator, with a Rawtonic correction so Direct3D 12's shader compiler accepts its HLSL.",
+    license: 'MIT OR Apache-2.0; Rawtonic correction: AGPL-3.0-or-later'
+  },
+  {
     name: 'kamadak-exif',
     url: 'https://github.com/kamadak/exif-rs',
     what: 'EXIF reading, with a Rawtonic correction that accepts HEIF EXIF items over 64 KiB.',

@@ -5,6 +5,7 @@
 
 pub mod device_start;
 mod display_variant_ir;
+pub mod dx12_compiler;
 pub mod gpu_processing;
 pub mod memory_turns;
 pub mod pipeline_cache;

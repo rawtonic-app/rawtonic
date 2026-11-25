@@ -1115,7 +1115,7 @@ fn fold_block(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     const SHADER: &str = include_str!("shaders/shader.wgsl");
@@ -1125,6 +1125,76 @@ mod tests {
             .functions
             .iter()
             .any(|(_, f)| f.name.as_deref() == Some(name))
+    }
+
+    /// The HLSL wgpu's DX12 backend gets: names of helper functions defined
+    /// more than once. DXC rejects a redefinition (FXC did not), so every
+    /// display variant fell back to the general shader with DXC.
+    pub(crate) fn hlsl_redefinitions(module: &Module) -> Vec<String> {
+        let info = validate(module).unwrap();
+        // Overrides at their defaults, as wgpu applies a pipeline's constants.
+        let (module, info) = naga::back::pipeline_constants::process_overrides(
+            module,
+            &info,
+            None,
+            &Default::default(),
+        )
+        .map(|(m, i)| (m.into_owned(), i.into_owned()))
+        .unwrap();
+        let module = &module;
+        let options = naga::back::hlsl::Options {
+            shader_model: naga::back::hlsl::ShaderModel::V6_0,
+            restrict_indexing: true,
+            force_loop_bounding: true,
+            zero_initialize_workgroup_memory: true,
+            ..Default::default()
+        };
+        // Every entry point at once: the helpers of all of them, a superset
+        // of what one pipeline's HLSL holds (wgpu-hal writes one entry point).
+        let pipeline = naga::back::hlsl::PipelineOptions::default();
+        let mut hlsl = String::new();
+        let mut writer = naga::back::hlsl::Writer::new(&mut hlsl, &options, &pipeline);
+        writer.write(module, &info, None).unwrap();
+        let mut seen = std::collections::HashSet::new();
+        let mut twice = Vec::new();
+        for line in hlsl.lines().filter(|l| !l.starts_with(char::is_whitespace)) {
+            let Some(name) = line
+                .split(['(', ' '])
+                .find(|w| w.starts_with("Naga"))
+                .filter(|_| line.trim_end().ends_with(')') || line.ends_with('{'))
+            else {
+                continue;
+            };
+            // DXC does not overload on the `unorm`/`snorm` modifiers: a
+            // `RWTexture2D<unorm float4>` parameter redefines `RWTexture2D<float4>`.
+            let signature = line.replace("unorm ", "").replace("snorm ", "");
+            if !seen.insert(signature) {
+                twice.push(name.to_string());
+            }
+        }
+        twice
+    }
+
+    #[test]
+    fn hlsl_defines_each_image_query_helper_once() {
+        let source = "
+            @group(0) @binding(0) var a: texture_storage_2d<rgba16float, write>;
+            @group(0) @binding(1) var b: texture_storage_2d<rgba32float, write>;
+            @group(0) @binding(2) var c: texture_storage_2d<rgba8unorm, write>;
+            @compute @workgroup_size(1) fn main() {
+                let s = textureDimensions(a) + textureDimensions(b) + textureDimensions(c);
+                textureStore(a, s, vec4<f32>(0.0));
+                textureStore(b, s, vec4<f32>(0.0));
+                textureStore(c, s, vec4<f32>(0.0));
+            }";
+        let module = naga::front::wgsl::parse_str(source).unwrap();
+        assert_eq!(hlsl_redefinitions(&module), Vec::<String>::new());
+        let shader = DisplayShader::new(SHADER);
+        let effects = [("ENABLE_EFFECTS", 1.0)];
+        for constants in [&[][..], &effects[..]] {
+            let module = shader.variant_module(constants).unwrap();
+            assert_eq!(hlsl_redefinitions(&module), Vec::<String>::new());
+        }
     }
 
     #[test]

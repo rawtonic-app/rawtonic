@@ -16343,3 +16343,77 @@ mod film_grain_tile_pool_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod hlsl_tests {
+    use super::*;
+    use crate::display_variant_ir::tests::hlsl_redefinitions;
+
+    #[test]
+    fn display_variants_define_each_hlsl_helper_once() {
+        let source = include_str!("shaders/shader.wgsl");
+        let high = high_precision_shader_source(source).replace(
+            "override HIGH_PRECISION_OUTPUT: u32 = 0u;",
+            "override HIGH_PRECISION_OUTPUT: u32 = 1u;",
+        );
+        let shaders = [
+            ("plain", DisplayShader::new(source)),
+            ("passes", DisplayShader::with_passes(source, false)),
+            ("passes+split", DisplayShader::with_passes(source, true)),
+            ("high+split", DisplayShader::with_passes(&high, true)),
+        ];
+        let mut failures = Vec::new();
+        for (name, shader) in &shaders {
+            for features in [4113usize, 1030746175, 1073741823, 0, 1, 0x3fff_ffff] {
+                let constants = [
+                    &variant_constants(features, true, true, false, false)[..],
+                    &display_effect_constants(features)[..],
+                ]
+                .concat();
+                let module = shader.variant_module(&constants).unwrap();
+                let twice = hlsl_redefinitions(&module);
+                if !twice.is_empty() {
+                    failures.push(format!("{name} {features}: {twice:?}"));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    #[test]
+    fn every_shader_defines_each_hlsl_helper_once() {
+        let source = include_str!("shaders/shader.wgsl");
+        let mut sources: Vec<(String, String)> = vec![
+            ("shader".into(), source.into()),
+            ("high".into(), high_precision_shader_source(source)),
+            ("display".into(), display_shader_source(source)),
+        ];
+        for features in [0usize, 4113, 1030746175, 1073741823] {
+            sources.push((
+                format!("export {features}"),
+                export_shader_source(source, features),
+            ));
+        }
+        for entry in std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/src/shaders")).unwrap()
+        {
+            let path = entry.unwrap().path();
+            sources.push((
+                path.display().to_string(),
+                std::fs::read_to_string(&path).unwrap(),
+            ));
+        }
+        let mut failures = Vec::new();
+        for (name, text) in &sources {
+            match naga::front::wgsl::parse_str(text) {
+                Ok(module) => {
+                    let twice = hlsl_redefinitions(&module);
+                    if !twice.is_empty() {
+                        failures.push(format!("{name}: {twice:?}"));
+                    }
+                }
+                Err(e) => eprintln!("skip {name}: {}", e.message()),
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+}

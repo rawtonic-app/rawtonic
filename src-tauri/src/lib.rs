@@ -579,6 +579,7 @@ fn start(args: Vec<String>) {
                             )
                         });
 
+                    rawtonic_gpu::dx12_compiler::set_bundled_dir(&resource_path);
                     let ort_library_name = {
                         #[cfg(target_os = "windows")]
                         { "onnxruntime.dll" }
