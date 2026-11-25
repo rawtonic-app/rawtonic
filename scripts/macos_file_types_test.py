@@ -32,6 +32,12 @@ SYSTEM_RAW_EXTENSIONS = {
     "srf", "sr2", "pwl", "nefx", "axr", "dxo",
 }
 CAMERA_RAW = "public.camera-raw-image"
+# The system's type for each raster extension (UTType(filenameExtension:)).
+RASTER_TYPES = {
+    "jpg": "public.jpeg", "jpeg": "public.jpeg", "png": "public.png",
+    "gif": "com.compuserve.gif", "bmp": "com.microsoft.bmp", "tiff": "public.tiff",
+    "tif": "public.tiff", "exr": "com.ilm.openexr-image",
+}
 
 
 def associations(name):
@@ -47,6 +53,18 @@ class MacFileTypesTests(unittest.TestCase):
         shared = {e for a in self.shared for e in a["ext"]}
         mac = {e for a in self.mac for e in a["ext"]}
         self.assertEqual(shared - mac, set())
+
+    def test_entries_with_types_cover_each_of_their_extensions(self):
+        # macOS ignores the extension list of an entry with content types, so
+        # each extension must be matched by one of the entry's types.
+        for a in self.mac:
+            types = a.get("contentTypes")
+            if not types:
+                continue
+            for e in a["ext"]:
+                if CAMERA_RAW in types and e in SYSTEM_RAW_EXTENSIONS:
+                    continue
+                self.assertIn(RASTER_TYPES.get(e), types, f"{a['name']}: {e}")
 
     def test_no_entry_takes_a_default(self):
         for a in self.mac:

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Rawtonic no longer hides other apps in Open With for RAW files, and on macOS installing it no longer makes it the default app for any file type: it is offered for camera RAWs through the system's camera RAW type, so Preview and the other RAW programs stay listed and the default stays the system's or yours, and it is an alternative for JPEG, PNG, GIF, BMP, TIFF and EXR. Formats macOS does not know (Sigma X3F, Kodak KDC, QOI, …) now list Rawtonic too.
+- Rawtonic no longer hides other apps in Open With for RAW files, and on macOS installing it no longer replaces the default app of a file type that already has one: it is offered for camera RAWs through the system's camera RAW type, so Preview and the other RAW programs stay listed and the default stays the system's or yours, and it is an alternative for JPEG, PNG, GIF, BMP, TIFF and EXR. Formats macOS does not know (Sigma X3F, Kodak KDC, QOI, …) now list Rawtonic too; for a format no other installed app opens, it is the default.
 
 - Edit With also renders photos with generated areas (object removal, generative fill). The render is marked as containing AI-generated content (IPTC Digital Source Type in its XMP, as any export of it), and the library marks the stacked render for good when it registers it: the mark stays when the other program saves the file without it, and a metadata edit or Use XMP does not remove it. The "Source type" search finds the render, and its exports are marked, also with metadata stripped (from the app, and from `rawtonic export` for photos of a session). Libraries are upgraded to schema 37 when opened.
 
