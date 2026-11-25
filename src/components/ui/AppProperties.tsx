@@ -271,6 +271,7 @@ export enum Invokes {
   LoadPresets = 'load_presets',
   LoadBuiltinPresets = 'load_builtin_presets',
   CheckUpdates = 'check_updates',
+  UpdatesManagedByFlatpak = 'updates_managed_by_flatpak',
   UpdateDownload = 'update_download',
   UpdateCancelDownload = 'update_cancel_download',
   UpdateInstall = 'update_install',

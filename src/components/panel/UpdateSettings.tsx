@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { useEffect, useState, type ReactNode } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
+import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from 'react-i18next';
 import Switch from '../ui/Switch';
-import { type AppSettings } from '../ui/AppProperties';
+import { Invokes, type AppSettings } from '../ui/AppProperties';
 import { useUpdateStore } from '../../store/useUpdateStore';
 
 export default function UpdateSettings({
@@ -18,6 +19,13 @@ export default function UpdateSettings({
   useEffect(() => {
     void getVersion()
       .then((version) => setPrereleasesDefault(version.split('+')[0].includes('-')))
+      .catch(console.debug);
+  }, []);
+  // Inside Flatpak the updates come from Flatpak: no switches, no request.
+  const [flatpak, setFlatpak] = useState(false);
+  useEffect(() => {
+    void Promise.resolve(invoke<boolean>(Invokes.UpdatesManagedByFlatpak))
+      .then((managed) => setFlatpak(managed === true))
       .catch(console.debug);
   }, []);
   const checking = useUpdateStore((s) => s.checking);
@@ -36,28 +44,31 @@ export default function UpdateSettings({
   );
   return (
     <>
-      {row(
-        t('updates.startup'),
-        <Switch
-          checked={appSettings.checkForUpdates ?? true}
-          label={t('updates.startup')}
-          onChange={(checked) => {
-            void onSettingsChange({ ...appSettings, checkForUpdates: checked });
-          }}
-        />,
-        <p className="pref-description">{t('updates.privacy')}</p>
-      )}
-      {row(
-        t('updates.prereleases'),
-        <Switch
-          disabled={prereleasesDefault === null && appSettings.updatePrereleases === undefined}
-          checked={appSettings.updatePrereleases ?? prereleasesDefault ?? false}
-          label={t('updates.prereleases')}
-          onChange={(checked) => {
-            void onSettingsChange({ ...appSettings, updatePrereleases: checked });
-          }}
-        />
-      )}
+      {flatpak && row(t('updates.manual'), null, <p className="pref-description">{t('updates.flatpak')}</p>)}
+      {!flatpak &&
+        row(
+          t('updates.startup'),
+          <Switch
+            checked={appSettings.checkForUpdates ?? true}
+            label={t('updates.startup')}
+            onChange={(checked) => {
+              void onSettingsChange({ ...appSettings, checkForUpdates: checked });
+            }}
+          />,
+          <p className="pref-description">{t('updates.privacy')}</p>
+        )}
+      {!flatpak &&
+        row(
+          t('updates.prereleases'),
+          <Switch
+            disabled={prereleasesDefault === null && appSettings.updatePrereleases === undefined}
+            checked={appSettings.updatePrereleases ?? prereleasesDefault ?? false}
+            label={t('updates.prereleases')}
+            onChange={(checked) => {
+              void onSettingsChange({ ...appSettings, updatePrereleases: checked });
+            }}
+          />
+        )}
       {row(
         t('updates.showWhatsNew'),
         <Switch
@@ -68,31 +79,32 @@ export default function UpdateSettings({
           }}
         />
       )}
-      {row(
-        t('updates.manual'),
-        <button
-          type="button"
-          disabled={checking}
-          className="studio-button"
-          onClick={() => {
-            void useUpdateStore.getState().check(true);
-          }}
-        >
-          {checking ? t('updates.checking') : t('updates.checkNow')}
-        </button>,
-        <>
-          {failed && (
-            <p role="status" className="pref-description">
-              {t('updates.failed')}
-            </p>
-          )}
-          {checked && !update && (
-            <p role="status" className="pref-description">
-              {t('updates.noUpdate')}
-            </p>
-          )}
-        </>
-      )}
+      {!flatpak &&
+        row(
+          t('updates.manual'),
+          <button
+            type="button"
+            disabled={checking}
+            className="studio-button"
+            onClick={() => {
+              void useUpdateStore.getState().check(true);
+            }}
+          >
+            {checking ? t('updates.checking') : t('updates.checkNow')}
+          </button>,
+          <>
+            {failed && (
+              <p role="status" className="pref-description">
+                {t('updates.failed')}
+              </p>
+            )}
+            {checked && !update && (
+              <p role="status" className="pref-description">
+                {t('updates.noUpdate')}
+              </p>
+            )}
+          </>
+        )}
     </>
   );
 }

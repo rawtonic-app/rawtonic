@@ -1102,6 +1102,7 @@ fn start(args: Vec<String>) {
             storage::storage_clear,
             storage::storage_apply_limits,
             update_check::check_updates,
+            update_check::updates_managed_by_flatpak,
             update_check::install::update_download,
             update_check::install::update_cancel_download,
             update_check::install::update_install,

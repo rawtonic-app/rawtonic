@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import i18n from 'i18next';
 import { notify } from '../activity/notify';
 import { Invokes } from '../components/ui/AppProperties';
-import type { ExportJob } from '../store/useProcessStore';
+import type { ExportJob, SizeLimitMiss } from '../store/useProcessStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { exportSettingsFromDraft, subfolderName, type RecipeDraft } from './exportRecipes';
 import { sourceOf } from '../entities/photo/photoRef';
@@ -51,6 +51,20 @@ export function describeCompletedExports({
     .filter(([, count]) => count > 0)
     .map(([key, count]) => i18n.t(`studio.export.queue.existing.${key}`, { count }))
     .join(' · ');
+}
+
+/** "<file>: could not reach <limit> KB; saved the smallest file (<size> KB)". */
+export function describeSizeLimitMiss(miss: SizeLimitMiss): string {
+  return i18n.t('studio.export.queue.sizeLimitMissed', {
+    file: miss.file.slice(Math.max(miss.file.lastIndexOf('/'), miss.file.lastIndexOf('\\')) + 1),
+    limit: Math.ceil(miss.limitBytes / 1000),
+    size: Math.ceil(miss.bytes / 1000)
+  });
+}
+
+/** One line per missed file. */
+export function describeSizeLimitMisses(misses: SizeLimitMiss[]): string[] {
+  return misses.map(describeSizeLimitMiss);
 }
 
 /** The containing folder, accepting both native path separators. */

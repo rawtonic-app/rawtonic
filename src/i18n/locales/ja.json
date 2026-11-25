@@ -78,6 +78,7 @@
       "interrupted": "書き出しが中断されました: {{label}}",
       "nothingExported": "書き出しはありません — {{existing}} ({{label}})",
       "running": "書き出し中: {{label}}",
+      "sizeLimitMissed": "ファイルサイズの上限に届きませんでした：{{label}}",
       "waiting": "書き出し待ち: {{label}}"
     },
     "eyes": {
@@ -3733,7 +3734,6 @@
           "rendering": "レンダリングと書き込み中…",
           "replaced": "以前の書き出しを置き換えました",
           "selecting": "AI 選択範囲を計算中…",
-          "sizeLimitMissed": "最小のファイルを書き出しました：{{size}} KB（上限 {{limit}} KB を超過）",
           "skippedExists": "スキップ：同名のファイルがあります",
           "skippedUnchanged": "スキップ：前回の書き出しから変更なし",
           "waiting": "待機中"
@@ -3746,6 +3746,8 @@
         "retry": "再試行",
         "running": "書き出し中（{{total}} 枚中 {{done}} 枚書き出し済み）",
         "show": "表示",
+        "sizeLimitMissed": "{{file}}：{{limit}} KB に届きませんでした。最小のファイルを保存しました（{{size}} KB）",
+        "sizeLimitNotices": "上限を超えたファイル",
         "start": "開始",
         "startQueue": "キューを開始",
         "title": "書き出しキュー",
@@ -5746,6 +5748,7 @@
       "moveToApplications": "ここから Rawtonic をアップデートするには、まず「アプリケーション」フォルダに移動してください。"
     },
     "fileWithSize": "{{file}}（{{size}} MB）",
+    "flatpak": "このコピーのアップデートは Flatpak から届きます。「flatpak update cc.rawtonic.editor」を実行するか、ソフトウェアセンターを使ってください。Rawtonic 自身はアップデートを確認しません。",
     "inAppDetail": "Rawtonic は GitHub からアップデートをダウンロードし、署名を確認します。再起動するまで何も置き換えられません。",
     "install": "アップデートをインストール",
     "installing": "アップデートをインストール中… まもなく Rawtonic が再起動します。",

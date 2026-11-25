@@ -32,6 +32,7 @@ const job = (part: Partial<ExportJob>): ExportJob => ({
 let stop: () => void;
 
 beforeEach(() => {
+  localStorage.clear();
   resetActivityStore();
   resetActivityBridges();
   handlers.clear();
@@ -45,6 +46,89 @@ beforeEach(() => {
 afterEach(() => {
   stop();
   vi.clearAllMocks();
+});
+
+it('keeps a finished export that missed its file size limit under attention, naming each file', () => {
+  const miss = (file: string, bytes = 689_582) => ({ file, limitBytes: 500_000, bytes });
+  useProcessStore.getState().setExportQueue({ jobs: [job({ done: 1 })], held: false });
+  expect(entry('export:j1')?.status).toBe('running');
+  useProcessStore.getState().setExportQueue({
+    jobs: [
+      job({
+        state: 'done',
+        total: 2,
+        done: 2,
+        sizeLimitMisses: [miss('/out/IMG_0001.jpg'), miss('/out/IMG_0001_mask.jpg', 612_000)]
+      })
+    ],
+    held: false
+  });
+  expect(entry('export:j1')).toMatchObject({
+    status: 'warning',
+    source: 'export',
+    title: 'File size limit not reached: 3 photos as JPG · 2 written',
+    detail:
+      'IMG_0001.jpg: could not reach 500 KB; saved the smallest file (690 KB)\n' +
+      'IMG_0001_mask.jpg: could not reach 500 KB; saved the smallest file (612 KB)'
+  });
+  // An export that met its limit still just finishes.
+  useProcessStore.getState().setExportQueue({ jobs: [job({ id: 'j2', state: 'done', done: 3 })], held: false });
+  expect(entry('export:j2')?.status).toBe('done');
+});
+
+it('lists every file above its size limit, also of a cancelled or failed export, and stays dismissed', async () => {
+  const misses = Array.from({ length: 7 }, (_, i) => ({ file: `/out/${i}.jpg`, limitBytes: 500_000, bytes: 600_000 }));
+  const sync = (part: Partial<ExportJob>) =>
+    useProcessStore.getState().setExportQueue({ jobs: [job({ sizeLimitMisses: misses, ...part })], held: false });
+  sync({ state: 'cancelled', done: 7, total: 9 });
+  expect(entry('export:j1')?.status).toBe('warning');
+  expect(entry('export:j1')?.detail?.split('\n')).toHaveLength(7);
+  sync({ state: 'failed', done: 7, failed: 1, total: 8, failures: [{ path: '/p/8.RAF', error: 'Decoder said no' }] });
+  expect(entry('export:j1')).toMatchObject({ status: 'failure' });
+  expect(entry('export:j1')?.detail?.split('\n')).toHaveLength(8);
+
+  sync({ state: 'done', done: 7, total: 7 });
+  expect(entry('export:j1')?.status).toBe('warning');
+  useActivityStore.getState().dismiss('export:j1');
+  await Promise.resolve();
+  // The queue snapshot after a restart repeats the finished job: not again.
+  stop();
+  resetActivityBridges();
+  resetActivityStore();
+  stop = startActivityBridges();
+  sync({ state: 'done', done: 7, total: 7 });
+  expect(entry('export:j1')?.status).toBe('done');
+  // Resumed, the job writes one more file above its limit: only that is new.
+  const more = [...misses, { file: '/out/7.jpg', limitBytes: 500_000, bytes: 600_000 }];
+  sync({ state: 'running', done: 7, total: 8 });
+  sync({ state: 'done', done: 8, total: 8, sizeLimitMisses: more });
+  expect(entry('export:j1')?.status).toBe('warning');
+  expect(entry('export:j1')?.detail).toBe('7.jpg: could not reach 500 KB; saved the smallest file (600 KB)');
+
+  // A failed export: dismissed while it is failed, its files above the limit
+  // stay dismissed after a restart, its failure comes back.
+  sync({ state: 'running', done: 8, total: 9 });
+  const failed = {
+    state: 'failed' as const,
+    done: 8,
+    failed: 1,
+    total: 9,
+    failures: [{ path: '/p/8.RAF', error: 'Decoder said no' }],
+    sizeLimitMisses: [...more, { file: '/out/8.jpg', limitBytes: 500_000, bytes: 610_000 }]
+  };
+  sync(failed);
+  expect(entry('export:j1')?.status).toBe('failure');
+  expect(entry('export:j1')?.detail).toContain('8.jpg: could not reach');
+  useActivityStore.getState().dismiss('export:j1');
+  await Promise.resolve();
+  stop();
+  resetActivityBridges();
+  resetActivityStore();
+  stop = startActivityBridges();
+  sync(failed);
+  expect(entry('export:j1')?.status).toBe('failure');
+  expect(entry('export:j1')?.detail).toContain('Decoder said no');
+  expect(entry('export:j1')?.detail ?? '').not.toContain('could not reach');
 });
 
 it('shows a running export with its progress and Cancel', async () => {

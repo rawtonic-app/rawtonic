@@ -95,6 +95,7 @@
       "interrupted": "Exportación interrumpida: {{label}}",
       "nothingExported": "No se exportó nada — {{existing}} ({{label}})",
       "running": "Exportando {{label}}",
+      "sizeLimitMissed": "Límite de tamaño de archivo no alcanzado: {{label}}",
       "waiting": "Esperando para exportar {{label}}"
     },
     "eyes": {
@@ -4009,7 +4010,6 @@
           "rendering": "Renderizando y escribiendo…",
           "replaced": "Exportación anterior reemplazada",
           "selecting": "Calculando las selecciones con IA…",
-          "sizeLimitMissed": "Archivo más pequeño escrito: {{size}} KB, por encima del límite de {{limit}} KB",
           "skippedExists": "Omitida: existe un archivo con su nombre",
           "skippedUnchanged": "Omitida: sin cambios desde su última exportación",
           "waiting": "En espera"
@@ -4024,6 +4024,8 @@
         "retry": "Reintentar",
         "running": "Exportando ({{done}} de {{total}} exportadas)",
         "show": "Mostrar",
+        "sizeLimitMissed": "{{file}}: no se pudo alcanzar {{limit}} KB; se guardó el archivo más pequeño ({{size}} KB)",
+        "sizeLimitNotices": "Archivos por encima de su límite de tamaño",
         "start": "Iniciar",
         "startQueue": "Iniciar la cola",
         "title": "Cola de exportación",
@@ -6119,6 +6121,7 @@
       "moveToApplications": "Para actualizar Rawtonic desde aquí, muévelo primero a la carpeta Aplicaciones."
     },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "flatpak": "Las actualizaciones de esta copia llegan por Flatpak. Ejecuta «flatpak update cc.rawtonic.editor» o usa tu centro de software; Rawtonic no busca actualizaciones por sí mismo.",
     "inAppDetail": "Rawtonic descarga la actualización de GitHub y comprueba su firma. No se reemplaza nada hasta que reinicies.",
     "install": "Instalar actualización",
     "installing": "Instalando la actualización… Rawtonic se reiniciará en un momento.",

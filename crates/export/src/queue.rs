@@ -115,9 +115,11 @@ pub struct Item {
     /// How its file ended when it was not simply written ("If a file
     /// exists": skipped, replaced, kept both); None for a plain write.
     pub outcome: Option<crate::existing_files::Outcome>,
-    /// The JPEG's file size limit could not be met: the smallest file was
-    /// written (`ExportSettings::max_file_kb`); None otherwise.
-    pub size_limit_miss: Option<crate::size_limit::SizeLimitMiss>,
+    /// The files of the photo (its main file, each mask file) whose JPEG
+    /// size limit could not be met: the smallest file was written
+    /// (`ExportSettings::max_file_kb`); empty otherwise.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub size_limit_misses: Vec<crate::size_limit::SizeLimitNotice>,
     /// When the last attempt started and ended (Unix ms), for durations.
     pub started_ms: Option<i64>,
     pub finished_ms: Option<i64>,
@@ -156,11 +158,20 @@ pub struct Job {
     pub kept_both: usize,
     /// The failed photos in job order, for the interface to list.
     pub failures: Vec<Failure>,
+    /// The files written above their JPEG size limit (the smallest file was
+    /// written), in job order.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub size_limit_misses: Vec<crate::size_limit::SizeLimitNotice>,
     /// The job itself failed to run, even if some or all photos were done.
     pub error: Option<String>,
 }
 
 const QUEUE_VERSION: u32 = 6;
+
+/// The notices a `size_limit_miss` column holds (unreadable: none).
+fn read_notices(json: &str) -> Vec<crate::size_limit::SizeLimitNotice> {
+    serde_json::from_str(json).unwrap_or_default()
+}
 
 pub struct ExportQueue {
     conn: Connection,
@@ -202,7 +213,7 @@ impl ExportQueue {
                finished_ms INTEGER,
                snapshot TEXT,
                outcome TEXT,
-               size_limit_miss TEXT,
+               size_limit_miss TEXT, -- JSON list of SizeLimitNotice
                PRIMARY KEY(job_id, idx));",
         )?;
         if version < 2 {
@@ -550,18 +561,30 @@ impl ExportQueue {
         Ok(())
     }
 
-    /// A photo's JPEG stayed above its file size limit at the lowest
-    /// quality: the smallest file was written.
+    /// A file of a photo (its main file or a mask file) stayed above the
+    /// JPEG size limit at the lowest quality: the smallest file was written.
+    /// Every file keeps its own notice; a second one for the same file
+    /// (a retry's) replaces the first.
     pub fn item_size_limit_miss(
         &self,
         job: &str,
         index: usize,
-        miss: crate::size_limit::SizeLimitMiss,
+        notice: crate::size_limit::SizeLimitNotice,
     ) -> Result<()> {
-        self.conn.execute(
-            "UPDATE items SET size_limit_miss=? WHERE job_id=? AND idx=?",
-            params![serde_json::to_string(&miss)?, job, index as i64],
+        let tx = self.conn.unchecked_transaction()?;
+        let kept: Option<String> = tx.query_row(
+            "SELECT size_limit_miss FROM items WHERE job_id=? AND idx=?",
+            params![job, index as i64],
+            |r| r.get(0),
         )?;
+        let mut notices = kept.as_deref().map(read_notices).unwrap_or_default();
+        notices.retain(|kept| kept.file != notice.file);
+        notices.push(notice);
+        tx.execute(
+            "UPDATE items SET size_limit_miss=? WHERE job_id=? AND idx=?",
+            params![serde_json::to_string(&notices)?, job, index as i64],
+        )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -847,6 +870,7 @@ impl ExportQueue {
             replaced: replaced as usize,
             kept_both: kept_both as usize,
             failures,
+            size_limit_misses: self.job_size_limit_misses(id)?,
             error,
         })
     }
@@ -893,6 +917,7 @@ impl ExportQueue {
                 outcome,
                 miss,
             ) = row?;
+            let size_limit_misses = miss.as_deref().map(read_notices).unwrap_or_default();
             Ok(Item {
                 index: index as usize,
                 path,
@@ -903,12 +928,27 @@ impl ExportQueue {
                 outcome: outcome
                     .as_deref()
                     .and_then(crate::existing_files::Outcome::parse),
-                size_limit_miss: miss.and_then(|json| serde_json::from_str(&json).ok()),
+                size_limit_misses,
                 started_ms,
                 finished_ms,
             })
         })
         .collect()
+    }
+
+    /// The size limit notices of `job`'s photos, in job order: the files they
+    /// wrote above their limit, also of a photo that failed on a later file.
+    fn job_size_limit_misses(&self, job: &str) -> Result<Vec<crate::size_limit::SizeLimitNotice>> {
+        let mut q = self.conn.prepare_cached(
+            "SELECT size_limit_miss FROM items
+             WHERE job_id=? AND size_limit_miss IS NOT NULL ORDER BY idx",
+        )?;
+        let rows = q.query_map([job], |r| r.get::<_, String>(0))?;
+        let mut notices = Vec::new();
+        for json in rows {
+            notices.extend(read_notices(&json?));
+        }
+        Ok(notices)
     }
 
     fn ids(&self, sql: &str) -> Result<Vec<String>> {
@@ -1248,7 +1288,7 @@ mod tests {
     }
 
     #[test]
-    fn a_missed_size_limit_is_kept_with_its_photo_and_a_new_attempt_forgets_it() {
+    fn missed_size_limits_are_kept_per_file_and_a_new_attempt_forgets_them() {
         use crate::size_limit::SizeLimitMiss;
         let (dir, q) = queue();
         let job = q.enqueue("Export 2", &json!({}), &paths(2)).unwrap();
@@ -1258,16 +1298,38 @@ mod tests {
             q.item_started(&job, index, &dir.path().join(format!("{index}.jpg")))
                 .unwrap();
         }
-        let miss = SizeLimitMiss {
+        let miss = |bytes| SizeLimitMiss {
             limit_bytes: 1000,
-            bytes: 4321,
+            bytes,
         };
-        q.item_size_limit_miss(&job, 1, miss).unwrap();
+        let main = dir.path().join("1.jpg");
+        let mask = dir.path().join("1_mask.jpg");
+        // The main file and a mask file of one photo each keep their notice.
+        q.item_size_limit_miss(&job, 1, miss(4321).for_file(&main))
+            .unwrap();
+        q.item_size_limit_miss(&job, 1, miss(2222).for_file(&mask))
+            .unwrap();
+        // The same file again (a retry's) replaces its notice.
+        q.item_size_limit_miss(&job, 1, miss(4000).for_file(&main))
+            .unwrap();
         q.item_done(&job, 1).unwrap();
-        assert_eq!(q.item(&job, 0).unwrap().size_limit_miss, None);
-        assert_eq!(q.item(&job, 1).unwrap().size_limit_miss, Some(miss));
+        assert!(q.item(&job, 0).unwrap().size_limit_misses.is_empty());
+        let kept = q.item(&job, 1).unwrap().size_limit_misses;
+        assert_eq!(
+            kept,
+            vec![miss(2222).for_file(&mask), miss(4000).for_file(&main)]
+        );
+        // The job lists them for the interface, also those a photo wrote
+        // before it failed on a later file.
+        assert_eq!(q.job(&job).unwrap().size_limit_misses, kept);
+        q.item_size_limit_miss(&job, 0, miss(9000).for_file(&dir.path().join("0.jpg")))
+            .unwrap();
+        q.item_failed(&job, 0, "disk full").unwrap();
+        assert_eq!(q.job(&job).unwrap().size_limit_misses.len(), 3);
+        q.item_began(&job, 0).unwrap();
         q.item_began(&job, 1).unwrap();
-        assert_eq!(q.item(&job, 1).unwrap().size_limit_miss, None);
+        assert!(q.item(&job, 1).unwrap().size_limit_misses.is_empty());
+        assert!(q.job(&job).unwrap().size_limit_misses.is_empty());
     }
 
     #[test]

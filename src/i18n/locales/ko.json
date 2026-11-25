@@ -78,6 +78,7 @@
       "interrupted": "내보내기 중단됨: {{label}}",
       "nothingExported": "내보낸 사진 없음 — {{existing}} ({{label}})",
       "running": "내보내는 중: {{label}}",
+      "sizeLimitMissed": "파일 크기 제한에 도달하지 못함: {{label}}",
       "waiting": "내보내기 대기 중: {{label}}"
     },
     "eyes": {
@@ -3733,7 +3734,6 @@
           "rendering": "렌더링 및 쓰는 중…",
           "replaced": "이전 내보내기를 바꿨습니다",
           "selecting": "AI 선택 영역 계산 중…",
-          "sizeLimitMissed": "가장 작은 파일을 저장함: {{size}} KB, 제한 {{limit}} KB 초과",
           "skippedExists": "건너뜀: 같은 이름의 파일이 있습니다",
           "skippedUnchanged": "건너뜀: 마지막 내보내기 이후 변경 없음",
           "waiting": "대기 중"
@@ -3746,6 +3746,8 @@
         "retry": "다시 시도",
         "running": "내보내는 중 ({{total}}장 중 {{done}}장 내보냄)",
         "show": "보기",
+        "sizeLimitMissed": "{{file}}: {{limit}} KB에 도달하지 못해 가장 작은 파일을 저장했습니다({{size}} KB)",
+        "sizeLimitNotices": "크기 제한을 넘은 파일",
         "start": "시작",
         "startQueue": "대기열 시작",
         "title": "내보내기 대기열",
@@ -5746,6 +5748,7 @@
       "moveToApplications": "여기서 Rawtonic을 업데이트하려면 먼저 응용 프로그램 폴더로 옮기세요."
     },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "flatpak": "이 사본의 업데이트는 Flatpak으로 제공됩니다. 'flatpak update cc.rawtonic.editor'를 실행하거나 소프트웨어 센터를 사용하세요. Rawtonic은 직접 업데이트를 확인하지 않습니다.",
     "inAppDetail": "Rawtonic이 GitHub에서 업데이트를 내려받고 서명을 확인합니다. 다시 시작할 때까지 아무것도 바뀌지 않습니다.",
     "install": "업데이트 설치",
     "installing": "업데이트 설치 중… 곧 Rawtonic이 다시 시작됩니다.",
