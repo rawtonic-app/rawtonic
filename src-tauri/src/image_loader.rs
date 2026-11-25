@@ -1918,7 +1918,6 @@ async fn open_offline(
             is_raw: true,
             ai_denoise: 0.0,
             ai_denoise_version: 1,
-        ai_denoise_quality: AI_DENOISE_FULL,
             ai_denoise_quality: AI_DENOISE_FULL,
             ai_denoise_error: None,
             ai_denoise_stand_in: false,
