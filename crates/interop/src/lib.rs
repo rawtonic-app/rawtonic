@@ -145,6 +145,9 @@ pub struct NotRead {
     pub local_adjustments: usize,
     /// Photos whose folder the library no longer records.
     pub unlocated: usize,
+    /// Synonyms in the keyword library (Capture One's): Rawtonic has no
+    /// synonyms, and a synonym is not made a keyword of its own.
+    pub keyword_synonyms: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,6 +158,11 @@ pub struct Library {
     pub albums: Vec<Album>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub stacks: Vec<Stack>,
+    /// The keyword library: each keyword path without keywords below it
+    /// (its parents are implied), whether photographs hold it or not, so the
+    /// other editor's keyword list arrives whole, unused terms too.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
     pub not_read: NotRead,
 }
 

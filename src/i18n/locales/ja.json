@@ -1809,6 +1809,8 @@
       "copies_other": "仮想コピー {{count}} 件",
       "edited_other": "補正あり {{count}} 枚",
       "filterName": "カタログとセッション",
+      "keywordLibrary_other": "キーワードリストのキーワード {{count}} 個",
+      "keywordSynonymsNotImported_other": "キーワードの同義語 {{count}} 個（読み込みません）",
       "photos_other": "写真 {{count}} 枚",
       "preview": ": {{items}}。",
       "relinkAria": "{{folder}} の新しい場所",

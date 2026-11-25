@@ -1809,6 +1809,8 @@
       "copies_other": "{{count}} 個虛擬副本",
       "edited_other": "{{count}} 張有調整",
       "filterName": "目錄與工作階段",
+      "keywordLibrary_other": "關鍵字清單中的 {{count}} 個關鍵字",
+      "keywordSynonymsNotImported_other": "{{count}} 個關鍵字同義詞（不匯入）",
       "photos_other": "{{count}} 張照片",
       "preview": "：{{items}}。",
       "relinkAria": "{{folder}} 的新位置",

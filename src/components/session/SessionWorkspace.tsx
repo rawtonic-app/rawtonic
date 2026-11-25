@@ -401,8 +401,9 @@ interface ImportPreview {
   copies: number;
   edited: number;
   albums: number;
+  keywords: number;
   roots: { folder: string; photos: number; found: number }[];
-  notRead: { smartAlbums: number; localAdjustments: number; unlocated: number };
+  notRead: { smartAlbums: number; localAdjustments: number; unlocated: number; keywordSynonyms: number };
 }
 
 interface ImportReport {
@@ -2609,6 +2610,14 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
                       t('session.import.edited', { count: importPreview.edited }),
                       t('session.import.albums', { count: importPreview.albums }),
                       importPreview.copies ? t('session.import.copies', { count: importPreview.copies }) : null,
+                      importPreview.keywords
+                        ? t('session.import.keywordLibrary', { count: importPreview.keywords })
+                        : null,
+                      importPreview.notRead.keywordSynonyms
+                        ? t('session.import.keywordSynonymsNotImported', {
+                            count: importPreview.notRead.keywordSynonyms
+                          })
+                        : null,
                       importPreview.notRead.smartAlbums
                         ? t('session.import.smartAlbumsNotImported', {
                             count: importPreview.notRead.smartAlbums

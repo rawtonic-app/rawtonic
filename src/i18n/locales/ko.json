@@ -1809,6 +1809,8 @@
       "copies_other": "가상 복사본 {{count}}개",
       "edited_other": "조정됨 {{count}}장",
       "filterName": "카탈로그 및 세션",
+      "keywordLibrary_other": "키워드 목록의 키워드 {{count}}개",
+      "keywordSynonymsNotImported_other": "키워드 동의어 {{count}}개(가져오지 않음)",
       "photos_other": "사진 {{count}}장",
       "preview": ": {{items}}.",
       "relinkAria": "{{folder}}의 새 위치",

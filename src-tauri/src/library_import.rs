@@ -80,6 +80,9 @@ pub struct ImportPreview {
     pub copies: usize,
     pub edited: usize,
     pub albums: usize,
+    /// Keywords of the source's keyword library (without children), unused
+    /// ones too.
+    pub keywords: usize,
     pub roots: Vec<Root>,
     pub not_read: NotRead,
 }
@@ -100,6 +103,9 @@ pub struct ImportReport {
     /// aspect ratio and is shrunk until all of it shows the photo.
     pub crops_clipped: usize,
     pub albums: usize,
+    /// Keywords of the source's keyword library newly kept in the Keyword
+    /// List, with or without photographs.
+    pub keywords: usize,
     /// Lightroom stacks made (or completed by a repeated import).
     pub stacks: usize,
     /// Photographs with Lightroom AI masks (Select Subject, Select Sky):
@@ -151,6 +157,7 @@ fn preview(source: &Source, kind: &'static str) -> ImportPreview {
             .iter()
             .filter(|a| !a.is_group && a.smart.as_ref().is_none_or(|s| smart_rule(s).is_some()))
             .count(),
+        keywords: source.keywords.len(),
         roots: source.roots(),
         not_read: NotRead {
             smart_albums: source.not_read.smart_albums
@@ -893,6 +900,13 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
         pending = next;
     }
     report.stacks = import_stacks(catalog, source, &members)?;
+    // The keyword library whole, unused terms too (KWC1): a keyword list is
+    // part of the work a photographer brings over.
+    report.keywords = catalog
+        .apply_declared_keywords(&[], &source.keywords)
+        .map_err(|e| e.to_string())?
+        .added
+        .len();
     Ok(report)
 }
 
@@ -3448,6 +3462,48 @@ mod tests {
         );
     }
 
+    /// KWC1: the source's keyword library arrives whole: terms no photograph
+    /// holds are kept in the Keyword List (declared), names holding `;`, `,`
+    /// or `>` as one keyword, and a repeated import adds nothing.
+    #[test]
+    fn import_keeps_the_keyword_library_with_unused_terms() {
+        let tmp = tempfile::tempdir().unwrap();
+        let catalog = Library::create(&tmp.path().join("Rawtonic"), "Main", Mode::Catalog).unwrap();
+        let file = tmp.path().join("a.png");
+        image::RgbImage::new(30, 20).save(&file).unwrap();
+        let mut held = photo("1", file.clone(), Develop::None, None);
+        held.metadata.keywords = vec!["semi;colon".into()];
+        let source = Source {
+            name: "C1".into(),
+            photos: vec![held],
+            albums: vec![],
+            stacks: vec![],
+            keywords: vec![
+                "angle|term".into(),
+                "angle>term".into(),
+                "Parent|comma,term".into(),
+                "semi;colon".into(),
+                "unused_alpha".into(),
+            ],
+            not_read: NotRead::default(),
+        };
+        let report = import_into(&catalog, &source).unwrap();
+        assert_eq!((report.imported, report.keywords), (1, 5), "{report:?}");
+        assert_eq!(
+            catalog.declared_keywords().unwrap(),
+            [
+                "angle>term",
+                "angle|term",
+                "Parent|comma,term",
+                "semi;colon",
+                "unused_alpha"
+            ]
+        );
+        let again = import_into(&catalog, &source).unwrap();
+        assert_eq!(again.keywords, 0);
+        assert_eq!(catalog.declared_keywords().unwrap().len(), 5);
+    }
+
     /// C1G1: "Apply Capture One straightening and crop" for a photo an
     /// earlier build imported (its record cannot tell whether the
     /// straightening is new): the import offers it, the action replaces only
@@ -3479,6 +3535,7 @@ mod tests {
             )],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         // Imported by an earlier build: it read neither Rotation nor Crop.
@@ -3621,6 +3678,7 @@ mod tests {
             )],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         import_into(&catalog, &source(&[("Exposure", "0.3")])).unwrap();
@@ -4276,6 +4334,7 @@ mod tests {
             photos: vec![original, copy],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: Default::default(),
         };
         let report = import_into(&catalog, &source).unwrap();
@@ -4523,6 +4582,7 @@ mod tests {
                 },
             ],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         let shown = preview(&source, "lightroom");
@@ -4659,6 +4719,7 @@ mod tests {
             photos: vec![lr, copy],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         let report = import_into(&catalog, &source).unwrap();
@@ -4786,6 +4847,7 @@ mod tests {
                 photos: vec![photo("1", path.clone(), Develop::None, None), copy],
                 albums: vec![],
                 stacks: vec![],
+                keywords: Vec::new(),
                 not_read: NotRead::default(),
             }
         };
@@ -4860,6 +4922,7 @@ mod tests {
                     &["3", "5", "6"],
                 ),
             ],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         let id = |name: &str| catalog.asset_at(&photos.join(name)).unwrap().unwrap().id;
@@ -5243,6 +5306,7 @@ mod tests {
                 .collect(),
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         let album =
@@ -5384,6 +5448,7 @@ mod tests {
                 .collect(),
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         import_into(&catalog, &source).unwrap();
@@ -5580,6 +5645,7 @@ mod tests {
                     }),
                 }],
                 stacks: vec![],
+                keywords: Vec::new(),
                 not_read: NotRead::default(),
             }
         };
@@ -5810,6 +5876,7 @@ mod tests {
             )],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         assert_eq!(import_into(&catalog, &source).unwrap().imported, 1);
@@ -5987,6 +6054,7 @@ ProcessVersion = "15.4" }}"#,
             photos: vec![photo("1", path.clone(), Develop::LightroomXmp(xmp), None)],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         let report = import_into(&catalog, &source).unwrap();
@@ -6048,6 +6116,7 @@ ProcessVersion = "15.4" }}"#,
             )],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         let report = import_into(&catalog, &source).unwrap();
@@ -6089,6 +6158,7 @@ ProcessVersion = "15.4" }}"#,
             )],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         assert_eq!(import_into(&catalog, &source).unwrap().imported, 1);
@@ -6198,6 +6268,7 @@ ProcessVersion = "15.4" }}"#,
             ],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         fn generic_entries() -> Vec<(String, String)> {
@@ -6259,6 +6330,7 @@ ProcessVersion = "15.4" }}"#,
             )],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         import_into(&catalog, &only).unwrap();
@@ -6293,6 +6365,7 @@ ProcessVersion = "15.4" }}"#,
             photos: vec![],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         assert!(import_into(&session, &source).is_err());
@@ -6493,6 +6566,7 @@ ProcessVersion = "15.4" }}"#,
             photos: vec![photo("1", raw.to_path_buf(), develop, None)],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         }
     }
@@ -6629,6 +6703,7 @@ ProcessVersion = "15.4" }}"#,
             ],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         import_into(&catalog, &source(1.0)).unwrap();
@@ -6722,6 +6797,7 @@ ProcessVersion = "15.4" }}"#,
             ],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         import_into(&catalog, &source(1.0)).unwrap();
@@ -6766,6 +6842,7 @@ ProcessVersion = "15.4" }}"#,
             ],
             albums: vec![],
             stacks: vec![],
+            keywords: Vec::new(),
             not_read: NotRead::default(),
         };
         import_into(&catalog, &source(1.0)).unwrap();
