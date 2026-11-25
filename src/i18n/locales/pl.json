@@ -325,6 +325,7 @@
       "compare_top_bottom": "Przed/po: Podział góra/dół",
       "copy_adjustments": "Kopiuj korekty",
       "copy_image_path": "Kopiuj ścieżkę",
+      "cycle_surroundings": "Przyciemnij otoczenie",
       "delete_selected": "Przenieś do kosza",
       "dock_filmstrip_bottom": "Pasek klatek pod zdjęciem",
       "dock_filmstrip_left": "Pasek klatek po lewej od zdjęcia",
@@ -2791,6 +2792,7 @@
         "copy_files": "Skopiuj wybrane pliki",
         "copy_image_path": "Kopiuj ścieżkę wybranych zdjęć",
         "cycle_compare_mode": "Przełącz tryb przed/po",
+        "cycle_surroundings": "Przyciemnij otoczenie",
         "cycle_zoom": "Przełącz przybliżenie (Dopasuj, 2x Dopasuj, 100%)",
         "delete_selected": "Usuń wybrane pliki",
         "dock_filmstrip_bottom": "Pasek klatek pod zdjęciem",
@@ -6243,6 +6245,7 @@
         "background": {
           "black": "Czarne",
           "dark": "Ciemne",
+          "default": "Domyślny",
           "light": "Jasne",
           "medium": "Średnie",
           "veryDark": "Bardzo ciemne",

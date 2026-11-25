@@ -315,6 +315,13 @@ export default function StudioWorkspace(props: Props) {
   // With a mask tool active, a right-click on the photograph opens its
   // settings (Capture One); otherwise the photograph's context menu.
   const onViewerContextMenu = (event: MouseEvent) => {
+    // Keep recipe commands off the photograph in the loupe and full screen.
+    // The Editor handles right-clicks beside it before calling this handler.
+    if (viewOnly) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     if (toolPopoverApplies(tools)) {
       event.preventDefault();
       const focused = document.activeElement;
@@ -1283,13 +1290,6 @@ export default function StudioWorkspace(props: Props) {
         e.stopPropagation();
         const rect = e.currentTarget.getBoundingClientRect();
         setToolPopover({ x: rect.left, y: rect.bottom });
-      }}
-      onContextMenuCapture={(e) => {
-        // In the view: no menu of edit commands (undo, paste, auto, reset,
-        // or ratings for the whole selection) over the photograph.
-        if (!viewOnly) return;
-        e.preventDefault();
-        e.stopPropagation();
       }}
       onPointerDownCapture={(e) => {
         // In the view (loupe, full screen): Shift-drag (straighten) and a

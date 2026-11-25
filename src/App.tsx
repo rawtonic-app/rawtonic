@@ -43,6 +43,7 @@ import SettingsPanel from './components/panel/SettingsPanel';
 import GlobalTooltip from './components/ui/GlobalTooltip';
 import AppModals from './components/modals/AppModals';
 
+import { SurroundingsDimmer } from './components/studio/SurroundingsDimmer';
 import { ContextMenuProvider } from './context/ContextMenuContext';
 import { useSettingsStore } from './store/useSettingsStore';
 import { useUIStore } from './store/useUIStore';
@@ -562,6 +563,7 @@ function App() {
 
   return (
     <>
+      <SurroundingsDimmer />
       <CommandPalette />
       <ContributionHost />
       <ImageProcessingManager

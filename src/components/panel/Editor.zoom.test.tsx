@@ -7,6 +7,8 @@ import Editor, { type TransformWrapperHandle } from './Editor';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useUIStore } from '../../store/useUIStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
+import { ContextMenuProvider } from '../../context/ContextMenuContext';
+import { Invokes, type AppSettings } from '../ui/AppProperties';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
 
 // Keep the real viewer and targeted pointer surface; replace the renderer.
@@ -89,6 +91,51 @@ describe('Editor zoom', () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it.each([
+    { activeView: 'editor', libraryLoupe: false },
+    { activeView: 'library', libraryLoupe: true }
+  ] as const)('applies the saved color around the native photo in %j', async (view) => {
+    vi.useRealTimers();
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0));
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => clearTimeout(id));
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 20, 500, 300));
+    useUIStore.setState(view);
+    useSettingsStore.setState({ osPlatform: 'macos', appSettings: { keybinds: {} } as AppSettings });
+    useEditorStore.setState({ hasRenderedFirstFrame: true });
+    vi.mocked(invoke).mockClear();
+    const viewer = createRef<TransformWrapperHandle>();
+    const { getByText, unmount } = render(
+      <ContextMenuProvider>
+        <Editor onContextMenu={() => {}} transformWrapperRef={viewer} />
+      </ContextMenuProvider>
+    );
+    try {
+      const transforms = () =>
+        vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.UpdateWgpuTransform);
+      await vi.waitFor(() => expect(transforms().length).toBeGreaterThan(0));
+      const initial = (transforms().at(-1)?.[1] as { payload: Record<string, unknown> }).payload;
+      expect(initial.bgSecondary).toEqual([38 / 255, 38 / 255, 38 / 255, 1]);
+
+      fireEvent.contextMenu(viewer.current!.instance.wrapperComponent!, { clientX: 460, clientY: 45 });
+      fireEvent.click(getByText('White'));
+      expect(invoke).toHaveBeenCalledWith(Invokes.SaveSettings, {
+        settings: expect.objectContaining({ viewerBackground: 'white' })
+      });
+      await vi.waitFor(() => {
+        expect(transforms().at(-1)?.[1]).toEqual({ payload: { ...initial, bgSecondary: [1, 1, 1, 1] } });
+      });
+      act(() => useUIStore.setState({ surroundings: 'black' }));
+      await vi.waitFor(() => {
+        expect(transforms().at(-1)?.[1]).toEqual({ payload: { ...initial, bgSecondary: [0, 0, 0, 1] } });
+      });
+    } finally {
+      unmount();
+      useEditorStore.setState({ hasRenderedFirstFrame: false });
+      useUIStore.setState({ activeView: 'editor', libraryLoupe: false, surroundings: 'normal' });
+      useSettingsStore.setState({ appSettings: null });
+    }
   });
 
   it('draws the photograph beside the zoomed viewer on Linux, moved with it', () => {

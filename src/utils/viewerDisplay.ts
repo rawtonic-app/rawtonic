@@ -3,10 +3,12 @@
  * the proof margin and the zoom floor (fit).
  */
 
-export const VIEWER_BACKGROUNDS = ['black', 'veryDark', 'dark', 'medium', 'light', 'white'] as const;
+export const VIEWER_BACKGROUNDS = ['default', 'white', 'light', 'medium', 'dark', 'veryDark', 'black'] as const;
 export type ViewerBackground = (typeof VIEWER_BACKGROUNDS)[number];
 
-export const DEFAULT_VIEWER_BACKGROUND: ViewerBackground = 'dark';
+export const SURROUNDINGS_OPACITY = { normal: 0, dim: 0.8, black: 1 } as const;
+
+export const DEFAULT_VIEWER_BACKGROUND: ViewerBackground = 'default';
 
 /**
  * Neutral greys as display-encoded sRGB values (0–255). The display surface is
@@ -15,6 +17,7 @@ export const DEFAULT_VIEWER_BACKGROUND: ViewerBackground = 'dark';
  * judging tones; Dark is about the earlier default viewer grey.
  */
 export const VIEWER_BACKGROUND_LEVELS: Record<ViewerBackground, number> = {
+  default: 38,
   black: 0,
   veryDark: 18,
   dark: 38,
@@ -40,13 +43,13 @@ export function resolveViewerBackground(settings: ViewerBackgroundSettings | nul
 }
 
 /** Normalised RGBA for the native display. */
-export function viewerBackgroundRgba(background: ViewerBackground): [number, number, number, number] {
-  const v = VIEWER_BACKGROUND_LEVELS[background] / 255;
+export function viewerBackgroundRgba(background: ViewerBackground, brightness = 1): [number, number, number, number] {
+  const v = (VIEWER_BACKGROUND_LEVELS[background] / 255) * brightness;
   return [v, v, v, 1];
 }
 
-export function viewerBackgroundCss(background: ViewerBackground): string {
-  const v = VIEWER_BACKGROUND_LEVELS[background];
+export function viewerBackgroundCss(background: ViewerBackground, brightness = 1): string {
+  const v = VIEWER_BACKGROUND_LEVELS[background] * brightness;
   return `rgb(${v}, ${v}, ${v})`;
 }
 

@@ -55,6 +55,7 @@ import { compositeWhileMoving } from '../../utils/layerWhileMoving';
 import { isFullPreviewZoom, isOneToOne, snapToDevicePixel } from '../../utils/pixelSnap';
 import {
   MIN_VIEWER_ZOOM,
+  SURROUNDINGS_OPACITY,
   cropModeBox,
   cropSelectionOnScreen,
   isOutsidePhoto,
@@ -170,6 +171,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const viewerBackground = resolveViewerBackground(appSettings);
   const { showContextMenu } = useContextMenu();
   const isFullScreen = useUIStore((s) => s.isFullScreen);
+  const surroundingsBrightness = useUIStore((s) => 1 - SURROUNDINGS_OPACITY[s.surroundings]);
   const activePanel = useUIStore((s) => s.activePanel);
   const isInstantTransition = useUIStore((s) => s.isInstantTransition);
   const isLoading = useLibraryStore((s) => s.isViewLoading);
@@ -1672,13 +1674,15 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       cropRotation,
       crop: crop ?? adjustments.crop,
       bgPrimary: isFullScreen ? viewerRgba : parseRgb(bgPrimaryStr),
-      // Around the photograph (proof margin and empty viewer) natively.
-      bgSecondary: viewerRgba
+      // Only the native backdrop receives the dimming. It follows the
+      // photograph's actual placement even while a transform is in flight.
+      bgSecondary: viewerBackgroundRgba(viewerBackground, surroundingsBrightness)
     };
   }, [
     appSettings?.interfaceShade,
     appSettings?.useWgpuRenderer,
     viewerBackground,
+    surroundingsBrightness,
     isFullScreen,
     selectedImage?.isReady,
     selectedImage?.isPreviewReady,
@@ -1700,6 +1704,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     appSettings?.interfaceShade,
     appSettings?.useWgpuRenderer,
     viewerBackground,
+    surroundingsBrightness,
     isFullScreen,
     selectedImage?.isReady,
     selectedImage?.isPreviewReady,
@@ -1984,15 +1989,11 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   // background (Capture One); on the photograph the editor's menu opens.
   const handleViewerContextMenu = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
-      const container = imageContainerRef.current;
+      const container = event.currentTarget;
       const irs = imageRenderSizeRef.current;
-      if (!container || isCropping || irs.width === 0 || irs.height === 0) {
-        onContextMenu(event);
-        return;
-      }
       const photo = photoScreenRect(container.getBoundingClientRect(), transformStateRef.current, irs);
-      if (!isOutsidePhoto(event.clientX, event.clientY, photo)) {
-        onContextMenu(event);
+      if (isCropping || irs.width === 0 || irs.height === 0 || !isOutsidePhoto(event.clientX, event.clientY, photo)) {
+        if (container === imageContainerRef.current) onContextMenu(event);
         return;
       }
       event.preventDefault();
@@ -2747,6 +2748,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
               backgroundColor: isWgpuActive ? undefined : viewerBackgroundCss(viewerBackground)
             }}
             data-testid="before-pane"
+            data-surroundings-mirror=""
+            onContextMenu={handleViewerContextMenu}
             onWheel={forwardBeforePaneWheel}
             onPointerDown={handleBeforePanePointerDown}
             onPointerMove={handlePointerMove}
@@ -2772,9 +2775,11 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           style={{
             cursor: cursorStyle,
             backgroundColor: viewerPaintsBackground({ nativeFrame: isWgpuActive, nativeMultiView })
-              ? viewerBackgroundCss(viewerBackground)
+              ? viewerBackgroundCss(viewerBackground, isCropping ? surroundingsBrightness : 1)
               : undefined
           }}
+          data-surroundings-clip=""
+          data-surroundings-protect-pane={isWgpuActive || nativeMultiView || isCropping || undefined}
           onContextMenu={handleViewerContextMenu}
           ref={imageContainerRef}
           onPointerDownCapture={cameraPreviewShown ? undefined : handlePointerDown}
@@ -2822,6 +2827,17 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
               transform: `translate(${shownView.positionX}px, ${shownView.positionY}px) scale(${shownView.scale})`
             }}
           >
+            <div
+              aria-hidden="true"
+              data-surroundings-photo=""
+              className="pointer-events-none absolute"
+              style={{
+                left: imageRenderSize.offsetX,
+                top: imageRenderSize.offsetY,
+                width: imageRenderSize.width,
+                height: imageRenderSize.height
+              }}
+            />
             <ImageCanvas
               appSettings={appSettings}
               activeMaskContainerId={activeMaskContainerId}

@@ -346,6 +346,12 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view'
   },
   {
+    action: 'cycle_surroundings',
+    description: 'settings.keybinds.actions.cycle_surroundings',
+    defaultCombo: ['shift', 'KeyL'],
+    section: 'view'
+  },
+  {
     // The camera's own JPEG in the edit's place (utils/cameraPreview). A
     // toggle beside \ (before/after), as Lightroom's \ is one: a long look
     // needs no held key; the key again or Esc returns to the edit, and it

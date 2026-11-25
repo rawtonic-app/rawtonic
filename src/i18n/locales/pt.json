@@ -308,6 +308,7 @@
       "compare_top_bottom": "Antes/depois: Divisão superior/inferior",
       "copy_adjustments": "Copiar ajustes",
       "copy_image_path": "Copiar caminho",
+      "cycle_surroundings": "Escurecer o entorno",
       "delete_selected": "Mover para o Lixo",
       "dock_filmstrip_bottom": "Tira de fotos abaixo da foto",
       "dock_filmstrip_left": "Tira de fotos à esquerda da foto",
@@ -2650,6 +2651,7 @@
         "copy_files": "Copiar arquivo(s) selecionado(s)",
         "copy_image_path": "Copiar o caminho da(s) imagem(ns) selecionada(s)",
         "cycle_compare_mode": "Alternar o modo antes/depois",
+        "cycle_surroundings": "Escurecer o entorno",
         "cycle_zoom": "Alternar zoom (Caber, 2x Caber, 100%)",
         "delete_selected": "Excluir arquivo(s) selecionado(s)",
         "dock_filmstrip_bottom": "Tira de fotos abaixo da foto",
@@ -6019,6 +6021,7 @@
         "background": {
           "black": "Preto",
           "dark": "Escuro",
+          "default": "Padrão",
           "light": "Claro",
           "medium": "Médio",
           "veryDark": "Muito escuro",

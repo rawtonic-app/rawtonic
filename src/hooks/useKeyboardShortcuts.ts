@@ -153,6 +153,7 @@ const CHECKED: Record<string, (s: ShortcutState) => boolean> = {
   toggle_multi_view: () => useMultiViewStore.getState().active,
   toggle_second_window: () => useSecondWindowStore.getState().state.open,
   toggle_analytics: (s) => !!s.editor.isWaveformVisible,
+  cycle_surroundings: (s) => s.ui.surroundings !== 'normal' && viewerShown(s.ui) && !!s.editor.selectedImage,
   toggle_clipping: (s) => !!s.editor.clipHighlights || !!s.editor.clipShadows,
   toggle_soft_proof: (s) => !!s.editor.softProof,
   // Checked only while the camera JPEG is on screen (`enabled` says
@@ -836,6 +837,15 @@ export const useKeyboardShortcuts = ({
           if (!e.repeat) toggleCompareMode('side-by-side');
         }
       },
+      cycle_surroundings: {
+        shouldFire: (s) => viewerShown(s.ui) && !!s.editor.selectedImage,
+        execute: (e, s) => {
+          e.preventDefault();
+          if (e.repeat) return;
+          const next = { normal: 'dim', dim: 'black', black: 'normal' } as const;
+          s.ui.setUI({ surroundings: next[s.ui.surroundings] });
+        }
+      },
       toggle_clipping: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
@@ -1274,6 +1284,10 @@ export const useKeyboardShortcuts = ({
         match: (e: KeyboardEvent) => eventCode(e) === 'Escape',
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
+          if (s.ui.surroundings !== 'normal' && viewerShown(s.ui) && s.editor.selectedImage) {
+            s.ui.setUI({ surroundings: 'normal' });
+            return;
+          }
           // The camera preview (Shift+\) returns to the edit, and only that:
           // Escape does not also leave the view it was switched on in.
           if (cameraPreviewShown()) hideCameraPreview();

@@ -19,12 +19,12 @@ const editorMenu = vi.fn();
 vi.mock('./useQuickAdjust', () => ({ useQuickAdjust: vi.fn(() => null) }));
 vi.mock('../panel/Editor', () => ({
   // As the real Editor: a native wheel listener on its container.
-  default: () => (
+  default: ({ onContextMenu }: { onContextMenu: React.MouseEventHandler<HTMLDivElement> }) => (
     <div
       data-testid="native-viewer"
       ref={(el) => el?.addEventListener('wheel', editorWheel)}
       onPointerDownCapture={editorPointerDown}
-      onContextMenu={editorMenu}
+      onContextMenu={onContextMenu}
     />
   )
 }));
@@ -126,7 +126,7 @@ const workspace = (list = files, onOpen: (path: string) => void = noop) =>
       onBack={onBack}
       onRate={noop}
       onContextMenu={noop}
-      onEditorContextMenu={noop}
+      onEditorContextMenu={editorMenu}
       onCopy={noop}
       onPaste={noop}
       onReset={noop}
@@ -409,13 +409,15 @@ it("keeps a wheel with Cmd/Ctrl held (the editor's crop zoom) from the photograp
   expect(editorWheel).toHaveBeenCalledOnce();
 });
 
-it('opens no context menu of edit commands over the photograph shown alone or in the loupe', () => {
+it.each(['full screen', 'loupe'])('opens no context menu of edit commands over the photograph in %s', (mode) => {
   useUIStore.setState({ activeView: 'editor' });
   workspace();
-  act(() => useUIStore.getState().toggleFullScreen());
+  act(() =>
+    useUIStore.setState(mode === 'full screen' ? { isFullScreen: true } : { activeView: 'library', libraryLoupe: true })
+  );
   fireEvent.contextMenu(screen.getByTestId('native-viewer'));
   expect(editorMenu).not.toHaveBeenCalled();
-  act(() => useUIStore.getState().toggleFullScreen());
+  act(() => useUIStore.setState({ activeView: 'editor', isFullScreen: false, libraryLoupe: false }));
   fireEvent.contextMenu(screen.getByTestId('native-viewer'));
   expect(editorMenu).toHaveBeenCalledOnce();
 });

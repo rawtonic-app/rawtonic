@@ -277,6 +277,7 @@
       "compare_top_bottom": "補正前/補正後：上下に分割",
       "copy_adjustments": "補正設定をコピー",
       "copy_image_path": "パスをコピー",
+      "cycle_surroundings": "写真の周囲を暗くする",
       "delete_selected": "ゴミ箱に入れる",
       "dock_filmstrip_bottom": "フィルムストリップを写真の下に",
       "dock_filmstrip_left": "フィルムストリップを写真の左に",
@@ -2410,6 +2411,7 @@
         "copy_files": "選択したファイルをコピー",
         "copy_image_path": "選択した画像のパスをコピー",
         "cycle_compare_mode": "補正前後の比較モードを切り替え",
+        "cycle_surroundings": "写真の周囲を暗くする",
         "cycle_zoom": "ズームの切り替え (全体表示、2倍拡大、100%)",
         "delete_selected": "選択したファイルを削除",
         "dock_filmstrip_bottom": "フィルムストリップを写真の下に",
@@ -5642,6 +5644,7 @@
         "background": {
           "black": "黒",
           "dark": "暗い",
+          "default": "既定",
           "light": "明るい",
           "medium": "ミディアム",
           "veryDark": "とても暗い",

@@ -142,6 +142,7 @@ function CellSelect({
   return (
     <button
       className="studio-mv-select"
+      data-surroundings-cell=""
       style={{ height }}
       aria-label={label}
       aria-hidden={label ? undefined : true}

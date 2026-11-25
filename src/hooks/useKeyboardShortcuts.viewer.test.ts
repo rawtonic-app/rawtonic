@@ -390,3 +390,36 @@ it('goes to the first and last photograph with Home and End in the loupe, Develo
   press('Home', { shiftKey: true });
   expect(props.handleImageSelect).not.toHaveBeenCalled();
 });
+
+it.each([{ activeView: 'editor' } as const, { libraryLoupe: true }])(
+  'cycles the surroundings and restores them with Escape in %j',
+  (view) => {
+    useUIStore.setState({ ...view, surroundings: 'normal' });
+    press('KeyL', { shiftKey: true });
+    expect(useUIStore.getState().surroundings).toBe('dim');
+    press('KeyL', { shiftKey: true, repeat: true });
+    expect(useUIStore.getState().surroundings).toBe('dim');
+    press('KeyL', { shiftKey: true });
+    expect(useUIStore.getState().surroundings).toBe('black');
+    press('KeyL', { shiftKey: true });
+    expect(useUIStore.getState().surroundings).toBe('normal');
+    press('KeyL', { shiftKey: true });
+    press('Escape');
+    expect(useUIStore.getState()).toMatchObject({ ...view, surroundings: 'normal' });
+  }
+);
+
+it('runs the View command and honours a rebound surroundings shortcut', () => {
+  useUIStore.setState({ libraryLoupe: true, surroundings: 'normal' });
+  useSettingsStore.setState({
+    appSettings: { keybinds: { cycle_surroundings: ['shift', 'KeyY'] } } as unknown as AppSettings
+  });
+  press('KeyL');
+  press('KeyL', { shiftKey: true });
+  expect(useUIStore.getState().surroundings).toBe('normal');
+  press('KeyY', { shiftKey: true });
+  expect(useUIStore.getState().surroundings).toBe('dim');
+  appCommand('cycle_surroundings')?.run();
+  expect(useUIStore.getState().surroundings).toBe('black');
+  press('Escape');
+});
