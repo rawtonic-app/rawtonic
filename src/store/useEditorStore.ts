@@ -9,7 +9,7 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import type { LayerSolo } from '../utils/layerSolo';
 import type { SharpenView } from '../utils/sharpenView';
-import { referenceAfterHistoryStep, type CropReference } from '../utils/cropReference';
+import { referenceForHistoryEntry, rememberCropReference, type CropReference } from '../utils/cropReference';
 import type { ColorRangePick, ColorTarget, ColorTargetMeasure } from '../utils/colorTarget';
 import { DEFAULT_SPLIT_POSITION, type SplitOrientation } from '../utils/beforeAfter';
 import { historyOrders, setHistoryOrders, inheritHistoryOrders, newEditOrder } from '../utils/undoOrder';
@@ -437,6 +437,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     heldHistory = null;
     // Usage statistics (only while switched on): the tools this step used.
     noteEdit(get().history[get().historyIndex], newAdj);
+    rememberCropReference(newAdj, get().cropReference);
     const order = batchOrder ?? newEditOrder();
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);
@@ -459,7 +460,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         return {
           historyIndex: newIndex,
           adjustments: state.history[newIndex],
-          cropReference: referenceAfterHistoryStep(
+          cropReference: referenceForHistoryEntry(
             state.cropReference,
             state.selectedImage?.path,
             state.adjustments,
@@ -480,7 +481,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         return {
           historyIndex: newIndex,
           adjustments: state.history[newIndex],
-          cropReference: referenceAfterHistoryStep(
+          cropReference: referenceForHistoryEntry(
             state.cropReference,
             state.selectedImage?.path,
             state.adjustments,
@@ -514,7 +515,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         return {
           historyIndex: currentIndex,
           adjustments: target,
-          cropReference: referenceAfterHistoryStep(
+          cropReference: referenceForHistoryEntry(
             state.cropReference,
             state.selectedImage?.path,
             state.adjustments,
@@ -531,7 +532,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         history,
         historyIndex: history.length - 1,
         adjustments: target,
-        cropReference: referenceAfterHistoryStep(
+        cropReference: referenceForHistoryEntry(
           state.cropReference,
           state.selectedImage?.path,
           state.adjustments,

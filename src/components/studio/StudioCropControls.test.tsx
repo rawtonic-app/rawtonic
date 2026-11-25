@@ -235,3 +235,26 @@ it('undoing an enlarged hand-drawn crop fits the next ratio into the restored cr
   fireEvent.change(screen.getByRole('combobox', { name: 'Crop aspect ratio' }), { target: { value: '1' } });
   expect(adjustments().crop).toEqual({ unit: 'px', x: 1200, y: 1000, width: 800, height: 800 });
 });
+
+it('after an undo the next ratio fits into the crop drawn at that step (ASP1)', () => {
+  useEditorStore.setState({
+    selectedImage: { path: '/s/d800.NEF', width: 6000, height: 4000, isRaw: true, isReady: true } as SelectedImage
+  });
+  render(<StudioCropControls />);
+  const choose = (value: number) => {
+    fireEvent.change(screen.getByRole('combobox', { name: 'Crop aspect ratio' }), {
+      target: { value: String(value) }
+    });
+    debouncedSetHistory.flush();
+  };
+  const drawn = { unit: 'px' as const, x: 1000, y: 1000, width: 3000, height: 2000 };
+  noteHandDrawnCrop(null, drawn);
+  useEditorStore.getState().pushHistory({ ...adjustments(), crop: drawn });
+  useEditorStore.setState({ adjustments: useEditorStore.getState().history.at(-1)! });
+  choose(1);
+  choose(16 / 9);
+  useEditorStore.getState().undo();
+  expect(adjustments().crop).toEqual({ unit: 'px', x: 1500, y: 1000, width: 2000, height: 2000 });
+  choose(3 / 2);
+  expect(adjustments().crop).toEqual(drawn);
+});

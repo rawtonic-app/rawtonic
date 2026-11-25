@@ -294,6 +294,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const isCropPanningRef = useRef(false);
   const cropPanStartRef = useRef<{ x: number; y: number } | null>(null);
   const cropPanStartCropRef = useRef<Crop | null>(null);
+  const cropPanLastRef = useRef<Crop | null>(null);
   const cropWheelTimeoutRef = useRef<number | null>(null);
   const lastCtrlClickTimeRef = useRef<number>(0);
 
@@ -1013,7 +1014,10 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           const nextCrop = zoomCrop(baseCrop, scaleFactor, W, H, rotation, adjustments.aspectRatio, mouseX, mouseY);
 
           setAdjustments((prev) => ({ ...prev, crop: nextCrop }));
-          noteHandDrawnCrop(baseCrop, nextCrop);
+          // At its limit the wheel moves the crop by less than a pixel: not a
+          // crop of the user's own.
+          const px = (c: Crop) => [c.x, c.y, c.width, c.height].map(Math.round).join();
+          if (px(nextCrop) !== px(baseCrop)) noteHandDrawnCrop(baseCrop, nextCrop);
 
           if (cropWheelTimeoutRef.current) clearTimeout(cropWheelTimeoutRef.current);
           cropWheelTimeoutRef.current = window.setTimeout(() => {
@@ -1177,6 +1181,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         isCropPanningRef.current = true;
         cropPanStartRef.current = { x: e.clientX, y: e.clientY };
         cropPanStartCropRef.current = getEffectiveCrop();
+        cropPanLastRef.current = null;
         e.currentTarget.setPointerCapture(e.pointerId);
 
         setEditor({ isSliderDragging: true });
@@ -1259,6 +1264,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         const rotation = liveRotation !== null && liveRotation !== undefined ? liveRotation : adjustments.rotation || 0;
 
         const newCrop = moveCropInsideBounds(cropPanStartCropRef.current, -imgDx, -imgDy, W, H, rotation);
+        cropPanLastRef.current = newCrop;
 
         setAdjustments((prev) => ({ ...prev, crop: newCrop }));
         return;
@@ -1356,7 +1362,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
       if (isCropPanningRef.current) {
         isCropPanningRef.current = false;
-        const moved = useEditorStore.getState().adjustments.crop;
+        // The last position the drag computed (the committed crop may still
+        // trail it in the preview draft).
+        const moved = cropPanLastRef.current;
         if (
           cropPanStartCropRef.current &&
           moved &&
@@ -1364,6 +1372,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         ) {
           noteHandDrawnCrop(cropPanStartCropRef.current, moved);
         }
+        cropPanLastRef.current = null;
         cropPanStartRef.current = null;
         cropPanStartCropRef.current = null;
         if (e.currentTarget.hasPointerCapture(e.pointerId)) {

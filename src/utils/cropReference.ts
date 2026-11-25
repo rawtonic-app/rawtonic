@@ -152,3 +152,25 @@ export function referenceAfterHistoryStep(
   if (!path || !crop || !(crop.width > 0 && crop.height > 0) || to.aspectRatio) return null;
   return { key: cropReferenceKey(path, to as Record<string, unknown>), rect: copy(crop), ...centre(crop) };
 }
+
+/** The reference each history entry had when it was recorded: an undo or a
+ * redo returns to it, so a ratio change after an undo fits into the crop the
+ * user had drawn at that step. */
+const historyReferences = new WeakMap<object, CropReference | null>();
+
+export function rememberCropReference(entry: object, reference: CropReference | null) {
+  historyReferences.set(entry, reference);
+}
+
+/** The reference after an undo, a redo or a jump to `to`: the one recorded
+ * with that entry, else (an entry from before the photo was opened)
+ * `referenceAfterHistoryStep`. */
+export function referenceForHistoryEntry(
+  reference: CropReference | null,
+  path: string | null | undefined,
+  from: CropState,
+  to: CropState
+): CropReference | null {
+  if (historyReferences.has(to)) return historyReferences.get(to) ?? null;
+  return referenceAfterHistoryStep(reference, path, from, to);
+}
