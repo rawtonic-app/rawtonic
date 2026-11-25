@@ -5,6 +5,7 @@
 //! tile-seam check, and compares with an earlier dump when given.
 //!
 //! `cargo run --release --example bench -p rawtonic-superres -- MODELS IN.tif [OUT.rgb8] [REFERENCE.rgb8]`
+//! (`ROTATIONS=one`: `Rotations::OneOnCpu`, a recipe from `renderVersion` 20).
 
 use std::{
     io::{self, Write},
@@ -60,9 +61,15 @@ fn main() -> anyhow::Result<()> {
             model.backend_name()
         );
     }
+    let rotations = if std::env::var("ROTATIONS").as_deref() == Ok("one") {
+        rawtonic_superres::Rotations::OneOnCpu
+    } else {
+        rawtonic_superres::Rotations::Four
+    };
+    println!("one_pass={}", model.runs_one_pass(rotations));
     let started = Instant::now();
     let out = model
-        .enlarge(image, &|| Ok(()))
+        .enlarge(image, rotations, &|| Ok(()))
         .map_err(anyhow::Error::msg)?
         .to_rgb8();
     println!(

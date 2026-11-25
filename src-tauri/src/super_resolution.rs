@@ -134,6 +134,9 @@ async fn model(
             ),
         }
     }
+    if download && model.uses_cpu() {
+        model = attach_cpu_single(app_handle, &models_dir, model).await?;
+    }
     log::info!(
         "Super Resolution: model loaded on {} in {} ms",
         model.backend_name(),
@@ -141,6 +144,44 @@ async fn model(
     );
     crate::register_exit_handler();
     Ok(Some(slot.insert(Arc::new(model)).clone()))
+}
+
+/// Downloads (when missing) and adds the single-rotation CPU graph
+/// (`CPU_SINGLE_ONNX_FILE`, 2.4 MB) to a model that runs on the CPU, so
+/// recipes from `renderVersion` 20 enlarge each tile once there. Optional:
+/// without it the CPU runs the four-rotation average.
+async fn attach_cpu_single(
+    app_handle: &tauri::AppHandle,
+    models_dir: &std::path::Path,
+    model: Model,
+) -> anyhow::Result<Model> {
+    if let Err(error) = download_verified(
+        app_handle,
+        models_dir,
+        rawtonic_superres::CPU_SINGLE_ONNX_FILE,
+        rawtonic_superres::CPU_SINGLE_ONNX_SHA256,
+        "Super Resolution CPU Model",
+    )
+    .await
+    {
+        log::warn!(
+            "Optional Super Resolution single-pass CPU graph unavailable; the CPU averages four rotations: {error:#}"
+        );
+        return Ok(model);
+    }
+    let path = models_dir.join(rawtonic_superres::CPU_SINGLE_ONNX_FILE);
+    let (model, attached) = tokio::task::spawn_blocking(move || {
+        let mut model = model;
+        let attached = model.attach_cpu_single_graph(&path);
+        (model, attached)
+    })
+    .await?;
+    if let Err(error) = attached {
+        log::warn!(
+            "Optional Super Resolution single-pass CPU graph could not load; the CPU averages four rotations: {error:#}"
+        );
+    }
+    Ok(model)
 }
 
 /// Reloads of the loaded model take turns (`refreshed`), apart from the
@@ -277,6 +318,7 @@ impl rawtonic_export::export_processing::Enlarger for ExportEnlarger<'_> {
     fn enlarge_2x(
         &self,
         image: image::DynamicImage,
+        one_pass_on_cpu: bool,
         cancelled: &dyn Fn() -> Result<(), String>,
     ) -> Result<image::DynamicImage, String> {
         let model = tauri::async_runtime::block_on(model(self.app_handle, false))
@@ -287,10 +329,16 @@ impl rawtonic_export::export_processing::Enlarger for ExportEnlarger<'_> {
             })?;
         let started = std::time::Instant::now();
         let (width, height) = (image.width(), image.height());
-        let enlarged = model.enlarge(image, cancelled)?;
+        let rotations = rawtonic_superres::Rotations::of(one_pass_on_cpu);
+        let enlarged = model.enlarge(image, rotations, cancelled)?;
         log::info!(
-            "Super Resolution: {width}x{height} enlarged on {} in {} ms",
+            "Super Resolution: {width}x{height} enlarged on {}{} in {} ms",
             model.backend_name(),
+            if model.runs_one_pass(rotations) {
+                ", one pass"
+            } else {
+                ""
+            },
             started.elapsed().as_millis()
         );
         Ok(enlarged)

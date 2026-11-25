@@ -88,7 +88,9 @@ Rawtonic otherwise goes online only when you ask it to:
   selected photos); until then those sliders wait and nothing is fetched.
   Ticking Super Resolution in the Export dialog (or opening the dialog with a
   preset that has it) downloads its model if it is not installed yet, on
-  Windows and Linux with GPU AI on also its 1.2 MB graphics-card version.
+  Windows and Linux with GPU AI on also its 1.2 MB graphics-card version,
+  and where it runs on the processor its two processor versions (2.4 MB
+  each).
   No photo is uploaded; the models run on your computer, on its
   graphics card when it can (Windows, Linux: the WebGPU plugin ships with the
   app; apart from Super Resolution's graphics-card version, using the GPU

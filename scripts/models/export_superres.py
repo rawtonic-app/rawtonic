@@ -27,6 +27,10 @@ Usage: export_superres.py OUT_DIR [--check IMAGE_DIR] [--cpu-only]
   --cpu-only writes superres_compact_x2_cpu.onnx, the same weights and
   rotation average with each rotation run separately (CPU batch size one);
   existing ONNX/Core ML exports are unchanged.
+  --cpu-single writes superres_compact_x2_cpu_single.onnx, the same weights
+  on the tile as it is, without the rotation average (a quarter of the work;
+  the CPU path for recipes from renderVersion 20, notes:
+  benchmark-results/srr1-2026-11-25/REPORT.md); other exports unchanged.
   --check enlarges 512 px tiles of every image in IMAGE_DIR with PyTorch
   (fp32), the ONNX file (ONNX Runtime, CPU) and the Core ML program and
   prints their largest differences and times.
@@ -59,6 +63,7 @@ TILE = 512
 SCALE = 2
 ONNX_FILE = "superres_compact_x2.onnx"
 CPU_ONNX_FILE = "superres_compact_x2_cpu.onnx"
+CPU_SINGLE_ONNX_FILE = "superres_compact_x2_cpu_single.onnx"
 PACKAGE = "superres_compact_x2.mlpackage"
 ASSETS = {f"superres_coreml_{name}": member for name, member in MEMBERS.items()}
 CONVERSION_DATE = "2026-11-09"
@@ -117,6 +122,13 @@ class SequentialEnsemble(Ensemble):
         return ((back[0] + back[1] + back[2] + back[3]) * 0.25).clamp(0.0, 1.0)
 
 
+class Single(Ensemble):
+    """The tile as it is, enlarged once (no rotation average), clamped to 0..1."""
+
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
+        return self.net(image).clamp(0.0, 1.0)
+
+
 def checkpoint(cache: Path) -> Path:
     path = cache / "2xBHI_small_compact_pretrain.pth"
     if not path.exists():
@@ -139,7 +151,10 @@ def load(path: Path) -> Ensemble:
 
 
 def export_onnx(model: Ensemble, out: Path, cpu: bool = False) -> Path:
-    path = out / (CPU_ONNX_FILE if cpu else ONNX_FILE)
+    if isinstance(model, Single):
+        path = out / CPU_SINGLE_ONNX_FILE
+    else:
+        path = out / (CPU_ONNX_FILE if cpu else ONNX_FILE)
     probe = torch.zeros(1, 3, TILE, TILE)
     torch.onnx.export(
         model,
@@ -230,15 +245,19 @@ def main() -> None:
     parser.add_argument("--check", type=Path)
     parser.add_argument("--no-coreml", action="store_true", help="only the ONNX file (not on macOS)")
     parser.add_argument("--cpu-only", action="store_true", help="export only the sequential CPU ONNX graph")
+    parser.add_argument("--cpu-single", action="store_true", help="export only the single-rotation CPU ONNX graph")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     model = load(checkpoint(args.out / "checkpoint"))
     if args.cpu_only:
         model = SequentialEnsemble(model.net).eval()
-    onnx_path = export_onnx(model, args.out, cpu=args.cpu_only)
+    if args.cpu_single:
+        model = Single(model.net).eval()
+    cpu = args.cpu_only or args.cpu_single
+    onnx_path = export_onnx(model, args.out, cpu=cpu)
     print(onnx_path, hashlib.sha256(onnx_path.read_bytes()).hexdigest())
     package = None
-    if not args.no_coreml and not args.cpu_only:
+    if not args.no_coreml and not cpu:
         package = convert_coreml(model, args.out)
         for asset in ASSETS:
             print(args.out / asset, hashlib.sha256((args.out / asset).read_bytes()).hexdigest())

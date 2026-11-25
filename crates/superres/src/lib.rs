@@ -49,6 +49,41 @@ pub const CPU_ONNX_FILE: &str = "superres_compact_x2_cpu.onnx";
 pub const CPU_ONNX_SHA256: &str =
     "40bf5c362bad13ca57c1e4493f66f9ab5f2ce7f57156e1d20a77aad7322cd7a1";
 
+/// The same weights without the rotation average (each tile enlarged once,
+/// a quarter of the work), for the CPU provider and recipes from
+/// `renderVersion` 20 (`Rotations::OneOnCpu`): on 34 crops of 17 RAWs PSNR
+/// 0.07 dB below the four-rotation average, LPIPS 0.001 better, no direction
+/// dependence, 8-bit codes p99 ≤ 2.3 on full-resolution renders; nothing
+/// visible at 100 % or 300 % (notes: benchmark-results/srr1-2026-11-25/REPORT.md).
+/// Packs before pack-2026-11-25 lack it; the CPU then runs four rotations.
+pub const CPU_SINGLE_ONNX_FILE: &str = "superres_compact_x2_cpu_single.onnx";
+pub const CPU_SINGLE_ONNX_SHA256: &str =
+    "3ad7b2ebfa053e930c5356db5d326b7587b458ae9fab4869f9e0534fbf563c1e";
+
+/// The enlargement a photo's recipe asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rotations {
+    /// The four right-angle rotations averaged on every backend (recipes
+    /// before `renderVersion` 20, so their exports stay byte for byte).
+    Four,
+    /// One pass without the average where the tiles run on ONNX Runtime's
+    /// CPU provider and `CPU_SINGLE_ONNX_FILE` is installed; four rotations
+    /// on GPUs and Core ML, where they cost seconds, not minutes.
+    OneOnCpu,
+}
+
+impl Rotations {
+    /// `OneOnCpu` when the recipe asks for one pass on the CPU (the export's
+    /// `Enlarger`), else `Four`.
+    pub fn of(one_pass_on_cpu: bool) -> Self {
+        if one_pass_on_cpu {
+            Self::OneOnCpu
+        } else {
+            Self::Four
+        }
+    }
+}
+
 /// The same graph with fp16 weights and compute, fp32 input and output
 /// (`scripts/models/convert_superres_fp16.py`), for GPU providers only: on
 /// an RTX 3080 (Linux) a 45 MP photo took 15.4 s with CUDA instead of
@@ -102,9 +137,12 @@ enum Backend {
     /// (`GPU_ONNX_FILE`, on a GPU) it runs without ONNX Runtime's move to
     /// the CPU; once a run failed (`gpu_failed`) `fp32_cpu` takes over for
     /// good: the CPU conversion, else the original graph, loaded then.
+    /// `cpu_single` is the single-rotation conversion, loaded with the model
+    /// when it runs on the CPU (`Rotations::OneOnCpu`).
     Onnx {
         model: rawtonic_onnx::Model,
         cpu: Option<rawtonic_onnx::Model>,
+        cpu_single: Option<rawtonic_onnx::Model>,
         fp32_cpu: OnceLock<Option<rawtonic_onnx::Model>>,
         gpu_failed: AtomicBool,
     },
@@ -126,8 +164,13 @@ impl Model {
         let cpu_path = path.with_file_name(CPU_ONNX_FILE);
         let gpu_path = path.with_file_name(GPU_ONNX_FILE);
         let cpu_only = cpu_only();
+        let single_path = path.with_file_name(CPU_SINGLE_ONNX_FILE);
         if cpu_only && let Some(cpu) = Self::optional_cpu(&cpu_path) {
-            return Ok(Self::onnx_backend(cpu, None));
+            return Ok(Self::onnx_backend(
+                cpu,
+                None,
+                Self::optional_single(&single_path),
+            ));
         }
         if tries_gpu_graph(cpu_only, || verified(&gpu_path, GPU_ONNX_SHA256))
             && let Some(model) = rawtonic_onnx::Model::load_on_checked_gpu(
@@ -135,22 +178,30 @@ impl Model {
                 rawtonic_onnx::ModelKind::SuperResolution,
             )
         {
-            return Ok(Self::onnx_backend(model, None));
+            return Ok(Self::onnx_backend(model, None, None));
         }
         let model = rawtonic_onnx::Model::load(path, rawtonic_onnx::ModelKind::SuperResolution)?;
-        let cpu = if model.provider() == rawtonic_onnx::Provider::Cpu {
-            Self::optional_cpu(&cpu_path)
+        let (cpu, cpu_single) = if model.provider() == rawtonic_onnx::Provider::Cpu {
+            (
+                Self::optional_cpu(&cpu_path),
+                Self::optional_single(&single_path),
+            )
         } else {
-            None
+            (None, None)
         };
-        Ok(Self::onnx_backend(model, cpu))
+        Ok(Self::onnx_backend(model, cpu, cpu_single))
     }
 
-    fn onnx_backend(model: rawtonic_onnx::Model, cpu: Option<rawtonic_onnx::Model>) -> Self {
+    fn onnx_backend(
+        model: rawtonic_onnx::Model,
+        cpu: Option<rawtonic_onnx::Model>,
+        cpu_single: Option<rawtonic_onnx::Model>,
+    ) -> Self {
         Self {
             backend: Backend::Onnx {
                 model,
                 cpu,
+                cpu_single,
                 fp32_cpu: OnceLock::new(),
                 gpu_failed: AtomicBool::new(false),
             },
@@ -187,19 +238,20 @@ impl Model {
         })
     }
 
-    /// The ONNX graph that runs a tile now (`None` for Core ML).
-    fn onnx_graph(&self) -> Option<&rawtonic_onnx::Model> {
-        let (model, cpu, fp32_cpu, gpu_failed) = match &self.backend {
+    /// The ONNX graph that runs a tile now for `rotations` (`None` for Core ML).
+    fn onnx_graph(&self, rotations: Rotations) -> Option<&rawtonic_onnx::Model> {
+        let (model, cpu, cpu_single, fp32_cpu, gpu_failed) = match &self.backend {
             Backend::Onnx {
                 model,
                 cpu,
+                cpu_single,
                 fp32_cpu,
                 gpu_failed,
-            } => (model, cpu, fp32_cpu, gpu_failed),
+            } => (model, cpu, cpu_single, fp32_cpu, gpu_failed),
             #[cfg(target_os = "macos")]
             Backend::CoreMl(_) => return None,
         };
-        Some(graph_now(
+        let graph = graph_now(
             model,
             cpu.as_ref(),
             || {
@@ -210,13 +262,19 @@ impl Model {
             is_gpu_graph(model),
             model.provider() == rawtonic_onnx::Provider::Cpu,
             gpu_failed.load(Ordering::Relaxed),
+        );
+        Some(single_on_cpu(
+            graph,
+            graph.provider() == rawtonic_onnx::Provider::Cpu,
+            cpu_single.as_ref(),
+            rotations,
         ))
     }
 
     /// Loads a known CPU conversion directly, without probing GPU providers
     /// or building a session for the original graph first.
     pub fn cpu(path: &Path) -> Result<Self> {
-        Ok(Self::onnx_backend(Self::load_cpu_graph(path)?, None))
+        Ok(Self::onnx_backend(Self::load_cpu_graph(path)?, None, None))
     }
 
     /// Adds the sequential CPU conversion to a model loaded on the CPU, so
@@ -228,6 +286,20 @@ impl Model {
             && model.provider() == rawtonic_onnx::Provider::Cpu
         {
             *cpu = Some(Self::load_cpu_graph(path)?);
+        }
+        Ok(())
+    }
+
+    /// Adds the single-rotation CPU conversion (`CPU_SINGLE_ONNX_FILE`) to a
+    /// model that runs on the CPU, as `attach_cpu_graph` does.
+    pub fn attach_cpu_single_graph(&mut self, path: &Path) -> Result<()> {
+        if let Backend::Onnx {
+            model, cpu_single, ..
+        } = &mut self.backend
+            && cpu_single.is_none()
+            && model.provider() == rawtonic_onnx::Provider::Cpu
+        {
+            *cpu_single = Some(Self::load_cpu_graph(path)?);
         }
         Ok(())
     }
@@ -244,6 +316,15 @@ impl Model {
     fn optional_cpu(path: &Path) -> Option<rawtonic_onnx::Model> {
         // Older packs and an unusable optional conversion keep the original graph.
         if verified(path, CPU_ONNX_SHA256) {
+            Self::load_cpu_graph(path).ok()
+        } else {
+            None
+        }
+    }
+
+    fn optional_single(path: &Path) -> Option<rawtonic_onnx::Model> {
+        // Packs before pack-2026-11-25: the CPU runs four rotations.
+        if verified(path, CPU_SINGLE_ONNX_SHA256) {
             Self::load_cpu_graph(path).ok()
         } else {
             None
@@ -298,7 +379,7 @@ impl Model {
     }
 
     pub fn backend_name(&self) -> String {
-        match self.onnx_graph() {
+        match self.onnx_graph(Rotations::Four) {
             Some(graph) => {
                 let fp16 = if is_gpu_graph(graph) { ", fp16" } else { "" };
                 format!("ONNX Runtime ({}{fp16})", graph.provider())
@@ -307,9 +388,16 @@ impl Model {
         }
     }
 
+    /// Whether `rotations` runs one pass now (`Rotations::OneOnCpu` on the
+    /// CPU with the single-rotation graph loaded).
+    pub fn runs_one_pass(&self, rotations: Rotations) -> bool {
+        self.onnx_graph(rotations)
+            .is_some_and(|graph| graph.path().file_name() == Some(CPU_SINGLE_ONNX_FILE.as_ref()))
+    }
+
     /// Enlarges one tile: `input` is [1, 3, TILE, TILE] (RGB, 0..1,
     /// first-major), the result [1, 3, 2·TILE, 2·TILE] in 0..1.
-    pub fn enlarge_tile(&self, input: &[f32]) -> Result<Vec<f32>> {
+    pub fn enlarge_tile(&self, input: &[f32], rotations: Rotations) -> Result<Vec<f32>> {
         ensure!(
             input.len() == 3 * TILE * TILE,
             "tile of {} values",
@@ -324,7 +412,9 @@ impl Model {
         };
         let values = match &self.backend {
             Backend::Onnx { gpu_failed, .. } => {
-                let graph = self.onnx_graph().expect("an ONNX backend has a graph");
+                let graph = self
+                    .onnx_graph(rotations)
+                    .expect("an ONNX backend has a graph");
                 if is_gpu_graph(graph) && graph.provider() != rawtonic_onnx::Provider::Cpu {
                     // No retry of the fp16 graph on the CPU: the photo
                     // starts again on the fp32 CPU graph (`enlarge`).
@@ -349,8 +439,8 @@ impl Model {
     }
 
     /// The graph file and provider tiles run on now (`None`: Core ML).
-    fn path_now(&self) -> Option<(PathBuf, rawtonic_onnx::Provider)> {
-        self.onnx_graph()
+    fn path_now(&self, rotations: Rotations) -> Option<(PathBuf, rawtonic_onnx::Provider)> {
+        self.onnx_graph(rotations)
             .map(|graph| (graph.path().to_path_buf(), graph.provider()))
     }
 
@@ -361,10 +451,15 @@ impl Model {
     pub fn enlarge(
         &self,
         image: DynamicImage,
+        rotations: Rotations,
         cancelled: &dyn Fn() -> Result<(), String>,
     ) -> Result<DynamicImage, String> {
-        on_one_path(&|| self.path_now(), &mut || {
-            enlarge_ref(&image, &mut |tile| self.enlarge_tile(tile), cancelled)
+        on_one_path(&|| self.path_now(rotations), &mut || {
+            enlarge_ref(
+                &image,
+                &mut |tile| self.enlarge_tile(tile, rotations),
+                cancelled,
+            )
         })
     }
 }
@@ -425,6 +520,21 @@ fn graph_now<'a, T>(
         return fp32;
     }
     active_graph(model, cpu, on_cpu)
+}
+
+/// The graph that runs a tile for `rotations`: the single-rotation CPU
+/// conversion (`single`, when loaded) instead of `graph` when `graph` runs
+/// on the CPU and the recipe asks for `Rotations::OneOnCpu`.
+fn single_on_cpu<'a, T>(
+    graph: &'a T,
+    on_cpu: bool,
+    single: Option<&'a T>,
+    rotations: Rotations,
+) -> &'a T {
+    match single {
+        Some(single) if on_cpu && rotations == Rotations::OneOnCpu => single,
+        _ => graph,
+    }
 }
 
 /// `result` of a run of the fp16 graph on its GPU; a failure is recorded
@@ -892,6 +1002,30 @@ mod tests {
         std::fs::write(&path, b"abc").unwrap();
         let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
         assert!(verified(&path, abc));
+    }
+
+    #[test]
+    fn one_pass_only_on_the_cpu_and_only_when_the_recipe_asks() {
+        let (graph, single) = ("four rotations", "single rotation");
+        assert_eq!(
+            single_on_cpu(&graph, true, Some(&single), Rotations::OneOnCpu),
+            &single
+        );
+        // Recipes before renderVersion 20 keep the four-rotation average.
+        assert_eq!(
+            single_on_cpu(&graph, true, Some(&single), Rotations::Four),
+            &graph
+        );
+        // A GPU (or the fp16 graph) keeps four rotations: seconds there.
+        assert_eq!(
+            single_on_cpu(&graph, false, Some(&single), Rotations::OneOnCpu),
+            &graph
+        );
+        // An older pack without the single graph: four rotations on the CPU.
+        assert_eq!(
+            single_on_cpu(&graph, true, None, Rotations::OneOnCpu),
+            &graph
+        );
     }
 
     #[test]

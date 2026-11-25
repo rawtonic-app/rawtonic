@@ -315,6 +315,11 @@ SUPERRES_SHA256 = {
     "superres_coreml_weight.bin": "1df839340b0df1bb953ec97b0e084008c3d44557483d6009fed732d635b3a5fe",
 }
 SUPERRES_CPU_SHA256 = {"superres_compact_x2_cpu.onnx": "40bf5c362bad13ca57c1e4493f66f9ab5f2ce7f57156e1d20a77aad7322cd7a1"}
+# The same weights without the rotation average, for the CPU provider and
+# recipes from renderVersion 20 (export_superres.py --cpu-single).
+SUPERRES_CPU_SINGLE_SHA256 = {
+    "superres_compact_x2_cpu_single.onnx": "3ad7b2ebfa053e930c5356db5d326b7587b458ae9fab4869f9e0534fbf563c1e",
+}
 
 # fp16 compute for GPU providers, converted from the pinned fp32 graph by
 # convert_superres_fp16.py (fp32 input and output; the app uses it only on a
@@ -773,6 +778,18 @@ def main() -> None:
             if name not in carried:
                 entries.append(place(superres / name, args.out, name, expected) | SUPERRES_ENTRY | {
                     "source": SUPERRES_ENTRY["source"] + "; CPU conversion runs the rotations sequentially (same weights and average)",
+                })
+
+    if todo(SUPERRES_CPU_SINGLE_SHA256):
+        superres = args.cache / "superres-cpu-single"
+        subprocess.run(SUPERRES_EXPORT + [str(superres), "--cpu-single"], check=True)
+        for name, expected in SUPERRES_CPU_SINGLE_SHA256.items():
+            if name not in carried:
+                entries.append(place(superres / name, args.out, name, expected) | SUPERRES_ENTRY | {
+                    "used_by": SUPERRES_ENTRY["used_by"] + " on ONNX Runtime's CPU provider, recipes from renderVersion 20",
+                    "source": SUPERRES_ENTRY["source"].replace(
+                        "with each tile's four right-angle rotations averaged and clamped (ONNX fp32; Core ML fp16)",
+                        "--cpu-single: each tile enlarged once (no rotation average) and clamped (ONNX fp32)"),
                 })
 
     if todo(SUPERRES_FP16_SHA256):
