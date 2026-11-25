@@ -5745,6 +5745,7 @@
       "moveToApplications": "要在此处更新 Rawtonic，请先将其移到“应用程序”文件夹。"
     },
     "fileWithSize": "{{file}}（{{size}} MB）",
+    "flatpak": "此副本的更新通过 Flatpak 提供。请运行“flatpak update cc.rawtonic.editor”或使用软件中心；Rawtonic 自身不会请求更新。",
     "inAppDetail": "Rawtonic 从 GitHub 下载更新并检查其签名。重新启动前不会替换任何内容。",
     "install": "安装更新",
     "installing": "正在安装更新… Rawtonic 即将重新启动。",

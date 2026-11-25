@@ -1,0 +1,73 @@
+# Maintainer: Rawtonic contributors <https://github.com/rawtonic-app/rawtonic>
+# NOT TO BE PUBLISHED with the alpha.19 pin: that release lacks the AppDir path fix (release gate in packaging/linux/README.md).
+#
+# rawtonic-bin: repackages the release AppImage for pacman. See
+# packaging/linux/README.md for why a -bin package, how it was checked, and
+# what publishing to the AUR needs (the maintainer's AUR account).
+pkgname=rawtonic-bin
+# Rawtonic's version 0.1.0-alpha.19 with pacman's rules: no hyphen, and
+# "alpha" glued to the number so vercmp sorts it before 0.1.0 (checked below).
+pkgver=0.1.0alpha.19
+_tag=v0.1.0-alpha.19
+pkgrel=1
+pkgdesc='Non-destructive RAW photo editor with native GPU rendering (prebuilt release)'
+arch=('x86_64')
+url='https://github.com/rawtonic-app/rawtonic'
+license=('AGPL-3.0-or-later')
+# The release bundles WebKitGTK 2.50, GTK 3, GStreamer, ONNX Runtime and the
+# tethering libraries; what stays with the system is the GPU stack and the
+# libraries linuxdeploy leaves out of every AppImage on purpose.
+depends=('glibc' 'vulkan-icd-loader' 'libglvnd' 'fontconfig' 'freetype2' 'harfbuzz'
+         'fribidi' 'libgpg-error' 'hicolor-icon-theme' 'xdg-utils')
+optdepends=('vulkan-radeon: AMD GPU'
+            'nvidia-utils: NVIDIA GPU'
+            'vulkan-intel: Intel GPU'
+            'libgphoto2: udev rules for camera tethering')
+provides=('rawtonic')
+conflicts=('rawtonic')
+options=('!strip' '!debug')
+source=("Rawtonic_${_tag#v}_amd64.AppImage::${url}/releases/download/${_tag}/Rawtonic_${_tag#v}_amd64.AppImage")
+sha256sums=('77982af8c4ab20ed907dafa1086d295fa0d66525548cbadb5fa3bce68de63b97')
+noextract=("Rawtonic_${_tag#v}_amd64.AppImage")
+
+prepare() {
+  # Unpacks the AppImage's squashfs; needs no FUSE and starts no part of the app.
+  chmod +x "Rawtonic_${_tag#v}_amd64.AppImage"
+  "./Rawtonic_${_tag#v}_amd64.AppImage" --appimage-extract >/dev/null
+}
+
+package() {
+  cd squashfs-root
+  # The AppDir as it is: its AppRun finds its own folder, sets the bundled GTK
+  # and GStreamer paths and starts usr/bin/rawtonic-app.
+  install -d "$pkgdir/opt/rawtonic"
+  cp -a AppRun AppRun.wrapped Rawtonic.desktop apprun-hooks usr "$pkgdir/opt/rawtonic/"
+  # squashfs keeps the build user's modes: some folders and the AppRun hooks are
+  # not readable by other users.
+  chmod -R u+rwX,go+rX "$pkgdir/opt/rawtonic"
+
+  install -d "$pkgdir/usr/bin"
+  cat > "$pkgdir/usr/bin/rawtonic" <<'WRAPPER'
+#!/bin/sh
+# Rawtonic is installed as an unpacked AppDir; AppRun sets up its bundled
+# libraries and changes into the AppDir, so the folder the command was run in
+# goes along as OWD, which the AppImage runtime sets too.
+OWD=$PWD
+export OWD
+exec /opt/rawtonic/AppRun "$@"
+WRAPPER
+  chmod 755 "$pkgdir/usr/bin/rawtonic"
+
+  sed -e 's|^Exec=.*|Exec=rawtonic %f|' -e 's|^Icon=.*|Icon=rawtonic-app|' \
+    Rawtonic.desktop > rawtonic.desktop
+  install -Dm644 rawtonic.desktop "$pkgdir/usr/share/applications/rawtonic.desktop"
+  local size
+  for size in 32x32 128x128 256x256@2; do
+    install -Dm644 "usr/share/icons/hicolor/$size/apps/rawtonic-app.png" \
+      "$pkgdir/usr/share/icons/hicolor/$size/apps/rawtonic-app.png"
+  done
+
+  local lic=usr/lib/Rawtonic/resources/licenses
+  install -Dm644 "$lic/AGPL-3.0.txt" "$pkgdir/usr/share/licenses/$pkgname/AGPL-3.0.txt"
+  install -Dm644 "$lic/THIRD_PARTY_LICENSES.txt" "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_LICENSES.txt"
+}

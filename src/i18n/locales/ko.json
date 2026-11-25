@@ -5745,6 +5745,7 @@
       "moveToApplications": "여기서 Rawtonic을 업데이트하려면 먼저 응용 프로그램 폴더로 옮기세요."
     },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "flatpak": "이 사본의 업데이트는 Flatpak으로 제공됩니다. 'flatpak update cc.rawtonic.editor'를 실행하거나 소프트웨어 센터를 사용하세요. Rawtonic은 직접 업데이트를 확인하지 않습니다.",
     "inAppDetail": "Rawtonic이 GitHub에서 업데이트를 내려받고 서명을 확인합니다. 다시 시작할 때까지 아무것도 바뀌지 않습니다.",
     "install": "업데이트 설치",
     "installing": "업데이트 설치 중… 곧 Rawtonic이 다시 시작됩니다.",

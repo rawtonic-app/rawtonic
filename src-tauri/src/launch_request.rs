@@ -428,6 +428,9 @@ mod tests {
         assert_eq!(invocation_dir(relative, mount.clone()), mount);
         // A plain binary or a macOS bundle: the working directory, even with
         // OWD or PWD in the environment.
+        // An unpacked AppDir (the AUR package) has APPDIR and no APPIMAGE.
+        let appdir = env(&[("APPDIR", "/opt/rawtonic"), ("OWD", "/home/u/photos")]);
+        assert_eq!(invocation_dir(appdir, mount.clone()), photos);
         let plain = env(&[("OWD", "/elsewhere"), ("PWD", "/elsewhere")]);
         assert_eq!(invocation_dir(plain, mount.clone()), mount);
         assert_eq!(invocation_dir(env(&[]), None), None);

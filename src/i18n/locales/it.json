@@ -6118,6 +6118,7 @@
       "moveToApplications": "Per aggiornare Rawtonic da qui, spostalo prima nella cartella Applicazioni."
     },
     "fileWithSize": "{{file}} ({{size}} MB)",
+    "flatpak": "Gli aggiornamenti di questa copia arrivano da Flatpak. Esegui «flatpak update cc.rawtonic.editor» o usa il gestore software; Rawtonic non cerca aggiornamenti da solo.",
     "inAppDetail": "Rawtonic scarica l’aggiornamento da GitHub e ne verifica la firma. Nulla viene sostituito finché non riavvii.",
     "install": "Installa aggiornamento",
     "installing": "Installazione dell’aggiornamento… Rawtonic si riavvierà tra un momento.",
