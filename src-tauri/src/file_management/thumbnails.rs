@@ -402,9 +402,13 @@ fn thumbnail_hash_with(
         hasher.update(b"\0lut-renders-when-missing-v1\0");
     }
     // PQ/HLG highlights clipped at diffuse white in every tile until
-    // 2026-11-25 (renderVersion 20, rawtonic_engine::hdr_source): such tiles
-    // are made again once.
-    if rawtonic_engine::hdr_source::headroom(&source_path.to_string_lossy()).is_some() {
+    // 2026-11-25 (renderVersion 20, rawtonic_engine::hdr_source): HEIF and
+    // AVIF tiles are made again once.
+    // Decided by the name alone (HEIF and AVIF; SDR ones too), so the key
+    // never reads the original (cloud placeholders, offline photos).
+    if !is_raw_file(&source_path)
+        && rawtonic_engine::hdr_source::may_be_hdr_file(&source_path.to_string_lossy())
+    {
         hasher.update(b"\0hdr-rolloff-v1");
     }
     if is_raw_file(&source_path) {
@@ -1242,11 +1246,21 @@ fn develop_thumbnail_with_source(
             crate::image_processing::apply_cpu_agx_tonemap(&mut final_image);
         } else if is_raw {
             apply_cpu_default_raw_processing(&mut final_image);
-        } else if let Some(headroom) = rawtonic_engine::hdr_source::headroom(&source_path_str) {
-            // Never edited: the newest render version's roll-off of PQ/HLG
-            // highlights, as Develop and the export show it.
-            rawtonic_engine::hdr_source::rolloff_image(&mut final_image, headroom);
         }
+    }
+    // Never edited (no recipe, or one normalized to the newest render
+    // version above when no GPU renders it): PQ/HLG highlights roll off as
+    // Develop and the export show them. Not under the AgX look, which
+    // compresses them itself.
+    let agx = adjustments.is_null()
+        && crate::image_processing::resolve_tonemapper_override(&settings, is_raw) == Some(1);
+    if !is_raw
+        && !agx
+        && (adjustments.is_null()
+            || rawtonic_engine::recipe_versions::RenderVersion::of(&adjustments).hdr_rolloff())
+        && let Some(headroom) = rawtonic_engine::hdr_source::headroom(&source_path_str)
+    {
+        rawtonic_engine::hdr_source::rolloff_image(&mut final_image, headroom);
     }
     if let Some(recipe) = new_recipe {
         final_image = cut_to_camera_crop(final_image, &recipe, &source_path_str);

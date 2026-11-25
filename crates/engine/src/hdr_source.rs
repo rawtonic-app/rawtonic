@@ -75,23 +75,22 @@ pub fn rolloff_image(image: &mut image::DynamicImage, headroom: f32) {
         [0.098_374_4, 0.873_461_1, 0.028_164_7],
         [0.016_883_2, 0.117_672_5, 0.865_444_3],
     ];
+    // The decode's encoding (input_profile::encode) and the shader's
+    // `srgb_to_linear`: negative values (colour beyond sRGB) take the
+    // linear segment.
     let decode = |v: f32| {
-        let a = v.abs();
-        let l = if a <= 0.040_45 {
-            a / 12.92
+        if v <= 0.040_45 {
+            v / 12.92
         } else {
-            ((a + 0.055) / 1.055).powf(2.4)
-        };
-        l.copysign(v)
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
     };
     let encode = |v: f32| {
-        let a = v.abs();
-        let e = if a <= 0.003_130_8 {
-            a * 12.92
+        if v <= 0.003_130_8 {
+            v * 12.92
         } else {
-            1.055 * a.powf(1.0 / 2.4) - 0.055
-        };
-        e.copysign(v)
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        }
     };
     let pixel = |p: &mut [f32]| {
         let c = [decode(p[0]), decode(p[1]), decode(p[2])];
@@ -125,7 +124,9 @@ pub fn headroom_of_bytes(bytes: &[u8]) -> Option<f32> {
     is_hdr_transfer(nclx.transfer).then_some(HEADROOM)
 }
 
-fn may_be_heif(path: &str) -> bool {
+/// Whether `path` names a HEIF or AVIF file (by its extension only; never
+/// reads it): the files that can be PQ/HLG sources.
+pub fn may_be_hdr_file(path: &str) -> bool {
     let lower = path.to_ascii_lowercase();
     [".avif", ".heic", ".heif", ".hif"]
         .iter()
@@ -147,7 +148,7 @@ const PREFIX: u64 = 1 << 20;
 /// file version; `None` for other files and files that cannot be read.
 pub fn headroom(path: &str) -> Option<f32> {
     let path = rawtonic_metadata::photo_ref::source_of(path);
-    if path.is_empty() || !may_be_heif(path) {
+    if path.is_empty() || !may_be_hdr_file(path) {
         return None;
     }
     let stamp = FileStamp::read(Path::new(path)).ok()?;
@@ -281,5 +282,42 @@ mod tests {
                 "{v}: {got} against {expected}"
             );
         }
+    }
+
+    #[test]
+    fn rolloff_image_reads_colour_beyond_srgb_as_the_decode_wrote_it() {
+        // BT.2020 cyan at diffuse white in linear sRGB: red below zero,
+        // encoded as the decode does (negative values on the linear segment).
+        let linear = [-0.29f32, 1.06, 1.02];
+        let encode = |v: f32| {
+            if v <= 0.003_130_8 {
+                v * 12.92
+            } else {
+                1.055 * v.powf(1.0 / 2.4) - 0.055
+            }
+        };
+        let mut image = image::DynamicImage::ImageRgb32F(image::ImageBuffer::from_pixel(
+            1,
+            1,
+            image::Rgb(linear.map(encode)),
+        ));
+        rolloff_image(&mut image, HEADROOM);
+        let m = [
+            [0.529_345_8f32, 0.330_072_8, 0.140_581_2],
+            [0.098_374_4, 0.873_461_1, 0.028_164_7],
+            [0.016_883_2, 0.117_672_5, 0.865_444_3],
+        ]
+        .map(|r| r[0] * linear[0] + r[1] * linear[1] + r[2] * linear[2])
+        .into_iter()
+        .fold(f32::MIN, f32::max);
+        assert!(m > KNEE, "{m}");
+        let scale = rolloff(m, HEADROOM) / m;
+        let out = image.as_rgb32f().unwrap().get_pixel(0, 0).0;
+        for (got, v) in out.iter().zip(linear) {
+            let expected = encode(v * scale);
+            assert!((got - expected).abs() < 2e-4, "{got} against {expected}");
+        }
+        // Rolled off below white, not clipped.
+        assert!(out[1] < 1.0 && out[2] < 1.0, "{out:?}");
     }
 }
