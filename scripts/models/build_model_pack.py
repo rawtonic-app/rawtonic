@@ -416,7 +416,7 @@ SAM2_COREML_SHA256 = {
 SAM2_COREML_EXPORT = [
     "uv", "run", "--python", "3.12", "--with", "torch==2.7.0", "--with", "torchvision==0.22.0",
     "--with", "SAM-2 @ git+https://github.com/facebookresearch/sam2@2b90b9f5ceec907a1c18123530e92e794ad901a4",
-    "--with", "coremltools==9.0", "--with", "numpy==2.2.6",
+    "--with", "coremltools==9.0", "--with", "numpy==2.2.6", "--with", "onnx==1.23.2",
     "python", str(Path(__file__).resolve().parent / "convert_sam2_coreml.py"),
 ]
 
