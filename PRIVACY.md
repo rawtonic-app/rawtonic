@@ -84,10 +84,12 @@ Rawtonic otherwise goes online only when you ask it to:
   object selection fetches nothing for it.
   On computers with up to 16 GB of memory that run AI on the processor, Subject
   and Background selections use a memory-saving version of the Subject model
-  (470 MB). It downloads the first time such a selection is computed (as the
-  usual version did), also when the usual version is installed: then in the
-  background, while the installed version keeps working; a selection computed
-  without downloading (ahead of a click) fetches nothing.
+  (470 MB). It downloads the first time such a selection is computed, as the
+  usual version did: when you make one, also when its mask was already
+  computed ahead of your click, and when a photo with a not yet computed one
+  (pasted, synced, from a preset) opens. Where the usual version is installed
+  it downloads in the background while the installed version keeps working.
+  Work done ahead of a click (opening the masking tools) fetches nothing.
   The Landscape mask downloads its model (119 MB) only when you open a Landscape
   mask's settings in Develop. Until then a Landscape layer that was pasted, synced
   or came with a preset stays without its mask (opening its photo downloads
