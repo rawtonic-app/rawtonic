@@ -36,8 +36,11 @@
 //! turn (`running`): the multi view's and the step prefetch's, which were
 //! counted in neither the job's verdict nor its estimate. A request the photographer makes (opening the masking tools,
 //! a click on Subject) never waits here: it starts at once, and a job made
-//! ahead that waits here starts with it (`ask_now`). Nothing changes in how a
-//! mask is computed, only when.
+//! ahead that waits here starts with it (`ask_now`), and then runs as the
+//! request (`AheadRun::asked`). With its model loaded, such a run waits only
+//! for the open photo's frames its click started, and only where the memory
+//! does not cover it beside them (`wait_for_photo_frames`, MEM20). Nothing
+//! changes in how a mask is computed, only when.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -239,7 +242,9 @@ pub fn running() -> bool {
 /// A job made ahead runs while this lives (`admit`).
 #[must_use = "the job counts as running while this lives"]
 #[derive(Debug)]
-pub struct AheadRun(());
+pub struct AheadRun {
+    asked: bool,
+}
 
 impl AheadRun {
     /// Starts a job: `asked` at once, else only while no other job made
@@ -249,12 +254,18 @@ impl AheadRun {
     fn start(asked: bool) -> Option<Self> {
         if asked {
             RUNNING.fetch_add(1, Ordering::SeqCst);
-            return Some(AheadRun(()));
+            return Some(AheadRun { asked });
         }
         RUNNING
             .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
             .ok()
-            .map(|_| AheadRun(()))
+            .map(|_| AheadRun { asked })
+    }
+
+    /// Whether it started because the photographer asked for it (`ask_now`):
+    /// they wait for it now, so it runs as their click would (G74/MEM20).
+    pub fn asked(&self) -> bool {
+        self.asked
     }
 }
 
@@ -345,6 +356,172 @@ pub async fn admit(
         }
         tokio::time::sleep(POLL).await;
     }
+}
+
+/// How long a run the photographer asked for waits at most for the open
+/// photo's frames (`wait_for_photo_frames`).
+pub const FRAMES_WAIT: Duration = Duration::from_secs(5);
+/// How often it looks again meanwhile.
+const FRAMES_POLL: Duration = Duration::from_millis(50);
+
+/// Whether a run the photographer asked for (peak `need`) waits for the open
+/// photo's frames: while they are under way or ended less than `QUIET` ago,
+/// or the request came less than `QUIET` ago (`frames_settled` false: its
+/// decode, a frame, the saved thumbnail of an edit,
+/// `multi_view_prefetch::primary_settled`), and the memory free for work that
+/// may wait (`room`, None: not readable) does not cover the run beside them.
+/// Once they settled, or the memory covers it, it starts (it is asked for);
+/// after `FRAMES_WAIT` it starts beside frames still under way.
+pub fn asked_run_waits(frames_settled: bool, room: Option<u64>, need: u64) -> bool {
+    !frames_settled && room.is_some_and(|room| room < need)
+}
+
+/// A run the photographer asked for, with its model loaded, waits here up to
+/// `FRAMES_WAIT` while `asked_run_waits` says so, and logs how long. G74/MEM20:
+/// with the Subject model preloaded (MEM19) a click on New subject layer ran
+/// the network (2.2–2.5 GB on the CPU) at once, beside the new layer's
+/// full-resolution frame and its saved thumbnail, and a 14 GB Radeon 680M
+/// laptop went from 4.2 to 10.2 GB private within 4 s (WMEM19, two of three
+/// clicks stopped at 1.1–1.3 GB available); while the model loaded (WMEM18,
+/// 9.9 s) that work had ended before the run, at 6.2 GB. `cancelled` ends
+/// the wait.
+pub async fn wait_for_photo_frames(job: AheadJob, need: u64, cancelled: impl Fn() -> bool) {
+    let start = Instant::now();
+    let mut waited = false;
+    let why = loop {
+        // Quiet since the request too: the frame its click asked for may not
+        // have reached the preview worker yet, and the edit's save (300 ms
+        // after it) has not started its thumbnail (MEM20 review r1).
+        let settled =
+            crate::multi_view_prefetch::primary_settled(QUIET) && start.elapsed() >= QUIET;
+        let room = crate::memory_pressure::work_headroom();
+        if cancelled() {
+            break "cancelled";
+        }
+        if settled {
+            break "after the photo's frames";
+        }
+        if !asked_run_waits(settled, room, need) {
+            break "with memory for it";
+        }
+        if !waited {
+            waited = true;
+            log::info!(
+                "AI {} mask: asked for, waits for the photo's frames ({} MB free for it of {} MB needed); {}",
+                job.name(),
+                room.unwrap_or(0) / MB,
+                need / MB,
+                memory_line()
+            );
+        }
+        if start.elapsed() >= FRAMES_WAIT {
+            break "beside frames still under way";
+        }
+        tokio::time::sleep(FRAMES_POLL).await;
+    };
+    if waited {
+        log::info!(
+            "AI {} mask: asked for, wait ended {why}, {} ms; {}",
+            job.name(),
+            start.elapsed().as_millis(),
+            memory_line()
+        );
+    }
+}
+
+/// Runs the photographer asked for that started short of memory
+/// (`AskedRunShort`).
+static ASKED_RUNS_SHORT: AtomicUsize = AtomicUsize::new(0);
+
+/// A run the photographer asked for that started where the memory free for
+/// work that may wait did not cover it (`work_headroom` below its `need`)
+/// runs while this lives: the open photo's saved thumbnail waits for it
+/// (`wait_for_asked_runs`). An edit's save can come after the frames wait
+/// ended (queued behind other photo writes in the webview, review r2), and
+/// its full-resolution render beside the network is what MEM20 keeps apart.
+#[must_use = "the run counts while this lives"]
+pub struct AskedRunShort(());
+
+impl AskedRunShort {
+    /// Counts the run when `room` (None: not readable) is below `need`.
+    pub fn start_if_short(room: Option<u64>, need: u64) -> Option<Self> {
+        room.is_some_and(|room| room < need).then(|| {
+            ASKED_RUNS_SHORT.fetch_add(1, Ordering::SeqCst);
+            AskedRunShort(())
+        })
+    }
+}
+
+impl Drop for AskedRunShort {
+    fn drop(&mut self) {
+        ASKED_RUNS_SHORT.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// How long an edit's saved thumbnail waits at most for runs asked for
+/// short of memory (a Subject run on the CPU takes about 16 s on a Radeon
+/// 680M laptop); then it renders beside them.
+pub const THUMBNAIL_WAIT: Duration = Duration::from_secs(60);
+
+/// Whether a run asked for short of memory runs (`AskedRunShort`).
+pub fn asked_runs_short() -> bool {
+    ASKED_RUNS_SHORT.load(Ordering::SeqCst) > 0
+}
+
+/// The photos whose saved thumbnail waits for such a run (`WaitingThumbnail`).
+static THUMBNAILS_WAITING: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+/// Thumbnails that waited render one at a time once the run ended.
+static WAITED_RENDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// An edit's saved thumbnail of `path` that waits for a run asked for short
+/// of memory while this lives. One per photo (review r3): the edits saved
+/// meanwhile are in the photo's recipe, which the waiting one renders, so a
+/// later save's thumbnail is left to it instead of a second full-resolution
+/// render once the run ends.
+#[must_use = "the thumbnail counts as waiting while this lives"]
+pub struct WaitingThumbnail(String);
+
+impl WaitingThumbnail {
+    /// None: a thumbnail of `path` waits already (it renders this edit).
+    pub fn join(path: &str) -> Option<Self> {
+        let mut waiting = THUMBNAILS_WAITING.lock().unwrap_or_else(|e| e.into_inner());
+        if waiting.iter().any(|p| p == path) {
+            return None;
+        }
+        waiting.push(path.to_string());
+        Some(WaitingThumbnail(path.to_string()))
+    }
+
+    /// Waits up to `THUMBNAIL_WAIT` for the runs (`wait_for_asked_runs`),
+    /// then returns how long and the turn to render in (one waited thumbnail
+    /// at a time); the photo no longer counts as waiting.
+    pub fn wait(self) -> (Duration, std::sync::MutexGuard<'static, ()>) {
+        let waited = wait_for_asked_runs(THUMBNAIL_WAIT);
+        drop(self);
+        (
+            waited,
+            WAITED_RENDER.lock().unwrap_or_else(|e| e.into_inner()),
+        )
+    }
+}
+
+impl Drop for WaitingThumbnail {
+    fn drop(&mut self) {
+        THUMBNAILS_WAITING
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|p| *p != self.0);
+    }
+}
+
+/// Blocks while a run asked for short of memory runs (`AskedRunShort`), up
+/// to `max`; returns how long it waited (zero: none ran).
+pub fn wait_for_asked_runs(max: Duration) -> Duration {
+    let start = Instant::now();
+    while ASKED_RUNS_SHORT.load(Ordering::SeqCst) > 0 && start.elapsed() < max {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    start.elapsed()
 }
 
 fn describe(verdict: Verdict) -> String {
@@ -517,6 +694,7 @@ mod tests {
         if crate::memory_pressure::work_headroom().is_some() {
             assert!(polls.load(Ordering::SeqCst) >= 2);
         }
+        assert!(!run.asked());
         drop(run);
     }
 
@@ -542,6 +720,7 @@ mod tests {
         asking.await.unwrap();
         let run = result.expect("started");
         assert!(running(), "the background decodes wait for it");
+        assert!(run.asked(), "it runs as the photographer's request (MEM20)");
         drop(run);
     }
 
@@ -552,6 +731,71 @@ mod tests {
         ask_now(Some("subject-precompute-early".into()));
         let arrived = asked_count();
         assert!(asked_since(arrived, Some("subject-precompute-early")));
+    }
+
+    #[test]
+    fn a_run_asked_for_waits_only_for_the_photos_frames_and_only_short_of_memory() {
+        let need = estimated_peak(AheadJob::Subject, true, true);
+        // WMEM19 click: 1.4 GB free beside the new layer's frame: waits.
+        assert!(asked_run_waits(false, Some(1400 * MB), need));
+        // The frames settled: starts, however little memory (asked for).
+        assert!(!asked_run_waits(true, Some(0), need));
+        // Memory for it beside the frames (a Mac with 9 GB free): at once.
+        assert!(!asked_run_waits(false, Some(9 * GB), need));
+        // Memory not readable: at once, as the jobs made ahead.
+        assert!(!asked_run_waits(false, None, need));
+    }
+
+    #[tokio::test]
+    async fn a_run_asked_for_short_of_memory_waits_for_the_frame_its_click_asked_for() {
+        // Frames settled long ago, never room (u64::MAX needed): it still
+        // waits `QUIET` from the request, for the frame and the save its
+        // click started (review r1), then starts.
+        if crate::memory_pressure::work_headroom().is_none() {
+            return;
+        }
+        let start = Instant::now();
+        wait_for_photo_frames(AheadJob::Subject, u64::MAX, || false).await;
+        assert!(start.elapsed() >= QUIET);
+        assert!(start.elapsed() <= FRAMES_WAIT + Duration::from_secs(1));
+    }
+
+    #[test]
+    fn a_thumbnail_saved_during_a_run_asked_for_short_of_memory_waits_for_it() {
+        // Review r2: the edit's save comes after the frames wait ended
+        // (queued behind rating writes); its thumbnail must not render
+        // beside the network.
+        assert!(AskedRunShort::start_if_short(Some(9 * GB), 3700 * MB).is_none());
+        assert!(AskedRunShort::start_if_short(None, 3700 * MB).is_none());
+        let run = AskedRunShort::start_if_short(Some(1400 * MB), 3700 * MB).expect("short");
+        let thumbnail = std::thread::spawn(|| wait_for_asked_runs(Duration::from_secs(10)));
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(!thumbnail.is_finished(), "waits while the run runs");
+        drop(run);
+        let waited = thumbnail.join().unwrap();
+        assert!(waited >= Duration::from_millis(400));
+        assert!(waited < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn one_thumbnail_per_photo_waits_for_the_run() {
+        // Review r3: edits saved during the run leave their thumbnail to the
+        // photo's waiting one (it renders the latest recipe); another photo
+        // (stepped to meanwhile) waits on its own.
+        let first = WaitingThumbnail::join("mem20-a.NEF").expect("first waits");
+        assert!(WaitingThumbnail::join("mem20-a.NEF").is_none());
+        let other = WaitingThumbnail::join("mem20-b.NEF").expect("another photo waits too");
+        drop(first);
+        assert!(WaitingThumbnail::join("mem20-a.NEF").is_some());
+        drop(other);
+    }
+
+    #[tokio::test]
+    async fn a_wait_for_the_frames_ends_when_cancelled() {
+        // Never room (u64::MAX needed); cancelled: back at once.
+        let start = Instant::now();
+        wait_for_photo_frames(AheadJob::Subject, u64::MAX, || true).await;
+        assert!(start.elapsed() < FRAMES_WAIT);
     }
 
     #[tokio::test]

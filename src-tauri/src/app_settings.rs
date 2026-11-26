@@ -853,6 +853,9 @@ pub struct AppSettings {
     /// The Develop viewer bar shows R, G, B under the pointer; None: off.
     #[serde(default)]
     pub pointer_readout: Option<bool>,
+    /// Show the white balance picker loupe; None: on.
+    #[serde(default)]
+    pub show_wb_loupe: Option<bool>,
     /// Unit of the pointer readout and the picker loupe: rgb255 or
     /// percent; None: rgb255.
     #[serde(default)]
@@ -1036,6 +1039,7 @@ impl Default for AppSettings {
             viewer_proof_margin: Some(false),
             viewer_proof_margin_percent: None,
             pointer_readout: None,
+            show_wb_loupe: None,
             pointer_readout_unit: None,
             canvas_input_mode: Some("mouse".to_string()),
             zoom_speed_multiplier: Some(1.0),
@@ -1960,7 +1964,7 @@ mod tests {
     fn viewer_settings_survive_a_save() {
         let settings: AppSettings = serde_json::from_value(serde_json::json!({
             "viewerBackground": "veryDark", "viewerProofMargin": true, "viewerProofMarginPercent": 10.0,
-            "pointerReadout": true, "pointerReadoutUnit": "percent"
+            "pointerReadout": true, "pointerReadoutUnit": "percent", "showWbLoupe": false
         }))
         .unwrap();
         let saved = serde_json::to_value(&settings).unwrap();
@@ -1969,6 +1973,7 @@ mod tests {
         assert_eq!(saved["viewerProofMarginPercent"], 10.0);
         assert_eq!(saved["pointerReadout"], true);
         assert_eq!(saved["pointerReadoutUnit"], "percent");
+        assert_eq!(saved["showWbLoupe"], false);
     }
 
     #[test]

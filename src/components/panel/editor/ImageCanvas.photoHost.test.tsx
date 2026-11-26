@@ -1,9 +1,11 @@
-import { act, cleanup, render } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import '../../../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import ImageCanvas from './ImageCanvas';
 import { INITIAL_ADJUSTMENTS } from '../../../utils/adjustments';
+import { useEditorStore } from '../../../store/useEditorStore';
+import { usePointerSampleStore } from '../../../utils/pointerSample';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve(null)) }));
@@ -33,12 +35,16 @@ const size = {
   containerHeight: 340
 };
 
-function renderCanvas(photoHost: HTMLElement | null, picker: boolean) {
+function renderCanvas(
+  photoHost: HTMLElement | null,
+  picker: boolean,
+  appSettings: ComponentProps<typeof ImageCanvas>['appSettings'] = null
+) {
   const noop = () => {};
   // Typed as ImageCanvas' own props (its props interface is not exported), so
   // the compiler checks every prop the test passes.
   const props: ComponentProps<typeof ImageCanvas> = {
-    appSettings: null,
+    appSettings,
     activeMaskContainerId: null,
     activeMaskId: null,
     adjustments: INITIAL_ADJUSTMENTS,
@@ -158,4 +164,19 @@ it('draws the photograph in place without a photo pane', async () => {
   const frames = decodedFrames(container);
   expect(frames).toHaveLength(1);
   expect(frames[0].getAttribute('href')).toBe('blob:frame');
+});
+
+it('keeps the white balance picker active while its loupe is hidden', () => {
+  useEditorStore.setState({ isWbPickerActive: true });
+  try {
+    const { container } = renderCanvas(null, true, { showWbLoupe: false, pointerReadout: true } as NonNullable<
+      ComponentProps<typeof ImageCanvas>['appSettings']
+    >);
+    act(() => usePointerSampleStore.setState({ sample: { clientX: 200, clientY: 150, patch: null } }));
+    expect(container.querySelector('.konvajs-content')).not.toBeNull();
+    expect(screen.queryByTestId('picker-loupe')).toBeNull();
+  } finally {
+    useEditorStore.setState({ isWbPickerActive: false });
+    usePointerSampleStore.setState({ sample: null });
+  }
 });

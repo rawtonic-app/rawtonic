@@ -1,4 +1,8 @@
-import { cleanup, renderHook } from '@testing-library/react';
+import '../i18n';
+import { createElement } from 'react';
+import userEvent from '@testing-library/user-event';
+import AdjustmentControl from '../components/studio/AdjustmentControl';
+import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { useKeyboardShortcuts } from './useKeyboardShortcuts';
@@ -69,6 +73,54 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useEditorStore.setState({ selectedImage: null });
+});
+
+function renderSlider() {
+  useUIStore.setState({ activeView: 'editor' });
+  const onChange = vi.fn();
+  render(
+    createElement(AdjustmentControl, {
+      label: 'Exposure',
+      value: 0,
+      min: -5,
+      max: 5,
+      step: 0.01,
+      defaultValue: 0,
+      onChange
+    })
+  );
+  return { slider: screen.getByRole('slider') as HTMLInputElement, onChange };
+}
+
+it('navigates to the next photo after a pointer drag without changing the slider again', async () => {
+  const { slider, onChange } = renderSlider();
+  slider.getBoundingClientRect = () => ({ left: 0, top: 0, width: 120, height: 20 }) as DOMRect;
+  slider.setPointerCapture = vi.fn();
+  fireEvent.pointerDown(slider, { button: 0, clientX: 60, clientY: 10 });
+  fireEvent.pointerMove(slider, { clientX: 80, clientY: 10 });
+  fireEvent.pointerUp(slider, { clientX: 80, clientY: 10 });
+  expect(Number(slider.value)).toBeGreaterThan(0);
+  const draggedValue = slider.value;
+  onChange.mockClear();
+  await userEvent.keyboard('{ArrowRight}');
+  expect(props.handleImageSelect).toHaveBeenCalledWith('/s/c.dng', true);
+  expect(slider.value).toBe(draggedValue);
+  expect(onChange).not.toHaveBeenCalled();
+});
+
+it('gives the arrow to the slider after Tab focuses it', async () => {
+  const { slider, onChange } = renderSlider();
+  const user = userEvent.setup();
+  // With no focused control, Develop reserves Tab for hiding panels.
+  const previous = document.createElement('button');
+  slider.closest('.adjustment-control')!.prepend(previous);
+  previous.focus();
+  await user.tab();
+  expect(document.activeElement).toBe(slider);
+  await user.keyboard('{ArrowRight}');
+  expect(Number(slider.value)).toBeGreaterThan(0);
+  expect(onChange).toHaveBeenCalledOnce();
+  expect(props.handleImageSelect).not.toHaveBeenCalled();
 });
 
 it('shows the photograph alone with F in Develop and leaves with F or Escape, staying in Develop', () => {

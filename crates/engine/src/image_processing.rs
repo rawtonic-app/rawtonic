@@ -56,8 +56,22 @@ pub struct ImageMetadata {
     pub adjustments: Value,
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+    /// A copy of the EXIF map read from the file that builds before SCW1
+    /// stored with every edit (a field absent from it was removed); reduced
+    /// to `exif_overrides` by the photo's next write
+    /// (`rawtonic_export::exif_processing::overrides_of_copy`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exif: Option<std::collections::HashMap<String, String>>,
+    /// The user's own EXIF over the original's
+    /// (`rawtonic_export::exif_processing::with_exif_overrides`): a field
+    /// with text replaces the file's, an empty one removes it, one absent
+    /// is the file's (SCW1).
+    #[serde(
+        default,
+        rename = "exifOverrides",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub exif_overrides: Option<std::collections::HashMap<String, String>>,
     /// Named snapshots of the development as a sidecar holds them
     /// (`rawtonic_catalog::snapshots::for_sidecar`), kept as they are by
     /// every sidecar edit; for a library photograph the library's are
@@ -81,6 +95,7 @@ impl Default for ImageMetadata {
             adjustments: Value::Null,
             tags: None,
             exif: None,
+            exif_overrides: None,
             snapshots: Vec::new(),
             snapshot_strings: serde_json::Map::new(),
         }

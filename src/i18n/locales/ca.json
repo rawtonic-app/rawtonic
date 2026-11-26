@@ -1068,7 +1068,8 @@
       }
     },
     "pickerLoupe": {
-      "label": "Lupa del comptagotes"
+      "label": "Lupa del comptagotes",
+      "show": "Mostra la lupa"
     }
   },
   "errors": {

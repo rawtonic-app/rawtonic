@@ -474,35 +474,64 @@ pub async fn update_exif_fields(
 
 /// Applies `updates` to one photo's EXIF fields in its sidecar (an empty value
 /// removes the field). Takes its turn with the other sidecar field edits, so a
-/// rating or recipe saved meanwhile is not overwritten.
+/// rating or recipe saved meanwhile is not overwritten. The sidecar keeps
+/// only the user's own EXIF (`exifOverrides`): text as typed, a capture time
+/// while it differs from the file's (`capture_edit`); never the map read
+/// from the file (SCW1).
 pub(crate) fn update_exif_of(path: &str, updates: &HashMap<String, String>) -> Result<(), String> {
+    use rawtonic_export::exif_processing::CAPTURE_TIME_FIELDS;
     let original_path = Path::new(path);
     let primary_path = crate::exif_processing::get_primary_sidecar_path(original_path);
     let _turn = super::sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar(&primary_path);
+    crate::exif_processing::keep_own_exif(&mut metadata, original_path);
+    let is_capture = |key: &str| CAPTURE_TIME_FIELDS.contains(&key);
 
-    let mut exif_data = metadata.exif.take().unwrap_or_else(|| {
-        if let Some(existing) = crate::exif_processing::read_rrexif_sidecar(original_path) {
-            existing
-        } else if let Ok(mmap) = read_file_mapped(original_path) {
-            crate::exif_processing::read_exif_data_from_bytes(path, &mmap)
-        } else if let Ok(bytes) = fs::read(original_path) {
-            crate::exif_processing::read_exif_data_from_bytes(path, &bytes)
-        } else {
-            HashMap::new()
+    if let Some(copy) = metadata.exif.as_mut() {
+        // An older copy of the read map kept while the original cannot be
+        // read: updated as it is (a field absent from it is removed).
+        for (k, v) in updates {
+            match v.trim() {
+                "" => copy.remove(k),
+                text => copy.insert(k.clone(), text.to_string()),
+            };
         }
-    });
-
-    for (k, v) in updates {
-        let trimmed = v.trim();
-        if trimmed.is_empty() {
-            exif_data.remove(k);
-        } else {
-            exif_data.insert(k.clone(), trimmed.to_string());
+    } else {
+        let mut overrides = metadata.exif_overrides.take().unwrap_or_default();
+        for (k, v) in updates.iter().filter(|(k, _)| !is_capture(k)) {
+            overrides.insert(k.clone(), v.trim().to_string());
         }
+        if updates.keys().any(|k| is_capture(k)) {
+            let own = crate::exif_processing::original_exif(original_path);
+            let mut shown = crate::exif_processing::with_exif_overrides(
+                &overrides,
+                own.as_ref().unwrap_or(&HashMap::new()),
+            );
+            for key in CAPTURE_TIME_FIELDS {
+                overrides.remove(key);
+                match updates.get(key).map(|v| v.trim()) {
+                    Some("") => shown.remove(key),
+                    Some(text) => shown.insert(key.to_string(), text.to_string()),
+                    None => None,
+                };
+            }
+            let fields = match &own {
+                // Kept while it differs from the file's own time.
+                Some(own) => crate::exif_processing::capture_edit(&shown, own)
+                    .map(|fields| fields.map(|(key, value)| (key, value.unwrap_or_default()))),
+                // An original that cannot be read: as given.
+                None => Some(
+                    CAPTURE_TIME_FIELDS
+                        .map(|key| (key, shown.get(key).cloned().unwrap_or_default())),
+                ),
+            };
+            for (key, value) in fields.into_iter().flatten() {
+                overrides.insert(key.to_string(), value);
+            }
+        }
+        metadata.exif_overrides = (!overrides.is_empty()).then_some(overrides);
     }
 
-    metadata.exif = Some(exif_data);
     let json = serde_json::to_string_pretty(&metadata).map_err(|e| format!("{path}: {e}"))?;
     crate::session_bridge::write_editor_sidecar(&primary_path, json)
         .map_err(|e| format!("{path}: {e}"))
@@ -852,7 +881,7 @@ mod listing_metadata_tests {
         ))
         .unwrap();
         let saved = crate::exif_processing::load_sidecar(&sidecar);
-        assert_eq!(saved.exif.unwrap()["Artist"], "Ana");
+        assert_eq!(saved.exif_overrides.unwrap()["Artist"], "Ana");
         assert_eq!(saved.rating, 3);
 
         // The sidecar cannot be written into a folder that does not exist.

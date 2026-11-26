@@ -536,14 +536,14 @@
     "editWith": {
       "cancel": "Abbrechen",
       "cancelled": "{{cancelled}} abgebrochen, {{rendered}} gerendert.",
-      "closeLibraryFirst": "Schließen Sie die offene Session oder den Katalog, um es erneut zu versuchen: Diese Fotos wurden außerhalb einer Bibliothek bearbeitet.",
+      "closeLibraryFirst": "Schließe die offene Session oder den Katalog, um es erneut zu versuchen: Diese Fotos wurden außerhalb einer Bibliothek bearbeitet.",
       "defaultRecipe": "Standardrezept",
       "failed": "Bearbeiten mit fehlgeschlagen: {{error}}",
       "interrupted": "„Bearbeiten mit“ in {{app}} wurde beim Beenden von Rawtonic unterbrochen. „Erneut versuchen“ rendert die Fotos noch einmal.",
       "label": "Bearbeiten mit",
       "notLinked": "Gerendert, aber nicht zur Bibliothek hinzugefügt: {{error}}",
       "openIn": "Öffnen in",
-      "openLibraryFirst": "Öffnen Sie {{library}} wieder, um es erneut zu versuchen: Die Fotos werden mit den Einstellungen gerendert, die sie dort haben.",
+      "openLibraryFirst": "Öffne {{library}} wieder, um es erneut zu versuchen: Die Fotos werden mit den Einstellungen gerendert, die sie dort haben.",
       "ownSettings": "Diese Einstellungen gelten nur für {{app}}.",
       "programSettings": "Einstellungen für ein Programm",
       "rendering": "Wird für {{app}} gerendert…",
@@ -852,7 +852,7 @@
     "readingStart": "Bilddaten werden verglichen…",
     "stop": "Stoppen",
     "stopped": "Gestoppt: Nur die bisher verglichenen Fotos sind gruppiert.",
-    "suggestion": "Für den Papierkorb vorgeschlagen: In jeder Gruppe bleibt das Foto mit der meisten Arbeit (Bearbeitungen, Bewertung, Markierung, Farbe, Stichwörter, Alben, Titel oder Beschreibung, virtuelle Kopien), bei Gleichstand der älteste Import. Vorgeschlagen werden nur Kopien im Ordner dieser Bibliothek; Fotos in Ihren eigenen Ordnern werden gezeigt, aber nie markiert, und ein Foto einer anderen Session oder eines anderen Katalogs lässt sich von hier nicht verschieben. Nichts wird zusammengeführt.",
+    "suggestion": "Für den Papierkorb vorgeschlagen: In jeder Gruppe bleibt das Foto mit der meisten Arbeit (Bearbeitungen, Bewertung, Markierung, Farbe, Stichwörter, Alben, Titel oder Beschreibung, virtuelle Kopien), bei Gleichstand der älteste Import. Vorgeschlagen werden nur Kopien im Ordner dieser Bibliothek; Fotos in deinen eigenen Ordnern werden gezeigt, aber nie markiert, und ein Foto einer anderen Session oder eines anderen Katalogs lässt sich von hier nicht verschieben. Nichts wird zusammengeführt.",
     "summary_one": "{{count}} Duplikatgruppe ({{photos}} Fotos)",
     "summary_other": "{{count}} Duplikatgruppen ({{photos}} Fotos)",
     "title": "Duplikate suchen",
@@ -1018,7 +1018,8 @@
       }
     },
     "pickerLoupe": {
-      "label": "Pipettenlupe"
+      "label": "Pipettenlupe",
+      "show": "Lupe anzeigen"
     }
   },
   "errors": {
@@ -1588,14 +1589,14 @@
       "reading": "Ordner wird gelesen…",
       "registered_one": "{{count}} Datei ist schon im Katalog und wird übersprungen.",
       "registered_other": "{{count}} Dateien sind schon im Katalog und werden übersprungen.",
-      "sessionNote": "Hier angezeigt, nicht hinzugefügt – Sessions behalten ihre eigenen Dateien. Um in dieser Session an den Fotos zu arbeiten, kopieren Sie sie hinein.",
+      "sessionNote": "Hier angezeigt, nicht hinzugefügt – Sessions behalten ihre eigenen Dateien. Um in dieser Session an den Fotos zu arbeiten, kopiere sie hinein.",
       "sessionTitle": "„{{name}}“ anzeigen",
       "show": "Ordner anzeigen",
       "subfolders": "Unterordner einbeziehen",
       "title": "„{{name}}“ zum Katalog hinzufügen",
       "toAdd_one": "{{count}} Foto zum Hinzufügen",
       "toAdd_other": "{{count}} Fotos zum Hinzufügen",
-      "truncated": "Diesmal werden nur die ersten {{n}} Dateien hinzugefügt; fügen Sie den Ordner für den Rest erneut hinzu.",
+      "truncated": "Diesmal werden nur die ersten {{n}} Dateien hinzugefügt; füge den Ordner für den Rest erneut hinzu.",
       "unreadable_one": "{{count}} Ordner konnte nicht gelesen werden und wurde ausgelassen: {{first}}",
       "unreadable_other": "{{count}} Ordner konnten nicht gelesen werden und wurden ausgelassen, zuerst: {{first}}"
     },
@@ -1635,8 +1636,8 @@
       "done_other": "Katalog „{{name}}“ exportiert · {{count}} Fotos",
       "editsOnlyDone_one": "{{count}} Foto nur mit Bearbeitungen, ohne Original",
       "editsOnlyDone_other": "{{count}} Fotos nur mit Bearbeitungen, ohne Originale",
-      "editsOnlyHint_one": "Nur Bearbeitungen: {{count}} Foto in dieser Bibliothek geht ohne Original mit. Im neuen Katalog ist es offline und wird auf seiner Vorschau bearbeitet; bringen Sie die Arbeit mit „Aus Katalog importieren“ in die Bibliothek zurück, die das Original hat.",
-      "editsOnlyHint_other": "Nur Bearbeitungen: {{count}} Fotos in dieser Bibliothek gehen ohne Originale mit. Im neuen Katalog sind sie offline und werden auf ihren Vorschauen bearbeitet; bringen Sie die Arbeit mit „Aus Katalog importieren“ in die Bibliothek zurück, die die Originale hat.",
+      "editsOnlyHint_one": "Nur Bearbeitungen: {{count}} Foto in dieser Bibliothek geht ohne Original mit. Im neuen Katalog ist es offline und wird auf seiner Vorschau bearbeitet; bring die Arbeit mit „Aus Katalog importieren“ in die Bibliothek zurück, die das Original hat.",
+      "editsOnlyHint_other": "Nur Bearbeitungen: {{count}} Fotos in dieser Bibliothek gehen ohne Originale mit. Im neuen Katalog sind sie offline und werden auf ihren Vorschauen bearbeitet; bring die Arbeit mit „Aus Katalog importieren“ in die Bibliothek zurück, die die Originale hat.",
       "export_one": "{{count}} Foto exportieren",
       "export_other": "{{count}} Fotos exportieren",
       "exportOthers": "Die übrigen exportieren",
@@ -1657,8 +1658,8 @@
       "originalsCopied_other": "{{count}} Originale kopiert und geprüft",
       "originalsHint": "Die Originale werden in den Katalogordner kopiert und geprüft, sodass der Ordner auf ein anderes Laufwerk oder einen anderen Computer wandern kann.",
       "originalsSize": "Originale: {{size}}.",
-      "ownedAll": "Diese Fotos gehören zu {{libraries}}: Dort liegen ihre neuesten Bearbeitungen. Exportieren Sie sie von dort.",
-      "ownedHint": "Ihre neuesten Bearbeitungen liegen in {{libraries}}, nicht hier, deshalb werden sie nicht exportiert. Exportieren Sie sie von dort.",
+      "ownedAll": "Diese Fotos gehören zu {{libraries}}: Dort liegen ihre neuesten Bearbeitungen. Exportiere sie von dort.",
+      "ownedHint": "Ihre neuesten Bearbeitungen liegen in {{libraries}}, nicht hier, deshalb werden sie nicht exportiert. Exportiere sie von dort.",
       "ownedTitle_one": "{{count}} Foto gehört zu einer anderen Session oder einem anderen Katalog",
       "ownedTitle_other": "{{count}} Fotos gehören zu einer anderen Session oder einem anderen Katalog",
       "photos": "Fotos",
@@ -1760,7 +1761,7 @@
       "withoutOriginal_other": "{{count}} neue Fotos ausgelassen: ihre Originale sind nicht im anderen Katalog"
     },
     "create": {
-      "addAfterLibrary": "Zum Hinzufügen braucht es eine Session oder einen Katalog. Legen Sie hier eines davon an oder öffnen Sie ein vorhandenes; danach wird das Foto hinzugefügt.",
+      "addAfterLibrary": "Zum Hinzufügen braucht es eine Session oder einen Katalog. Lege hier eines davon an oder öffne ein vorhandenes; danach wird das Foto hinzugefügt.",
       "catalog": "Katalog",
       "catalogDescription": "Verwalte deine Sammlung in einem Katalogordner. Fotos werden standardmäßig hineinkopiert; externe Ordner kannst du optional verknüpfen.",
       "catalogHint": "Für deine gesamte Fotosammlung",
@@ -1801,7 +1802,7 @@
     "folders": {
       "awayDrive": "Nicht verfügbar: Das Laufwerk ist nicht verbunden.",
       "awayRemoved": "Nicht verfügbar: Der Ordner wurde gelöscht. Er wird wieder angelegt, sobald etwas hineingelegt wird.",
-      "awayRenamed": "Nicht verfügbar: Der Ordner ist nicht mehr da, oder ein Ordner darüber wurde umbenannt oder verschoben. An diesem Pfad wird nichts angelegt; wählen Sie den Ordner, wo er jetzt ist.",
+      "awayRenamed": "Nicht verfügbar: Der Ordner ist nicht mehr da, oder ein Ordner darüber wurde umbenannt oder verschoben. An diesem Pfad wird nichts angelegt; wähle den Ordner, wo er jetzt ist.",
       "change": "Ändern…",
       "choose": "Ordner {{folder}} wählen",
       "chooseFor": "Ordner {{folder}} ändern",
@@ -1865,7 +1866,7 @@
     "import": {
       "albums_one": "{{count}} Album",
       "albums_other": "{{count}} Alben",
-      "catalogChanged": "Der Katalog wurde seit der Prüfung geändert. Prüfen Sie ihn erneut.",
+      "catalogChanged": "Der Katalog wurde seit der Prüfung geändert. Prüfe ihn erneut.",
       "check": "Prüfen",
       "chooseSource": "Zu importierende Bibliothek wählen",
       "copies_one": "{{count}} virtuelle Kopie",
@@ -2193,7 +2194,7 @@
       "importStacks_one": "{{count}} Stapel importiert",
       "importStacks_other": "{{count}} Stapel importiert",
       "importUnconvertedSettings": "Importierte Bearbeitungen mit Einstellungen, die nicht konvertiert werden konnten: {{n}}.",
-      "importUnsavedEdits": "Einige Bearbeitungen sind noch nicht gespeichert ({{n}}). Importieren Sie erneut, sobald sie gespeichert sind, damit der Import sie nicht überschreibt.",
+      "importUnsavedEdits": "Einige Bearbeitungen sind noch nicht gespeichert ({{n}}). Importiere erneut, sobald sie gespeichert sind, damit der Import sie nicht überschreibt.",
       "importWarnings_one": "{{count}} Foto wurde mit einer Warnung importiert. {{error}}",
       "importWarnings_other": "{{count}} Fotos wurden mit Warnungen importiert. {{error}}",
       "ingestCancelled": "Import abgebrochen",
@@ -2213,7 +2214,7 @@
       "sourceGeometryApplied": "Capture-One-Geradestellung und -Beschnitt auf {{n}} Foto(s) angewendet (Rückgängig stellt sie wieder her)",
       "sourceGeometryErrors": "Capture-One-Geradestellung und -Beschnitt bei manchen Fotos nicht angewendet: {{n}}.",
       "sourceGeometryFailed": "Capture-One-Geradestellung und -Beschnitt konnten nicht angewendet werden",
-      "sourceGeometryOtherLibrary": "Öffnen Sie die Bibliothek, in die diese Fotos importiert wurden, um Geradestellung und Beschnitt von Capture One anzuwenden.",
+      "sourceGeometryOtherLibrary": "Öffne die Bibliothek, in die diese Fotos importiert wurden, um Geradestellung und Beschnitt von Capture One anzuwenden.",
       "sourceGeometryPhoto": "Capture-One-Geradestellung und -Beschnitt auf {{name}} anwenden",
       "watching": "{{folder}} wird auf neue Fotos überwacht.",
       "watchingMissing": "Überwachter Ordner {{folder}} nicht gefunden; die Überwachung geht weiter, sobald er wieder da ist.",
@@ -2271,7 +2272,7 @@
       "catchUp": "XMP-Dateien, die beim letzten Lauf von Rawtonic übrig blieben, werden geschrieben",
       "conflictHeading_one": "{{count}} XMP-Datei weicht von der Bibliothek ab",
       "conflictHeading_other": "{{count}} XMP-Dateien weichen von der Bibliothek ab",
-      "conflictHint": "Wählen Sie, was gilt: „Bibliothek behalten“ schreibt die Einstellungen der Bibliothek in die Datei, „XMP übernehmen“ liest die der Datei in die Bibliothek. Erst Ihr Klick schreibt etwas. Ihre Bearbeitung bleibt in beiden Fällen erhalten.",
+      "conflictHint": "Wähle, was gilt: „Bibliothek behalten“ schreibt die Einstellungen der Bibliothek in die Datei, „XMP übernehmen“ liest die der Datei in die Bibliothek. Erst dein Klick schreibt etwas. Deine Bearbeitung bleibt in beiden Fällen erhalten.",
       "count_one": "{{count}} XMP nicht aktuell",
       "count_other": "{{count}} XMP nicht aktuell",
       "explain": "Deine Bearbeitungen, Bewertungen und Stichwörter sind in der Bibliothek sicher. Andere Programme, die XMP-Dateien lesen, sehen diese Änderungen noch nicht. Die Fotos selbst werden nie verändert.",
@@ -2286,8 +2287,8 @@
       "notResolved_one": "{{count}} Foto wurde nicht gelöst:",
       "notResolved_other": "{{count}} Fotos wurden nicht gelöst:",
       "reason": {
-        "changedElsewhere_one": "{{count}} XMP-Datei weicht von der Bibliothek ab (von einem anderen Programm geändert oder von Rawtonic nie gelesen). Rawtonic überschreibt sie nur auf Ihre Wahl; die Bibliothek behält Ihre Version.",
-        "changedElsewhere_other": "{{count}} XMP-Dateien weichen von der Bibliothek ab (von einem anderen Programm geändert oder von Rawtonic nie gelesen). Rawtonic überschreibt sie nur auf Ihre Wahl; die Bibliothek behält Ihre Version.",
+        "changedElsewhere_one": "{{count}} XMP-Datei weicht von der Bibliothek ab (von einem anderen Programm geändert oder von Rawtonic nie gelesen). Rawtonic überschreibt sie nur auf deine Wahl; die Bibliothek behält deine Version.",
+        "changedElsewhere_other": "{{count}} XMP-Dateien weichen von der Bibliothek ab (von einem anderen Programm geändert oder von Rawtonic nie gelesen). Rawtonic überschreibt sie nur auf deine Wahl; die Bibliothek behält deine Version.",
         "failed_one": "{{count}} XMP-Datei konnte nicht geschrieben werden: {{error}}",
         "failed_other": "{{count}} XMP-Dateien konnten nicht geschrieben werden: {{error}}",
         "offline_one": "{{count}} Foto ist offline. Seine XMP-Datei wird aktualisiert, sobald das Laufwerk wieder verbunden ist.",
@@ -3249,7 +3250,7 @@
       "rotateRight": "Rechts drehen",
       "size": "Größe",
       "sourceGeometry": "Capture-One-Geradestellung und -Beschnitt anwenden",
-      "sourceGeometryTitle": "Geradestellung, Vierteldrehungen und Beschnitt dieses Fotos durch die von Capture One ersetzen: dessen Geradestellungswinkel und ein automatischer Beschnitt im Seitenverhältnis des Bildrahmens ohne leere Ecken (ein in Capture One gezeichneter Beschnitt wird nicht gelesen, und Ihr eigener Beschnitt wird ersetzt). Alle anderen Einstellungen bleiben (Rückgängig stellt sie wieder her)",
+      "sourceGeometryTitle": "Geradestellung, Vierteldrehungen und Beschnitt dieses Fotos durch die von Capture One ersetzen: dessen Geradestellungswinkel und ein automatischer Beschnitt im Seitenverhältnis des Bildrahmens ohne leere Ecken (ein in Capture One gezeichneter Beschnitt wird nicht gelesen, und dein eigener Beschnitt wird ersetzt). Alle anderen Einstellungen bleiben (Rückgängig stellt sie wieder her)",
       "straighten": "Ausrichten",
       "straightenToolTitle": "Ziehe eine Linie entlang einer Kante, die waagerecht oder senkrecht sein soll",
       "swapOrientation": "Hoch- und Querformat tauschen",
@@ -3281,7 +3282,7 @@
       "showAgain_one": "Vorschläge wieder zeigen ({{n}} ausgewählt)",
       "showAgain_other": "Vorschläge wieder zeigen ({{n}} ausgewählt)",
       "showOnly": "Nur {{name}} zeigen ({{n}})",
-      "suggestionOnly": "Nur Vorschläge: Nichts wird abgelehnt, bevor Sie auf Ablehnen klicken, und Widerrufen nimmt es zurück.",
+      "suggestionOnly": "Nur Vorschläge: Nichts wird abgelehnt, bevor du auf Ablehnen klickst, und Widerrufen nimmt es zurück.",
       "title": "Aussortieren",
       "unreadable_one": "{{n}} Foto konnte für Vorschläge nicht gelesen werden; es wird beim Öffnen der Bibliothek erneut versucht.",
       "unreadable_other": "{{n}} Fotos konnten für Vorschläge nicht gelesen werden; sie werden beim Öffnen der Bibliothek erneut versucht."
@@ -3670,7 +3671,7 @@
         },
         "hint": {
           "keepBoth": "Jede neue Datei bekommt einen neuen Namen. Nichts wird überschrieben.",
-          "replaceIfChanged": "Ersetzt Ihre eigenen, geänderten Exporte. Unveränderte werden übersprungen. Andere Dateien bleiben, und die neue Datei bekommt einen neuen Namen.",
+          "replaceIfChanged": "Ersetzt deine eigenen, geänderten Exporte. Unveränderte werden übersprungen. Andere Dateien bleiben, und die neue Datei bekommt einen neuen Namen.",
           "skip": "Vorhandene Dateien bleiben, wie sie sind; diese Fotos werden nicht noch einmal exportiert."
         },
         "intro": "Einmal für den ganzen Export wählen.",
@@ -3699,7 +3700,7 @@
           "skip": "Überspringen"
         },
         "existingHint": {
-          "ask": "Fragt vor dem Export einmal, was geschehen soll, wenn Dateien mit diesen Namen schon existieren. Bis zu Ihrer Antwort wird nichts berechnet oder geschrieben.",
+          "ask": "Fragt vor dem Export einmal, was geschehen soll, wenn Dateien mit diesen Namen schon existieren. Bis zu deiner Antwort wird nichts berechnet oder geschrieben.",
           "keepBoth": "Die neue Datei bekommt einen nummerierten Namen; nichts wird überschrieben.",
           "replaceIfChanged": "Ersetzt den eigenen früheren Rawtonic-Export eines Fotos unter diesem Namen nur, wenn sich Bearbeitung oder Einstellungen geändert haben; unveränderte Fotos werden übersprungen. Jede andere Datei (Originale, Kamera-JPEGs, anderswo bearbeitete Dateien) bleibt erhalten, und die neue Datei bekommt einen nummerierten Namen.",
           "skip": "Fotos, deren Datei schon existiert, werden nicht exportiert."
@@ -3786,18 +3787,18 @@
         "exporting": "Export {{current}} von {{total}}"
       },
       "provenance": {
-        "about": "Hält fest, aus welchem Foto jede Datei entwickelt wurde, welche Arten von Bearbeitungen es gab und jeden Bereich, den ein generatives Modell erzeugt hat – signiert mit Ihrem Zertifikat. JPEG, PNG, TIFF, WebP, AVIF und JPEG XL. Es wird nichts gesendet. Separate Maskenbilder werden nicht signiert.",
+        "about": "Hält fest, aus welchem Foto jede Datei entwickelt wurde, welche Arten von Bearbeitungen es gab und jeden Bereich, den ein generatives Modell erzeugt hat – signiert mit deinem Zertifikat. JPEG, PNG, TIFF, WebP, AVIF und JPEG XL. Es wird nichts gesendet. Separate Maskenbilder werden nicht signiert.",
         "add": "Herkunftsnachweis in die Hauptdatei jedes Exports signieren",
         "author": "Urheber des Fotos als Autor nennen",
-        "blocked": "Der Herkunftsnachweis (C2PA) kann {{recipes}} nicht signieren: Richten Sie ein gültiges Signaturzertifikat ein und exportieren Sie JPEG, PNG, TIFF, WebP, AVIF oder JPEG XL.",
+        "blocked": "Der Herkunftsnachweis (C2PA) kann {{recipes}} nicht signieren: Richte ein gültiges Signaturzertifikat ein und exportiere JPEG, PNG, TIFF, WebP, AVIF oder JPEG XL.",
         "certificateFilter": "PKCS#12-Zertifikat",
-        "expired": "Dieses Zertifikat ist derzeit nicht gültig (gültig bis {{until}}): Exporte können damit nicht signiert werden. Importieren Sie ein erneuertes Zertifikat oder erstellen Sie ein neues.",
-        "formatUnsupported": "{{format}}-Dateien können noch keinen Herkunftsnachweis tragen. Wählen Sie JPEG, PNG, TIFF, WebP, AVIF oder JPEG XL oder schalten Sie die Option aus.",
+        "expired": "Dieses Zertifikat ist derzeit nicht gültig (gültig bis {{until}}): Exporte können damit nicht signiert werden. Importiere ein erneuertes Zertifikat oder erstelle ein neues.",
+        "formatUnsupported": "{{format}}-Dateien können noch keinen Herkunftsnachweis tragen. Wähle JPEG, PNG, TIFF, WebP, AVIF oder JPEG XL oder schalte die Option aus.",
         "generate": "Zertifikat auf diesem Computer erstellen",
         "import": "Eigenes Zertifikat importieren (.p12)…",
         "importConfirm": "Importieren",
         "importTitle": "Signaturzertifikat wählen",
-        "keyStored": "Das Passwort öffnet die Datei einmal und wird nicht gespeichert. Der private Schlüssel wird in den Datenordner von Rawtonic kopiert, nur für Ihr Benutzerkonto lesbar.",
+        "keyStored": "Das Passwort öffnet die Datei einmal und wird nicht gespeichert. Der private Schlüssel wird in den Datenordner von Rawtonic kopiert, nur für dein Benutzerkonto lesbar.",
         "legend": "Herkunftsnachweis (C2PA)",
         "none": "Kein Signaturzertifikat eingerichtet.",
         "password": "Zertifikatspasswort",
@@ -3825,8 +3826,8 @@
         "signedImported": "Signiert als „{{signer}}“; Zertifikat ausgestellt von {{issuer}}, gültig bis {{until}}.",
         "signedLocal": "Signiert als „{{signer}}“ mit einem auf diesem Computer erstellten Zertifikat.",
         "signerName": "Name des Unterzeichners",
-        "signerPlaceholder": "Ihr Name oder Studio",
-        "unknownSigner": "Prüfprogramme zeigen ein auf diesem Computer erstelltes Zertifikat als unbekannten Unterzeichner: Keine Zertifizierungsstelle bürgt dafür. Importieren Sie Ihr eigenes Zertifikat, damit sie den Unterzeichner erkennen."
+        "signerPlaceholder": "Dein Name oder Studio",
+        "unknownSigner": "Prüfprogramme zeigen ein auf diesem Computer erstelltes Zertifikat als unbekannten Unterzeichner: Keine Zertifizierungsstelle bürgt dafür. Importiere dein eigenes Zertifikat, damit sie den Unterzeichner erkennen."
       },
       "queue": {
         "button": "Warteschlange",
@@ -5678,7 +5679,7 @@
         "button": "Kamera-Vorschau",
         "esc": "Esc",
         "label": "Kamera-Vorschau",
-        "note": "Das JPEG der Kamera: ihre Farbe und ihr Beschnitt, nicht Ihre Bearbeitung.",
+        "note": "Das JPEG der Kamera: ihre Farbe und ihr Beschnitt, nicht deine Bearbeitung.",
         "returnWith": "{{key}} oder {{esc}} zeigt wieder die Entwicklung",
         "unavailable": "Dieses Foto hat keine Kamera-Vorschau."
       },

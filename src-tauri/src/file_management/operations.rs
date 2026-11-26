@@ -1108,17 +1108,7 @@ fn create_virtual_copy_blocking(
 ) -> Result<String, String> {
     let (source_path, source_sidecar_path) = parse_virtual_path(&source_virtual_path);
 
-    // The new copy starts from the photograph's state: its sidecar, or for an
-    // offline photograph the library's. Written through the library, which
-    // keeps the copy (offline it is kept there only).
-    let source_state = fs::read(&source_sidecar_path).ok().or_else(|| {
-        crate::session_bridge::read_editor_sidecar(&source_sidecar_path)
-            .and_then(|state| serde_json::to_vec_pretty(&state).ok())
-    });
-    let bytes = match source_state {
-        Some(bytes) => without_snapshots(bytes)?,
-        None => serde_json::to_vec_pretty(&ImageMetadata::default()).map_err(|e| e.to_string())?,
-    };
+    let bytes = new_copy_state(&source_sidecar_path)?;
     let new_virtual_path = create_copy(
         &source_path,
         crate::session_bridge::copy_exists,
@@ -1143,6 +1133,38 @@ fn create_virtual_copy_blocking(
 /// A photograph's editor state for a new virtual copy of it: its snapshots
 /// stay the photograph's (the copy takes its own). Bytes without any are
 /// kept as they are.
+/// The editor state a new virtual copy of the photograph whose state is
+/// `source_sidecar_path` starts with: its sidecar, or for an offline
+/// photograph the library's, without snapshots and EXIF of its own
+/// (`without_own_exif`). Written through the library, which keeps the copy
+/// (offline it is kept there only).
+pub(crate) fn new_copy_state(source_sidecar_path: &Path) -> Result<Vec<u8>, String> {
+    let source_state = fs::read(source_sidecar_path).ok().or_else(|| {
+        crate::session_bridge::read_editor_sidecar(source_sidecar_path)
+            .and_then(|state| serde_json::to_vec_pretty(&state).ok())
+    });
+    match source_state {
+        Some(bytes) => without_own_exif(without_snapshots(bytes)?),
+        None => serde_json::to_vec_pretty(&ImageMetadata::default()).map_err(|e| e.to_string()),
+    }
+}
+
+/// An editor state without EXIF (`exif`, `exifOverrides`): a virtual
+/// copy's EXIF edits are its master's (`update_exif_of`), so a new copy's
+/// sidecar starts without any (SCW1).
+fn without_own_exif(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+    match serde_json::from_slice::<serde_json::Value>(&bytes) {
+        Ok(mut state) if state.get("exif").is_some() || state.get("exifOverrides").is_some() => {
+            if let Some(map) = state.as_object_mut() {
+                map.remove("exif");
+                map.remove("exifOverrides");
+            }
+            serde_json::to_vec_pretty(&state).map_err(|e| e.to_string())
+        }
+        _ => Ok(bytes),
+    }
+}
+
 pub(crate) fn without_snapshots(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
     use rawtonic_catalog::snapshots::{SIDECAR_KEY, STRINGS_KEY};
     match serde_json::from_slice::<serde_json::Value>(&bytes) {

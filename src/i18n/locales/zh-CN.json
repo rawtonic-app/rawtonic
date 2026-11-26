@@ -1003,7 +1003,8 @@
       }
     },
     "pickerLoupe": {
-      "label": "取色器放大镜"
+      "label": "取色器放大镜",
+      "show": "显示放大镜"
     }
   },
   "errors": {

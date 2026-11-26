@@ -1003,7 +1003,8 @@
       }
     },
     "pickerLoupe": {
-      "label": "스포이트 확대경"
+      "label": "스포이트 확대경",
+      "show": "확대경 표시"
     }
   },
   "errors": {

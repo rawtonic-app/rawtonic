@@ -361,6 +361,13 @@ fn metadata_fields(value: &serde_json::Value) -> ImageMetadata {
                 .collect::<Vec<_>>()
         })
     };
+    let strings_map = |key: &str| {
+        field(key).and_then(Value::as_object).map(|map| {
+            map.iter()
+                .filter_map(|(key, v)| Some((key.clone(), v.as_str()?.to_string())))
+                .collect()
+        })
+    };
     let default = ImageMetadata::default();
     ImageMetadata {
         version: field("version")
@@ -373,11 +380,8 @@ fn metadata_fields(value: &serde_json::Value) -> ImageMetadata {
             .unwrap_or(default.rating),
         adjustments: value.get("adjustments").cloned().unwrap_or(Value::Null),
         tags: strings("tags"),
-        exif: field("exif").and_then(Value::as_object).map(|map| {
-            map.iter()
-                .filter_map(|(key, v)| Some((key.clone(), v.as_str()?.to_string())))
-                .collect()
-        }),
+        exif: strings_map("exif"),
+        exif_overrides: strings_map("exifOverrides"),
         snapshots: field("snapshots")
             .and_then(Value::as_array)
             .cloned()

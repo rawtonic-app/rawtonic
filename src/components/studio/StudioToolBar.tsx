@@ -43,6 +43,9 @@ export default function StudioToolBar() {
   // Keeps its look while the next photograph loads; selectTool waits for it.
   const ready = useEditorStore(panelsShowReady);
   const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
+  const showWbLoupe = useSettingsStore((s) => s.appSettings?.showWbLoupe ?? true);
+  const settingsReady = useSettingsStore((s) => s.appSettings !== null);
+  const colorPickerActive = useEditorStore((s) => s.colorPickerTarget !== null);
   const osPlatform = useSettingsStore((s) => s.osPlatform);
   // Right-click on Radial: Draw Mask Inside for new radials (Capture One).
   const radialMenu = useRadialOptionsMenu();
@@ -68,6 +71,20 @@ export default function StudioToolBar() {
           <Icon size={15} />
         </button>
       ))}
+      {activeTool === 'wb' && !colorPickerActive && (
+        <label className="studio-wb-loupe">
+          <input
+            type="checkbox"
+            checked={showWbLoupe}
+            disabled={!settingsReady}
+            onChange={(e) => {
+              const { appSettings, handleSettingsChange } = useSettingsStore.getState();
+              if (appSettings) void handleSettingsChange({ ...appSettings, showWbLoupe: e.currentTarget.checked });
+            }}
+          />
+          {t('editor.pickerLoupe.show')}
+        </label>
+      )}
     </div>
   );
 }

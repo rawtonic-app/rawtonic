@@ -26,6 +26,12 @@
 #     --only STAGE         run STAGE alone (its inputs must exist), e.g. gui
 #     --accept-ident-diff  an intended export change: identity differences are
 #                          listed, not failures (the CHANGELOG must say so)
+#     --docs-reviewed WHY  the stage docs passes although a changed tool's docs
+#                          page was not updated: WHY the page still holds
+#     --docs-branch B      a website docs branch the release carries (repeatable;
+#                          default: every local or origin docs-* branch not in
+#                          its main;
+#                          `none` for none)
 #     --list               list the stages
 #
 # Every stage logs to WORK/logs/STAGE.log and leaves WORK/state/STAGE.ok when it
@@ -38,7 +44,7 @@ set -uo pipefail
 REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SCRIPTS="$REPO_ROOT/scripts/release"
 
-STAGES=(preflight bump source prev
+STAGES=(preflight bump docs source prev
   mac-arm64 dmg-arm64 ident mac-x86_64 dmg-x86_64 qa-app gui relay
   linux linux-smoke
   windows
@@ -49,6 +55,7 @@ PUB_STAGES=(publish site-deploy site-verify)
 usage() { sed -n '3,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 
 DRY=0 BUMP=1 DRAFT=1 PUBLISH=0 SHA_ARG="" PREV="" DATE="" FROM="" ONLY="" ACCEPT_DIFF=0 VERSION=""
+DOCS_REVIEWED="" DOCS_BRANCH_ARGS=()
 while [ $# -gt 0 ]; do
   case $1 in
     --dry-run) DRY=1; shift ;;
@@ -61,6 +68,8 @@ while [ $# -gt 0 ]; do
     --from) FROM=$2; shift 2 ;;
     --only) ONLY=$2; shift 2 ;;
     --accept-ident-diff) ACCEPT_DIFF=1; shift ;;
+    --docs-reviewed) DOCS_REVIEWED=$2; [ -n "$2" ] || { echo "release: --docs-reviewed needs the reason" >&2; exit 2; }; shift 2 ;;
+    --docs-branch) DOCS_BRANCH_ARGS+=("$2"); shift 2 ;;
     --list) printf '%s\n' "${STAGES[@]}" "${PUB_STAGES[@]}"; exit 0 ;;
     -h|--help) usage 0 ;;
     -*) echo "release: unknown option $1" >&2; usage ;;
@@ -97,6 +106,14 @@ LINUX_LOCK=${RAWTONIC_LINUX_LOCK:-}
 LINUX_PHOTOS=${RAWTONIC_LINUX_PHOTOS:-}
 SYMBOLS_REPO=${RAWTONIC_SYMBOLS_REPO:-}
 WEBSITE=${RAWTONIC_WEBSITE_DIR:-}
+# The website's docs branches the release carries (stage docs; --docs-branch wins).
+read -ra DOCS_BRANCHES <<< "${RAWTONIC_DOCS_BRANCHES:-}"
+[ ${#DOCS_BRANCH_ARGS[@]} -gt 0 ] && DOCS_BRANCHES=("${DOCS_BRANCH_ARGS[@]}")
+DOCS_DESC="every local or origin docs-* not in origin/main"
+for v in ${DOCS_BRANCHES[@]+"${DOCS_BRANCHES[@]}"}; do
+  [[ $v =~ ^[A-Za-z0-9._/-]+$ ]] && [[ $v != *..* ]] || { echo "release: docs branch '$v' may only hold letters, digits and . _ / -" >&2; exit 2; }
+done
+[ ${#DOCS_BRANCHES[@]} -gt 0 ] && DOCS_DESC="${DOCS_BRANCHES[*]}"
 SITE_URL=https://rawtonic.cc
 read -ra SSH <<< "${RAWTONIC_LINUX_SSH:-}"
 # Remote paths go into command lines on the host unquoted: allow only plain ones.
@@ -139,6 +156,7 @@ describe() {
     preflight) echo "check tools (git gh node npm cargo hdiutil spctl xcrun python3), gh auth, $SIGNING_ENV (Apple credentials and TAURI_SIGNING_PRIVATE_KEY_PATH/_PASSWORD, key file mode 600), photos, recipes, the website branch $WEB_BRANCH in ${WEBSITE:-\$RAWTONIC_WEBSITE_DIR} (not checked out elsewhere, whatsNew of $VERSION), Linux host (ssh), free disk; find the previous release";;
     bump) if [ "$BUMP" = 0 ]; then echo "skipped (--no-bump): SHA = ${SHA_ARG:-origin/main}; check package.json = $VERSION and '## $VERSION — ' in its CHANGELOG"; else
           echo "git worktree add -b release-$VERSION $WORK/bump origin/main; set $VERSION in package.json, package-lock.json (top entries), src-tauri/Cargo.toml, src-tauri/tauri.conf.json, Cargo.lock (cargo update -p rawtonic-app --offline), both THIRD_PARTY_NOTICES.md rows; CHANGELOG '## Unreleased' → '## $VERSION — $DATE'; commit; scripts/ship.sh --title 'chore(release): $VERSION' → merged SHA"; fi;;
+    docs) echo "website clone: the docs branches to carry ($DOCS_DESC; local or origin, the newer commit) → $STATE/docs-branches (name, commit); scripts/release/docs_check.py: tools changed v<prev>..SHA (ToolGroup blocks in src/components/studio, docs_map.json paths and CHANGELOG terms) against the docs pages (front matter tool) the website changed since the previous release on $WEB_BRANCH + those branches + origin/main; fails when a changed tool's page (en or de) was not updated${DOCS_REVIEWED:+ — reviewed: $DOCS_REVIEWED}";;
     source) echo "git worktree add --detach $WT SHA; git worktree add --detach $WTQA SHA; npm ci in both";;
     prev) echo "gh release download v<prev> (both DMGs, AppImage, LGPL source tarballs) → $PREVD; mount each DMG read-only, ditto Rawtonic.app out";;
     mac-arm64) echo "(credentials sourced from $SIGNING_ENV in a subshell) ${LOCK[*]} env RAWTONIC_BUNDLE_ONNX=1 npm run package:mac (in $WT) → $ASSETS/Rawtonic_${VERSION}_aarch64.dmg; the notarized Rawtonic.app as update package → $ASSETS/Rawtonic_${VERSION}_aarch64.app.tar.gz";;
@@ -155,7 +173,7 @@ describe() {
     creds) echo "count every signing credential value (Apple and updater key, except the public identity hash) in $LOGS, the built apps, the notes and latest.json: must be 0; gitleaks dir $LOGS";;
     sums) echo "LGPL tarballs (previous release or pinned URL, SHA-256 against scripts/tether/build_libgphoto2.sh); shasum -a 256 * > $ASSETS/SHA256SUMS.txt";;
     notes) echo "python3 scripts/release/notes.py: CHANGELOG section $VERSION + the previous release's install/feedback text → $WORK/notes.md";;
-    site) echo "website clone ${WEBSITE:-\$RAWTONIC_WEBSITE_DIR}: worktree $WEBWT on branch $WEB_BRANCH (the local or origin branch with whatsNew, else from origin/main); scripts/release/website.py write: release.json version/date/dateText/tag and every file with size (MiB, half-up) and SHA-256 from $ASSETS/SHA256SUMS.txt; fails unless whatsNew is $VERSION's (en, de); RAWTONIC_CHANGELOG=$WORK/CHANGELOG.md node scripts/build.mjs --strict; commit 'release: $VERSION' on $WEB_BRANCH (not pushed, never deployed)";;
+    site) echo "website clone ${WEBSITE:-\$RAWTONIC_WEBSITE_DIR}: worktree $WEBWT on branch $WEB_BRANCH (the local or origin branch with whatsNew, else from origin/main); the docs check again (a docs branch moved since stage docs is checked anew), then git merge --no-ff of each docs commit of $STATE/docs-branches not in it yet; scripts/release/website.py write: release.json version/date/dateText/tag and every file with size (MiB, half-up) and SHA-256 from $ASSETS/SHA256SUMS.txt; fails unless whatsNew is $VERSION's (en, de); RAWTONIC_CHANGELOG=$WORK/CHANGELOG.md node scripts/build.mjs --strict; commit 'release: $VERSION' on $WEB_BRANCH (not pushed, never deployed)";;
     draft) if [ "$DRAFT" = 0 ]; then echo "skipped (--no-draft)"; else echo "gh release create $TAG --draft --prerelease --target SHA --title 'Rawtonic $VERSION' --notes-file $WORK/notes.md $ASSETS/* (never published here); every URL in latest.json among the draft's assets (updater_manifest.py verify --names)"; fi;;
     publish) echo "(--publish only) the draft $TAG must target SHA, a tag $TAG on origin (if any) must be SHA, and its files (names, GitHub's sha256 digests) must be the tested ones of $ASSETS/SHA256SUMS.txt; gh api -X PATCH repos/$GH_REPO/releases/ID -f tag_name=$TAG -f target_commitish=SHA -F draft=false -F prerelease=true; then the tag on origin must be SHA and the release no draft";;
     site-deploy) echo "(--publish only) in $WEBWT: git fetch; unless $WEB_BRANCH is in origin/main: detach at origin/main, git merge --no-ff $WEB_BRANCH, node scripts/build.mjs --strict, git push origin HEAD:main; scripts/deploy.sh (tests, build, wrangler deploy)";;
@@ -272,6 +290,38 @@ check_release_commit() {
   [ "$v" = "$VERSION" ] || fail "$1 has version $v, not $VERSION"
   # (grep -q in a pipe would end git early: pipefail would call that a failure)
   grep -q "^## $VERSION — " <<< "$(git -C "$REPO_ROOT" show "$1:CHANGELOG.md")" || fail "$1 has no CHANGELOG section '## $VERSION — '"
+}
+
+# The docs branches (name and commit) and the check of them, into STATE/docs-branches.
+# Arguments: the branch names (none: discover every unmerged docs-* branch).
+docs_gate() {
+  local names=() n line refs=()
+  for n in "$@"; do names+=(--name "$n"); done
+  python3 "$SCRIPTS/docs_check.py" branches --website "$WEBSITE" ${names[@]+"${names[@]}"} > "$STATE/docs-branches.new" \
+    || fail "the website's docs branches (above)"
+  echo "docs branches carried by the release: $(awk '{printf "%s (%.9s) ", $1, $2}' "$STATE/docs-branches.new")"
+  while read -r line; do refs+=(--site-ref "${line#* }"); done < "$STATE/docs-branches.new"
+  if git -C "$WEBSITE" rev-parse -q --verify "refs/heads/$WEB_BRANCH" >/dev/null; then refs+=(--site-ref "$WEB_BRANCH")
+  else refs+=(--site-ref "origin/$WEB_BRANCH"); fi
+  refs+=(--site-ref origin/main)
+  docs_check "${refs[@]}"
+  mv "$STATE/docs-branches.new" "$STATE/docs-branches"
+}
+docs_check() {  # --site-ref REF …
+  python3 "$SCRIPTS/docs_check.py" --app "$REPO_ROOT" --prev-tag "v$(cat "$STATE/prev")" --head "$(sha)" --version "$VERSION" \
+    --website "$WEBSITE" "$@" ${DOCS_REVIEWED:+--reviewed "$DOCS_REVIEWED"} \
+    || fail "a changed tool's docs page was not updated (above): update it on a website docs branch, or rerun with --docs-reviewed \"why the page still holds\""
+}
+# Every release checks whether the docs follow the app (user decision 2026-11-26):
+# each tool it changes must have its rawtonic.cc/docs page updated (en and de) on
+# what the website ships with it — or --docs-reviewed says why the page still holds.
+# The website's finished docs branches (docs-*, local or on origin) go out with the
+# release: stage site merges the commits checked here (STATE/docs-branches).
+st_docs() {
+  need preflight bump
+  website_clone
+  git -C "$WEBSITE" fetch -q --prune origin || fail "fetch the website"
+  docs_gate ${DOCS_BRANCHES[@]+"${DOCS_BRANCHES[@]}"}
 }
 
 worktree_at() {  # DIR SHA
@@ -697,9 +747,9 @@ st_notes() {
 # already is; the website's strict build must pass. Published and deployed only
 # by --publish.
 st_site() {
-  need sums notes
+  need sums notes docs
   website_clone
-  git -C "$WEBSITE" fetch -q origin || fail "fetch the website"
+  git -C "$WEBSITE" fetch -q --prune origin || fail "fetch the website"
   if [ ! -d "$WEBWT" ]; then
     if git -C "$WEBSITE" rev-parse -q --verify "refs/heads/$WEB_BRANCH" >/dev/null; then
       git -C "$WEBSITE" worktree add "$WEBWT" "$WEB_BRANCH" || fail "worktree of $WEB_BRANCH (checked out elsewhere?)"
@@ -711,6 +761,25 @@ st_site() {
     fi
   fi
   [ "$(git -C "$WEBWT" branch --show-current)" = "$WEB_BRANCH" ] || fail "$WEBWT is not on $WEB_BRANCH"
+  # The docs the release carries: the branches stage docs chose (to choose
+  # again: --only docs), at the commits it checked. A branch changed since (a
+  # conflict resolved on it) is checked again first.
+  local b before chosen=(); before=$(cat "$STATE/docs-branches")
+  while read -r b _; do [ -z "$b" ] || chosen+=("$b"); done < "$STATE/docs-branches"
+  [ ${#chosen[@]} -gt 0 ] || chosen=(none)
+  docs_gate "${chosen[@]}"
+  [ "$before" = "$(cat "$STATE/docs-branches")" ] || echo "the docs branches changed since stage docs: checked again (above)"
+  local c
+  while read -r b c; do
+    [ -n "$b" ] || continue
+    if git -C "$WEBWT" merge-base --is-ancestor "$c" HEAD; then echo "docs branch $b: already in $WEB_BRANCH"; continue; fi
+    git -C "$WEBWT" merge -q --no-ff -m "Merge $b into $WEB_BRANCH: docs for $VERSION" "$c" \
+      || { git -C "$WEBWT" merge --abort; fail "merge the docs branch $b into $WEB_BRANCH (resolve on $b, then --from site)"; }
+    echo "docs branch $b ($c) merged"
+  done < "$STATE/docs-branches"
+  # What ships is the merged tree: check it once more (merges can undo each other).
+  echo "docs check of the merged website branch:"
+  docs_check --site-ref "$(git -C "$WEBWT" rev-parse HEAD)"
   echo "website branch $WEB_BRANCH at $(git -C "$WEBWT" log -1 --format='%h %s')"
   python3 "$SCRIPTS/website.py" write --version "$VERSION" --changelog "$WORK/CHANGELOG.md" --assets "$ASSETS" \
     --release-json "$WEBWT/release.json" || fail "the website's release.json (see above)"
@@ -904,7 +973,7 @@ main() {
     exit 0
   fi
   ok=1
-  for s in preflight bump source prev; do run_stage "$s" || { ok=0; break; }; done
+  for s in preflight bump docs source prev; do run_stage "$s" || { ok=0; break; }; done
   if [ "$ok" = 1 ]; then
     chain_mac & m=$!; chain_linux & l=$!; run_stage windows & w=$!
     wait $m; wait $l; wait $w

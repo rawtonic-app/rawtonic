@@ -1068,7 +1068,8 @@
       }
     },
     "pickerLoupe": {
-      "label": "Lupa do conta-gotas"
+      "label": "Lupa do conta-gotas",
+      "show": "Mostrar lupa"
     }
   },
   "errors": {
