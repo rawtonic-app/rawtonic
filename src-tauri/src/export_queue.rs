@@ -2145,6 +2145,154 @@ mod tests {
         })
     }
 
+    /// SCW1 corpus check (ignored; `SCW1_CORPUS` = a file listing `.rrdata`
+    /// files that hold an older copy of the read EXIF, `SCW1_RAWS` = a folder
+    /// of RAWs given synthesized copies, `SCW1_WORK` = an empty scratch
+    /// folder): on a scratch copy of each photo and its sidecar, the
+    /// reduction an edit makes (`keep_own_exif`) changes neither the
+    /// Keep-Metadata export's EXIF nor the EXIF text fields, capture time,
+    /// rating, keywords and recipe the photo shows. Originals are never
+    /// opened for writing.
+    #[test]
+    #[ignore]
+    fn scw1_corpus_reduction_changes_no_export_and_no_shown_metadata() {
+        use rawtonic_export::exif_processing::{CAPTURE_TIME_FIELDS, EDITABLE_EXIF_TEXT};
+        let work = PathBuf::from(std::env::var("SCW1_WORK").unwrap());
+        let mut cases: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+        if let Ok(list) = std::env::var("SCW1_CORPUS") {
+            for line in std::fs::read_to_string(list).unwrap().lines() {
+                let sidecar = PathBuf::from(line);
+                let Some(source) = rawtonic_metadata::photo_ref::source_path_of_sidecar(&sidecar)
+                else {
+                    continue;
+                };
+                if source.is_file() {
+                    cases.push((source, std::fs::read(&sidecar).unwrap()));
+                } else {
+                    println!("SKIP no original: {}", sidecar.display());
+                }
+            }
+        }
+        if let Ok(raws) = std::env::var("SCW1_RAWS") {
+            let mut files: Vec<_> = std::fs::read_dir(raws)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .filter(|p| p.is_file())
+                .collect();
+            files.sort();
+            for raw in files {
+                let path = raw.to_string_lossy().into_owned();
+                let read = crate::exif_processing::read_exif_data_from_bytes(
+                    &path,
+                    &std::fs::read(&raw).unwrap(),
+                );
+                if read.is_empty() {
+                    continue;
+                }
+                // What earlier builds wrote: the read map, and the read map
+                // with the user's edits (quotes inside a caption, a removed
+                // copyright, a corrected time).
+                let mut edited = read.clone();
+                edited.insert(
+                    "ImageDescription".into(),
+                    r#"The band "Echo" tonight"#.into(),
+                );
+                edited.insert("Artist".into(), "Ana".into());
+                edited.remove("Copyright");
+                edited.insert("DateTimeOriginal".into(), "2026-10-31 00:30:00".into());
+                for exif in [read, edited] {
+                    let state = json!({"version": 1, "rating": 3, "tags": ["user:k"],
+                        "adjustments": {"exposure": 0.5}, "exif": exif});
+                    cases.push((raw.clone(), serde_json::to_vec(&state).unwrap()));
+                }
+            }
+        }
+        let (mut same, mut differ, mut full_map_differs) = (0, 0, 0);
+        for (i, (source, sidecar_bytes)) in cases.iter().enumerate() {
+            let dir = work.join(format!("{i:04}"));
+            std::fs::create_dir(&dir).unwrap();
+            let photo = dir.join(source.file_name().unwrap());
+            std::fs::copy(source, &photo).unwrap();
+            let sidecar = crate::exif_processing::get_primary_sidecar_path(&photo);
+            std::fs::write(&sidecar, sidecar_bytes).unwrap();
+            let path = photo.to_string_lossy().into_owned();
+            let observe = || {
+                let pinned = crate::export_processing::pin_photos(
+                    std::slice::from_ref(&path),
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap();
+                let exported = embedded_exif(&pinned[0], &photo);
+                let shown = crate::exif_processing::read_rrexif_sidecar(&photo).unwrap_or_default();
+                let visible: std::collections::BTreeMap<_, _> = shown
+                    .iter()
+                    .filter(|(k, _)| {
+                        EDITABLE_EXIF_TEXT.contains(&k.as_str())
+                            || CAPTURE_TIME_FIELDS.contains(&k.as_str())
+                    })
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                let state = crate::exif_processing::load_sidecar(&sidecar);
+                let full: std::collections::BTreeMap<_, _> = shown.into_iter().collect();
+                (
+                    (
+                        exported,
+                        visible,
+                        state.rating,
+                        state.tags,
+                        state.adjustments,
+                    ),
+                    full,
+                )
+            };
+            let (before, full_before) = observe();
+            let mut metadata = crate::exif_processing::load_sidecar(&sidecar);
+            assert!(metadata.exif.is_some(), "{}: has a copy", source.display());
+            crate::exif_processing::keep_own_exif(&mut metadata, &photo);
+            assert!(metadata.exif.is_none(), "{}: reduced", source.display());
+            crate::session_bridge::write_editor_sidecar(
+                &sidecar,
+                serde_json::to_vec_pretty(&metadata).unwrap(),
+            )
+            .unwrap();
+            let (after, full_after) = observe();
+            if before == after {
+                same += 1;
+            } else {
+                differ += 1;
+                println!(
+                    "DIFFER {}: exif {} visible {:?} -> {:?} rating/tags/recipe {}",
+                    source.display(),
+                    before.0 == after.0,
+                    before.1,
+                    after.1,
+                    (&before.2, &before.3, &before.4) == (&after.2, &after.3, &after.4)
+                );
+            }
+            if full_before != full_after {
+                full_map_differs += 1;
+                let changed: Vec<_> = full_before
+                    .keys()
+                    .chain(full_after.keys())
+                    .filter(|k| full_before.get(*k) != full_after.get(*k))
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                println!(
+                    "INFO other shown fields from the file now: {} {changed:?}",
+                    source.display()
+                );
+            }
+        }
+        println!(
+            "SCW1 corpus: {} cases, {same} identical, {differ} differ; other shown EXIF fields changed in {full_map_differs}",
+            cases.len()
+        );
+        assert_eq!(differ, 0);
+    }
+
     /// EXF1: a linked photo with its library state and a `.rrdata` beside
     /// it embeds the same EXIF whether its EXIF cache is warm (the read map
     /// cached and copied into its editor state, as earlier builds and every
