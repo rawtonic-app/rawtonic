@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The sidecar files beside a photo now change only when you edit it. Before, a rated photo added to a catalog where it is got about 12 KB of camera data written into its `.rrdata` file, and selecting it again or opening it after an undone Move wrote its full edit into the `.rrdata` and `.xmp` files (about 23 KB) without any change.
+- Windows: undoing a Move to Trash now also removes the Recycle Bin's hidden information file of each restored photo. Before, one stayed behind for every photo put back, invisible in the Recycle Bin.
+
 - Headless export accepts `--super-resolution-quality fast|full` to enlarge photos 2×. The desktop binary fetches missing Super Resolution models as the Export dialog does. The standalone CLI tells you how to install them when they are missing.
 
 - Press Shift+L or use View → Dim Surroundings to dim or black out the interface around the photo in Develop and Library loupe. Escape restores the surroundings. Choose a background color in Preferences or by right-clicking beside the photo.
