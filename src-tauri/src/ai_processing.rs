@@ -32,7 +32,8 @@ use rawtonic_segment::{
 };
 use rawtonic_segment::{
     LANDSCAPE_FILENAME, LANDSCAPE_SHA256, SKYSEG_FILENAME, SKYSEG_SHA256, SUBJECT_FILENAME,
-    SUBJECT_SHA256, box_filter_opt, display_rgb8, fast_guided_filter, file_has_sha256, run_single,
+    SUBJECT_SHA256, box_filter_opt, display_rgb8, fast_guided_filter, file_has_sha256,
+    resize_exact_triangle, run_single,
 };
 pub use rawtonic_segment::{
     LandscapeModel, LandscapeProbabilities, SkyModel, SubjectModel, run_sky_seg_model,
@@ -60,6 +61,32 @@ const SAM_FIRST_PASS_EDGE: u32 = 1024;
 const SAM_REFINE_EDGE: u32 = 2048;
 const ENCODER_SHA256: &str = "b6249b5dfb882d3eaf447d57273340005cd6efd9645c0004f86ab197a7170226";
 const DECODER_SHA256: &str = "998c1cc053a2aad703fd2519fe890a1f80115b238a0da6d7b5fba70b210131d7";
+// The same encoder as a Core ML program (scripts/models/convert_sam2_coreml.py,
+// fp32), macOS's fast path: about 0.07 s on an M5 Pro's GPU instead of
+// 0.68 s on ONNX Runtime's CPU, masks equal to the ONNX model's (30 photos,
+// clicks and boxes; docs/MODELS.md). Input the same values as float. Its
+// three files are put back together into the package Core ML compiles.
+#[cfg(target_os = "macos")]
+const SAM_ENCODER_CORE_ML_PACKAGE: &str = "sam2.1_tiny_encoder.mlpackage";
+#[cfg(target_os = "macos")]
+const SAM_ENCODER_CORE_ML_FILES: [(&str, &str, &str); 3] = [
+    (
+        "sam2_tiny_encoder_coreml_Manifest.json",
+        "Manifest.json",
+        "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    ),
+    (
+        "sam2_tiny_encoder_coreml_model.mlmodel",
+        "Data/com.apple.CoreML/model.mlmodel",
+        "b162a38bf7f49516a7b2ad61d05040d01299f039f7e9e88efc6b79ac02b067ac",
+    ),
+    (
+        "sam2_tiny_encoder_coreml_weight.bin",
+        "Data/com.apple.CoreML/weights/weight.bin",
+        "c57153f55bd4cfabbd31de6807025c996222e9cb1c575b6fec160f43e17adfa0",
+    ),
+];
+const SAM_ENCODER_OUTPUTS: [&str; 3] = ["image_embed", "high_res_feats_0", "high_res_feats_1"];
 
 // SigLIP 2 B/16 for automatic tags (scripts/models/export_siglip2.py). The
 // built-in tags need only the image encoder and their precomputed text
@@ -90,8 +117,26 @@ const DEPTH_SHA256: &str = "d2b11a11c1d4a12b47608fa65a17ee9a4c605b55ee1730c8e3b5
 /// own: a first object mask after a launch waits only for these 64 MB, not
 /// for BiRefNet (470 MB), sky and depth.
 pub struct SamModels {
-    pub encoder: rawtonic_onnx::Model,
+    pub encoder: SamEncoder,
     pub decoder: rawtonic_onnx::Model,
+}
+
+/// SAM 2.1's image encoder: the Core ML program on macOS when it loads,
+/// else the ONNX model on ONNX Runtime.
+pub enum SamEncoder {
+    Onnx(rawtonic_onnx::Model),
+    #[cfg(target_os = "macos")]
+    CoreMl(rawtonic_denoise::coreml::CoreMlModel),
+}
+
+impl SamEncoder {
+    pub fn backend_name(&self) -> String {
+        match self {
+            SamEncoder::Onnx(model) => format!("ONNX Runtime ({})", model.provider()),
+            #[cfg(target_os = "macos")]
+            SamEncoder::CoreMl(_) => "Core ML".to_string(),
+        }
+    }
 }
 
 pub struct TagModels {
@@ -960,17 +1005,33 @@ pub async fn preload_sam_models(app_handle: &tauri::AppHandle, ai_state: &AiStat
     }
     let skip = mask_model_skip(ensure_local_runtime().is_ok(), || {
         let models_dir = get_models_dir(app_handle)?;
-        Ok(
-            verify_sha256(&models_dir.join(ENCODER_FILENAME), ENCODER_SHA256)?
-                && verify_sha256(&models_dir.join(DECODER_FILENAME), DECODER_SHA256)?,
-        )
+        Ok(sam_encoder_installed(&models_dir)?
+            && verify_sha256(&models_dir.join(DECODER_FILENAME), DECODER_SHA256)?)
     })?;
     if let Some(reason) = skip {
         log_mask_model_skip("object", reason);
         return Ok(());
     }
-    get_or_init_sam_models(app_handle, ai_state).await?;
+    sam_models(app_handle, ai_state, false).await?;
     Ok(())
+}
+
+/// Whether the encoder a preload would load without downloading is
+/// installed: on macOS its Core ML files (a Mac with only the ONNX encoder
+/// from an earlier version fetches them at the first object mask, which
+/// may download, instead of keeping the slower ONNX encoder loaded), else
+/// the ONNX model.
+fn sam_encoder_installed(models_dir: &Path) -> Result<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(SAM_ENCODER_CORE_ML_FILES
+            .iter()
+            .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false)))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        verify_sha256(&models_dir.join(ENCODER_FILENAME), ENCODER_SHA256)
+    }
 }
 
 /// SAM 2.1's encoder and decoder (`SamModels`), downloaded and loaded on
@@ -978,6 +1039,16 @@ pub async fn preload_sam_models(app_handle: &tauri::AppHandle, ai_state: &AiStat
 pub async fn get_or_init_sam_models(
     app_handle: &tauri::AppHandle,
     ai_state: &AiState,
+) -> Result<Arc<SamModels>> {
+    sam_models(app_handle, ai_state, true).await
+}
+
+/// `get_or_init_sam_models`; with `download` false only installed files
+/// are loaded (an error when one is missing).
+async fn sam_models(
+    app_handle: &tauri::AppHandle,
+    ai_state: &AiState,
+    download: bool,
 ) -> Result<Arc<SamModels>> {
     ensure_local_runtime()?;
     let loaded = || {
@@ -994,26 +1065,53 @@ pub async fn get_or_init_sam_models(
     }
     let generation = ai_state.lifecycle.generation();
     let models_dir = get_models_dir(app_handle)?;
-    for (file, hash, name) in [
-        (ENCODER_FILENAME, ENCODER_SHA256, "SAM Encoder"),
-        (DECODER_FILENAME, DECODER_SHA256, "SAM Decoder"),
-    ] {
-        download_verified(app_handle, &models_dir, file, hash, name).await?;
-    }
     let start = std::time::Instant::now();
-    let models = Arc::new(SamModels {
-        encoder: rawtonic_onnx::Model::load(
+    #[cfg(target_os = "macos")]
+    let core_ml = load_core_ml(
+        app_handle,
+        &models_dir,
+        SAM_ENCODER_CORE_ML_PACKAGE,
+        &SAM_ENCODER_CORE_ML_FILES,
+        download,
+        "object",
+        "SAM Encoder",
+    )
+    .await
+    .map(SamEncoder::CoreMl);
+    #[cfg(not(target_os = "macos"))]
+    let core_ml: Option<SamEncoder> = None;
+    let mut files = vec![(DECODER_FILENAME, DECODER_SHA256, "SAM Decoder")];
+    if core_ml.is_none() {
+        files.insert(0, (ENCODER_FILENAME, ENCODER_SHA256, "SAM Encoder"));
+    }
+    for (file, hash, name) in files {
+        if download {
+            download_verified(app_handle, &models_dir, file, hash, name).await?;
+        } else {
+            anyhow::ensure!(
+                verify_sha256(&models_dir.join(file), hash)?,
+                "{name} is not installed"
+            );
+        }
+    }
+    let encoder = match core_ml {
+        Some(encoder) => encoder,
+        None => SamEncoder::Onnx(rawtonic_onnx::Model::load(
             &models_dir.join(ENCODER_FILENAME),
             rawtonic_onnx::ModelKind::SamEncoder,
-        )?,
+        )?),
+    };
+    let models = Arc::new(SamModels {
+        encoder,
         decoder: rawtonic_onnx::Model::load(
             &models_dir.join(DECODER_FILENAME),
             rawtonic_onnx::ModelKind::SamDecoder,
         )?,
     });
     log::info!(
-        "AI object mask: models loaded in {} ms",
-        start.elapsed().as_millis()
+        "AI object mask: models loaded in {} ms, encoder on {}",
+        start.elapsed().as_millis(),
+        models.encoder.backend_name()
     );
     crate::register_exit_handler();
     keep_model(ai_state, generation, |ai| {
@@ -1774,7 +1872,7 @@ pub fn run_inpainting(
 /// `options` can stop the run (`RunOptions::terminate`).
 pub fn generate_image_embeddings(
     image: &DynamicImage,
-    encoder: &rawtonic_onnx::Model,
+    encoder: &SamEncoder,
     linear: bool,
     options: Option<&ort::session::RunOptions>,
 ) -> Result<ImageEmbeddings> {
@@ -1782,7 +1880,7 @@ pub fn generate_image_embeddings(
 
     // SAM 2 sees the photo stretched to a square, as SAM2ImagePredictor
     // feeds it; prompts are scaled per axis (`sam_scale`).
-    let resized_image = image.resize_exact(SAM_INPUT_SIZE, SAM_INPUT_SIZE, FilterType::Triangle);
+    let resized_image = resize_exact_triangle(image, SAM_INPUT_SIZE, SAM_INPUT_SIZE);
     let rgb_image = display_rgb8(resized_image, linear);
     let raw_pixels = rgb_image.as_raw();
     let side = SAM_INPUT_SIZE as usize;
@@ -1793,30 +1891,46 @@ pub fn generate_image_embeddings(
         planar[plane + i] = pixel[1];
         planar[2 * plane + i] = pixel[2];
     }
-    let input = Array::from_shape_vec((1, 3, side, side), planar)?;
-
     let start = std::time::Instant::now();
-    let (embeddings, high_res_0, high_res_1) = encoder.run(|session| {
-        let inputs = ort::inputs!["image" => Tensor::from_array(input.clone())?];
-        let outputs = match options {
-            Some(options) => session.run_with_options(inputs, options)?,
-            None => session.run(inputs)?,
-        };
-        let output = |name: &str| -> Result<Array<f32, IxDyn>> {
-            let array = outputs[name].try_extract_array::<f32>()?.to_owned();
-            rawtonic_onnx::ensure_finite(array.iter())?;
-            Ok(array)
-        };
-        Ok((
-            output("image_embed")?,
-            output("high_res_feats_0")?,
-            output("high_res_feats_1")?,
-        ))
-    })?;
+    let (embeddings, high_res_0, high_res_1) = match encoder {
+        SamEncoder::Onnx(model) => {
+            let input = Array::from_shape_vec((1, 3, side, side), planar)?;
+            model.run(|session| {
+                let inputs = ort::inputs!["image" => Tensor::from_array(input.clone())?];
+                let outputs = match options {
+                    Some(options) => session.run_with_options(inputs, options)?,
+                    None => session.run(inputs)?,
+                };
+                let output = |name: &str| -> Result<Array<f32, IxDyn>> {
+                    let array = outputs[name].try_extract_array::<f32>()?.to_owned();
+                    rawtonic_onnx::ensure_finite(array.iter())?;
+                    Ok(array)
+                };
+                let [embed, feats_0, feats_1] = SAM_ENCODER_OUTPUTS;
+                Ok((output(embed)?, output(feats_0)?, output(feats_1)?))
+            })?
+        }
+        // Core ML cannot be stopped mid-run (`options`); it takes about
+        // 0.07 s.
+        #[cfg(target_os = "macos")]
+        SamEncoder::CoreMl(model) => {
+            let input: Vec<f32> = planar.iter().map(|&v| v as f32).collect();
+            let outputs = model.predict_outputs(
+                &[("image", &[1, 3, side, side], &input)],
+                &SAM_ENCODER_OUTPUTS,
+            )?;
+            let mut arrays = outputs.into_iter().map(|(shape, values)| {
+                rawtonic_onnx::ensure_finite(&values)?;
+                Ok::<_, anyhow::Error>(Array::from_shape_vec(IxDyn(&shape), values)?)
+            });
+            let mut next = || arrays.next().expect("three outputs");
+            (next()?, next()?, next()?)
+        }
+    };
     log::info!(
         "AI object mask: encoder {} ms on {}",
         start.elapsed().as_millis(),
-        encoder.provider()
+        encoder.backend_name()
     );
 
     Ok(ImageEmbeddings {
@@ -1992,10 +2106,19 @@ fn guided_coefficients(
 ) -> (Vec<f32>, Vec<f32>) {
     let (w, h) = (guide.width() as usize, guide.height() as usize);
     let area = w * h;
-    let i: Vec<f32> = guide.as_raw().iter().map(|&v| v as f32 / 255.0).collect();
-    let p: Vec<f32> = mask.as_raw().iter().map(|&v| v as f32 / 255.0).collect();
-    let ip: Vec<f32> = i.iter().zip(&p).map(|(a, b)| a * b).collect();
-    let ii: Vec<f32> = i.iter().map(|a| a * a).collect();
+    // Value by value, in parallel (the same values as one after another).
+    let i: Vec<f32> = guide
+        .as_raw()
+        .par_iter()
+        .map(|&v| v as f32 / 255.0)
+        .collect();
+    let p: Vec<f32> = mask
+        .as_raw()
+        .par_iter()
+        .map(|&v| v as f32 / 255.0)
+        .collect();
+    let ip: Vec<f32> = i.par_iter().zip(&p).map(|(a, b)| a * b).collect();
+    let ii: Vec<f32> = i.par_iter().map(|a| a * a).collect();
     let (mut t1, mut t2) = (vec![0.0; area], vec![0.0; area]);
     let mut mean = |src: &[f32]| {
         let mut dest = vec![0.0; area];
@@ -2003,14 +2126,15 @@ fn guided_coefficients(
         dest
     };
     let (mi, mp, mip, mii) = (mean(&i), mean(&p), mean(&ip), mean(&ii));
-    let mut a = vec![0.0; area];
-    let mut b = vec![0.0; area];
-    for k in 0..area {
-        let cov = mip[k] - mi[k] * mp[k];
-        let var = mii[k] - mi[k] * mi[k];
-        a[k] = cov / (var + eps);
-        b[k] = mp[k] - a[k] * mi[k];
-    }
+    let (a, b): (Vec<f32>, Vec<f32>) = (0..area)
+        .into_par_iter()
+        .map(|k| {
+            let cov = mip[k] - mi[k] * mp[k];
+            let var = mii[k] - mi[k] * mi[k];
+            let a = cov / (var + eps);
+            (a, mp[k] - a * mi[k])
+        })
+        .unzip();
     (mean(&a), mean(&b))
 }
 
@@ -3028,6 +3152,104 @@ mod tool_tests {
         assert!(r(400) < r(1600) && r(1600) < r(6000));
     }
 
+    /// The Core ML encoder's object masks against the ONNX encoder's on
+    /// ONNX Runtime's CPU, through the app's decoder and edge refinement:
+    /// per photo of `AI_FILES` (`;`-separated RAW or image files, decoded as
+    /// the app does) four clicks and two boxes; prints each mask's IoU (at
+    /// 50 %) and the share of differing pixels, both encoders' times, and
+    /// fails below IoU 0.99. Models from `$AI_MODELS` (the Core ML package
+    /// assembled, `scripts/models/install_models.sh`), runtime from
+    /// `ORT_DYLIB_PATH`.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "needs AI_MODELS, ORT_DYLIB_PATH and AI_FILES"]
+    fn print_sam_core_ml_against_onnx() {
+        let var = |k: &str| std::env::var(k).unwrap();
+        let models = std::path::PathBuf::from(var("AI_MODELS"));
+        let onnx = super::SamEncoder::Onnx(
+            rawtonic_onnx::Model::load_file(&models.join(super::ENCODER_FILENAME)).unwrap(),
+        );
+        let core_ml = super::SamEncoder::CoreMl(
+            rawtonic_denoise::coreml::CoreMlModel::load(
+                &models.join(super::SAM_ENCODER_CORE_ML_PACKAGE),
+                super::CORE_ML_UNITS,
+            )
+            .unwrap(),
+        );
+        let decoder =
+            rawtonic_onnx::Model::load_file(&models.join(super::DECODER_FILENAME)).unwrap();
+        let settings = crate::app_settings::AppSettings::default();
+        let mut lowest = 1.0f64;
+        for path in var("AI_FILES").split(';').filter(|p| !p.is_empty()) {
+            let bytes = std::fs::read(path).unwrap();
+            let image = crate::image_loader::load_base_image_from_bytes(
+                &bytes, path, false, &settings, None,
+            )
+            .unwrap();
+            let linear = image.as_rgb32f().is_some();
+            let (w, h) = (image.width() as f64, image.height() as f64);
+            let timed = |encoder: &super::SamEncoder| {
+                super::generate_image_embeddings(&image, encoder, linear, None).unwrap();
+                let start = std::time::Instant::now();
+                let embeddings =
+                    super::generate_image_embeddings(&image, encoder, linear, None).unwrap();
+                (embeddings, start.elapsed().as_secs_f64() * 1e3)
+            };
+            let (reference, onnx_ms) = timed(&onnx);
+            let (fast, core_ml_ms) = timed(&core_ml);
+            let at = |fx: f64, fy: f64| (fx * w, fy * h);
+            let point = |fx, fy| super::SamPrompt::Point {
+                at: at(fx, fy),
+                exclude: false,
+            };
+            let rect = |x0, y0, x1, y1| super::SamPrompt::Box {
+                min: at(x0, y0),
+                max: at(x1, y1),
+                exclude: false,
+            };
+            let prompts = [
+                ("click centre", point(0.5, 0.5)),
+                ("click left", point(0.33, 0.6)),
+                ("click right", point(0.67, 0.45)),
+                ("click top", point(0.5, 0.3)),
+                ("box centre", rect(0.3, 0.3, 0.7, 0.7)),
+                ("box wide", rect(0.1, 0.2, 0.9, 0.8)),
+            ];
+            let mut row = Vec::new();
+            for (name, prompt) in prompts {
+                let mask = |e: &super::ImageEmbeddings| {
+                    super::run_sam_decoder_prompts(&decoder, e, &[prompt], Some(&image), linear)
+                        .unwrap()
+                };
+                let (a, b) = (mask(&reference), mask(&fast));
+                let (mut both, mut either, mut differ) = (0u64, 0u64, 0u64);
+                for (&x, &y) in a.as_raw().iter().zip(b.as_raw()) {
+                    let (x, y) = (x >= 128, y >= 128);
+                    both += (x && y) as u64;
+                    either += (x || y) as u64;
+                    differ += (x != y) as u64;
+                }
+                let iou = if either == 0 {
+                    1.0
+                } else {
+                    both as f64 / either as f64
+                };
+                lowest = lowest.min(iou);
+                row.push(format!(
+                    "{name} IoU {iou:.5} differ {:.4} %",
+                    100.0 * differ as f64 / a.as_raw().len() as f64
+                ));
+            }
+            println!(
+                "SAMCMP\t{path}\tONNX {onnx_ms:.0} ms ({})\tCore ML {core_ml_ms:.0} ms\t{}",
+                onnx.backend_name(),
+                row.join("\t")
+            );
+        }
+        println!("lowest IoU {lowest:.5}");
+        assert!(lowest >= 0.99, "lowest IoU {lowest}");
+    }
+
     /// Terminating the run options stops SAM's encoder at once (a cancelled
     /// encoding ahead), and the model stays usable; models from `$AI_MODELS`,
     /// runtime from `ORT_DYLIB_PATH`.
@@ -3035,8 +3257,9 @@ mod tool_tests {
     #[ignore = "needs AI_MODELS and ORT_DYLIB_PATH"]
     fn a_terminated_encoding_stops_and_the_encoder_stays_usable() {
         let models = std::path::PathBuf::from(std::env::var("AI_MODELS").unwrap());
-        let encoder =
-            rawtonic_onnx::Model::load_file(&models.join(super::ENCODER_FILENAME)).unwrap();
+        let encoder = super::SamEncoder::Onnx(
+            rawtonic_onnx::Model::load_file(&models.join(super::ENCODER_FILENAME)).unwrap(),
+        );
         let image = image::DynamicImage::ImageRgb8(image::RgbImage::new(1600, 1200));
         super::generate_image_embeddings(&image, &encoder, false, None).unwrap();
         let full = std::time::Instant::now();
@@ -3056,7 +3279,7 @@ mod tool_tests {
         stopper.join().unwrap();
         println!(
             "full encoding {full:?}, terminated after {stopped:?} on {}",
-            encoder.provider()
+            encoder.backend_name()
         );
         assert!(
             stopped < full,
@@ -3080,7 +3303,7 @@ mod tool_tests {
         let models = std::path::PathBuf::from(var("AI_MODELS"));
         let out = std::path::PathBuf::from(var("AI_OUT"));
         let session = |name: &str| rawtonic_onnx::Model::load_file(&models.join(name)).unwrap();
-        let encoder = session(super::ENCODER_FILENAME);
+        let encoder = super::SamEncoder::Onnx(session(super::ENCODER_FILENAME));
         let decoder = session(super::DECODER_FILENAME);
         let path = var("AI_FILE");
         let bytes = std::fs::read(&path).unwrap();
@@ -3095,7 +3318,7 @@ mod tool_tests {
         println!(
             "{path} {w}x{h}: encoder {} ms on {}",
             started.elapsed().as_millis(),
-            encoder.provider()
+            encoder.backend_name()
         );
         let at = |fx: f64, fy: f64| (fx * w as f64, fy * h as f64);
         let mut prompts = Vec::new();
@@ -3190,7 +3413,7 @@ mod tool_tests {
     fn subject_masks_follow_the_box_in_every_aspect_ratio() {
         let models = std::path::PathBuf::from(std::env::var("AI_MODELS").unwrap());
         let session = |name: &str| rawtonic_onnx::Model::load_file(&models.join(name)).unwrap();
-        let encoder = session(super::ENCODER_FILENAME);
+        let encoder = super::SamEncoder::Onnx(session(super::ENCODER_FILENAME));
         let decoder = session(super::DECODER_FILENAME);
         for (w, h) in [(1800u32, 1200u32), (1600, 1200), (1200, 1800), (1400, 1400)] {
             let (x0, y0, x1, y1) = (w * 3 / 10, h * 4 / 10, w * 6 / 10, h * 8 / 10);
@@ -3279,7 +3502,7 @@ mod tool_tests {
         use image::GenericImageView;
         let models = std::path::PathBuf::from(std::env::var("AI_MODELS").unwrap());
         let session = |name: &str| rawtonic_onnx::Model::load_file(&models.join(name)).unwrap();
-        let encoder = session(super::ENCODER_FILENAME);
+        let encoder = super::SamEncoder::Onnx(session(super::ENCODER_FILENAME));
         let decoder = session(super::DECODER_FILENAME);
         let list = std::fs::read_to_string(std::env::var("SAM_EVAL").unwrap()).unwrap();
         let upscale: u32 = std::env::var("SAM_UPSCALE").map_or(1, |v| v.parse().unwrap());

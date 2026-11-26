@@ -398,6 +398,27 @@ SAM2_SHA256 = {
     "sam2.1_tiny_encoder.onnx": "b6249b5dfb882d3eaf447d57273340005cd6efd9645c0004f86ab197a7170226",
     "sam2.1_tiny_decoder.onnx": "998c1cc053a2aad703fd2519fe890a1f80115b238a0da6d7b5fba70b210131d7",
 }
+# The same encoder as a Core ML program (macOS's fast path, from
+# pack-2026-11-26), converted by convert_sam2_coreml.py from the checkpoint
+# (fp32 compute, the ONNX file's fp16-rounded weights; reproducible: same
+# SHA-256 in two conversions). The package's three files go in as separate
+# assets; the app puts them back together.
+SAM2_COREML_ENTRY = SAM2_ENTRY | {
+    "used_by": "Click and box masks (image encoder, Core ML, macOS)",
+    "source": SAM2_ENTRY["source"].replace("export_sam2.py", "convert_sam2_coreml.py (Core ML, fp32 compute; "
+                                           "position embedding kept as a constant: changed graph)"),
+}
+SAM2_COREML_SHA256 = {
+    "sam2_tiny_encoder_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    "sam2_tiny_encoder_coreml_model.mlmodel": "b162a38bf7f49516a7b2ad61d05040d01299f039f7e9e88efc6b79ac02b067ac",
+    "sam2_tiny_encoder_coreml_weight.bin": "c57153f55bd4cfabbd31de6807025c996222e9cb1c575b6fec160f43e17adfa0",
+}
+SAM2_COREML_EXPORT = [
+    "uv", "run", "--python", "3.12", "--with", "torch==2.7.0", "--with", "torchvision==0.22.0",
+    "--with", "SAM-2 @ git+https://github.com/facebookresearch/sam2@2b90b9f5ceec907a1c18123530e92e794ad901a4",
+    "--with", "coremltools==9.0", "--with", "numpy==2.2.6",
+    "python", str(Path(__file__).resolve().parent / "convert_sam2_coreml.py"),
+]
 
 # MediaPipe Face Mesh V2 and multiclass selfie segmentation (Google,
 # Apache-2.0 by their model cards), converted by export_faces.py, which
@@ -719,6 +740,16 @@ def main() -> None:
             if path.name in carried:  # a group step builds all its files; carried ones stay
                 continue
             entries.append(place(path, args.out, path.name, SAM2_SHA256[path.name]) | SAM2_ENTRY
+                           | {"checkpoint_sha256": SAM2_CHECKPOINT["sha256"]})
+    if todo(SAM2_COREML_SHA256):
+        checkpoint = fetch(SAM2_CHECKPOINT["url"], SAM2_CHECKPOINT["sha256"], args.cache)
+        sam2_coreml = args.cache / "sam2-coreml"
+        subprocess.run(SAM2_COREML_EXPORT + [str(checkpoint), str(sam2_coreml)], check=True,
+                       env=os.environ | {"SAM2_BUILD_CUDA": "0"})
+        for name, expected in SAM2_COREML_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entries.append(place(sam2_coreml / name, args.out, name, expected) | SAM2_COREML_ENTRY
                            | {"checkpoint_sha256": SAM2_CHECKPOINT["sha256"]})
 
     if todo(dict.fromkeys(SIGLIP_USE)):
