@@ -20,11 +20,24 @@ struct BlurParams {
     // keeps its precision in 16 bits where the absolute value is large (deep
     // shadows: 0.008 EV); readers add `log_luma` of the colour back.
     flags: u32,
+    // Photo-pixel origin and size of the region the log-luminance prepass
+    // covers (`log_luma_prepass`): every sample a log-carrying horizontal
+    // pass reads, shared by the blurs of one tile.
+    log_x: u32,
+    log_y: u32,
+    log_width: u32,
+    log_height: u32,
 }
 
 @group(0) @binding(0) var input_texture: texture_2d<f32>;
 @group(0) @binding(1) var output_texture: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(2) var<uniform> params: BlurParams;
+
+// The prepass's log luminance of each sample (`log_luma_prepass` writes it,
+// `horizontal_blur_log` reads it). Separate bindings: one entry point never
+// uses both, and neither uses the blur output's binding 1 besides its own.
+@group(0) @binding(3) var log_input: texture_2d<f32>;
+@group(0) @binding(4) var log_output: texture_storage_2d<r32float, write>;
 
 const F16_MAX = 65504.0;
 
@@ -84,6 +97,59 @@ fn horizontal_blur(@builtin(global_invocation_id) id: vec3<u32>) {
     let final_color = total_color / total_weight;
     let alpha = select(1.0, stored_log(total_log / total_weight, final_color), (params.flags & 1u) != 0u);
     textureStore(output_texture, id.xy, vec4<f32>(final_color, alpha));
+}
+
+// log2 luminance of every sample in the prepass region, once per sample:
+// the horizontal pass of a log-carrying blur read it per tap (297 taps per
+// output pixel for Clarity's large blur). The same expression as there, so
+// the values are bit-identical (GPU equivalence tests).
+@compute @workgroup_size(16, 16, 1)
+fn log_luma_prepass(@builtin(global_invocation_id) id: vec3<u32>) {
+    if (id.x >= params.log_width || id.y >= params.log_height) {
+        return;
+    }
+    let photo = vec2<i32>(i32(id.x + params.log_x), i32(id.y + params.log_y));
+    let window_origin = vec2<i32>(i32(params.source_x), i32(params.source_y));
+    let sample_color = sample_range(textureLoad(input_texture, photo - window_origin, 0).rgb);
+    textureStore(log_output, id.xy, vec4<f32>(log_luma(sample_color), 0.0, 0.0, 0.0));
+}
+
+// `horizontal_blur` for the blurs that carry the mean log luminance, with
+// each sample's log luminance read from the prepass.
+@compute @workgroup_size(16, 16, 1)
+fn horizontal_blur_log(@builtin(global_invocation_id) id: vec3<u32>) {
+    // Only the input's columns: the vertical pass reads no others, and the
+    // prepass covers no samples beyond them.
+    if (id.x >= params.input_width || id.y >= params.blurred_rows) {
+        return;
+    }
+
+    let radius = i32(params.radius);
+    let sigma = f32(radius) / 2.0;
+
+    let absolute_coord = vec2<u32>(id.x + params.tile_offset_x, id.y + params.tile_offset_y - params.rows_above);
+    let full_dims = vec2<i32>(i32(params.full_width), i32(params.full_height));
+    let window_origin = vec2<i32>(i32(params.source_x), i32(params.source_y));
+    let log_origin = vec2<i32>(i32(params.log_x), i32(params.log_y));
+
+    var total_color = vec3<f32>(0.0);
+    var total_log = 0.0;
+    var total_weight = 0.0;
+
+    for (var offset = -radius; offset <= radius; offset = offset + 1) {
+        let sample_x = clamp(i32(absolute_coord.x) + offset, 0, full_dims.x - 1);
+        let sample_coord = vec2<i32>(sample_x, i32(absolute_coord.y));
+
+        let sample_color = sample_range(textureLoad(input_texture, sample_coord - window_origin, 0).rgb);
+        let weight = gaussian(f32(offset), sigma);
+
+        total_color += sample_color * weight;
+        total_log += textureLoad(log_input, sample_coord - log_origin, 0).r * weight;
+        total_weight += weight;
+    }
+
+    let final_color = total_color / total_weight;
+    textureStore(output_texture, id.xy, vec4<f32>(final_color, stored_log(total_log / total_weight, final_color)));
 }
 
 // The mean log luminance as stored in alpha (absolute or relative, bit 2).

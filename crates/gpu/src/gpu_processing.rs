@@ -4359,6 +4359,12 @@ struct BlurParams {
     /// Clarity version 2 reads, else alpha is 1). Bit 1: the input holds
     /// sRGB-encoded values (not a RAW), linearised for that luminance.
     flags: u32,
+    /// Photo-pixel region of the tile's log-luminance prepass (blur.wgsl
+    /// `log_luma_prepass`), the same for every blur of the tile.
+    log_x: u32,
+    log_y: u32,
+    log_width: u32,
+    log_height: u32,
 }
 
 #[repr(C)]
@@ -4747,6 +4753,13 @@ pub struct GpuProcessor {
     blur_bgl: wgpu::BindGroupLayout,
     h_blur_pipeline: wgpu::ComputePipeline,
     v_blur_pipeline: wgpu::ComputePipeline,
+    /// The log-luminance prepass and the horizontal pass that reads it, for
+    /// the blurs carrying the mean log luminance (byte-identical to
+    /// `h_blur_pipeline` computing it per tap).
+    log_prepass_bgl: wgpu::BindGroupLayout,
+    log_prepass_pipeline: wgpu::ComputePipeline,
+    h_blur_log_bgl: wgpu::BindGroupLayout,
+    h_blur_log_pipeline: wgpu::ComputePipeline,
     blur_params_buffer: wgpu::Buffer,
 
     flare_bgl_0: wgpu::BindGroupLayout,
@@ -8867,6 +8880,80 @@ impl GpuProcessor {
             CompileWeight::Tiny,
         )?;
 
+        let blur_entry = |binding: u32, ty: wgpu::BindingType| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty,
+            count: None,
+        };
+        let float_texture = wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        };
+        let uniform = wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        };
+        let log_prepass_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Log Prepass BGL"),
+            entries: &[
+                blur_entry(0, float_texture),
+                blur_entry(2, uniform),
+                blur_entry(
+                    4,
+                    wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::R32Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                ),
+            ],
+        });
+        let h_blur_log_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Log H-Blur BGL"),
+            entries: &[
+                blur_entry(0, float_texture),
+                blur_entry(
+                    1,
+                    wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                ),
+                blur_entry(2, uniform),
+                blur_entry(3, float_texture),
+            ],
+        });
+        let blur_layout_pipeline = |bgl: &wgpu::BindGroupLayout, label: &str, entry: &str| {
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(label),
+                bind_group_layouts: &[Some(bgl)],
+                immediate_size: 0,
+            });
+            create_compute_pipeline(
+                device,
+                &wgpu::ComputePipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&layout),
+                    module: &blur_shader_module,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    cache: None,
+                },
+                CompileWeight::Tiny,
+            )
+        };
+        let log_prepass_pipeline =
+            blur_layout_pipeline(&log_prepass_bgl, "Log Prepass Pipeline", "log_luma_prepass")?;
+        let h_blur_log_pipeline = blur_layout_pipeline(
+            &h_blur_log_bgl,
+            "Log Horizontal Blur Pipeline",
+            "horizontal_blur_log",
+        )?;
+
         let blur_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Blur Params Buffer"),
             size: std::mem::size_of::<BlurParams>() as u64,
@@ -9277,6 +9364,10 @@ impl GpuProcessor {
             blur_bgl,
             h_blur_pipeline,
             v_blur_pipeline,
+            log_prepass_bgl,
+            log_prepass_pipeline,
+            h_blur_log_bgl,
+            h_blur_log_pipeline,
             blur_params_buffer,
             flare_bgl_0,
             flare_bgl_1,
@@ -10263,6 +10354,44 @@ impl GpuProcessor {
     fn export_detail_tile(&self, tile_size: u32) -> &HighPrecisionTile {
         self.export_detail_tile[float_tile_index(tile_size)]
             .get_or_init(|| self.float_tile("Export Detail Tile", tile_size))
+    }
+
+    /// A view of the log-luminance prepass texture holding at least
+    /// `region` (`[x, y, width, height]`), grown when a tile needs more.
+    fn log_prepass_view(
+        device: &wgpu::Device,
+        texture: &mut Option<(wgpu::Extent3d, wgpu::TextureView)>,
+        region: [u32; 4],
+    ) -> wgpu::TextureView {
+        if let Some((size, view)) = texture
+            && size.width >= region[2]
+            && size.height >= region[3]
+        {
+            return view.clone();
+        }
+        let size = wgpu::Extent3d {
+            width: region[2]
+                .max(texture.as_ref().map_or(0, |(s, _)| s.width))
+                .max(1),
+            height: region[3]
+                .max(texture.as_ref().map_or(0, |(s, _)| s.height))
+                .max(1),
+            depth_or_array_layers: 1,
+        };
+        let view = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("Log Luminance Prepass"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default());
+        *texture = Some((size, view.clone()));
+        view
     }
 
     /// The size of a render's tiles: [`EXPORT_TILE_SIZE`] on processors for
@@ -12588,6 +12717,9 @@ impl GpuProcessor {
         // Blur rows beyond the ping-pong texture's (`BlurParams::blurred_rows`),
         // for the largest radius (Clarity's base 40).
         let mut tall_ping_pong: Option<wgpu::TextureView> = None;
+        // The log-luminance prepass's texture, grown to the largest tile's
+        // region (`log_prepass_view`).
+        let mut log_texture: Option<(wgpu::Extent3d, wgpu::TextureView)> = None;
         // Only Clarity version 2, raised Shadows of tone version 6 and
         // lowered Whites of tone version 10 read the blurs' mean log
         // luminance (alpha); only Clarity the large blur
@@ -12731,6 +12863,37 @@ impl GpuProcessor {
                             bytes: 0,
                         }
                     };
+                // The blurs carrying the mean log luminance read each
+                // sample's from one prepass per tile (blur.wgsl
+                // `log_luma_prepass`) instead of computing it per tap.
+                let base_radii = [1.0f32, 3.5, 8.0, 40.0, 2.0];
+                let blur_rows = |index: usize| {
+                    let radius = (base_radii[index] * scale).ceil().max(1.0) as u32;
+                    let beyond =
+                        blur_rows_beyond(index, radius, whole_blur_radius, reach, small_reach);
+                    let rows_above = beyond.min(input_y_start);
+                    let blurred_rows = input_height + rows_above + beyond.min(height - input_y_end);
+                    (radius, rows_above, blurred_rows)
+                };
+                let carries_log = |index: usize| {
+                    log_alpha && (index == 2 || index == 3 || (index == 1 && tonal_log))
+                };
+                let log_region = (1..4)
+                    .filter(|&index| blur_requirements[index] && carries_log(index))
+                    .map(|index| {
+                        let (radius, rows_above, blurred_rows) = blur_rows(index);
+                        let y = input_y_start - rows_above;
+                        (
+                            input_x_start.saturating_sub(radius),
+                            y,
+                            (input_x_end + radius).min(width),
+                            y + blurred_rows,
+                        )
+                    })
+                    .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)))
+                    .map(|(x0, y0, x1, y1)| [x0, y0, x1 - x0, y1 - y0])
+                    .unwrap_or_default();
+                let mut log_prepass_done = false;
                 let mut run_blur = |index: usize, base_radius: f32| -> Option<wgpu::TextureView> {
                     if !blur_requirements[index] {
                         return None;
@@ -12754,13 +12917,10 @@ impl GpuProcessor {
                             })
                             .create_view(&Default::default())
                     });
-                    let radius = (base_radius * scale).ceil().max(1.0) as u32;
+                    debug_assert_eq!(base_radius, base_radii[index]);
                     // The vertical pass reads the rows the horizontal one
                     // blurred: beyond the overlap where the radius is larger.
-                    let beyond =
-                        blur_rows_beyond(index, radius, whole_blur_radius, reach, small_reach);
-                    let rows_above = beyond.min(input_y_start);
-                    let blurred_rows = input_height + rows_above + beyond.min(height - input_y_end);
+                    let (radius, rows_above, blurred_rows) = blur_rows(index);
                     let ping_pong_view = if blurred_rows > self.tile_output_size.height {
                         &*tall_ping_pong.get_or_insert_with(|| {
                             device
@@ -12797,12 +12957,15 @@ impl GpuProcessor {
                         full_height: height,
                         rows_above,
                         blurred_rows,
-                        flags: u32::from(
-                            log_alpha && (index == 2 || index == 3 || (index == 1 && tonal_log)),
-                        ) | (u32::from(adjustments.global.is_raw_image != 1) << 1)
+                        flags: u32::from(carries_log(index))
+                            | (u32::from(adjustments.global.is_raw_image != 1) << 1)
                             | (u32::from(
                                 relative_log && (index == 2 || (index == 1 && tonal_log)),
                             ) << 2),
+                        log_x: log_region[0],
+                        log_y: log_region[1],
+                        log_width: log_region[2],
+                        log_height: log_region[3],
                     };
                     queue.write_buffer(&self.blur_params_buffer, 0, bytemuck::bytes_of(&params));
 
@@ -12827,7 +12990,72 @@ impl GpuProcessor {
                         ],
                     });
 
-                    {
+                    if carries_log(index) {
+                        let log_view = Self::log_prepass_view(device, &mut log_texture, log_region);
+                        if !log_prepass_done {
+                            log_prepass_done = true;
+                            let prepass_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                label: Some("Log Prepass BG"),
+                                layout: &self.log_prepass_bgl,
+                                entries: &[
+                                    wgpu::BindGroupEntry {
+                                        binding: 0,
+                                        resource: wgpu::BindingResource::TextureView(
+                                            input_texture_view,
+                                        ),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 2,
+                                        resource: self.blur_params_buffer.as_entire_binding(),
+                                    },
+                                    wgpu::BindGroupEntry {
+                                        binding: 4,
+                                        resource: wgpu::BindingResource::TextureView(&log_view),
+                                    },
+                                ],
+                            });
+                            let mut cpass = blur_encoder.begin_compute_pass(&Default::default());
+                            cpass.set_pipeline(&self.log_prepass_pipeline);
+                            cpass.set_bind_group(0, &prepass_bg, &[]);
+                            cpass.dispatch_workgroups(
+                                log_region[2].div_ceil(16),
+                                log_region[3].div_ceil(16),
+                                1,
+                            );
+                        }
+                        let h_blur_log_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("Log H-Blur BG"),
+                            layout: &self.h_blur_log_bgl,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: wgpu::BindingResource::TextureView(
+                                        input_texture_view,
+                                    ),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: wgpu::BindingResource::TextureView(ping_pong_view),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 2,
+                                    resource: self.blur_params_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 3,
+                                    resource: wgpu::BindingResource::TextureView(&log_view),
+                                },
+                            ],
+                        });
+                        let mut cpass = blur_encoder.begin_compute_pass(&Default::default());
+                        cpass.set_pipeline(&self.h_blur_log_pipeline);
+                        cpass.set_bind_group(0, &h_blur_log_bg, &[]);
+                        cpass.dispatch_workgroups(
+                            input_width.div_ceil(16),
+                            blurred_rows.div_ceil(16),
+                            1,
+                        );
+                    } else {
                         let mut cpass = blur_encoder.begin_compute_pass(&Default::default());
                         cpass.set_pipeline(&self.h_blur_pipeline);
                         cpass.set_bind_group(0, &h_blur_bg, &[]);
