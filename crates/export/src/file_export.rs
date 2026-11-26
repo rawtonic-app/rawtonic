@@ -84,7 +84,10 @@ pub fn sidecar_capture(source: &Path) -> Option<crate::exif_processing::CaptureF
     let shown = crate::sidecars::read_sidecar_file(&sidecar, None).0.exif?;
     let bytes = fs::read(source).ok()?;
     let own = read_exif_data_from_bytes(&source.to_string_lossy(), &bytes);
-    crate::exif_processing::capture_edit(&shown, &own)
+    crate::exif_processing::capture_edit(
+        &crate::exif_processing::with_exif_overrides(&shown, &own),
+        &own,
+    )
 }
 
 /// What the user changed of the source's EXIF, as the app's export reads

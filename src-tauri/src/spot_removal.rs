@@ -529,8 +529,7 @@ pub async fn sync_dust_spots(
                 paths,
                 crate::file_management::xmp_sync(app_handle),
                 |_, source_path, sidecar_path| {
-                    let mut metadata =
-                        crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
+                    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
                     if !metadata.adjustments.is_object() {
                         metadata.adjustments = serde_json::json!({});
                     }

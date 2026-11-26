@@ -84,10 +84,32 @@ fn save_metadata_blocking(
     camera_crop_known: Option<bool>,
     app_handle: &AppHandle,
 ) -> Result<EditorSave, String> {
+    let (source_path, _) = parse_virtual_path(path);
+    let (metadata, saved) = write_editor_save(path, adjustments, camera_crop_known)?;
+
+    if let Ok(settings) = crate::state::settings::try_current(app_handle)
+        && settings.enable_xmp_sync.unwrap_or(false)
+    {
+        let create_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
+        sync_metadata_to_xmp(&source_path, &metadata, create_if_missing);
+    }
+
+    Ok(saved)
+}
+
+/// Writes `adjustments` as the recipe of `path` (`save_metadata_blocking`)
+/// and gives the editor state written; its EXIF only the user's own
+/// overrides (`keep_own_exif`).
+fn write_editor_save(
+    path: &str,
+    adjustments: Value,
+    camera_crop_known: Option<bool>,
+) -> Result<(ImageMetadata, EditorSave), String> {
     let (source_path, sidecar_path) = parse_virtual_path(path);
 
-    let turn = sidecar_field_edit();
-    let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
+    let _turn = sidecar_field_edit();
+    let (mut metadata, shown_exif) =
+        crate::exif_processing::load_sidecar_for_edit(&sidecar_path, &source_path);
 
     let mut final_adjustments = adjustments;
     {
@@ -97,7 +119,7 @@ fn save_metadata_blocking(
             LensLookup::Keep {
                 previous: Some(&metadata.adjustments),
             },
-            &metadata.exif,
+            &shown_exif,
             lens_db_guard.as_deref(),
             &source_path,
         );
@@ -113,20 +135,13 @@ fn save_metadata_blocking(
         camera_crop_known,
     );
     metadata.adjustments = final_adjustments;
+    crate::exif_processing::keep_own_exif(&mut metadata, &source_path);
 
     let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json_string)
         .map_err(|e| e.to_string())?;
-    drop(turn);
 
-    if let Ok(settings) = crate::state::settings::try_current(app_handle)
-        && settings.enable_xmp_sync.unwrap_or(false)
-    {
-        let create_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
-        sync_metadata_to_xmp(&source_path, &metadata, create_if_missing);
-    }
-
-    Ok(EditorSave { crop_missing })
+    Ok((metadata, EditorSave { crop_missing }))
 }
 
 pub(crate) fn save_metadata_and_update_thumbnail_blocking(
@@ -735,20 +750,20 @@ fn pasted_metadata(
     size: Option<(f64, f64)>,
     lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
 ) -> Result<ImageMetadata, String> {
-    let mut existing_metadata =
-        crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
+    let (mut existing_metadata, mut shown_exif) =
+        crate::exif_processing::load_sidecar_for_edit(sidecar_path, source_path);
     let in_cloud = crate::file_management::is_cloud_placeholder(source_path);
     if in_cloud {
         cloud_gate(path, source_path, adjustments, size)?;
         // The EXIF the previews kept when the catalog has none (their
         // headers only; the original is not opened).
-        if existing_metadata.exif.is_none() {
-            existing_metadata.exif = crate::preview_proxy::cached_camera(source_path).1;
+        if shown_exif.is_none() {
+            shown_exif = crate::preview_proxy::cached_camera(source_path).1;
         }
     }
     existing_metadata.adjustments = pasted_into_with(
         std::mem::take(&mut existing_metadata.adjustments),
-        &existing_metadata.exif,
+        &shown_exif,
         path,
         source_path,
         adjustments,
@@ -1143,43 +1158,53 @@ pub async fn apply_auto_lens_correction_to_paths(
             paths,
             xmp_sync(app_handle),
             |_, source_path, sidecar_path| {
-                let mut existing_metadata =
-                    crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
-
-                crate::camera_crop::start_edit(&mut existing_metadata.adjustments, source_path)?;
-
-                if let Some(obj) = existing_metadata.adjustments.as_object_mut() {
-                    obj.insert(
-                        lens::CORRECTION_MODE.name().to_string(),
-                        serde_json::json!("auto"),
-                    );
-                    obj.insert(
-                        lens::DISTORTION_ENABLED.name().to_string(),
-                        serde_json::json!(true),
-                    );
-                    obj.insert(
-                        lens::TCA_ENABLED.name().to_string(),
-                        serde_json::json!(true),
-                    );
-                    obj.insert(
-                        lens::VIGNETTE_ENABLED.name().to_string(),
-                        serde_json::json!(true),
-                    );
-                }
-
-                // Detected again on the user's request: from the current database.
-                resolve_lens_params_in_adjustments(
-                    &mut existing_metadata.adjustments,
-                    LensLookup::Fresh,
-                    &existing_metadata.exif,
-                    lens_db.as_deref(),
-                    source_path,
-                );
-                Ok(existing_metadata)
+                auto_lens_metadata(source_path, sidecar_path, lens_db.as_deref())
             },
         )
     })
     .await)
+}
+
+/// The editor state of a photo with Auto lens correction turned on and
+/// detected again (`apply_auto_lens_correction_to_paths`).
+fn auto_lens_metadata(
+    source_path: &Path,
+    sidecar_path: &Path,
+    lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
+) -> Result<ImageMetadata, String> {
+    let (mut existing_metadata, shown_exif) =
+        crate::exif_processing::load_sidecar_for_edit(sidecar_path, source_path);
+
+    crate::camera_crop::start_edit(&mut existing_metadata.adjustments, source_path)?;
+
+    if let Some(obj) = existing_metadata.adjustments.as_object_mut() {
+        obj.insert(
+            lens::CORRECTION_MODE.name().to_string(),
+            serde_json::json!("auto"),
+        );
+        obj.insert(
+            lens::DISTORTION_ENABLED.name().to_string(),
+            serde_json::json!(true),
+        );
+        obj.insert(
+            lens::TCA_ENABLED.name().to_string(),
+            serde_json::json!(true),
+        );
+        obj.insert(
+            lens::VIGNETTE_ENABLED.name().to_string(),
+            serde_json::json!(true),
+        );
+    }
+
+    // Detected again on the user's request: from the current database.
+    resolve_lens_params_in_adjustments(
+        &mut existing_metadata.adjustments,
+        LensLookup::Fresh,
+        &shown_exif,
+        lens_db,
+        source_path,
+    );
+    Ok(existing_metadata)
 }
 
 /// Top-level recipe values of one photo (`set_recipe_values`): a value of
@@ -1565,8 +1590,10 @@ fn save_sidecar(path: &str, metadata: &ImageMetadata) -> Result<(), String> {
 
 /// `save_sidecar` with the write's error as it is (`saved_in_library`).
 fn write_sidecar(path: &str, metadata: &ImageMetadata) -> std::io::Result<()> {
-    let (_, sidecar_path) = parse_virtual_path(path);
-    let json_string = serde_json::to_string_pretty(metadata).map_err(std::io::Error::other)?;
+    let (source_path, sidecar_path) = parse_virtual_path(path);
+    let mut metadata = metadata.clone();
+    crate::exif_processing::keep_own_exif(&mut metadata, &source_path);
+    let json_string = serde_json::to_string_pretty(&metadata).map_err(std::io::Error::other)?;
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json_string)
 }
 
@@ -3812,6 +3839,256 @@ mod tests {
         jpeg
     }
 
+    /// A linked RAW (a little-endian TIFF `.dng` outside any library) with
+    /// Make, Artist and Copyright in IFD0 and DateTimeOriginal in its Exif
+    /// IFD, without a sidecar.
+    fn linked_raw() -> (tempfile::TempDir, std::path::PathBuf) {
+        let ascii = |text: &str| {
+            let mut bytes = text.as_bytes().to_vec();
+            bytes.push(0);
+            bytes
+        };
+        // (tag, value) of IFD0 and of the Exif IFD; values after the IFDs.
+        let ifd0 = [
+            (0x010f_u16, ascii("Maker")),
+            (0x013b, ascii("Camera Owner")),
+            (0x8298, ascii("Studio")),
+        ];
+        let exif = [(0x9003_u16, ascii("2026:10:30 23:30:00"))];
+        let ifd_len = |n: usize| 2 + 12 * n as u32 + 4;
+        let ifd0_at = 8;
+        let exif_at = ifd0_at + ifd_len(ifd0.len() + 1);
+        let mut data_at = exif_at + ifd_len(exif.len());
+        let mut tiff = b"II*\0".to_vec();
+        tiff.extend(ifd0_at.to_le_bytes());
+        let mut data: Vec<u8> = Vec::new();
+        let mut ifd = |tiff: &mut Vec<u8>, entries: &[(u16, Vec<u8>)], pointer: Option<u32>| {
+            let count = entries.len() + usize::from(pointer.is_some());
+            tiff.extend((count as u16).to_le_bytes());
+            for (tag, value) in entries {
+                tiff.extend(tag.to_le_bytes());
+                tiff.extend(2u16.to_le_bytes());
+                tiff.extend((value.len() as u32).to_le_bytes());
+                tiff.extend(data_at.to_le_bytes());
+                data_at += value.len() as u32;
+                data.extend(value);
+            }
+            if let Some(pointer) = pointer {
+                tiff.extend(0x8769u16.to_le_bytes());
+                tiff.extend(4u16.to_le_bytes());
+                tiff.extend(1u32.to_le_bytes());
+                tiff.extend(pointer.to_le_bytes());
+            }
+            tiff.extend(0u32.to_le_bytes());
+        };
+        ifd(&mut tiff, &ifd0, Some(exif_at));
+        ifd(&mut tiff, &exif, None);
+        tiff.extend(data);
+        let temp = tempfile::tempdir().unwrap();
+        let raw = temp.path().join("linked.dng");
+        fs::write(&raw, tiff).unwrap();
+        (temp, raw)
+    }
+
+    /// The `exif` of the sidecar file beside `raw`, as written.
+    fn sidecar_exif(raw: &Path) -> Option<Value> {
+        let sidecar = crate::exif_processing::get_primary_sidecar_path(raw);
+        let state: Value = serde_json::from_slice(&fs::read(sidecar).unwrap()).unwrap();
+        state.get("exif").cloned()
+    }
+
+    /// Each writer of an actual edit (editor save, paste, preset, auto lens,
+    /// AI selection) on a linked RAW whose EXIF the app has read: the sidecar
+    /// gets the edit and no EXIF map; after a user EXIF edit just that field
+    /// (SCW1).
+    #[test]
+    fn edits_of_a_linked_raw_write_the_recipe_and_only_the_users_exif() {
+        use rawtonic_engine::ai_selections::{AutoSelection, Detected, detected_parameters};
+        let pending_sky = serde_json::json!({"masks": [{"id": "l", "visible": true,
+            "subMasks": [{"id": "s", "type": "ai-sky", "visible": true,
+                "parameters": {"maskDataBase64": null, "detectPending": true}}]}]});
+        type Writer = Box<dyn Fn(&str) -> Value>;
+        let writers: Vec<(&str, Writer)> = vec![
+            (
+                "editor save",
+                Box::new(|path| {
+                    write_editor_save(path, serde_json::json!({"exposure": 1.5}), Some(true))
+                        .unwrap();
+                    serde_json::json!({"exposure": 1.5})
+                }),
+            ),
+            (
+                "paste",
+                Box::new(|path| {
+                    let paste = PasteFrom {
+                        source: "/elsewhere/other.dng".into(),
+                        replace_layers: false,
+                        as_chosen: false,
+                        new_edit: None,
+                    };
+                    let pasted = serde_json::json!({"contrast": 20});
+                    let edits = edit_sidecars(&[path.to_string()], None, |path, source, sidecar| {
+                        pasted_metadata(
+                            path, source, sidecar, &pasted, Some(&paste), None, None, None,
+                        )
+                    });
+                    assert!(edits.failures.is_empty(), "{:?}", edits.failures);
+                    serde_json::json!({"contrast": 20})
+                }),
+            ),
+            (
+                "preset",
+                Box::new(|path| {
+                    let preset = serde_json::json!({"saturation": -10});
+                    let edits = edit_sidecars(&[path.to_string()], None, |path, source, sidecar| {
+                        pasted_metadata(path, source, sidecar, &preset, None, None, None, None)
+                    });
+                    assert!(edits.failures.is_empty(), "{:?}", edits.failures);
+                    serde_json::json!({"saturation": -10})
+                }),
+            ),
+            (
+                "auto lens",
+                Box::new(|path| {
+                    let edits = edit_sidecars(&[path.to_string()], None, |_, source, sidecar| {
+                        auto_lens_metadata(source, sidecar, None)
+                    });
+                    assert!(edits.failures.is_empty(), "{:?}", edits.failures);
+                    serde_json::json!({"lensCorrectionMode": "auto"})
+                }),
+            ),
+            (
+                "AI selection",
+                Box::new(move |path| {
+                    let (source, _) = parse_virtual_path(path);
+                    let mut recipe = crate::exif_processing::load_sidecar(&parse_virtual_path(path).1);
+                    recipe.adjustments = pending_sky.clone();
+                    // Its pending detection is in the recipe (as saved by
+                    // an editor of the same build).
+                    save_sidecar(path, &recipe).unwrap();
+                    let frame = crate::export_processing::detection_frame(&pending_sky, &source);
+                    let found = vec![Detected {
+                        layer_id: "l".into(),
+                        component_id: "s".into(),
+                        selection: AutoSelection::Sky,
+                        parameters: detected_parameters(
+                            &pending_sky["masks"][0]["subMasks"][0]["parameters"],
+                            &frame,
+                            "data:sky".into(),
+                        ),
+                    }];
+                    assert!(
+                        crate::export_processing::keep_detected_selections(path, &found, |_| true)
+                            .unwrap()
+                    );
+                    serde_json::json!({"masks": [{"subMasks": [{"parameters":
+                        {"maskDataBase64": "data:sky"}}]}]})
+                }),
+            ),
+        ];
+        // Whether `wanted`'s values are in `recipe` (objects and arrays in part).
+        fn holds(recipe: &Value, wanted: &Value) -> bool {
+            match (recipe, wanted) {
+                (Value::Object(r), Value::Object(w)) => {
+                    w.iter().all(|(k, v)| r.get(k).is_some_and(|r| holds(r, v)))
+                }
+                (Value::Array(r), Value::Array(w)) => {
+                    w.iter().zip(r).all(|(w, r)| holds(r, w)) && r.len() >= w.len()
+                }
+                _ => recipe == wanted,
+            }
+        }
+        for (name, write) in &writers {
+            for user_edit in [false, true] {
+                let (_temp, raw) = linked_raw();
+                let path = raw.to_string_lossy().into_owned();
+                // The app has read and shown its EXIF (cache warm).
+                let shown = crate::exif_processing::read_exif_data(&path, &fs::read(&raw).unwrap());
+                assert_eq!(shown["Make"], "Maker", "fixture EXIF");
+                if user_edit {
+                    let updates = HashMap::from([("Artist".to_string(), "Ana".to_string())]);
+                    crate::file_management::update_exif_of(&path, &updates).unwrap();
+                    assert_eq!(
+                        sidecar_exif(&raw),
+                        Some(serde_json::json!({"Artist": "Ana"})),
+                        "the Metadata tool keeps only the user's field"
+                    );
+                }
+                let wanted = write(&path);
+                let sidecar = crate::exif_processing::get_primary_sidecar_path(&raw);
+                let state: Value = serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+                assert!(holds(&state["adjustments"], &wanted), "{name}: {state}");
+                let expected = user_edit.then(|| serde_json::json!({"Artist": "Ana"}));
+                assert_eq!(state.get("exif").cloned(), expected, "{name} (user edit {user_edit})");
+                // What the photo shows is still the file's EXIF with the edit.
+                let shown = crate::exif_processing::read_rrexif_sidecar(&raw).unwrap();
+                assert_eq!(shown["Make"], "Maker", "{name}");
+                let artist = if user_edit { "Ana" } else { "Camera Owner" };
+                assert_eq!(shown["Artist"], artist, "{name}");
+            }
+        }
+    }
+
+    /// A sidecar an older build wrote with a copy of the read EXIF map is
+    /// left alone until the photo is edited; its next edit keeps only what
+    /// differs from the original (the user's overrides): the copy goes, a
+    /// changed, a removed field and a corrected capture time stay (SCW1).
+    #[test]
+    fn an_edit_reduces_a_copied_exif_map_to_the_users_overrides() {
+        let (_temp, raw) = linked_raw();
+        let path = raw.to_string_lossy().into_owned();
+        let read = crate::exif_processing::read_exif_data_from_bytes(&path, &fs::read(&raw).unwrap());
+        let sidecar = crate::exif_processing::get_primary_sidecar_path(&raw);
+        let write_copy = |exif: &HashMap<String, String>| {
+            let state = serde_json::json!({"version": 1, "rating": 2, "tags": [],
+                "adjustments": {"exposure": 0.5}, "exif": exif});
+            fs::write(&sidecar, serde_json::to_vec_pretty(&state).unwrap()).unwrap();
+        };
+
+        // A plain copy: nothing kept on the next edit.
+        write_copy(&read);
+        let before = fs::read(&sidecar).unwrap();
+        let shown = crate::exif_processing::load_sidecar_with_exif(&sidecar, &raw).exif.unwrap();
+        assert_eq!(shown["Make"], "Maker");
+        assert_eq!(fs::read(&sidecar).unwrap(), before, "reading leaves it alone");
+        write_editor_save(&path, serde_json::json!({"exposure": 1.0}), Some(true)).unwrap();
+        assert_eq!(sidecar_exif(&raw), None, "the copy goes with the edit");
+
+        // A copy holding the user's edits keeps just them.
+        let mut edited = read.clone();
+        edited.insert("Artist".into(), "Ana".into());
+        edited.remove("Copyright");
+        edited.insert("DateTimeOriginal".into(), "2026-10-31 00:30:00".into());
+        write_copy(&edited);
+        // What an export embeds over the original's EXIF (`PinnedPhoto::exif`).
+        let export_edits = || {
+            let stored = crate::exif_processing::load_sidecar(&sidecar).exif.unwrap();
+            crate::exif_processing::exif_edits(&stored, &read)
+        };
+        let before_edits = export_edits();
+        write_editor_save(&path, serde_json::json!({"exposure": 1.0}), Some(true)).unwrap();
+        assert_eq!(
+            sidecar_exif(&raw),
+            Some(serde_json::json!({
+                "Artist": "Ana",
+                "Copyright": "",
+                "DateTimeOriginal": "2026-10-31 00:30:00",
+                "SubSecTimeOriginal": "",
+                "OffsetTimeOriginal": "",
+            }))
+        );
+        // The export reads the same edits from the overrides as from the copy.
+        assert_eq!(export_edits(), before_edits);
+        assert_eq!(before_edits["Artist"], "Ana");
+        assert_eq!(before_edits["Copyright"], "");
+        // What the photo shows: the file's fields with the user's.
+        let shown = crate::exif_processing::read_rrexif_sidecar(&raw).unwrap();
+        assert_eq!(shown["Make"], "Maker");
+        assert_eq!(shown["Artist"], "Ana");
+        assert!(!shown.contains_key("Copyright"));
+        assert_eq!(shown["DateTimeOriginal"], "2026-10-31 00:30:00");
+    }
+
     fn in_cloud(path: &str) {
         crate::file_management::simulate_cloud_placeholder(&parse_virtual_path(path).0);
     }
@@ -3830,16 +4107,18 @@ mod tests {
             pasted_metadata(path, &source, &sidecar, &preset, None, None, None, None).unwrap()
         };
         let online = apply(&paths[0]);
+        // Read for its lens (now in the EXIF cache), never copied into the
+        // editor state (SCW1).
+        let (source, _) = parse_virtual_path(&paths[0]);
         assert_eq!(
-            online
-                .exif
+            crate::exif_processing::get_exif_from_rrcache(&source)
                 .as_ref()
                 .and_then(|e| e.get("Make"))
                 .map(String::as_str),
             Some("Cloud"),
-            "fixture has no readable EXIF: {:?}",
-            online.exif
+            "fixture has no readable EXIF"
         );
+        assert!(online.exif.is_none(), "{:?}", online.exif);
         // The evicted one is written with its recipe, without opening the file.
         let evicted = apply(&paths[1]);
         assert!(evicted.exif.is_none(), "{:?}", evicted.exif);

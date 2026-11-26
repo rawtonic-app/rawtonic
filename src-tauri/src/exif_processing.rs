@@ -113,35 +113,103 @@ fn load_sidecar_file_updating(
     meta
 }
 
+/// The editor state of `sidecar_path` with the EXIF its photo shows
+/// (`shown_exif`), for reading; an edit writes what `load_sidecar_for_edit`
+/// gives it.
 pub fn load_sidecar_with_exif(sidecar_path: &Path, source_path: &Path) -> ImageMetadata {
-    let mut meta = load_sidecar(sidecar_path);
-
-    if let Some(exif) = meta.exif.take() {
-        meta.exif = Some(with_maker_note_lens(source_path, exif));
-    } else {
-        if let Some(cached_exif) = read_rrexif_sidecar(source_path) {
-            meta.exif = Some(with_maker_note_lens(source_path, cached_exif));
-        } else if crate::file_management::is_cloud_placeholder(source_path) {
-            // An original that is only in the cloud is never opened for its
-            // EXIF (macOS would download it): None, as for a missing file.
-        } else {
-            let source_path_str = source_path.to_string_lossy();
-            let extracted_exif =
-                if let Ok(mmap) = crate::file_management::read_file_mapped(source_path) {
-                    read_exif_data_mapped(&source_path_str, mmap)
-                } else if let Ok(bytes) = std::fs::read(source_path) {
-                    read_exif_data(&source_path_str, &bytes)
-                } else {
-                    std::collections::HashMap::new()
-                };
-
-            if !extracted_exif.is_empty() {
-                meta.exif = Some(extracted_exif);
-            }
-        }
-    }
-
+    let (mut meta, shown) = load_sidecar_for_edit(sidecar_path, source_path);
+    meta.exif = shown;
     meta
+}
+
+/// The editor state of `sidecar_path` as an edit writes it back (its own
+/// EXIF overrides, `keep_own_exif`) and the EXIF its photo shows
+/// (`shown_exif`), which lens detection reads.
+pub fn load_sidecar_for_edit(
+    sidecar_path: &Path,
+    source_path: &Path,
+) -> (ImageMetadata, Option<HashMap<String, String>>) {
+    let meta = load_sidecar(sidecar_path);
+    let shown = shown_exif(source_path, meta.exif.clone());
+    (meta, shown)
+}
+
+/// The EXIF `source_path` shows with `stored` (its editor state's map):
+/// the overrides (`is_exif_overrides`) on the original's EXIF, an older
+/// copy of the read map as it is, and without a map the photo's EXIF
+/// (`read_rrexif_sidecar`: a virtual copy's master's edits, the EXIF
+/// cache) or the original's, read now. None when the original cannot be
+/// read (a cloud-only file is never opened for it).
+pub fn shown_exif(
+    source_path: &Path,
+    stored: Option<HashMap<String, String>>,
+) -> Option<HashMap<String, String>> {
+    if let Some(stored) = stored {
+        let shown = if is_exif_overrides(&stored) {
+            with_exif_overrides(&stored, &original_exif(source_path)?)
+        } else {
+            stored
+        };
+        return Some(with_maker_note_lens(source_path, shown));
+    }
+    if let Some(cached_exif) = read_rrexif_sidecar(source_path) {
+        return Some(with_maker_note_lens(source_path, cached_exif));
+    }
+    if crate::file_management::is_cloud_placeholder(source_path) {
+        // An original that is only in the cloud is never opened for its
+        // EXIF (macOS would download it): None, as for a missing file.
+        return None;
+    }
+    let source_path_str = source_path.to_string_lossy();
+    let extracted_exif = if let Ok(mmap) = crate::file_management::read_file_mapped(source_path) {
+        read_exif_data_mapped(&source_path_str, mmap)
+    } else if let Ok(bytes) = std::fs::read(source_path) {
+        read_exif_data(&source_path_str, &bytes)
+    } else {
+        HashMap::new()
+    };
+    (!extracted_exif.is_empty()).then_some(extracted_exif)
+}
+
+/// The EXIF read from `source_path` itself: the app's EXIF cache, else the
+/// file's metadata (cached then). Never an editor state's map; None for a
+/// cloud-only or unreadable original.
+fn original_exif(source_path: &Path) -> Option<HashMap<String, String>> {
+    if let Some(cached) = get_exif_from_rrcache(source_path) {
+        return Some(cached);
+    }
+    if crate::file_management::is_cloud_placeholder(source_path) {
+        return None;
+    }
+    let mmap = crate::file_management::read_file_mapped(source_path).ok()?;
+    let map = rawtonic_export::exif_processing::read_exif_data_from_shared(
+        &source_path.to_string_lossy(),
+        std::sync::Arc::new(mmap),
+    );
+    if !map.is_empty() {
+        save_exif_to_rrcache(source_path, map.clone());
+    }
+    Some(map)
+}
+
+/// `metadata` (an editor state about to be written for `source_path`)
+/// with only its own EXIF overrides (`exif_overrides`): the map read from
+/// the file never goes into a sidecar, and an older copy of it is reduced to
+/// what the user changed (SCW1). A copy is kept as it is while the original
+/// cannot be read to tell them apart.
+pub(crate) fn keep_own_exif(metadata: &mut ImageMetadata, source_path: &Path) {
+    let Some(stored) = metadata.exif.take() else {
+        return;
+    };
+    let kept = if is_exif_overrides(&stored) {
+        stored
+    } else {
+        match original_exif(source_path) {
+            Some(own) => exif_overrides(&stored, &own),
+            None => stored,
+        }
+    };
+    metadata.exif = (!kept.is_empty()).then_some(kept);
 }
 
 fn load_primary_metadata(image_path: &Path) -> ImageMetadata {
@@ -181,7 +249,11 @@ pub fn read_rrexif_sidecar(image_path: &Path) -> Option<HashMap<String, String>>
     if primary.exists() {
         let metadata = load_primary_metadata(image_path);
         if let Some(exif) = metadata.exif {
-            return Some(exif);
+            if !is_exif_overrides(&exif) {
+                return Some(exif);
+            }
+            let own = original_exif(image_path).unwrap_or_default();
+            return Some(with_exif_overrides(&exif, &own));
         }
     }
 

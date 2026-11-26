@@ -2325,7 +2325,7 @@ pub(crate) fn keep_detected_selections(
     }
     let (source_path, sidecar_path) = parse_virtual_path(path);
     let _turn = crate::file_management::sidecar_field_edit();
-    let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
+    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
     if !accepts(&metadata.adjustments) {
         return Ok(false);
     }
@@ -2344,6 +2344,7 @@ pub(crate) fn keep_detected_selections(
     ) {
         return Ok(false);
     }
+    crate::exif_processing::keep_own_exif(&mut metadata, &source_path);
     let json = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json)
         .map_err(|e| format!("the selections could not be kept: {e}"))?;
