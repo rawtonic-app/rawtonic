@@ -638,6 +638,7 @@
 .session-ingest-settings {
   min-width: 0;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -957,11 +958,13 @@
 .session-dialog form > .naming-editor {
   margin-bottom: 24px;
 }
-/* A narrow dialog stacks the thumbnails over the settings and scrolls as one. */
-@container (max-width: 760px) {
+/* A narrow dialog (a small window: the dialog itself is at least 760 px)
+   stacks the thumbnails over the settings and scrolls as one. */
+@container (max-width: 700px) {
   .session-ingest-body {
     display: flex;
     flex-direction: column;
+    overflow-x: hidden;
     overflow-y: auto;
   }
   .session-ingest-source {
@@ -971,7 +974,9 @@
   .session-ingest-source .session-ingest-grid {
     height: min(300px, 40vh);
   }
+  /* Its full height: the body is the one scroller here. */
   .session-ingest-settings {
+    flex: 0 0 auto;
     overflow: visible;
     border-left: 0;
     border-top: 1px solid var(--app-border-color);
@@ -1624,7 +1629,4 @@
 /* One field per row in the import dialog's settings column. */
 .session-ingest-settings .ingest-metadata-fields {
   grid-template-columns: minmax(0, 1fr);
-}
-.session-ingest-settings {
-  overflow-x: hidden;
 }

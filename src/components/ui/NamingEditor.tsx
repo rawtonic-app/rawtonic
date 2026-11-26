@@ -244,7 +244,18 @@ export default function NamingEditor({
   };
 
   return (
-    <div className="naming-editor">
+    <div
+      className="naming-editor"
+      onKeyDown={(event) => {
+        // Enter or Space on the editor's own buttons and menus activates
+        // them, never the surrounding dialog's default action (Rename saves
+        // on Enter).
+        const target = event.target as HTMLElement;
+        if ((event.key === 'Enter' || event.key === ' ') && target.closest('button, select, summary')) {
+          event.stopPropagation();
+        }
+      }}
+    >
       <span className="naming-label" id={`${id}-label`}>
         {label}
       </span>
@@ -290,7 +301,15 @@ export default function NamingEditor({
             title={t('naming.savePreset')}
             aria-expanded={saving}
             aria-controls={`${id}-save`}
+            data-escape-local={saving ? '' : undefined}
             onClick={() => setSaving((open) => !open)}
+            onKeyDown={(e) => {
+              if (saving && e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                setSaving(false);
+              }
+            }}
           >
             <BookmarkPlus size={15} aria-hidden />
           </button>
@@ -589,14 +608,21 @@ function TokenPicker({
     else list[Math.min(next, list.length - 1)]?.focus();
   };
   const popoverKeys = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
+    if (open && event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
       close();
     }
   };
   return (
-    <div className="naming-picker" ref={root}>
+    <div
+      className="naming-picker"
+      ref={root}
+      // While the list is open, Escape anywhere in it (also on the button)
+      // closes the list and leaves the dialog open.
+      data-escape-local={open ? '' : undefined}
+      onKeyDown={popoverKeys}
+    >
       <button
         ref={toggle}
         type="button"
@@ -619,7 +645,6 @@ function TokenPicker({
           data-escape-local
           role="dialog"
           aria-label={t('naming.addToken')}
-          onKeyDown={popoverKeys}
         >
           <input
             ref={search}

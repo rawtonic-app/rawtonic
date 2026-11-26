@@ -268,6 +268,13 @@ describe('Dropping photographs onto the window', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('searchbox', { name: 'Search tokens' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Copy 2 photos' })).toBeTruthy();
+    // Escape with the focus moved back to the + Token button while the
+    // list is open also closes only the list.
+    await user.click(screen.getByRole('button', { name: 'Add a naming token' }));
+    screen.getByRole('button', { name: 'Add a naming token' }).focus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('searchbox', { name: 'Search tokens' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Copy 2 photos' })).toBeTruthy();
     // A second Escape, from the dialog itself, closes it.
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Copy 2 photos' })).toBeNull());

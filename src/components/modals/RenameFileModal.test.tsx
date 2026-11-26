@@ -131,3 +131,18 @@ it('always lists a refused photo beyond the first rows', async () => {
   expect(screen.getByText('Taken.NEF already exists.')).toBeTruthy();
   expect(screen.getByText('More photos not listed: 6')).toBeTruthy();
 });
+
+it("Enter on the naming editor's own buttons opens them and does not rename", async () => {
+  const { onSave } = open(['/s/A.NEF', '/s/B.NEF'], {
+    photos: [photo('/s/A.NEF', '/s/Job_1.NEF'), photo('/s/B.NEF', '/s/Job_2.NEF')]
+  });
+  fireEvent.change(screen.getByLabelText('File Naming Template'), { target: { value: 'Job' } });
+  await finishPreview();
+  for (const name of ['Add a naming token', 'Save as preset…']) {
+    fireEvent.keyDown(screen.getByRole('button', { name }), { key: 'Enter' });
+    expect(onSave).not.toHaveBeenCalled();
+  }
+  // Enter elsewhere still saves the previewed plan.
+  fireEvent.keyDown(screen.getByLabelText('File Naming Template'), { key: 'Enter' });
+  expect(onSave).toHaveBeenCalledOnce();
+});
