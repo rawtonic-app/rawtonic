@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- On a Mac, preparing a photo for object selections (a click or a box) is faster: the object model's image encoder runs on the Mac's GPU through Core ML, about 0.08 s instead of 0.7 s for a 24 MP RAW on an M5 Pro. The masks match those of the CPU encoder (in our test of 192 click and box masks on 32 RAW photos, compared at their 50 % edge, 186 agreed on every pixel and the other six on all but at most 0.002 % of their pixels). The app downloads the encoder's Core ML version (128 MB) when you make your first object selection (a click or a box) after the update and prepares it in the background; until it is ready, selections work as before. Opening a photo or an existing object selection downloads nothing for it. Resizing and colour-encoding the photo for Subject, Sky and object selections now runs on all processor cores, with identical masks (on an M5 Pro: Sky about 0.05 s and the object encoding's preparation about 0.19 s faster).
+
 - Crop & Rotate: dragging or moving the crop frame no longer redraws the rest of Develop on every mouse move; only the frame itself is redrawn (about 70 % less React render time in our Mac test). While you turn the photo, Develop's editor renders half as often. Crops and exports are unchanged.
 
 - Rawtonic loads the Subject model ahead only when there is enough memory to compute the mask as well. Loading the model on its own could leave a Subject click short of memory on 14 GB computers.

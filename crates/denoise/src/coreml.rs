@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Core ML models (macOS): a `.mlpackage` is compiled once into a
 //! `.mlmodelc` beside it, which later loads use. `CoreMlModel` runs any
-//! model with float inputs and one float output (MatchFilter here, the
-//! app's BiRefNet subject, sky and Moebius removal models too); `CoreMl` is
+//! model with float inputs and float outputs (MatchFilter here, the app's
+//! BiRefNet subject, sky, SAM 2.1 encoder and Moebius removal models too); `CoreMl` is
 //! MatchFilter's backend.
 
 use std::path::{Path, PathBuf};
@@ -50,7 +50,7 @@ struct Model(Retained<MLModel>);
 unsafe impl Send for Model {}
 unsafe impl Sync for Model {}
 
-/// A loaded Core ML model with float inputs and one float output.
+/// A loaded Core ML model with float inputs and float outputs.
 pub struct CoreMlModel {
     model: Mutex<Model>,
     /// Set by the first run that succeeds (`with_first_run_marker`).
@@ -186,6 +186,17 @@ impl CoreMlModel {
         inputs: &[(&str, &[usize], &[f32])],
         output: &str,
     ) -> Result<(Vec<usize>, Vec<f32>)> {
+        let mut outputs = self.predict_outputs(inputs, &[output])?;
+        Ok(outputs.remove(0))
+    }
+
+    /// `predict_inputs` for a model with several float outputs: each of
+    /// `outputs`' shape and values, in that order (SAM 2.1's encoder).
+    pub fn predict_outputs(
+        &self,
+        inputs: &[(&str, &[usize], &[f32])],
+        outputs: &[&str],
+    ) -> Result<Vec<(Vec<usize>, Vec<f32>)>> {
         for &(name, shape, data) in inputs {
             ensure!(
                 data.len() == shape.iter().product::<usize>(),
@@ -224,11 +235,16 @@ impl CoreMlModel {
                 .0
                 .predictionFromFeatures_error(provider)
                 .map_err(|e| anyhow!("Core ML prediction failed: {e:?}"))?;
-            let out = result
-                .featureValueForName(&NSString::from_str(output))
-                .and_then(|v| v.multiArrayValue())
-                .with_context(|| format!("no {output} output"))?;
-            read_array(&out)
+            outputs
+                .iter()
+                .map(|&output| {
+                    let out = result
+                        .featureValueForName(&NSString::from_str(output))
+                        .and_then(|v| v.multiArrayValue())
+                        .with_context(|| format!("no {output} output"))?;
+                    read_array(&out)
+                })
+                .collect::<Result<Vec<_>>>()
         })
         .inspect(|_| self.note_first_run())
     }

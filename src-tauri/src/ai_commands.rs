@@ -849,17 +849,40 @@ async fn sam_embeddings(
             let _ = options.terminate();
         })
     });
-    let models = models.clone();
-    let image = warped_image.clone();
-    let run_options = options.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        generate_image_embeddings(
-            image.as_ref(),
-            &models.encoder,
-            source_is_raw,
-            Some(&run_options),
-        )
-    })
+    let encode = |models: Arc<SamModels>| {
+        let image = warped_image.clone();
+        let run_options = options.clone();
+        async move {
+            tokio::task::spawn_blocking(move || {
+                generate_image_embeddings(
+                    image.as_ref(),
+                    &models.encoder,
+                    source_is_raw,
+                    Some(&run_options),
+                )
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())
+        }
+    };
+    // A failed run of the Core ML program repeats on the ONNX encoder,
+    // which then serves this process (an encoding ahead downloads nothing).
+    let fallback = |failed: Arc<SamModels>| {
+        let app = app_handle.clone();
+        async move {
+            let ai_state = app.state::<AiState>();
+            crate::ai_processing::sam_models_on_onnx(&app, &ai_state, &failed, !ahead, generation)
+                .await
+                .map_err(|e| e.to_string())
+        }
+    };
+    let result = crate::ai_processing::retry_on_onnx(
+        models.clone(),
+        |models| models.encoder.on_core_ml(),
+        encode,
+        fallback,
+    )
     .await;
     if let Some(watcher) = watcher {
         watcher.abort();
@@ -867,9 +890,7 @@ async fn sam_embeddings(
     if cancel.is_some_and(|t| t.is_cancelled()) {
         return Err(task_cancelled());
     }
-    let mut embeddings = result
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+    let mut embeddings = result?;
     embeddings.path_hash = path_hash;
     // An encoding whose request overlapped an unload is used once, not kept.
     let mut ai = lock_recover(&ai_state.models);
@@ -977,9 +998,15 @@ pub async fn precompute_ai_subject_mask(
         load_turn = sam_load_turn(&ai_state, true).await;
     }
     let _load_turn = load_turn;
-    let models = get_or_init_sam_models(&app_handle, &ai_state)
-        .await
-        .map_err(CommandError::from)?;
+    // An encoding ahead of a photo opened downloads nothing, not even the
+    // encoder's Core ML program prepared beside the loaded models.
+    // Nor does one asked for by the masking tools (an existing object
+    // selection shown): the Core ML program's files are fetched only for a
+    // click or box (`generate_ai_subject_mask`).
+    let models =
+        crate::ai_processing::sam_models(&app_handle, &ai_state, background != Some(true), false)
+            .await
+            .map_err(CommandError::from)?;
     // A request for a photo that is no longer open is dropped.
     let current = crate::image_loader::original_image(&state.source)
         .await
