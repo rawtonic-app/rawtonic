@@ -1189,6 +1189,11 @@ async fn auto_mask(
         // Each Select Subject version is its own mask.
         key.push_str(&format!(":v{subject_version}"));
     }
+    // Also for a mask computed ahead: a request that may download fetches
+    // the low-peak Subject file in the background.
+    if download && kind == AutoMask::Subject {
+        crate::ai_processing::fetch_low_peak_subject_in_background(app_handle);
+    }
     if let Some(mask) = cached_mask(ai_state, kind, &key) {
         return Ok(Some(mask));
     }

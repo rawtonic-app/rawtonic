@@ -1433,6 +1433,95 @@ impl SubjectOnnxFile {
         sha256: SUBJECT_SHA256,
         low_peak: false,
     };
+
+    fn installed(self, models_dir: &Path) -> bool {
+        verify_sha256(&models_dir.join(self.name), self.sha256).unwrap_or(false)
+    }
+}
+
+/// The background fetch of the low-peak Subject file.
+#[derive(Clone, Copy)]
+enum LowPeakFetch {
+    Idle,
+    Running,
+    Failed(std::time::Instant),
+}
+
+static LOW_PEAK_FETCH: std::sync::Mutex<LowPeakFetch> = std::sync::Mutex::new(LowPeakFetch::Idle);
+
+/// After a failed fetch, the next one waits this long.
+const LOW_PEAK_FETCH_RETRY: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// For a Subject request that may download, on a machine that prefers the
+/// low-peak graph (`subject_onnx_file`) with only the usual one installed
+/// (installed before this graph existed): fetches the low-peak file in the
+/// background, one fetch at a time and at most every 10 minutes after a
+/// failure, while the installed model serves (masking never waits for it).
+/// Once fetched, a loaded usual model is unloaded (a run holding it ends
+/// with it) and the next mask loads the low-peak graph. With no Subject
+/// model installed the request downloads the low-peak file itself, as any
+/// model on its first use.
+pub(crate) fn fetch_low_peak_subject_in_background(app_handle: &tauri::AppHandle) {
+    let Ok(models_dir) = get_models_dir(app_handle) else {
+        return;
+    };
+    // Core ML comes first on macOS: its files installed, no ONNX graph runs.
+    #[cfg(target_os = "macos")]
+    if SUBJECT_CORE_ML_FILES
+        .iter()
+        .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false))
+    {
+        return;
+    }
+    let preferred = subject_onnx_file(&models_dir);
+    if !preferred.low_peak
+        || preferred.installed(&models_dir)
+        || !SubjectOnnxFile::USUAL.installed(&models_dir)
+    {
+        return;
+    }
+    {
+        let mut fetch = lock_recover(&LOW_PEAK_FETCH);
+        match *fetch {
+            LowPeakFetch::Running => return,
+            LowPeakFetch::Failed(at) if at.elapsed() < LOW_PEAK_FETCH_RETRY => return,
+            _ => *fetch = LowPeakFetch::Running,
+        }
+    }
+    log::info!("AI subject mask: fetching the low-peak model in the background");
+    let app = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = download_verified(
+            &app,
+            &models_dir,
+            preferred.name,
+            preferred.sha256,
+            "Subject Model",
+        )
+        .await;
+        let next = match result {
+            Ok(()) => {
+                let ai_state = app.state::<AiState>();
+                if let Some(ai) = lock_recover(&ai_state.models).as_mut()
+                    && ai
+                        .subject_model
+                        .as_ref()
+                        .is_some_and(|model| model.on_onnx() && !model.low_peak())
+                {
+                    ai.subject_model = None;
+                }
+                log::info!("AI subject mask: low-peak model fetched; the next mask loads it");
+                LowPeakFetch::Idle
+            }
+            Err(e) => {
+                log::warn!(
+                    "AI subject mask: low-peak model not fetched ({e:#}); the installed model keeps running"
+                );
+                LowPeakFetch::Failed(std::time::Instant::now())
+            }
+        };
+        *lock_recover(&LOW_PEAK_FETCH) = next;
+    });
 }
 
 /// BiRefNet for Subject and Background masks. With `download` false (a
@@ -1448,17 +1537,10 @@ pub async fn get_or_init_subject_model(
             .as_ref()
             .and_then(|state| state.subject_model.clone())
     };
-    let models_dir = get_models_dir(app_handle)?;
-    // The usual graph loaded where the low-peak one is preferred (the
-    // installed fallback, e.g. loaded ahead before the low-peak file was
-    // downloaded): a request that may download replaces it, or it would
-    // stay for good.
-    let replace = |model: &SubjectModel| {
-        download && model.on_onnx() && !model.low_peak() && subject_onnx_file(&models_dir).low_peak
-    };
-    if let Some(model) = loaded()
-        && !replace(&model)
-    {
+    if download {
+        fetch_low_peak_subject_in_background(app_handle);
+    }
+    if let Some(model) = loaded() {
         return Ok(Some(model));
     }
     let lock_wait = std::time::Instant::now();
@@ -1467,13 +1549,11 @@ pub async fn get_or_init_subject_model(
         "AI subject mask: init lock wait {} ms",
         lock_wait.elapsed().as_millis()
     );
-    let fallback = loaded();
-    if let Some(model) = &fallback
-        && !replace(model)
-    {
-        return Ok(Some(model.clone()));
+    if let Some(model) = loaded() {
+        return Ok(Some(model));
     }
     let generation = ai_state.lifecycle.generation();
+    let models_dir = get_models_dir(app_handle)?;
     let start = std::time::Instant::now();
     #[cfg(target_os = "macos")]
     let core_ml = load_subject_core_ml(app_handle, &models_dir, download).await;
@@ -1488,58 +1568,21 @@ pub async fn get_or_init_subject_model(
                 "AI subject mask: ONNX Runtime check {} ms",
                 runtime_start.elapsed().as_millis()
             );
+            // The low-peak file once installed. Until then the usual one if
+            // installed (offline, or before the background fetch ends): an
+            // update must not make masking wait for a download.
             let preferred = subject_onnx_file(&models_dir);
-            let installed = |file: SubjectOnnxFile| {
-                verify_sha256(&models_dir.join(file.name), file.sha256).unwrap_or(false)
-            };
-            // The low-peak file when it can be had, else the usual one if
-            // installed: an update must not stop Subject offline or an
-            // export's pending selection that worked before.
-            let file = if !preferred.low_peak || installed(preferred) {
-                preferred
-            } else if download && runtime.is_ok() {
-                match download_verified(
-                    app_handle,
-                    &models_dir,
-                    preferred.name,
-                    preferred.sha256,
-                    "Subject Model",
-                )
-                .await
-                {
-                    Ok(()) => preferred,
-                    Err(e) => {
-                        if let Some(model) = fallback.clone() {
-                            log::warn!(
-                                "AI subject mask: low-peak model not downloaded ({e:#}); the loaded model stays"
-                            );
-                            return Ok(Some(model));
-                        }
-                        if !installed(SubjectOnnxFile::USUAL) {
-                            return Err(e);
-                        }
-                        log::warn!(
-                            "AI subject mask: low-peak model not downloaded ({e:#}); the installed usual model runs"
-                        );
-                        SubjectOnnxFile::USUAL
-                    }
-                }
-            } else if installed(SubjectOnnxFile::USUAL) {
+            let file = if preferred.low_peak
+                && !preferred.installed(&models_dir)
+                && SubjectOnnxFile::USUAL.installed(&models_dir)
+            {
                 log::info!(
-                    "AI subject mask: low-peak model not installed; the installed usual model runs until a request downloads it"
+                    "AI subject mask: low-peak model not installed yet; the installed usual model runs"
                 );
                 SubjectOnnxFile::USUAL
             } else {
                 preferred
             };
-            if file.low_peak && fallback.is_some() {
-                // The usual model goes before the low-peak one loads.
-                if let Some(ai) = lock_recover(&ai_state.models).as_mut() {
-                    ai.subject_model = None;
-                }
-                drop(fallback);
-                log::info!("AI subject mask: the usual model is replaced by the low-peak one");
-            }
             let path = models_dir.join(file.name);
             let file_start = std::time::Instant::now();
             let skip = if download {
