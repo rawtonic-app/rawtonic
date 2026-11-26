@@ -172,6 +172,8 @@ pub fn mac_install(
 /// and runs from inside the AppImage's own mount (`APPDIR`): a .deb or .rpm
 /// copy started from another AppImage's terminal inherits that AppImage's
 /// variables and must never replace its file.
+// Called only on Unix (`started_appimage`); tested everywhere.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub fn running_appimage(
     bundle_is_appimage: bool,
     appimage: Option<&std::path::Path>,

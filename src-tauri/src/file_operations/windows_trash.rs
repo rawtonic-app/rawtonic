@@ -524,7 +524,7 @@ fn remove_info_stub(data: Option<&Path>, receipt: &Receipt) -> Result<bool> {
         .take(MAX_STUB_LEN + 1)
         .read_to_end(&mut bytes)?;
     let original = plain_drive_path(&receipt.original)?;
-    let size = (!restored.is_dir()).then(|| restored.len());
+    let size = (!restored.is_dir()).then_some(restored.len());
     ensure!(
         original
             .to_str()
