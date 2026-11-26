@@ -35,7 +35,7 @@ import { orderedSelection, stepPrimary } from '../utils/multiView';
 import { AUTO_ADVANCE_EVENT, autoAdvanceTarget, requestAutoAdvance } from '../utils/photoStepping';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 import { flagTargets, libraryViewer, viewerOnly, viewerShown } from '../utils/viewerMode';
-import { canUndo, canRedo, undo, redo, catalogUndoAvailable, useCatalogUndoStore } from '../utils/appUndo';
+import { canUndo, canRedo, undo, redo, nonRecipeUndoAvailable, useCatalogUndoStore } from '../utils/appUndo';
 import { pointerHeld } from '../utils/heldPointer';
 import { COMMAND_DIALOG_SELECTOR, registerAppCommands, runAppCommand, type AppCommand } from '../utils/appCommands';
 import {
@@ -105,13 +105,13 @@ function shortcutsHeld(state: ShortcutState, chooser = false): boolean {
   return uiHoldsShortcuts(state.ui, chooser);
 }
 
-/** The loupe and the full screen are views: recipe keys are not bound there
- * (in the Library, undo and redo are the file operations' and stay). */
+/** The loupe and full screen hold recipe shortcuts. Undo and redo of
+ * catalog and file operations remain available there. */
 function recipeHeld(action: string, state: ShortcutState): boolean {
   return (
     viewerOnly(state.ui) &&
     RECIPE_ACTIONS.has(action) &&
-    !((action === 'undo' || action === 'redo') && (state.ui.activeView !== 'editor' || catalogUndoAvailable(action)))
+    !((action === 'undo' || action === 'redo') && (state.ui.activeView !== 'editor' || nonRecipeUndoAvailable(action)))
   );
 }
 
