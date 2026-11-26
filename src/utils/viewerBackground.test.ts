@@ -97,8 +97,36 @@ it('draws Default as the canvas token, which the stylesheet fills in', () => {
   }
 });
 
-it('shows black from the native display when no canvas token answers, not a second Default', () => {
-  expect(nativeLevel('default')).toBe(0);
+it("reads the built stylesheet's hex canvas token like the source rgb() one", () => {
+  // The production build writes `--app-bg-primary:#181818` etc. (no spaces).
+  const root = document.documentElement;
+  for (const [hex, code] of [
+    ['#181818', 24],
+    ['#262626', 38],
+    ['#4c4c4c', 76]
+  ] as const) {
+    root.style.setProperty('--app-bg-primary', hex);
+    try {
+      expect(nativeLevel('default'), hex).toBeCloseTo(code);
+      for (const level of FIXED.map((b) => nativeLevel(b)))
+        expect(Math.abs(level - code), hex).toBeGreaterThanOrEqual(1);
+    } finally {
+      root.style.removeProperty('--app-bg-primary');
+    }
+  }
+});
+
+it('falls back like the CSS path, never to black, when no canvas token answers', () => {
+  const root = document.documentElement;
+  for (const value of ['', 'currentcolor', 'var(--nope)', 'rgb(1, 2)']) {
+    root.style.setProperty('--app-bg-primary', value);
+    try {
+      expect(nativeLevel('default'), value).toBeCloseTo(CANVAS.darkest);
+    } finally {
+      root.style.removeProperty('--app-bg-primary');
+    }
+  }
+  expect(nativeLevel('default')).toBeCloseTo(CANVAS.darkest);
 });
 
 it('dims a fixed background to the share of its grey the dimmer leaves', () => {

@@ -13,13 +13,13 @@ export const DEFAULT_VIEWER_BACKGROUND: ViewerBackground = 'default';
 /**
  * Neutral greys as display-encoded sRGB values (0–255). The display surface is
  * not an sRGB format, so these reach the screen unchanged. Medium is 119: an
- * 18 % reflectance grey (L* 50, OKLab L 0.57), the middle of perceived
- * lightness, for judging tones. The other fixed steps are spaced evenly in
- * OKLab lightness from Medium down and up, so Dark (80, OKLab L 0.43) is a
- * step of its own between Medium and Darker, not a repeat of the canvas.
- * Default is the app's canvas colour (`--app-bg-primary`, see
- * viewerBackgroundCss) and follows the interface shade; its entry here is
- * only the fallback when no stylesheet answers (the Darkest canvas, 24).
+ * 18 % reflectance grey (L* 50), the middle of perceived lightness, for
+ * judging tones. Dark (80) is one step down from Medium (OKLab L 0.43 from
+ * 0.57), well clear of Medium and Darker (18, 0.18) on both sides and of the
+ * canvas colours it meets in the shades (24, 38 and 76). Default is the app's canvas
+ * colour (`--app-bg-primary`, see viewerBackgroundCss) and follows the
+ * interface shade; its entry here is only the fallback when no stylesheet
+ * answers (the Darkest canvas, 24).
  */
 export const VIEWER_BACKGROUND_LEVELS: Record<ViewerBackground, number> = {
   default: 24,
@@ -52,16 +52,24 @@ function backgroundLevel(background: ViewerBackground): number | null {
   return background === 'default' ? null : VIEWER_BACKGROUND_LEVELS[background];
 }
 
-/** The interface shade's canvas colour (`--app-bg-primary`) as 0–255 sRGB. */
+/**
+ * The interface shade's canvas colour (`--app-bg-primary`) as 0–255 sRGB.
+ * Sources write it as `rgb(r, g, b)` and the built stylesheet as `#rrggbb`,
+ * so both are read; anything else falls back like the CSS path does (the
+ * Darkest canvas), never to black, which is a choice of its own.
+ */
 function canvasLevel(): number {
   const declared = getComputedStyle(document.documentElement).getPropertyValue('--app-bg-primary').trim();
-  const values = declared
-    .match(/[\d.]+/g)
-    ?.slice(0, 3)
-    .map(Number);
-  // Not expected to fail; should it, the viewer shows black, which is at
-  // least one of the choices rather than a second Default.
-  if (!values || values.length < 3 || values.some((n) => !Number.isFinite(n))) return 0;
+  const hex = declared.match(/^#([0-9a-f]{6})$/i);
+  const values = hex
+    ? [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16))
+    : declared
+        .match(/[\d.]+/g)
+        ?.slice(0, 3)
+        .map(Number);
+  if (!values || values.length < 3 || values.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) {
+    return VIEWER_BACKGROUND_LEVELS.default;
+  }
   return (values[0] + values[1] + values[2]) / 3;
 }
 

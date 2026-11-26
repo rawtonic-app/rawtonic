@@ -16,12 +16,6 @@ import { readFileSync } from 'node:fs';
 // Keep the real viewer and targeted pointer surface; replace the renderer.
 // Zoom tests also check the preview size requested at animation start.
 // The photo pane ImageCanvas last got (`photoHost`).
-
-// The Darkest canvas the stylesheet gives `--app-bg-primary` (jsdom has no
-// cascade, so the token is read from it directly): Default's viewer colour.
-const CANVAS = Number(
-  readFileSync('src/styles.css', 'utf8').match(/:root \{\s*--app-bg-primary: rgb\((\d+), \d+, \d+\)/)![1]
-);
 const canvasProps = vi.hoisted(() => ({ photoHost: undefined as HTMLElement | null | undefined }));
 vi.mock('./editor/ImageCanvas', async () => {
   const { default: TargetedAdjustmentOverlay } = await import('./editor/TargetedAdjustmentOverlay');
@@ -35,6 +29,13 @@ vi.mock('./editor/ImageCanvas', async () => {
     }
   };
 });
+
+// The Darkest canvas colour, `--app-bg-primary: rgb(...)` in src/styles.css
+// (jsdom has no cascade, so the token is set from it): Default's viewer colour.
+const CANVAS = Number(
+  readFileSync('src/styles.css', 'utf8').match(/:root \{\s*--app-bg-primary: rgb\((\d+), \d+, \d+\)/)![1]
+);
+
 // The viewer's fit; a test changes it as the viewer's size would change.
 const fit = vi.hoisted(() => ({
   width: 400,
