@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Rawtonic loads the Subject model ahead only when there is enough memory to compute the mask as well. Loading the model on its own could leave a Subject click short of memory on 14 GB computers.
+
 - The Import dialog gives the window to the photos: the thumbnails fill the dialog and scroll by themselves, and the settings (destination, file naming, metadata) sit in a side column of collapsible sections, with Copy always at the bottom right. "You can keep editing during the import" now sits inside the dialog's bottom bar instead of over its edge. File naming in Import, Rename and Export is one editor: click anywhere in the name field to type (also when it is empty or holds only tokens — before, an empty Custom format or Export's "Put in subfolder" took no typing), add tokens from a searchable "+ Token" list (double-click, Enter or drag them into the field), save the current format with the bookmark button beside the template menu; editing a chosen template turns it into Custom format. The Export dialog can be resized from its edges and maximized like the Import dialog, and remembers its size. Names made from existing templates and presets are unchanged.
 
 - In Develop, Left and Right switch photos after you drag a slider. Focus a slider with Tab to adjust it with the arrows. The white balance picker toolbar has a **Show Loupe** checkbox that remembers your choice.
@@ -11,10 +13,6 @@
 - Editing a photo (in Develop, or by pasting, a preset, Auto lens correction, a dust sync or an AI selection kept by an export) no longer copies its camera data into the `.rrdata` file beside it: the file keeps only what you changed in the Metadata tool (creator, copyright, description, comment) and a corrected capture time, and Rawtonic shows the rest from the photo itself. An `.rrdata` file an earlier version filled with the camera data is left as it is until the photo's next edit, which keeps only your changes from it (a rated photo's file shrank by about 3–12 KB). Exports are unchanged.
 - Reading a photo's camera data no longer stores it in the `.rrdata` file beside the photo (it stays in Rawtonic's cache; that added about 3–12 KB to a rated photo's file), and selecting the open photo again or opening it after an undone Move no longer saves its unchanged edit into the `.rrdata` and `.xmp` files (about 23 KB).
 - Windows: undoing a Move to Trash now also removes the Recycle Bin's hidden information file of each restored photo. Before, one stayed behind for every photo put back, invisible in the Recycle Bin.
-
-- On computers with less memory free, a click on a Subject selection after Develop loaded the Subject model ahead waits up to 5 s for the new layer's full-resolution preview and thumbnail before it computes the mask, when there is not enough memory for both. An edit's Library thumbnail that comes during the mask waits for it (up to 60 s), one per photo. On a 14 GB laptop the two together had taken Rawtonic to about 10 GB and the system almost out of memory.
-
-- On computers with less memory free, Develop now loads the Subject model ahead when there is memory for the model but not yet for computing the mask. A click on a Subject selection made after that load no longer waits for the model (a click during the load still waits for its end). The loaded model is released again when the system runs short of memory. The masks are unchanged.
 
 - Opening Develop no longer stacks the background Subject, Sky and object-mask work on the full-resolution decodes of large RAWs. That work, and loading its AI models, now starts only after the open photo has decoded, one task at a time, and only when there is memory for it (the other photos' background decodes wait for it); otherwise it is left for your click. Opening the masking tools or clicking Subject still starts at once. On a 14 GB laptop with AI on the processor, opening four 24–50 MP RAWs had taken Rawtonic to 6–7 GB.
 
