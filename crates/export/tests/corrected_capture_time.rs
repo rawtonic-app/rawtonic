@@ -107,18 +107,18 @@ fn a_jpeg_source_copied_whole_takes_the_corrected_time() {
 }
 
 #[test]
-fn a_raw_source_read_through_its_map_takes_the_corrected_time() {
+fn a_raw_source_takes_the_corrected_time_and_nothing_else_of_its_map() {
     let dir = tempfile::tempdir().unwrap();
-    // Not decodable: the export reads the library's map, as for a RAW.
+    // Not decodable: its EXIF cannot be read from the file.
     let source = dir.path().join("camera.ARW");
     std::fs::write(&source, b"raw").unwrap();
+    // A shown map is no source of the export's EXIF (EXF1).
     let plain = map(&[
         ("DateTimeOriginal", "2026-10-30 23:30:00"),
         ("Make", "Maker"),
     ]);
     let before = exported(&source, Some(plain));
-    assert_eq!(before[0].as_deref(), Some("2026-10-30 23:30:00"));
-    assert_eq!(before[1], None, "no fraction is added without a correction");
+    assert_eq!(before, [None, None, None, None]);
     let corrected = map(&[
         ("DateTimeOriginal", "2024-02-29 00:00:01"),
         ("SubSecTimeOriginal", "250"),

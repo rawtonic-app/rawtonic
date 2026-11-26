@@ -2027,34 +2027,23 @@ mod tests {
     }
 
     #[test]
-    fn a_photo_without_cached_exif_embeds_what_its_export_reads_from_the_file() {
+    fn a_photo_without_exif_edits_embeds_its_originals_exif_whatever_is_written_later() {
         let libs = two_catalogs();
-        let mut jpeg = Vec::new();
-        image::DynamicImage::new_rgb8(16, 8)
-            .write_to(
-                &mut std::io::Cursor::new(&mut jpeg),
-                image::ImageFormat::Jpeg,
-            )
-            .unwrap();
-        let mut exif = little_exif::metadata::Metadata::new();
-        exif.set_tag(little_exif::exif_tag::ExifTag::Make("Maker".into()));
-        exif.write_to_vec(&mut jpeg, little_exif::filetype::FileExtension::JPEG)
-            .unwrap();
-        std::fs::write(&libs.source, &jpeg).unwrap();
+        std::fs::write(&libs.source, jpeg_with_exif(&[])).unwrap();
         let path = libs.source.to_string_lossy().into_owned();
         let job = queued(request(
             std::slice::from_ref(&path),
             Some(libs.a.directory.as_path()),
         ));
         let pinned = &job.as_run()[0];
-        assert_eq!(pinned.exif, None, "never decoded: nothing cached yet");
+        assert_eq!(pinned.exif, None, "no EXIF in its editor state");
         assert_eq!(
             pinned.owner.as_deref(),
             libs.a.directory.to_str(),
             "the export runs under A"
         );
         // Another library (or a later edit) writes EXIF for it meanwhile;
-        // the export embeds the original's own, as its first decode reads it.
+        // the export takes no edit from it: every field is the original's.
         std::fs::write(
             libs.source.with_file_name("A.jpg.rrdata"),
             serde_json::to_vec(&json!({"version": 1, "rating": 0, "adjustments": {},
@@ -2063,34 +2052,196 @@ mod tests {
         )
         .unwrap();
         crate::session_bridge::with_culling_owner(pinned.owner.as_deref(), || {
-            let exif = pinned.exif(&libs.source).expect("the original's");
-            assert!(exif.values().any(|v| v.contains("Maker")), "{exif:?}");
-            assert!(
-                !exif
-                    .values()
-                    .any(|v| v.contains("from B") || v.contains("Changed"))
-            );
-            assert_eq!(
-                exif,
-                crate::exif_processing::read_exif_data_from_bytes(&path, &jpeg),
-                "what the first decode caches"
-            );
+            assert_eq!(pinned.exif(&libs.source), None);
         });
     }
 
+    /// A camera JPEG with Make, ExposureTime 2/5 s and a UserComment over
+    /// 500 bytes (with its character code), and `more` tags.
+    fn jpeg_with_exif(more: &[little_exif::exif_tag::ExifTag]) -> Vec<u8> {
+        use little_exif::exif_tag::ExifTag;
+        let mut jpeg = Vec::new();
+        image::DynamicImage::new_rgb8(16, 8)
+            .write_to(
+                &mut std::io::Cursor::new(&mut jpeg),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        let mut exif = little_exif::metadata::Metadata::new();
+        exif.set_tag(ExifTag::Make("Maker".into()));
+        exif.set_tag(ExifTag::ExposureTime(vec![little_exif::rational::uR64 {
+            nominator: 2,
+            denominator: 5,
+        }]));
+        exif.set_tag(ExifTag::UserComment(long_comment()));
+        for tag in more {
+            exif.set_tag(tag.clone());
+        }
+        exif.write_to_vec(&mut jpeg, little_exif::filetype::FileExtension::JPEG)
+            .unwrap();
+        jpeg
+    }
+
+    /// A UserComment of 720 bytes with its ASCII character code.
+    fn long_comment() -> Vec<u8> {
+        let mut comment = b"ASCII\0\0\0".to_vec();
+        comment.extend((0..712).map(|i| b'a' + (i % 26) as u8));
+        comment
+    }
+
+    /// A minimal little-endian TIFF RAW: IFD0 with Make and the Exif IFD,
+    /// which holds ExposureTime 2/5 s and `long_comment`.
+    fn raw_with_exif() -> Vec<u8> {
+        let comment = long_comment();
+        let entry = |tag: u16, kind: u16, count: u32, value: u32| {
+            let mut e = Vec::new();
+            e.extend(tag.to_le_bytes());
+            e.extend(kind.to_le_bytes());
+            e.extend(count.to_le_bytes());
+            e.extend(value.to_le_bytes());
+            e
+        };
+        // Layout: header 8, IFD0 at 8 (2 entries: 2 + 24 + 4 = 30) → 38,
+        // Exif IFD at 38 (2 entries: 30) → 68, "Maker\0" at 68 → 74 (pad 76),
+        // rational at 76 → 84, comment at 84.
+        let mut tiff = b"II*\0".to_vec();
+        tiff.extend(8u32.to_le_bytes());
+        tiff.extend(2u16.to_le_bytes());
+        tiff.extend(entry(0x010f, 2, 6, 68));
+        tiff.extend(entry(0x8769, 4, 1, 38));
+        tiff.extend(0u32.to_le_bytes());
+        tiff.extend(2u16.to_le_bytes());
+        tiff.extend(entry(0x829a, 5, 1, 76));
+        tiff.extend(entry(0x9286, 7, comment.len() as u32, 84));
+        tiff.extend(0u32.to_le_bytes());
+        tiff.extend(b"Maker\0\0\0");
+        tiff.extend(2u32.to_le_bytes());
+        tiff.extend(5u32.to_le_bytes());
+        tiff.extend(&comment);
+        tiff
+    }
+
+    /// The EXIF an export of the pinned `source` embeds (Keep Metadata on),
+    /// encoded.
+    fn embedded_exif(pinned: &crate::export_processing::PinnedPhoto, source: &Path) -> Vec<u8> {
+        crate::session_bridge::with_culling_owner(pinned.owner.as_deref(), || {
+            rawtonic_export::exif_processing::export_metadata_with(
+                &source.to_string_lossy(),
+                "jpeg",
+                rawtonic_engine::output_color_space::OutputColorSpace::Srgb,
+                true,
+                false,
+                false,
+                16,
+                8,
+                false,
+                &|| pinned.exif(source),
+                &|| None,
+            )
+            .unwrap()
+            .exif
+            .encode()
+            .unwrap()
+        })
+    }
+
+    /// EXF1: a linked photo with its library state and a `.rrdata` beside
+    /// it embeds the same EXIF whether its EXIF cache is warm (the read map
+    /// cached and copied into its editor state, as earlier builds and every
+    /// edit did) or cold (cleared, another computer): the original's own
+    /// values — ExposureTime 2/5 s, not the 1/3 s shown; the whole comment
+    /// with its character code; a JPEG's native EXIF. A user's EXIF edit and
+    /// a corrected capture time still win.
     #[test]
-    fn a_library_photo_beside_its_sidecar_embeds_no_decoded_exif_as_before() {
-        let libs = two_catalogs();
-        // A's editor state outranks the sidecar file its decode writes the
-        // EXIF to: its export reads none (main's behaviour, kept).
-        std::fs::write(libs.source.with_file_name("A.jpg.rrdata"), b"{}").unwrap();
-        let path = libs.source.to_string_lossy().into_owned();
-        let pinned = &queued(request(&[path], Some(libs.a.directory.as_path()))).as_run()[0];
-        assert_eq!(
-            (pinned.exif.is_none(), pinned.exif_from_original),
-            (true, false)
-        );
-        assert_eq!(pinned.exif(&libs.source), None);
+    fn warm_and_cold_exif_caches_embed_the_originals_exif() {
+        use rawtonic_catalog::{Library, Mode};
+        for (name, bytes) in [("A.dng", raw_with_exif()), ("B.jpg", jpeg_with_exif(&[]))] {
+            let tmp = tempfile::tempdir().unwrap();
+            let root = tmp.path().canonical().unwrap();
+            let source = root.join(name);
+            std::fs::write(&source, &bytes).unwrap();
+            let lib = Library::create(&root.join("Cat"), "Cat", Mode::Catalog).unwrap();
+            let asset = lib.add_asset(&source).unwrap();
+            let path = source.to_string_lossy().into_owned();
+            let shown = crate::exif_processing::read_exif_data_from_bytes(&path, &bytes);
+            if name.ends_with(".dng") {
+                assert_eq!(shown["ExposureTime"], "1/3 s", "the map rounds");
+            }
+            assert!(shown["UserComment"].len() < 712, "{name}: the map shortens");
+            let sidecar = crate::exif_processing::get_primary_sidecar_path(&source);
+            let state = |exif: Option<&std::collections::HashMap<String, String>>| {
+                let mut state = recipe(1.0, 3, &[]);
+                if let Some(exif) = exif {
+                    state["exif"] = json!(exif);
+                }
+                lib.save_editor_state(&asset.id, &state).unwrap();
+                std::fs::write(&sidecar, state.to_string()).unwrap();
+            };
+            let embedded = || {
+                let job = queued(request(std::slice::from_ref(&path), Some(&lib.directory)));
+                embedded_exif(&job.as_run()[0], &source)
+            };
+
+            state(None);
+            let cold = embedded();
+            crate::exif_processing::read_exif_data(&path, &bytes);
+            state(Some(&shown));
+            let warm = embedded();
+            assert_eq!(warm, cold, "{name}: warm and cold caches embed the same EXIF");
+
+            let read = exif::Reader::new().read_raw(cold).unwrap();
+            let field = |tag| read.get_field(tag, exif::In::PRIMARY).map(|f| f.value.clone());
+            match field(exif::Tag::ExposureTime) {
+                Some(exif::Value::Rational(v)) => {
+                    assert_eq!((v[0].num, v[0].denom), (2, 5), "{name}")
+                }
+                other => panic!("{name}: ExposureTime {other:?}"),
+            }
+            assert!(
+                matches!(field(exif::Tag::UserComment),
+                    Some(exif::Value::Undefined(v, _)) if v == long_comment()),
+                "{name}: the whole comment with its code"
+            );
+            assert!(
+                matches!(field(exif::Tag::Make),
+                    Some(exif::Value::Ascii(v)) if v[0] == b"Maker"),
+                "{name}"
+            );
+
+            // The user's comment edit and a corrected capture time win.
+            let mut edited = shown.clone();
+            edited.insert("UserComment".into(), "Edited".into());
+            state(Some(&edited));
+            let job = queued(request(std::slice::from_ref(&path), Some(&lib.directory)));
+            let mut pinned = job.as_run()[0].clone();
+            pinned.capture = Some(rawtonic_catalog::capture_time::CaptureTime {
+                local: "2026-10-31 00:30:00".into(),
+                subsec: None,
+                offset: None,
+            });
+            let read = exif::Reader::new()
+                .read_raw(embedded_exif(&pinned, &source))
+                .unwrap();
+            let field = |tag| read.get_field(tag, exif::In::PRIMARY).map(|f| f.value.clone());
+            assert!(
+                matches!(field(exif::Tag::UserComment),
+                    Some(exif::Value::Undefined(v, _)) if v == b"ASCII\0\0\0Edited"),
+                "{name}: {:?}",
+                field(exif::Tag::UserComment)
+            );
+            assert!(
+                matches!(field(exif::Tag::DateTimeOriginal),
+                    Some(exif::Value::Ascii(v)) if v[0] == b"2026:10:31 00:30:00"),
+                "{name}: {:?}",
+                field(exif::Tag::DateTimeOriginal)
+            );
+            match field(exif::Tag::ExposureTime) {
+                Some(exif::Value::Rational(v)) => {
+                    assert_eq!((v[0].num, v[0].denom), (2, 5), "{name}")
+                }
+                other => panic!("{name}: ExposureTime {other:?}"),
+            }
+        }
     }
 
     #[test]
