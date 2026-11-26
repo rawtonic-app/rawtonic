@@ -756,7 +756,10 @@ pub fn use_low_peak_subject(total_memory: u64, onnx_on_cpu: impl FnOnce() -> boo
 
 /// Whether BiRefNet's ONNX graph at `path` would run on the CPU in this
 /// process: every model stays there (`models_run_on_cpu_only`), or no GPU
-/// provider would take it (`runs_on_gpu`).
+/// provider would take it (`runs_on_gpu`). Not covered (they keep the usual
+/// graph and plan): a GPU whose check has not run yet counts as the GPU,
+/// though the model runs on the CPU until the check passes; a model that
+/// moves to the CPU after its GPU failed.
 pub fn subject_onnx_on_cpu(path: &Path) -> bool {
     rawtonic_onnx::models_run_on_cpu_only()
         || !rawtonic_onnx::runs_on_gpu(path, rawtonic_onnx::ModelKind::Subject)
@@ -783,6 +786,18 @@ impl SubjectModel {
                 rawtonic_onnx::ModelKind::Subject,
             )?),
         })
+    }
+
+    /// Runs the low-peak graph with the low-peak memory plan
+    /// (`onnx_low_peak`).
+    pub fn low_peak(&self) -> bool {
+        match &self.backend {
+            SubjectBackend::Onnx(model) => {
+                model.memory_plan() == rawtonic_onnx::MemoryPlan::LowPeak
+            }
+            #[cfg(target_os = "macos")]
+            SubjectBackend::CoreMl(_) => false,
+        }
     }
 
     /// Run options for `probability` (`RunOptions::terminate` stops a run

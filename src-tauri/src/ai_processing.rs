@@ -1389,13 +1389,14 @@ pub fn mask_model_installed(app_handle: &tauri::AppHandle, sky: bool) -> bool {
             return true;
         }
     }
-    let (onnx, sha) = if sky {
-        (SKYSEG_FILENAME, SKYSEG_SHA256)
+    let installed = if sky {
+        verified(SKYSEG_FILENAME, SKYSEG_SHA256)
     } else {
+        // Either Subject graph serves (`get_or_init_subject_model`).
         let file = subject_onnx_file(&models_dir);
-        (file.name, file.sha256)
+        verified(file.name, file.sha256) || verified(SUBJECT_FILENAME, SUBJECT_SHA256)
     };
-    verified(onnx, sha) && ensure_local_runtime().is_ok()
+    installed && ensure_local_runtime().is_ok()
 }
 
 /// The Subject ONNX graph this machine runs.
@@ -1422,12 +1423,16 @@ fn subject_onnx_file(models_dir: &Path) -> SubjectOnnxFile {
             low_peak: true,
         }
     } else {
-        SubjectOnnxFile {
-            name: SUBJECT_FILENAME,
-            sha256: SUBJECT_SHA256,
-            low_peak: false,
-        }
+        SubjectOnnxFile::USUAL
     }
+}
+
+impl SubjectOnnxFile {
+    const USUAL: Self = Self {
+        name: SUBJECT_FILENAME,
+        sha256: SUBJECT_SHA256,
+        low_peak: false,
+    };
 }
 
 /// BiRefNet for Subject and Background masks. With `download` false (a
@@ -1443,7 +1448,17 @@ pub async fn get_or_init_subject_model(
             .as_ref()
             .and_then(|state| state.subject_model.clone())
     };
-    if let Some(model) = loaded() {
+    let models_dir = get_models_dir(app_handle)?;
+    // The usual graph loaded where the low-peak one is preferred (the
+    // installed fallback, e.g. loaded ahead before the low-peak file was
+    // downloaded): a request that may download replaces it, or it would
+    // stay for good.
+    let replace = |model: &SubjectModel| {
+        download && model.on_onnx() && !model.low_peak() && subject_onnx_file(&models_dir).low_peak
+    };
+    if let Some(model) = loaded()
+        && !replace(&model)
+    {
         return Ok(Some(model));
     }
     let lock_wait = std::time::Instant::now();
@@ -1452,11 +1467,13 @@ pub async fn get_or_init_subject_model(
         "AI subject mask: init lock wait {} ms",
         lock_wait.elapsed().as_millis()
     );
-    if let Some(model) = loaded() {
-        return Ok(Some(model));
+    let fallback = loaded();
+    if let Some(model) = &fallback
+        && !replace(model)
+    {
+        return Ok(Some(model.clone()));
     }
     let generation = ai_state.lifecycle.generation();
-    let models_dir = get_models_dir(app_handle)?;
     let start = std::time::Instant::now();
     #[cfg(target_os = "macos")]
     let core_ml = load_subject_core_ml(app_handle, &models_dir, download).await;
@@ -1471,7 +1488,58 @@ pub async fn get_or_init_subject_model(
                 "AI subject mask: ONNX Runtime check {} ms",
                 runtime_start.elapsed().as_millis()
             );
-            let file = subject_onnx_file(&models_dir);
+            let preferred = subject_onnx_file(&models_dir);
+            let installed = |file: SubjectOnnxFile| {
+                verify_sha256(&models_dir.join(file.name), file.sha256).unwrap_or(false)
+            };
+            // The low-peak file when it can be had, else the usual one if
+            // installed: an update must not stop Subject offline or an
+            // export's pending selection that worked before.
+            let file = if !preferred.low_peak || installed(preferred) {
+                preferred
+            } else if download && runtime.is_ok() {
+                match download_verified(
+                    app_handle,
+                    &models_dir,
+                    preferred.name,
+                    preferred.sha256,
+                    "Subject Model",
+                )
+                .await
+                {
+                    Ok(()) => preferred,
+                    Err(e) => {
+                        if let Some(model) = fallback.clone() {
+                            log::warn!(
+                                "AI subject mask: low-peak model not downloaded ({e:#}); the loaded model stays"
+                            );
+                            return Ok(Some(model));
+                        }
+                        if !installed(SubjectOnnxFile::USUAL) {
+                            return Err(e);
+                        }
+                        log::warn!(
+                            "AI subject mask: low-peak model not downloaded ({e:#}); the installed usual model runs"
+                        );
+                        SubjectOnnxFile::USUAL
+                    }
+                }
+            } else if installed(SubjectOnnxFile::USUAL) {
+                log::info!(
+                    "AI subject mask: low-peak model not installed; the installed usual model runs until a request downloads it"
+                );
+                SubjectOnnxFile::USUAL
+            } else {
+                preferred
+            };
+            if file.low_peak && fallback.is_some() {
+                // The usual model goes before the low-peak one loads.
+                if let Some(ai) = lock_recover(&ai_state.models).as_mut() {
+                    ai.subject_model = None;
+                }
+                drop(fallback);
+                log::info!("AI subject mask: the usual model is replaced by the low-peak one");
+            }
             let path = models_dir.join(file.name);
             let file_start = std::time::Instant::now();
             let skip = if download {
@@ -4229,9 +4297,10 @@ mod tool_tests {
             };
             let (a, t_a) = select(&usual);
             let (b, t_b) = select(&low_peak);
-            let (mut differ, mut inter, mut union) = (0u64, 0u64, 0u64);
+            let (mut differ, mut largest, mut inter, mut union) = (0u64, 0u8, 0u64, 0u64);
             for (p, q) in a.pixels().zip(b.pixels()) {
                 differ += (p[0] != q[0]) as u64;
+                largest = largest.max(p[0].abs_diff(q[0]));
                 let (p, q) = (p[0] >= 128, q[0] >= 128);
                 inter += (p && q) as u64;
                 union += (p || q) as u64;
@@ -4242,7 +4311,7 @@ mod tool_tests {
                 inter as f64 / union as f64
             };
             println!(
-                "{path}\t{} px\tcodes differing {differ}\tIoU {iou:.6}\tusual {t_a:.2} s\tlow peak {t_b:.2} s",
+                "{path}\t{} px\tcodes differing {differ} (at most {largest})\tIoU {iou:.6}\tusual {t_a:.2} s\tlow peak {t_b:.2} s",
                 a.width() as u64 * a.height() as u64
             );
         }
