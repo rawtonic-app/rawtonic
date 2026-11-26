@@ -3,6 +3,7 @@ import type { ComponentProps } from 'react';
 import '../../../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import ImageCanvas from './ImageCanvas';
+import { createCropSelection } from './cropSelection';
 import { INITIAL_ADJUSTMENTS } from '../../../utils/adjustments';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { usePointerSampleStore } from '../../../utils/pointerSample';
@@ -49,7 +50,7 @@ function renderCanvas(
     activeMaskId: null,
     adjustments: INITIAL_ADJUSTMENTS,
     brushSettings: null,
-    crop: null,
+    cropSelection: createCropSelection(),
     finalPreviewUrl: 'blob:frame',
     handleCropComplete: noop,
     imageRenderSize: size,

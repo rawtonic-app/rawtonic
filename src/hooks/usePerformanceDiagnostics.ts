@@ -95,7 +95,7 @@ export function latestPointerDispatchTime() {
 }
 
 // Render queues whose counters a pointer session reports (profiling builds).
-type QueueName = 'preview' | 'overlay';
+type QueueName = 'preview' | 'overlay' | 'crop';
 type QueueStats = Pick<LatestPreviewQueue<unknown>, 'stats'>;
 const diagnosticQueues = new Map<QueueName, QueueStats>();
 export function registerDiagnosticQueue(name: QueueName, queue: QueueStats) {
@@ -133,6 +133,56 @@ interface PointerSession {
   strokeSends: number;
   strokeDropped: number;
   strokePoints: number;
+  /** Crop drags: the frame's rectangle and the pointer at the press, and
+   * the pointer of every move, to tell which move a drawn frame shows. */
+  cropTrack: CropTrack | null;
+}
+interface CropTrack {
+  rect: DOMRect;
+  x: number;
+  y: number;
+  last: string;
+  /** The axis the dragged handle follows: x for the side handles e/w, y
+   * for n/s, null (the pointer's axis) for corners and moving the frame. */
+  axis: 'x' | 'y' | null;
+  moves: { time: number; x: number; y: number }[];
+}
+
+function cropHandleAxis(target: EventTarget | null): 'x' | 'y' | null {
+  const ord = target instanceof Element ? target.closest('[data-ord]')?.getAttribute('data-ord') : null;
+  return ord === 'e' || ord === 'w' ? 'x' : ord === 'n' || ord === 's' ? 'y' : null;
+}
+
+function cropSelectionRect() {
+  return document.querySelector('[data-crop-layer] .ReactCrop__crop-selection')?.getBoundingClientRect() ?? null;
+}
+
+/** The move a frame of the crop drag shows: the newest move whose pointer
+ * offset equals how far the frame's edge followed it, on the axis of the
+ * dragged side handle, else the one the pointer moved along (of that axis,
+ * the edge that moved further; a resize moves one edge, a move both). The time from that move to this animation
+ * frame is the overlay's lag. A rotation drag fits the frame to the turned
+ * photo instead of following the pointer: no samples then. */
+function cropFrameLag(track: CropTrack, now: number): number | null {
+  if (useEditorStore.getState().liveRotation != null) return null;
+  const rect = cropSelectionRect();
+  const latest = track.moves[track.moves.length - 1];
+  if (!rect || !latest) return null;
+  const key = `${rect.left},${rect.top},${rect.right},${rect.bottom}`;
+  if (key === track.last) return null;
+  track.last = key;
+  const further = (a: number, b: number) => (Math.abs(a) > Math.abs(b) ? a : b);
+  const horizontal = track.axis ? track.axis === 'x' : Math.abs(latest.x - track.x) >= Math.abs(latest.y - track.y);
+  const delta = horizontal
+    ? further(rect.left - track.rect.left, rect.right - track.rect.right)
+    : further(rect.top - track.rect.top, rect.bottom - track.rect.bottom);
+  if (Math.abs(delta) < 1) return null;
+  for (let i = track.moves.length - 1; i >= 0; i--) {
+    const move = track.moves[i];
+    const offset = horizontal ? move.x - track.x : move.y - track.y;
+    if (Math.abs(offset - delta) <= 0.75) return now - move.time;
+  }
+  return null;
 }
 let pointerSession: PointerSession | null = null;
 
@@ -177,7 +227,7 @@ function finishPointerSession(session: PointerSession) {
     0.5
   );
   const queues: Record<string, number> = {};
-  for (const name of ['preview', 'overlay'] as const) {
+  for (const name of ['preview', 'overlay', 'crop'] as const) {
     const stats = diagnosticQueues.get(name)?.stats;
     const start = session.queueStart.get(name);
     queues[`${name}_submitted`] = stats && start ? stats.submitted - start.submitted : 0;
@@ -335,6 +385,7 @@ export function usePerformanceDiagnostics() {
         session.moveTimes.push(latestPointerInput);
         session.dispatchTimes.push(performance.now());
         session.movesThisFrame++;
+        session.cropTrack?.moves.push({ time: latestPointerInput, x: event.clientX, y: event.clientY });
         if (session.coalesced >= 0) session.coalesced += event.getCoalescedEvents().length;
       }
     };
@@ -348,16 +399,18 @@ export function usePerformanceDiagnostics() {
       // Sessions cover drags on the canvas, Develop's sliders and its curves.
       const slider = event.target instanceof HTMLInputElement && event.target.type === 'range';
       const curve = event.target instanceof Element && event.target.closest('.studio-curve svg') !== null;
+      // The crop tool's frame, handles and the band around it (rotation).
+      const crop = event.target instanceof Element && event.target.closest('[data-crop-layer]') !== null;
       if (
         event.button !== 0 ||
-        !(slider || curve || event.target instanceof HTMLCanvasElement) ||
+        !(slider || curve || crop || event.target instanceof HTMLCanvasElement) ||
         useUIStore.getState().activeView !== 'editor'
       )
         return;
       startRenderCensus();
       pointerSession = {
         pointerType: event.pointerType,
-        maskType: slider ? 'slider' : curve ? 'curve' : activeMaskType(),
+        maskType: slider ? 'slider' : curve ? 'curve' : crop ? 'crop' : activeMaskType(),
         started: performance.now(),
         ended: 0,
         moveTimes: [],
@@ -367,15 +420,26 @@ export function usePerformanceDiagnostics() {
         movesPerFrame: [],
         movesThisFrame: 0,
         queueStart: new Map(Array.from(diagnosticQueues, ([name, queue]) => [name, { ...queue.stats }])),
-        inputMs: { preview: [], overlay: [] },
+        inputMs: { preview: [], overlay: [], crop: [] },
         commits: [],
         commitIds: {},
         slowFrames: [],
         histograms: [],
         strokeSends: 0,
         strokeDropped: 0,
-        strokePoints: 0
+        strokePoints: 0,
+        cropTrack: null
       };
+      const cropRect = crop ? cropSelectionRect() : null;
+      if (cropRect)
+        pointerSession.cropTrack = {
+          rect: cropRect,
+          x: event.clientX,
+          y: event.clientY,
+          last: '',
+          axis: cropHandleAxis(event.target),
+          moves: []
+        };
     };
     const pointerUp = () => {
       const session = pointerSession;
@@ -408,6 +472,10 @@ export function usePerformanceDiagnostics() {
           if (now - previousFrame > 20)
             session.slowFrames.push([Math.round(now - session.started), Math.round(now - previousFrame)]);
           session.movesPerFrame.push(session.movesThisFrame);
+          if (session.cropTrack) {
+            const lag = cropFrameLag(session.cropTrack, now);
+            if (lag !== null && lag > 0) session.inputMs.crop.push(lag);
+          }
           session.movesThisFrame = 0;
         }
       }

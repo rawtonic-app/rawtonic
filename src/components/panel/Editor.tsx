@@ -67,6 +67,7 @@ import {
 } from '../../utils/viewerDisplay';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { viewerBackgroundMenu } from './editor/viewerBackgroundMenu';
+import { createCropSelection } from './editor/cropSelection';
 
 const parseRgb = (rgbStr: string): [number, number, number, number] => {
   const match = rgbStr.match(/[\d.]+/g);
@@ -215,7 +216,10 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const { handleGenerateAiMask } = useAiMasking();
   useUndecidedFrame();
 
-  const [crop, setCrop] = useState<Crop | null>(null);
+  // The frame the crop tool shows: a store of its own, so that a drag step
+  // re-renders only the frame, not the editor (editor/cropSelection.ts).
+  const [cropSelection] = useState(createCropSelection);
+  const setCrop = useCallback((next: Crop | null) => cropSelection.setState({ crop: next }), [cropSelection]);
   const prevCropParams = useRef<{ rotation: number; aspectRatio: number | null; orientationSteps: number } | null>(
     null
   );
@@ -1672,7 +1676,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       showOriginal,
       cropBox,
       cropRotation,
-      crop: crop ?? adjustments.crop,
+      crop: cropSelection.getState().crop ?? adjustments.crop,
       bgPrimary: isFullScreen ? viewerRgba : parseRgb(bgPrimaryStr),
       // Only the native backdrop receives the dimming. It follows the
       // photograph's actual placement even while a transform is in flight.
@@ -1693,7 +1697,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     showOriginal,
     cropBox,
     cropRotation,
-    crop,
+    cropSelection,
     adjustments.crop,
     finalPreviewUrl
   ]);
@@ -1715,7 +1719,6 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     showOriginal,
     cropBox,
     cropRotation,
-    crop,
     adjustments.crop,
     finalPreviewUrl,
     transformState,
@@ -1945,6 +1948,16 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       resizeObserver.observe(container);
     }
     window.addEventListener('resize', scheduleSync);
+    // The crop frame moves with every drag step without rendering the
+    // editor: its placement goes to the display from here.
+    const unsubscribeCrop = cropSelection.subscribe((selection, previous) => {
+      if (selection.crop === previous.crop) return;
+      wgpuStateRef.current = {
+        ...wgpuStateRef.current,
+        crop: selection.crop ?? useEditorStore.getState().adjustments.crop
+      };
+      scheduleSync();
+    });
     const unsubscribeSplit = useEditorStore.subscribe((editor, previous) => {
       if (
         editor.splitView !== previous.splitView ||
@@ -1973,6 +1986,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
     return () => {
       isEffectActive = false;
+      unsubscribeCrop();
       unsubscribeSplit();
       unsubscribeLayout();
       stopRecovered();
@@ -1983,7 +1997,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       resizeObserver.disconnect();
       window.removeEventListener('resize', scheduleSync);
     };
-  }, []);
+  }, [cropSelection]);
 
   // Right-click on the empty area around the photograph chooses the viewer
   // background (Capture One); on the photograph the editor's menu opens.
@@ -2615,7 +2629,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         lastValidCropRef.current = finalCrop;
       }
     },
-    [selectedImage, adjustments.orientationSteps, adjustments.rotation, adjustments.aspectRatio, liveRotation]
+    [selectedImage, adjustments.orientationSteps, adjustments.rotation, adjustments.aspectRatio, liveRotation, setCrop]
   );
 
   const handleCropComplete = useCallback(
@@ -2844,7 +2858,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
               activeMaskId={activeMaskId}
               adjustments={adjustments}
               brushSettings={brushSettings}
-              crop={crop}
+              cropSelection={cropSelection}
               finalPreviewUrl={finalPreviewUrl}
               handleCropComplete={handleCropComplete}
               imageRenderSize={imageRenderSize}
