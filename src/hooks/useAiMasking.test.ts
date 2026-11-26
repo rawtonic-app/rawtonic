@@ -1291,10 +1291,24 @@ describe('Subject computed ahead when the masking tools open', () => {
     ]);
   });
 
-  it('asks again when the tools open after the backend dropped a mask made ahead', async () => {
-    // Held too long for the decodes or memory: the backend answers false.
+  it('goes on to Sky when Subject is unavailable (its model not installed)', async () => {
     invoke.mockImplementation((command: string) =>
-      Promise.resolve(command === 'precompute_ai_foreground_mask' ? false : null)
+      Promise.resolve(command === 'precompute_ai_foreground_mask' ? 'unavailable' : 'ready')
+    );
+    photo('/s/a.NEF');
+    renderHook(() => useAiMasking());
+    pointAtMaskingTools();
+    await waitFor(() => expect(calls('precompute_ai_subject_mask')).toHaveLength(1));
+    expect(calls('precompute_ai_sky_mask')).toHaveLength(1);
+    // Nothing to ask for again: the same photo is not run twice.
+    openMaskingTools();
+    expect(calls('precompute_ai_foreground_mask')).toHaveLength(1);
+  });
+
+  it('asks again when the tools open after the backend dropped a mask made ahead', async () => {
+    // Held too long for the decodes or memory: the backend answers 'dropped'.
+    invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === 'precompute_ai_foreground_mask' ? 'dropped' : null)
     );
     photo('/s/a.NEF');
     renderHook(() => useAiMasking());

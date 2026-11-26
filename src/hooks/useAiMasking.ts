@@ -50,6 +50,10 @@ const retouchBasis = (a: Adjustments) => {
  * spare, `ai_ahead`). */
 let maskPrecompute: { key: string; taskId: string; running: boolean; cancelled: boolean; asked: boolean } | null = null;
 
+/** What a mask made ahead came to (`precompute_ai_foreground_mask`,
+ * `precompute_ai_sky_mask`). */
+type AheadMask = 'ready' | 'unavailable' | 'dropped';
+
 /** What an Object selection request checks it still stands on: whether
  * the component is there, its mask, its prompts and a recipe's one box. */
 interface ObjectSelection {
@@ -274,14 +278,15 @@ export function precomputeAiMasks(asked = false) {
   };
   maskPrecompute = run;
   let failed = false;
-  // The backend answers false when it did not compute the mask (made ahead,
-  // it was held too long for the photo's decodes or memory): the later
-  // stages are left too, and the run may be asked for again (opening the
-  // masking tools then asks for all of it).
+  // The backend answers 'dropped' when it did not compute the mask for now
+  // (made ahead, it was held too long for the photo's decodes or memory):
+  // the later stages are left too, and the run may be asked for again
+  // (opening the masking tools then asks for all of it). 'unavailable' (its
+  // model is not installed, the photo changed) goes on with the next stage.
   let dropped = false;
-  invoke<boolean>(Invokes.PrecomputeAiForegroundMask, { jsAdjustments, path, taskId: run.taskId, asked: run.asked })
+  invoke<AheadMask>(Invokes.PrecomputeAiForegroundMask, { jsAdjustments, path, taskId: run.taskId, asked: run.asked })
     .then((done) => {
-      if (done === false) dropped = true;
+      if (done === 'dropped') dropped = true;
     })
     .catch((err) => {
       console.error('Failed to precompute the subject mask:', err);
@@ -292,13 +297,13 @@ export function precomputeAiMasks(asked = false) {
       // Subject ran for a photo that stayed open: the models are warm.
       firstPhotoOfVisit = false;
       run.taskId = `sky-precompute-${crypto.randomUUID()}`;
-      return invoke<boolean>(Invokes.PrecomputeAiSkyMask, {
+      return invoke<AheadMask>(Invokes.PrecomputeAiSkyMask, {
         jsAdjustments,
         path,
         taskId: run.taskId,
         asked: run.asked
       }).then((done) => {
-        if (done === false) dropped = true;
+        if (done === 'dropped') dropped = true;
       });
     })
     .catch((err) => {

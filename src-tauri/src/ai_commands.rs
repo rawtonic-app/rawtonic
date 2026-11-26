@@ -1510,6 +1510,21 @@ fn ahead_photo_skip(current: Option<&str>, requested: &str) -> Option<&'static s
     }
 }
 
+/// What a mask made ahead (`precompute`) came to, for the webview.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AheadMask {
+    /// The mask is there (computed or cached).
+    Ready,
+    /// Not computed, and asking again for this photo would not change that:
+    /// its model is not installed, the photo changed, the run was cancelled.
+    Unavailable,
+    /// Not computed for now: held too long for the photo's decodes or the
+    /// memory, or the system was short of memory. Opening the masking tools
+    /// asks for it again.
+    Dropped,
+}
+
 /// The path of the photo whose full decode is loaded, without waiting.
 fn current_photo(source: &crate::state::source::SourceState) -> Option<String> {
     lock_recover(&source.original_image)
@@ -1560,7 +1575,7 @@ async fn precompute(
     state: tauri::State<'_, AppState>,
     ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
-) -> Result<bool, String> {
+) -> Result<AheadMask, String> {
     // Before any wait: opening the masking tools meanwhile starts it.
     let asked_at = crate::ai_ahead::asked_count();
     let _guard = task_id
@@ -1573,7 +1588,7 @@ async fn precompute(
         .map(|l| l.path);
     if let Some(reason) = ahead_photo_skip(current.as_deref(), &path) {
         log::info!("AI {} mask: not computed ahead, {reason}", kind.name());
-        return Ok(false);
+        return Ok(AheadMask::Unavailable);
     }
     // Ahead of a click only with memory to spare: a run holds about 1.6 GB
     // on Core ML (and loads the model if it is not loaded).
@@ -1582,7 +1597,7 @@ async fn precompute(
             "AI {} mask: not computed ahead, the system is short of memory",
             kind.name()
         );
-        return Ok(false);
+        return Ok(AheadMask::Dropped);
     }
     // Ahead of a click on a new selection: the current Subject version.
     let version = rawtonic_segment::SUBJECT_VERSION;
@@ -1612,7 +1627,10 @@ async fn precompute(
             Ok(run) => _ahead = Some(run),
             Err(why) => {
                 log::info!("AI {} mask: not computed ahead, {why:?}", kind.name());
-                return Ok(false);
+                return Ok(match why {
+                    crate::ai_ahead::NotStarted::TimedOut(_) => AheadMask::Dropped,
+                    crate::ai_ahead::NotStarted::GaveUp(_) => AheadMask::Unavailable,
+                });
             }
         }
     }
@@ -1636,16 +1654,16 @@ async fn precompute(
                 kind.name(),
                 start.elapsed().as_millis()
             );
-            Ok(true)
+            Ok(AheadMask::Ready)
         }
-        Ok(None) => Ok(false),
+        Ok(None) => Ok(AheadMask::Unavailable),
         Err(_) if cancel.is_some_and(|t| t.is_cancelled()) => {
             log::info!(
                 "AI {} mask: background run of {path} cancelled after {} ms",
                 kind.name(),
                 start.elapsed().as_millis()
             );
-            Ok(false)
+            Ok(AheadMask::Unavailable)
         }
         Err(e) => {
             log::warn!("AI {} mask: ahead computation failed: {e}", kind.name());
@@ -1656,9 +1674,8 @@ async fn precompute(
 
 /// Subject/Background ahead of the click (`precompute`): asked for when the
 /// masking tools are open, or when a photo opens after they were used.
-/// `true` when the mask is there (computed or cached); `false` when it was
-/// not computed (held too long for the decodes or memory, the photo
-/// changed, no model installed): the webview may ask again.
+/// What it came to (`AheadMask`): a dropped one is asked for again when the
+/// masking tools open.
 #[tauri::command]
 pub async fn precompute_ai_foreground_mask(
     js_adjustments: serde_json::Value,
@@ -1668,7 +1685,7 @@ pub async fn precompute_ai_foreground_mask(
     state: tauri::State<'_, AppState>,
     ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
-) -> Result<bool, String> {
+) -> Result<AheadMask, String> {
     precompute(
         AutoMask::Subject,
         js_adjustments,
@@ -1692,7 +1709,7 @@ pub async fn precompute_ai_sky_mask(
     state: tauri::State<'_, AppState>,
     ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
-) -> Result<bool, String> {
+) -> Result<AheadMask, String> {
     precompute(
         AutoMask::Sky,
         js_adjustments,
@@ -1748,10 +1765,10 @@ pub async fn preload_ai_mask_models(
         log::info!("AI masks: models not loaded ahead, the system is short of memory");
         return Ok(());
     }
-    // Before any wait: an unload meanwhile (the Library) stops it, opening
-    // the masking tools meanwhile starts it.
+    // Before any wait: an unload meanwhile (the Library) stops it. Never
+    // asked for: opening the masking tools starts the photo's masks, which
+    // load the model themselves.
     let generation = ai_state.lifecycle.generation();
-    let asked_at = crate::ai_ahead::asked_count();
     let _running = ai_state.lifecycle.run();
     let on_cpu = rawtonic_onnx::models_run_on_cpu_only();
     if on_cpu {
@@ -1773,14 +1790,18 @@ pub async fn preload_ai_mask_models(
             AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
         };
         let need = crate::ai_ahead::estimated_peak(job, on_cpu, false);
-        let asked = || crate::ai_ahead::asked_since(asked_at, None);
-        let admitted = crate::ai_ahead::admit(job, asked, need, || {
-            if ai_state.lifecycle.generation() != generation {
-                return Some("the models were unloaded");
-            }
-            // The photo's mask made ahead loaded it meanwhile.
-            model_loaded(&ai_state, kind).then_some(LOADED_MEANWHILE)
-        })
+        let admitted = crate::ai_ahead::admit(
+            job,
+            || false,
+            need,
+            || {
+                if ai_state.lifecycle.generation() != generation {
+                    return Some("the models were unloaded");
+                }
+                // The photo's mask made ahead loaded it meanwhile.
+                model_loaded(&ai_state, kind).then_some(LOADED_MEANWHILE)
+            },
+        )
         .await;
         let _ahead = match admitted {
             Ok(run) => run,
@@ -1797,11 +1818,22 @@ pub async fn preload_ai_mask_models(
             return Ok(());
         }
         let start = std::time::Instant::now();
-        if network(&ai_state, &app_handle, kind, false)
+        let loaded = network(&ai_state, &app_handle, kind, false)
             .await
-            .inspect_err(|e| log::warn!("AI {name} mask: ahead model load failed: {e}"))?
-            .is_some()
-        {
+            .inspect_err(|e| log::warn!("AI {name} mask: ahead model load failed: {e}"))?;
+        // Unloaded while the loader waited (it reads the generation once it
+        // runs, after another load of the model ended): what it kept for
+        // this preload goes again.
+        if ai_state.lifecycle.generation() != generation {
+            if let Some(network) = &loaded
+                && let Some(ai) = lock_recover(&ai_state.models).as_mut()
+            {
+                release_network(ai, network);
+            }
+            log::info!("AI {name} mask: model not kept ahead, the models were unloaded");
+            return Ok(());
+        }
+        if loaded.is_some() {
             log::info!(
                 "AI {name} mask: model ready ahead after {} ms",
                 start.elapsed().as_millis()
@@ -2218,6 +2250,18 @@ pub async fn load_relight_pattern(path: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn masks_made_ahead_tell_the_webview_which_to_ask_for_again() {
+        // `useAiMasking` asks again for 'dropped' only.
+        for (outcome, name) in [
+            (super::AheadMask::Ready, "ready"),
+            (super::AheadMask::Unavailable, "unavailable"),
+            (super::AheadMask::Dropped, "dropped"),
+        ] {
+            assert_eq!(serde_json::to_value(outcome).unwrap(), name);
+        }
+    }
+
     #[test]
     fn ahead_masks_report_why_the_requested_photo_is_unavailable() {
         assert_eq!(
