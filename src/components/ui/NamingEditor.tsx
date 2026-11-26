@@ -1,6 +1,6 @@
 import { DndContext, DragOverlay, PointerSensor, pointerWithin, useSensor, useSensors } from '@dnd-kit/core';
 import { NamingDragButton, NamingDropSlot, type NamingDragData } from './NamingDrag';
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BookmarkPlus, Plus, X } from 'lucide-react';
 import {
@@ -589,6 +589,46 @@ function TokenPicker({
     document.addEventListener('pointerdown', outside);
     return () => document.removeEventListener('pointerdown', outside);
   }, [open]);
+  const [placement, setPlacement] = useState({ above: false, height: 380 });
+  useLayoutEffect(() => {
+    const anchor = root.current;
+    if (!open || !anchor) return;
+    const clippingParents: HTMLElement[] = [];
+    for (let parent = anchor.parentElement; parent; parent = parent.parentElement) {
+      if (/^(auto|scroll|hidden|clip|overlay)$/.test(getComputedStyle(parent).overflowY)) {
+        clippingParents.push(parent);
+      }
+    }
+    const position = () => {
+      const rect = anchor.getBoundingClientRect();
+      let top = 0;
+      let bottom = window.innerHeight;
+      for (const parent of clippingParents) {
+        const start = parent.getBoundingClientRect().top + parent.clientTop;
+        top = Math.max(top, start);
+        bottom = Math.min(bottom, start + parent.clientHeight);
+      }
+      const below = bottom - rect.bottom - 4;
+      const above = rect.top - top - 4;
+      const preferred = Math.min(380, window.innerHeight * 0.6);
+      const opensAbove = below < preferred && above > below;
+      const height = Math.max(0, Math.min(preferred, opensAbove ? above : below));
+      setPlacement((previous) =>
+        previous.above === opensAbove && previous.height === height ? previous : { above: opensAbove, height }
+      );
+    };
+    position();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(position);
+    observer?.observe(anchor);
+    clippingParents.forEach((parent) => observer?.observe(parent));
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
+    };
+  }, [open]);
   const needle = query.trim().toLowerCase();
   const matches = (name: string, value: string) =>
     !needle || name.toLowerCase().includes(needle) || value.toLowerCase().includes(needle);
@@ -652,6 +692,10 @@ function TokenPicker({
       {open && (
         <div
           className="naming-popover"
+          style={{
+            [placement.above ? 'bottom' : 'top']: 'calc(100% + 4px)',
+            maxHeight: placement.height
+          }}
           id={`${id}-tokens`}
           data-escape-local
           role="dialog"

@@ -296,6 +296,8 @@
   padding: 0;
 }
 .naming-picker {
+  /* Keep the popup anchor as tall as the wrapped field. */
+  align-self: stretch;
   position: relative;
   flex: 0 0 auto;
 }
@@ -308,7 +310,6 @@
 }
 .naming-popover {
   position: absolute;
-  top: calc(100% + 4px);
   right: 0;
   z-index: 60;
   display: grid;
@@ -316,7 +317,6 @@
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 6px;
   width: 290px;
-  max-height: min(380px, 60vh);
   padding: 8px;
   border: 1px solid var(--naming-line);
   border-radius: 6px;
