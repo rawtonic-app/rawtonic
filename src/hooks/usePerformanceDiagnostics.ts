@@ -142,7 +142,15 @@ interface CropTrack {
   x: number;
   y: number;
   last: string;
+  /** The axis the dragged handle follows: x for the side handles e/w, y
+   * for n/s, null (the pointer's axis) for corners and moving the frame. */
+  axis: 'x' | 'y' | null;
   moves: { time: number; x: number; y: number }[];
+}
+
+function cropHandleAxis(target: EventTarget | null): 'x' | 'y' | null {
+  const ord = target instanceof Element ? target.closest('[data-ord]')?.getAttribute('data-ord') : null;
+  return ord === 'e' || ord === 'w' ? 'x' : ord === 'n' || ord === 's' ? 'y' : null;
 }
 
 function cropSelectionRect() {
@@ -150,9 +158,9 @@ function cropSelectionRect() {
 }
 
 /** The move a frame of the crop drag shows: the newest move whose pointer
- * offset equals how far the frame's edge followed it, on the axis the
- * pointer moved along (of that axis, the edge that moved further; a resize
- * moves one edge, a move both). The time from that move to this animation
+ * offset equals how far the frame's edge followed it, on the axis of the
+ * dragged side handle, else the one the pointer moved along (of that axis,
+ * the edge that moved further; a resize moves one edge, a move both). The time from that move to this animation
  * frame is the overlay's lag. A rotation drag fits the frame to the turned
  * photo instead of following the pointer: no samples then. */
 function cropFrameLag(track: CropTrack, now: number): number | null {
@@ -164,7 +172,7 @@ function cropFrameLag(track: CropTrack, now: number): number | null {
   if (key === track.last) return null;
   track.last = key;
   const further = (a: number, b: number) => (Math.abs(a) > Math.abs(b) ? a : b);
-  const horizontal = Math.abs(latest.x - track.x) >= Math.abs(latest.y - track.y);
+  const horizontal = track.axis ? track.axis === 'x' : Math.abs(latest.x - track.x) >= Math.abs(latest.y - track.y);
   const delta = horizontal
     ? further(rect.left - track.rect.left, rect.right - track.rect.right)
     : further(rect.top - track.rect.top, rect.bottom - track.rect.bottom);
@@ -424,7 +432,14 @@ export function usePerformanceDiagnostics() {
       };
       const cropRect = crop ? cropSelectionRect() : null;
       if (cropRect)
-        pointerSession.cropTrack = { rect: cropRect, x: event.clientX, y: event.clientY, last: '', moves: [] };
+        pointerSession.cropTrack = {
+          rect: cropRect,
+          x: event.clientX,
+          y: event.clientY,
+          last: '',
+          axis: cropHandleAxis(event.target),
+          moves: []
+        };
     };
     const pointerUp = () => {
       const session = pointerSession;
