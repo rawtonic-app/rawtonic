@@ -4338,14 +4338,22 @@ fn create_window_texture(
     Ok(texture)
 }
 
-/// Whether the log-luminance prepass runs on this adapter: Apple-silicon
-/// GPUs on Metal, where its exports were compared byte for byte with the
+/// Whether the log-luminance prepass runs on this adapter: the Apple GPU
+/// families on Metal whose exports were compared byte for byte with the
 /// per-tap path (M5 Pro and M4 Pro: 37-photo set and the preservation
 /// matrix; notes: benchmark-results/exp3-2026-11-26). Elsewhere it is not
 /// verified (NVIDIA Vulkan changed 206 of 326 exports), so the per-tap path
-/// stays: Intel and AMD GPUs on Metal, Vulkan, DX12, GL.
+/// stays: M1-M3, Intel and AMD GPUs on Metal, Vulkan, DX12, GL. A family
+/// joins this list only with its own comparison against the per-tap path.
+const LOG_PREPASS_FAMILIES: [&str; 2] = ["Apple M4", "Apple M5"];
+
 fn log_prepass_verified(info: &wgpu::AdapterInfo) -> bool {
-    let verified = info.backend == wgpu::Backend::Metal && info.name.starts_with("Apple");
+    let verified = info.backend == wgpu::Backend::Metal
+        && LOG_PREPASS_FAMILIES.iter().any(|family| {
+            info.name
+                .strip_prefix(family)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+        });
     log::debug!("log-luminance blur prepass on {}: {verified}", info.name);
     verified
 }

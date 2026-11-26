@@ -1225,13 +1225,13 @@ fn log_prepass_runs_on_verified_adapters_only() {
     let info = context.device.adapter_info();
     let processor = GpuProcessor::new(context, 64, 64).unwrap();
     assert_eq!(processor.log_prepass.is_some(), log_prepass_verified(&info));
-    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    if info.name.starts_with("Apple M5") {
         assert!(processor.log_prepass.is_some(), "{}", info.name);
     }
 }
 
 #[test]
-fn log_prepass_is_verified_for_apple_gpus_on_metal_only() {
+fn log_prepass_is_verified_for_the_compared_apple_gpus_only() {
     let adapter = |backend, name: &str| wgpu::AdapterInfo {
         name: name.into(),
         vendor: 0,
