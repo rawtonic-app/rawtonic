@@ -1536,7 +1536,7 @@ fn auto_mask_cached(
 /// The photographer opened the masking tools while the masks made ahead for
 /// the open photo wait for their start (`ai_ahead`): they start now.
 #[tauri::command]
-pub fn admit_ai_ahead_work() {
+pub async fn admit_ai_ahead_work() {
     crate::ai_ahead::ask_now();
 }
 
