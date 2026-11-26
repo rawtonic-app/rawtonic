@@ -29,10 +29,11 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
 import { OPEN_EXPORT_QUEUE } from '../utils/catalogEvents';
-import { type ImageFile, Invokes } from '../components/ui/AppProperties';
+import { type ImageFile, Invokes, type SelectedImage } from '../components/ui/AppProperties';
 import { OFFLINE_COUNTED } from '../utils/offline';
 import { FILE_OPERATIONS_CHANGED } from '../utils/catalogEvents';
 import { debouncedSave } from './useEditorActions';
+import { useKeyboardShortcuts } from './useKeyboardShortcuts';
 import { INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
@@ -1199,41 +1200,92 @@ describe('moving a folder', () => {
     expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(Invokes.MoveFolder, expect.anything());
   });
 });
-it('Library Undo after rating then moving calls the file journal before metadata restore', async () => {
+it.each(['library', 'editor'] as const)('%s Cmd+Z and Shift+Cmd+Z order a rating and Move to Selects', async (view) => {
+  vi.mocked(invoke).mockClear();
   useCatalogUndoStore.setState(useCatalogUndoStore.getInitialState());
-  useUIStore.setState({ activeView: 'library' });
-  useEditorStore.setState({ selectedImage: null });
+  useUIStore.setState({ activeView: view });
+  useSettingsStore.setState({ osPlatform: 'macos' });
+  const photo = '/job/Capture/a.nef';
+  const nextPath = '/job/Capture/b.nef';
+  const openPhoto = (path: string): SelectedImage => ({
+    path,
+    isReady: true,
+    isRaw: true,
+    width: 100,
+    height: 100,
+    thumbnailUrl: '',
+    exif: null
+  });
+  const movedPath = '/job/Selects/a.nef';
+  useEditorStore.setState({ selectedImage: view === 'editor' ? openPhoto(photo) : null });
   const moved = summary({
     id: 'move-after-rating',
     kind: 'move',
-    moves: [{ from: '/a.nef', to: '/other/a.nef' }]
+    items: 1,
+    moves: [{ from: photo, to: movedPath }]
   });
-  vi.mocked(invoke).mockImplementation(async (command) => {
+  const order: string[] = [];
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
     if (command === Invokes.PlanMoveFiles) return { crossVolume: false };
-    if (command === Invokes.MoveFiles || command === Invokes.UndoFileOperation) return moved;
+    if (command === Invokes.MoveFiles) return moved;
+    if (command === Invokes.UndoFileOperation) {
+      order.push('undo move');
+      return { ...moved, moves: [{ from: movedPath, to: photo }] };
+    }
+    if (command === Invokes.RedoFileOperation) {
+      order.push('redo move');
+      return moved;
+    }
+    if (command === Invokes.RestoreCulling) {
+      const { values } = args as { values: { path: string; value: { kind: 'rating'; value: number } }[] };
+      expect(values[0].path).toBe(photo);
+      order.push(values[0].value.value === 0 ? 'undo rating' : 'redo rating');
+      return values.map(({ path, value }) => ({ path, before: value, after: value }));
+    }
     return [];
   });
-  const { result } = renderHook(() =>
-    useFileOperations(
+  const sortedImageList = [photo, nextPath].map((path) => ({ path }) as ImageFile);
+  const handleImageSelect = vi.fn((path: string) => useEditorStore.setState({ selectedImage: openPhoto(path) }));
+  const handleBackToLibrary = vi.fn();
+  const { result } = renderHook(() => {
+    const operations = useFileOperations(
       vi.fn(async () => {}),
       vi.fn(async () => {}),
-      vi.fn(),
-      vi.fn(),
-      []
-    )
-  );
+      handleImageSelect,
+      handleBackToLibrary,
+      sortedImageList
+    );
+    useKeyboardShortcuts({
+      ...operations,
+      sortedImageList,
+      handleImageSelect,
+      handleBackToLibrary,
+      handleDeleteSelected: vi.fn(),
+      handleZoomChange: vi.fn()
+    });
+    return operations;
+  });
   await catalogAction('rating', async () => [
     {
-      path: '/a.nef',
+      path: photo,
       before: { kind: 'rating', value: 0 },
       after: { kind: 'rating', value: 4 }
     }
   ]);
-  await result.current.handleMoveToFolder(['/a.nef'], '/other');
-  vi.mocked(invoke).mockClear();
-  await appUndo();
-  expect(invoke).toHaveBeenCalledWith(Invokes.UndoFileOperation);
-  expect(invoke).not.toHaveBeenCalledWith(Invokes.RestoreCulling, expect.anything());
+  await result.current.handleMoveToFolder([photo], '/job/Selects');
+  expect(useUIStore.getState().activeView).toBe(view);
+  if (view === 'editor') expect(handleImageSelect).toHaveBeenCalledWith(nextPath, true);
+  const pressUndoKey = async (expected: string[], shiftKey = false) => {
+    fireEvent.keyDown(window, { code: 'KeyZ', key: 'z', metaKey: true, shiftKey });
+    await waitFor(() => {
+      expect(order).toEqual(expected);
+      expect(useCatalogUndoStore.getState().busy).toBe(false);
+    });
+  };
+  await pressUndoKey(['undo move']);
+  await pressUndoKey(['undo move', 'undo rating']);
+  await pressUndoKey(['undo move', 'undo rating', 'redo rating'], true);
+  await pressUndoKey(['undo move', 'undo rating', 'redo rating', 'redo move'], true);
   cleanup();
 });
 

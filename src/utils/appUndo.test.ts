@@ -286,6 +286,45 @@ it('orders Library metadata and file-journal steps together', async () => {
   expect(redoFile).toHaveBeenCalledOnce();
 });
 
+it('orders Develop recipe edits on either side of a move', async () => {
+  const { fileAction, fileOperationTravel, registerFileUndoHandlers } = await import('./appUndo');
+  const changeExposure = (exposure: number) => {
+    const adjustments = { ...INITIAL_ADJUSTMENTS, exposure };
+    useEditorStore.getState().setEditor({ adjustments });
+    debouncedSetHistory(adjustments);
+  };
+  changeExposure(1);
+  const moved = { id: 'move-1', kind: 'move' };
+  await fileAction(async () => moved);
+  changeExposure(2);
+
+  const undoFile = vi.fn(() => fileOperationTravel('undo', moved));
+  const redoFile = vi.fn(() => fileOperationTravel('redo', moved));
+  const unregister = registerFileUndoHandlers({ undo: undoFile, redo: redoFile });
+  const exposure = () => useEditorStore.getState().adjustments.exposure;
+  try {
+    await undo();
+    expect(exposure()).toBe(1);
+    expect(undoFile).not.toHaveBeenCalled();
+    await undo();
+    expect(undoFile).toHaveBeenCalledOnce();
+    expect(exposure()).toBe(1);
+    await undo();
+    expect(exposure()).toBe(0);
+
+    await redo();
+    expect(exposure()).toBe(1);
+    expect(redoFile).not.toHaveBeenCalled();
+    await redo();
+    expect(redoFile).toHaveBeenCalledOnce();
+    expect(exposure()).toBe(1);
+    await redo();
+    expect(exposure()).toBe(2);
+  } finally {
+    unregister();
+  }
+});
+
 it.each([false, true])('a failed metadata restore retries before older file undo (tracked: %s)', async (tracked) => {
   const { fileAction, registerFileUndoHandlers } = await import('./appUndo');
   useUIStore.setState({ activeView: 'library' });
