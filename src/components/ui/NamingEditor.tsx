@@ -89,6 +89,9 @@ export default function NamingEditor({
   const [name, setName] = useState('');
   const [storageError, setStorageError] = useState(false);
   const [saving, setSaving] = useState(false);
+  // "Custom format" chosen in the menu: shown as chosen (the field keeps the
+  // format to edit from) until a template is picked again.
+  const [customChosen, setCustomChosen] = useState(false);
   const folder = kind === 'folder';
   const valid = validNamingTemplate(value, mode, kind) && !invalidMessage;
   const code = useRef<HTMLInputElement>(null);
@@ -249,8 +252,14 @@ export default function NamingEditor({
         <div className="naming-preset-row">
           <select
             aria-label={t('naming.preset')}
-            value={selected >= 0 ? `builtin:${selected}` : custom ? `saved:${custom.index}` : ''}
+            value={customChosen ? '' : selected >= 0 ? `builtin:${selected}` : custom ? `saved:${custom.index}` : ''}
             onChange={(e) => {
+              if (!e.target.value) {
+                setCustomChosen(true);
+                focusText(text.length - 1, 'end');
+                return;
+              }
+              setCustomChosen(false);
               const [where, index] = e.target.value.split(':');
               const preset = where === 'builtin' ? presets[Number(index)] : saved[Number(index)];
               if (!preset) return;
@@ -288,7 +297,7 @@ export default function NamingEditor({
         </div>
       )}
       {!folder && saving && (
-        <div className="naming-save" id={`${id}-save`}>
+        <div className="naming-save" id={`${id}-save`} data-escape-local>
           <input
             aria-label={t('naming.presetName')}
             placeholder={t('naming.presetName')}
@@ -607,6 +616,7 @@ function TokenPicker({
         <div
           className="naming-popover"
           id={`${id}-tokens`}
+          data-escape-local
           role="dialog"
           aria-label={t('naming.addToken')}
           onKeyDown={popoverKeys}

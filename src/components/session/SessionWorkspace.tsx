@@ -1697,6 +1697,9 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
         // keys (arrows, Enter, Space; Escape leaves the large view, not the
         // dialog). Global shortcuts ignore keys while a dialog is open.
         if (target?.closest?.('.session-ingest-preview')) return;
+        // A popup inside the dialog (the naming editor's token list or
+        // preset name) closes itself on Escape and keeps the dialog open.
+        if (target?.closest?.('[data-escape-local]')) return;
         if (e.key === 'Escape') {
           e.stopImmediatePropagation();
           e.preventDefault();

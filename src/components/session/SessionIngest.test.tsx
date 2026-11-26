@@ -257,6 +257,22 @@ describe('Dropping photographs onto the window', () => {
     expect(settings.contains(footer)).toBe(false);
   });
 
+  it('Escape in the naming token list closes the list, not the import dialog', async () => {
+    const user = userEvent.setup();
+    await open();
+    drop(['/Volumes/CARD/DCIM']);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3));
+    await user.click(screen.getByRole('button', { name: 'Add a naming token' }));
+    const search = screen.getByRole('searchbox', { name: 'Search tokens' });
+    search.focus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('searchbox', { name: 'Search tokens' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Copy 2 photos' })).toBeTruthy();
+    // A second Escape, from the dialog itself, closes it.
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Copy 2 photos' })).toBeNull());
+  });
+
   it('shows a photograph large inside the dialog; Escape returns to the grid and keeps the dialog open', async () => {
     const user = userEvent.setup();
     await open();

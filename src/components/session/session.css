@@ -1539,20 +1539,6 @@
   color: var(--app-text-primary);
 }
 
-.session-ingest-dialog > .session-ingest-form {
-  overflow: auto;
-  min-height: 0;
-  flex: 1;
-  align-content: start;
-}
-.session-ingest-dialog .session-ingest-grid {
-  /* Reserve space for the header, source picker and preview toolbar. */
-  height: clamp(300px, calc(100cqh - 330px), 700px);
-}
-.session-ingest-naming,
-.session-ingest-backup {
-  max-width: 520px;
-}
 .ingest-resize {
   position: absolute;
   z-index: 30;

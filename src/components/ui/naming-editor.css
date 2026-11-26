@@ -312,6 +312,8 @@
   right: 0;
   z-index: 60;
   display: grid;
+  /* Search, hint, then the list, which scrolls inside the popover. */
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 6px;
   width: 290px;
   max-height: min(380px, 60vh);

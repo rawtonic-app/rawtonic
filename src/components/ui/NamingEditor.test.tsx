@@ -261,3 +261,23 @@ it('drops a token dragged from the token list into the field where it is let go'
     Element.prototype.getBoundingClientRect = rect;
   }
 });
+
+it('keeps the format to edit when Custom format is chosen, with the cursor at its end', async () => {
+  render(<Editor initial="{orig_base}" />);
+  const preset = screen.getByLabelText('Naming preset') as HTMLSelectElement;
+  expect(preset.value).toBe('builtin:0');
+  fireEvent.change(preset, { target: { value: '' } });
+  expect(preset.value).toBe('');
+  expect(current).toBe('{orig_base}');
+  await waitFor(() => expect(document.activeElement).toBe(texts()[1]));
+  fireEvent.change(preset, { target: { value: 'builtin:1' } });
+  expect(current).toBe('{date:yyyymmdd}_{orig_base}');
+  expect(preset.value).toBe('builtin:1');
+});
+
+it('closes the token list with Escape without letting the import dialog see it', () => {
+  render(<Editor initial="" />);
+  openTokens();
+  const popover = screen.getByRole('dialog', { name: 'Add a naming token' });
+  expect(popover.hasAttribute('data-escape-local')).toBe(true);
+});
