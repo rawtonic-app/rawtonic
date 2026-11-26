@@ -14,15 +14,20 @@ export const DEFAULT_VIEWER_BACKGROUND: ViewerBackground = 'default';
  * Neutral greys as display-encoded sRGB values (0–255). The display surface is
  * not an sRGB format, so these reach the screen unchanged. Medium is 119: an
  * 18 % reflectance grey (L* 50), the middle of perceived lightness, for
- * judging tones; Dark is about the earlier default viewer grey.
+ * judging tones. The other steps are spaced evenly in L* from Medium down
+ * (Dark 34, Darker 5.5, Black 0) and up (Light 81, White 100), so Dark sits
+ * halfway between Medium and Darker instead of repeating the canvas colour.
+ * Default is the app's canvas colour (`--app-bg-primary`, see
+ * viewerBackgroundCss) rather than a fixed grey: its entry here is only the
+ * Darkest canvas, for contexts without a stylesheet.
  */
 export const VIEWER_BACKGROUND_LEVELS: Record<ViewerBackground, number> = {
   default: 38,
   black: 0,
   veryDark: 18,
-  dark: 38,
+  dark: 80,
   medium: 119,
-  light: 200,
+  light: 201,
   white: 255
 };
 
@@ -42,14 +47,38 @@ export function resolveViewerBackground(settings: ViewerBackgroundSettings | nul
   return DEFAULT_VIEWER_BACKGROUND;
 }
 
+/** The grey a fixed background renders as; Default is the canvas colour instead. */
+function backgroundLevel(background: ViewerBackground): number | null {
+  return background === 'default' ? null : VIEWER_BACKGROUND_LEVELS[background];
+}
+
+/** The interface shade's canvas colour (`--app-bg-primary`) as 0–255 sRGB. */
+function canvasLevel(): number {
+  const declared = getComputedStyle(document.documentElement).getPropertyValue('--app-bg-primary').trim();
+  const values = declared
+    .match(/[\d.]+/g)
+    ?.slice(0, 3)
+    .map(Number);
+  if (!values || values.length < 3 || values.some((n) => !Number.isFinite(n))) {
+    return VIEWER_BACKGROUND_LEVELS.default;
+  }
+  return (values[0] + values[1] + values[2]) / 3;
+}
+
 /** Normalised RGBA for the native display. */
 export function viewerBackgroundRgba(background: ViewerBackground, brightness = 1): [number, number, number, number] {
-  const v = (VIEWER_BACKGROUND_LEVELS[background] / 255) * brightness;
+  const level = backgroundLevel(background) ?? canvasLevel();
+  const v = (level / 255) * brightness;
   return [v, v, v, 1];
 }
 
 export function viewerBackgroundCss(background: ViewerBackground, brightness = 1): string {
-  const v = VIEWER_BACKGROUND_LEVELS[background] * brightness;
+  const level = backgroundLevel(background);
+  if (level === null) {
+    const canvas = `var(--app-bg-primary, rgb(${VIEWER_BACKGROUND_LEVELS.default}, ${VIEWER_BACKGROUND_LEVELS.default}, ${VIEWER_BACKGROUND_LEVELS.default}))`;
+    return brightness === 1 ? canvas : `color-mix(in srgb, ${canvas} ${brightness * 100}%, black)`;
+  }
+  const v = level * brightness;
   return `rgb(${v}, ${v}, ${v})`;
 }
 
