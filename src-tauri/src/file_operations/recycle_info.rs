@@ -61,8 +61,10 @@ pub(super) fn parse_stub(bytes: &[u8]) -> Option<StubRecord> {
         _ => return None,
     };
     let wide: Vec<u16> = units
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_le_bytes(*pair))
         .collect();
     let end = wide.iter().position(|&unit| unit == 0)?;
     let path = String::from_utf16(&wide[..end]).ok()?;
