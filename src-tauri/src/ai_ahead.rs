@@ -11,13 +11,17 @@
 //! 1.2 GB available when about 7 GB were free before (G74/WG74).
 //!
 //! So a job made ahead starts only
-//! - once the full-resolution decodes and the open photo's frames have
-//!   settled (`multi_view_prefetch::decodes_settled`): the primary's decode,
-//!   its first frames, the multi view's and the step prefetch's background
-//!   decodes;
+//! - once the open photo's full-resolution decode and its frames have
+//!   settled (`multi_view_prefetch::primary_settled`);
+//! - one job at a time;
 //! - and when the memory free for work that may wait
 //!   (`memory_pressure::work_headroom`, the multi view's background decodes
-//!   use the same) covers the job's estimated peak (`estimated_peak`).
+//!   use the same) covers the job's estimated peak (`estimated_peak`), and
+//!   a background decode's peak (`BACKGROUND_DECODE`) when one of the multi
+//!   view or the step prefetch is under way (it ends beside the job; the
+//!   next one waits for the job). Waiting for the background decodes
+//!   instead had the ahead Subject ready 11-17 s after the photo's decode
+//!   started instead of 3-5 s on a Mac with 9 GB free (MEM18).
 //!
 //! It waits for that up to `ADMIT_WAIT`, then is dropped (a click computes
 //! the mask). While it runs (`AheadRun`), the background decodes wait in
@@ -90,7 +94,7 @@ pub enum Verdict {
     /// peaks do not add up (Sky's model load had started beside Subject's
     /// run).
     WaitForAheadRun,
-    /// A full-resolution decode or the open photo's frame is under way.
+    /// The open photo's full-resolution decode or a frame of it is under way.
     WaitForDecodes,
     /// The memory free for such work (`room`) is below the job's `need`.
     WaitForMemory {
@@ -99,16 +103,24 @@ pub enum Verdict {
     },
 }
 
+/// A background decode's peak: 61 MP at 40 B per pixel, as the multi view
+/// counts one whose size is not known (`multi_view::DECODE_BYTES_PER_PIXEL`,
+/// `UNKNOWN_PIXELS`).
+pub const BACKGROUND_DECODE: u64 =
+    crate::multi_view::UNKNOWN_PIXELS * crate::multi_view::DECODE_BYTES_PER_PIXEL;
+
 /// The verdict for a job of estimated peak `need` (`estimated_peak`), with
-/// another job made ahead running or not (`ahead_running`), the decodes
-/// settled or not (`decodes_settled`) and `room` bytes free for
-/// work that may wait (`memory_pressure::work_headroom`; None: the memory
-/// cannot be read, as for the multi view's background decodes). A request
-/// the photographer made (`asked`) always starts.
+/// another job made ahead running or not (`ahead_running`), the open
+/// photo's decode and frames settled or not (`primary_settled`), a
+/// background decode under way or not (`background`) and `room` bytes free
+/// for work that may wait (`memory_pressure::work_headroom`; None: the
+/// memory cannot be read, as for the multi view's background decodes). A
+/// request the photographer made (`asked`) always starts.
 pub fn verdict(
     asked: bool,
     ahead_running: bool,
-    decodes_settled: bool,
+    primary_settled: bool,
+    background: bool,
     room: Option<u64>,
     need: u64,
 ) -> Verdict {
@@ -118,9 +130,14 @@ pub fn verdict(
     if ahead_running {
         return Verdict::WaitForAheadRun;
     }
-    if !decodes_settled {
+    if !primary_settled {
         return Verdict::WaitForDecodes;
     }
+    let need = if background {
+        need.saturating_add(BACKGROUND_DECODE)
+    } else {
+        need
+    };
     match room {
         Some(room) if room < need => Verdict::WaitForMemory { room, need },
         _ => Verdict::Start,
@@ -131,7 +148,7 @@ pub fn verdict(
 pub const ADMIT_WAIT: Duration = Duration::from_secs(60);
 /// How often the verdict is asked again while it waits.
 const POLL: Duration = Duration::from_millis(250);
-/// How long the decodes and the open photo's frames must have been quiet.
+/// How long the open photo's decode and frames must have been quiet.
 pub const QUIET: Duration = Duration::from_millis(750);
 
 /// Counts the photographer's requests for the masks (`ask_now`).
@@ -213,9 +230,10 @@ pub async fn admit(
             return Err(NotStarted::GaveUp(reason));
         }
         let asked = asked || ASKED.load(Ordering::SeqCst) != asked_at;
-        let settled = crate::multi_view_prefetch::decodes_settled(QUIET);
+        let settled = crate::multi_view_prefetch::primary_settled(QUIET);
+        let background = crate::multi_view_prefetch::background_under_way();
         let room = crate::memory_pressure::work_headroom();
-        let mut now = verdict(asked, running(), settled, room, need);
+        let mut now = verdict(asked, running(), settled, background, room, need);
         let started = if now == Verdict::Start {
             AheadRun::start(asked)
         } else {
@@ -264,7 +282,7 @@ fn describe(verdict: Verdict) -> String {
     match verdict {
         Verdict::Start => "free to start".into(),
         Verdict::WaitForAheadRun => "another job made ahead runs".into(),
-        Verdict::WaitForDecodes => "a full-resolution decode or frame is under way".into(),
+        Verdict::WaitForDecodes => "the photo's decode or a frame of it is under way".into(),
         Verdict::WaitForMemory { room, need } => {
             format!("{} MB free for it of {} MB needed", room / MB, need / MB)
         }
@@ -278,17 +296,17 @@ mod tests {
     const GB: u64 = 1000 * MB;
 
     #[test]
-    fn a_job_made_ahead_waits_for_the_decodes_then_for_memory() {
+    fn a_job_made_ahead_waits_for_the_photo_then_for_memory() {
         let need = estimated_peak(AheadJob::Subject, true, false);
         assert_eq!(need, 4700 * MB);
-        // A decode under way: held whatever the memory.
+        // The photo's decode or frame under way: held whatever the memory.
         assert_eq!(
-            verdict(false, false, false, Some(20 * GB), need),
+            verdict(false, false, false, false, Some(20 * GB), need),
             Verdict::WaitForDecodes
         );
         // Settled, too little room (WG74: about 1.4 GB beside four large decodes).
         assert_eq!(
-            verdict(false, false, true, Some(1400 * MB), need),
+            verdict(false, false, true, false, Some(1400 * MB), need),
             Verdict::WaitForMemory {
                 room: 1400 * MB,
                 need
@@ -296,24 +314,55 @@ mod tests {
         );
         // Settled with room for its peak.
         assert_eq!(
-            verdict(false, false, true, Some(need), need),
+            verdict(false, false, true, false, Some(need), need),
             Verdict::Start
         );
         // Memory not readable: as the multi view's background decodes.
-        assert_eq!(verdict(false, false, true, None, need), Verdict::Start);
+        assert_eq!(
+            verdict(false, false, true, false, None, need),
+            Verdict::Start
+        );
         // Another job made ahead runs: one at a time.
         assert_eq!(
-            verdict(false, true, true, Some(20 * GB), need),
+            verdict(false, true, true, false, Some(20 * GB), need),
             Verdict::WaitForAheadRun
+        );
+    }
+
+    #[test]
+    fn a_background_decode_under_way_counts_its_peak() {
+        let need = estimated_peak(AheadJob::Subject, false, false);
+        // Room for the job alone is not enough beside a background decode.
+        assert_eq!(
+            verdict(false, false, true, true, Some(need), need),
+            Verdict::WaitForMemory {
+                room: need,
+                need: need + BACKGROUND_DECODE
+            }
+        );
+        // Room for both (a Mac with 9 GB free): it starts, no waiting for
+        // the decode.
+        assert_eq!(
+            verdict(false, false, true, true, Some(9 * GB), need),
+            Verdict::Start
         );
     }
 
     #[test]
     fn a_request_the_photographer_made_is_never_held() {
         let need = estimated_peak(AheadJob::Subject, true, false);
-        assert_eq!(verdict(true, true, false, Some(0), need), Verdict::Start);
-        assert_eq!(verdict(true, false, true, Some(0), need), Verdict::Start);
-        assert_eq!(verdict(true, true, false, None, need), Verdict::Start);
+        assert_eq!(
+            verdict(true, true, false, true, Some(0), need),
+            Verdict::Start
+        );
+        assert_eq!(
+            verdict(true, false, true, true, Some(0), need),
+            Verdict::Start
+        );
+        assert_eq!(
+            verdict(true, true, false, false, None, need),
+            Verdict::Start
+        );
     }
 
     #[test]

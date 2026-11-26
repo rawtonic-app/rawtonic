@@ -154,7 +154,7 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
     ok: `OperationSummary`
   },
   precompute_ai_subject_mask: {
-    args: `js_adjustments: serde_json::Value, path: String, background: Option<bool>, task_id: Option<String>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    args: `js_adjustments: serde_json::Value, path: String, background: Option<bool>, task_id: Option<String>, asked: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
     ok: `()`
   },
   render_split_before: {

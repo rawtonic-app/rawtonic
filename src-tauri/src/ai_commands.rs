@@ -1695,6 +1695,10 @@ pub async fn precompute_ai_sky_mask(
     .await
 }
 
+/// `preload_ai_mask_models`: a model that waited for its start was loaded
+/// meanwhile (by the photo's mask made ahead).
+const LOADED_MEANWHILE: &str = "the model was loaded meanwhile";
+
 /// The models `preload_ai_mask_models` loads: both, or on the CPU only
 /// Subject. On the CPU a model's weights and the run's transient add up in
 /// the app's own memory (Subject settles at about 1 GB with a 2.2-2.5 GB run
@@ -1756,11 +1760,16 @@ pub async fn preload_ai_mask_models(
         };
         let need = crate::ai_ahead::estimated_peak(job, on_cpu, false);
         let admitted = crate::ai_ahead::admit(job, false, need, || {
-            (ai_state.lifecycle.generation() != generation).then_some("the models were unloaded")
+            if ai_state.lifecycle.generation() != generation {
+                return Some("the models were unloaded");
+            }
+            // The photo's mask made ahead loaded it meanwhile.
+            model_loaded(&ai_state, kind).then_some(LOADED_MEANWHILE)
         })
         .await;
         let _ahead = match admitted {
             Ok(run) => run,
+            Err(crate::ai_ahead::NotStarted::GaveUp(LOADED_MEANWHILE)) => continue,
             Err(why) => {
                 log::info!("AI {name} mask: model not loaded ahead, {why:?}");
                 return Ok(());

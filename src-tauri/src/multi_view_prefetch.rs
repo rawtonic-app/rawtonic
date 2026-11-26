@@ -135,6 +135,8 @@ struct Worker {
     cancel: Arc<AtomicUsize>,
     /// The decode under way, if any.
     decoding: AtomicBool,
+    /// A 1:1 preview being written from a held decode.
+    writing: AtomicBool,
 }
 
 static WORKER: OnceLock<Arc<Worker>> = OnceLock::new();
@@ -675,33 +677,21 @@ pub(crate) fn busy() -> bool {
         || crate::multi_view::live_pending()
 }
 
-/// Whether the full-resolution decodes and the open photograph's frames
-/// have settled for `quiet` (`ai_ahead`: AI work made ahead starts after
-/// them, G74/MEM18): nothing [`busy`], no background decode of the multi
-/// view or of the step prefetch (`proxy_worker`) under way or still to
-/// come, no decode held for its 1:1 preview still to be written, and
-/// `quiet` since the primary's last decode or frame ended. Asking between
-/// two background decodes, an AI run started in the gap and the next decode
-/// beside it (MEM18: 8.6 GB on a Mac); one started beside the 1:1 previews
-/// written from held decodes reached 9.2 GB.
-pub(crate) fn decodes_settled(quiet: Duration) -> bool {
-    !busy()
-        && WORKER.get().is_none_or(|worker| {
-            !worker.decoding.load(Ordering::SeqCst)
-                && worker
-                    .queue
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .todo
-                    .is_empty()
-        })
-        && HELD
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .all(|held| held.written)
-        && !crate::proxy_worker::prefetch_pending()
-        && since(&LAST_PRIMARY_WORK) >= quiet
+/// Whether the open photograph's full decode and its frames have settled
+/// for `quiet` (`ai_ahead`: AI work made ahead starts after them,
+/// G74/MEM18): nothing [`busy`], and `quiet` since the primary's last
+/// decode or frame ended.
+pub(crate) fn primary_settled(quiet: Duration) -> bool {
+    !busy() && since(&LAST_PRIMARY_WORK) >= quiet
+}
+
+/// Whether a background decode or 1:1 preview write of the multi view, or
+/// a step prefetch decode (`proxy_worker`), is under way (`ai_ahead`
+/// counts its memory).
+pub(crate) fn background_under_way() -> bool {
+    WORKER.get().is_some_and(|worker| {
+        worker.decoding.load(Ordering::SeqCst) || worker.writing.load(Ordering::SeqCst)
+    }) || crate::proxy_worker::prefetch_decoding()
 }
 
 fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
@@ -712,6 +702,7 @@ fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
                 wake: Condvar::new(),
                 cancel: Arc::new(AtomicUsize::new(0)),
                 decoding: AtomicBool::new(false),
+                writing: AtomicBool::new(false),
             });
             let shared = Arc::clone(&worker);
             let app_handle = app_handle.clone();
@@ -1181,7 +1172,9 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                 let Some((key, oldest)) = oldest else {
                     continue;
                 };
+                worker.writing.store(true, Ordering::SeqCst);
                 write_pool.install(|| write(app_handle, &oldest));
+                worker.writing.store(false, Ordering::SeqCst);
                 let Written { path, image, .. } = oldest;
                 let trimmed = {
                     let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
@@ -1455,6 +1448,7 @@ pub(crate) mod tests {
                     wake: Condvar::new(),
                     cancel: Arc::new(AtomicUsize::new(0)),
                     decoding: AtomicBool::new(true),
+                    writing: AtomicBool::new(false),
                 })
             })
             .clone()

@@ -527,24 +527,15 @@ pub(crate) fn decoding_ahead(key: &str) -> bool {
         == Some(key)
 }
 
-/// Whether a prefetch decode is under way or queued
-/// (`multi_view_prefetch::decodes_settled`).
-pub(crate) fn prefetch_pending() -> bool {
-    let under_way = UNDER_WAY
+/// Whether a prefetch decode is under way
+/// (`multi_view_prefetch::background_under_way`).
+pub(crate) fn prefetch_decoding() -> bool {
+    UNDER_WAY
         .0
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .key
-        .is_some();
-    under_way
-        || WORKER.get().is_some_and(|worker| {
-            !worker
-                .queue
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .prefetch
-                .is_empty()
-        })
+        .is_some()
 }
 
 /// Waits up to `wait` while the prefetch decode of decoded-cache key `key`
