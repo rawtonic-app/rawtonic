@@ -609,9 +609,7 @@ pub async fn apply_face_retouch_to_paths(
         // the Ok value is the value itself, never a `Result` to serialize.
         let face_retouch: Result<serde_json::Value, String> =
             tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
-                let mut recipe =
-                    crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path)
-                        .adjustments;
+                let mut recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
                 if !recipe.is_object() {
                     recipe = serde_json::json!({});
                 }
