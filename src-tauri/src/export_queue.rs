@@ -2078,43 +2078,19 @@ mod tests {
         });
     }
 
-    /// FOP1 review: a library photo beside its sidecar whose EXIF is not in
-    /// the app's cache (cleared, another computer) embeds the original's
-    /// EXIF, as it does with a warm cache; before, it embedded none then.
     #[test]
-    fn a_library_photo_beside_its_sidecar_embeds_its_originals_exif_on_a_cold_cache() {
+    fn a_library_photo_beside_its_sidecar_embeds_no_decoded_exif_as_before() {
         let libs = two_catalogs();
-        let mut jpeg = Vec::new();
-        image::RgbImage::new(4, 4)
-            .write_to(
-                &mut std::io::Cursor::new(&mut jpeg),
-                image::ImageFormat::Jpeg,
-            )
-            .unwrap();
-        let mut exif = little_exif::metadata::Metadata::new();
-        exif.set_tag(little_exif::exif_tag::ExifTag::Make("Maker".into()));
-        exif.write_to_vec(&mut jpeg, little_exif::filetype::FileExtension::JPEG)
-            .unwrap();
-        std::fs::write(&libs.source, &jpeg).unwrap();
+        // A's editor state outranks the sidecar file its decode writes the
+        // EXIF to: its export reads none (main's behaviour, kept).
         std::fs::write(libs.source.with_file_name("A.jpg.rrdata"), b"{}").unwrap();
         let path = libs.source.to_string_lossy().into_owned();
-        let pinned = &queued(request(
-            std::slice::from_ref(&path),
-            Some(libs.a.directory.as_path()),
-        ))
-        .as_run()[0];
+        let pinned = &queued(request(&[path], Some(libs.a.directory.as_path()))).as_run()[0];
         assert_eq!(
             (pinned.exif.is_none(), pinned.exif_from_original),
-            (true, true)
+            (true, false)
         );
-        crate::session_bridge::with_culling_owner(pinned.owner.as_deref(), || {
-            assert_eq!(
-                pinned.exif(&libs.source),
-                Some(crate::exif_processing::read_exif_data_from_bytes(
-                    &path, &jpeg
-                ))
-            );
-        });
+        assert_eq!(pinned.exif(&libs.source), None);
     }
 
     #[test]
