@@ -1314,44 +1314,29 @@ pub const CAPTURE_TIME_FIELDS: [&str; 3] = [
     "OffsetTimeOriginal",
 ];
 
-/// Whether `stored` (the EXIF map of a photo's editor state) holds only the
-/// user's overrides (`exif_overrides`): text fields (`EDITABLE_EXIF_TEXT`,
-/// an empty value removes one) and a corrected capture time, any field
-/// absent being the original's. Any other field makes it a copy of the
-/// read map that older builds wrote with every edit, in which a field
-/// absent was removed (SCW1). A copy of a file whose EXIF holds nothing but
-/// these fields reads as overrides: only a removal in it would be lost.
-pub fn is_exif_overrides(stored: &HashMap<String, String>) -> bool {
-    stored.keys().all(|key| {
-        EDITABLE_EXIF_TEXT.contains(&key.as_str()) || CAPTURE_TIME_FIELDS.contains(&key.as_str())
-    })
-}
-
-/// The EXIF a photo shows: `own` (read from its original) with the
-/// overrides `stored` holds (`is_exif_overrides`); a stored copy of the
-/// read map as it is (older builds).
+/// The EXIF a photo shows: `base` (read from its original, or an older
+/// copy its editor state holds) with the user's `overrides` (an editor
+/// state's `exifOverrides`): a field with text replaces the base's, an
+/// empty one removes it, one absent stays as the base has it; a corrected
+/// capture time (`DateTimeOriginal`) sets all three `CAPTURE_TIME_FIELDS`,
+/// one it has not removed (SCW1).
 pub fn with_exif_overrides(
-    stored: &HashMap<String, String>,
-    own: &HashMap<String, String>,
+    overrides: &HashMap<String, String>,
+    base: &HashMap<String, String>,
 ) -> HashMap<String, String> {
-    if !is_exif_overrides(stored) {
-        return stored.clone();
-    }
-    let mut shown = own.clone();
+    let mut shown = base.clone();
     let set = |shown: &mut HashMap<String, String>, key: &str| {
-        match stored.get(key).filter(|value| !value.trim().is_empty()) {
+        match overrides.get(key).filter(|value| !value.trim().is_empty()) {
             Some(value) => shown.insert(key.to_string(), value.clone()),
             None => shown.remove(key),
         };
     };
-    for key in EDITABLE_EXIF_TEXT {
-        if stored.contains_key(key) {
+    for key in overrides.keys() {
+        if !CAPTURE_TIME_FIELDS.contains(&key.as_str()) {
             set(&mut shown, key);
         }
     }
-    // A corrected capture time is all three fields: one it leaves out is
-    // removed with it.
-    if stored.contains_key("DateTimeOriginal") {
+    if overrides.contains_key("DateTimeOriginal") {
         for key in CAPTURE_TIME_FIELDS {
             set(&mut shown, key);
         }
@@ -1359,48 +1344,47 @@ pub fn with_exif_overrides(
     shown
 }
 
-/// What an editor state keeps of `stored` (its EXIF map, overrides or an
-/// older copy of the read map) against `own` (read from the original):
-/// `exif_overrides_of_shown` of what it shows. A copy holds no override
-/// then and goes on the photo's next edit.
-pub fn exif_overrides(
-    stored: &HashMap<String, String>,
+/// The overrides (`with_exif_overrides`) an older copy of the read EXIF
+/// map (`copy`, an editor state's `exif`) holds against `own` (read from
+/// the original now): the text fields the user changed (`exif_edits`' text
+/// part, an empty value for one removed), a corrected capture time
+/// (`capture_edit`, an empty value for a field it has not), and fields the
+/// original has not at all (EXIF carried over to an image the app made,
+/// such as a converted negative's). Other fields the original has are its
+/// own, read again (a different value is an older reader's).
+pub fn overrides_of_copy(
+    copy: &HashMap<String, String>,
     own: &HashMap<String, String>,
 ) -> HashMap<String, String> {
-    exif_overrides_of_shown(&with_exif_overrides(stored, own), own)
-}
-
-/// The overrides of `shown` (the whole EXIF map a photo shows) against
-/// `own`: the text fields the user changed (`exif_edits`, an empty value for
-/// one removed) and a corrected capture time (`capture_edit`, an empty value
-/// for a field it has not). What an editor state stores of a photo's EXIF,
-/// never the map read from the file (SCW1).
-pub fn exif_overrides_of_shown(
-    shown: &HashMap<String, String>,
-    own: &HashMap<String, String>,
-) -> HashMap<String, String> {
-    let mut overrides = text_edits(shown, own);
-    if let Some(fields) = capture_edit(shown, own) {
+    let mut overrides = text_edits(copy, own);
+    if let Some(fields) = capture_edit(copy, own) {
         for (key, value) in fields {
             overrides.insert(key.to_string(), value.unwrap_or_default());
+        }
+    }
+    for (key, value) in copy {
+        let ours = EDITABLE_EXIF_TEXT.contains(&key.as_str())
+            || CAPTURE_TIME_FIELDS.contains(&key.as_str());
+        let in_file = own.get(key).is_some_and(|v| !v.trim().is_empty());
+        if !ours && !in_file && !value.trim().is_empty() {
+            overrides.insert(key.clone(), value.clone());
         }
     }
     overrides
 }
 
 /// What the user changed of a photo's EXIF: the text fields
-/// (`EDITABLE_EXIF_TEXT`) of what `stored` (the map its editor state holds,
-/// `with_exif_overrides`) shows whose text differs from `own` (the map read
-/// from the original now), an empty value for one removed, and a corrected
+/// (`EDITABLE_EXIF_TEXT`) of `shown` (what its editor state shows,
+/// `with_exif_overrides`) whose text differs from `own` (the map read from
+/// the original now), an empty value for one removed, and a corrected
 /// capture time (`capture_edit`, marked `CAPTURE_CORRECTED`). Every other
 /// field, and a text field as the camera wrote it, an export takes from the
 /// original itself, so an editor state holding a copy of the read map
 /// (older builds) changes nothing (EXF1).
 pub fn exif_edits(
-    stored: &HashMap<String, String>,
+    shown: &HashMap<String, String>,
     own: &HashMap<String, String>,
 ) -> HashMap<String, String> {
-    let shown = &with_exif_overrides(stored, own);
     let mut edits = text_edits(shown, own);
     if let Some(fields) = capture_edit(shown, own) {
         mark_corrected_capture(&mut edits, &fields);
@@ -3067,7 +3051,7 @@ mod tests {
     }
 
     #[test]
-    fn an_editor_state_keeps_only_the_users_exif_overrides() {
+    fn an_older_copy_of_the_read_exif_is_reduced_to_the_users_overrides() {
         let map = |entries: &[(&str, &str)]| -> HashMap<String, String> {
             entries
                 .iter()
@@ -3082,18 +3066,18 @@ mod tests {
             ("DateTimeOriginal", "2026-10-30 23:30:00"),
             ("SubSecTimeOriginal", "05"),
         ]);
-        // A copy of the read map (older builds) holds no override.
-        assert!(!super::is_exif_overrides(&own));
-        assert!(super::exif_overrides(&own, &own).is_empty());
+        // A plain copy holds no override.
+        assert!(super::overrides_of_copy(&own, &own).is_empty());
         // A copy with the user's edits keeps just them: a changed and a
-        // removed text field, a corrected capture time without a fraction.
+        // removed text field, a corrected capture time without a fraction;
+        // an older reader's value of a field the file has is not one.
         let mut copied = own.clone();
         copied.insert("Artist".into(), "Ana".into());
         copied.remove("Copyright");
         copied.insert("DateTimeOriginal".into(), "2026-10-31 00:30:00".into());
         copied.remove("SubSecTimeOriginal");
         copied.insert("ExposureTime".into(), "0.4 s".into());
-        let overrides = super::exif_overrides(&copied, &own);
+        let overrides = super::overrides_of_copy(&copied, &own);
         assert_eq!(
             overrides,
             map(&[
@@ -3104,9 +3088,8 @@ mod tests {
                 ("OffsetTimeOriginal", ""),
             ])
         );
-        assert!(super::is_exif_overrides(&overrides));
-        // What the overrides show is the copy's EXIF on the file's other
-        // fields, and an export reads the same edits from either.
+        // What they show is the copy's EXIF on the file's other fields, and
+        // an export reads the same edits from either.
         let shown = super::with_exif_overrides(&overrides, &own);
         assert_eq!(shown["Artist"], "Ana");
         assert!(!shown.contains_key("Copyright"));
@@ -3114,19 +3097,22 @@ mod tests {
         assert_eq!(shown["Make"], "Maker");
         assert_eq!(shown["ExposureTime"], "1/3 s", "the file's own");
         assert_eq!(
-            super::exif_edits(&overrides, &own),
+            super::exif_edits(&shown, &own),
             super::exif_edits(&copied, &own)
         );
-        // Overrides stay overrides; a field they leave out is the file's.
-        assert_eq!(super::exif_overrides(&overrides, &own), overrides);
-        let artist = map(&[("Artist", "Ana")]);
-        assert_eq!(super::exif_edits(&artist, &own), artist);
-        let shown = super::with_exif_overrides(&artist, &own);
+        // An empty copy (older builds: every field removed) removes the
+        // text fields; a field the file has not (carried over) stays.
+        let empty = super::overrides_of_copy(&HashMap::new(), &own);
+        assert_eq!(empty, map(&[("Artist", ""), ("Copyright", "")]));
+        let carried = map(&[("Make", "Scanner"), ("LensModel", "50mm")]);
+        assert_eq!(
+            super::overrides_of_copy(&carried, &map(&[("Make", "Scanner")])),
+            map(&[("LensModel", "50mm")])
+        );
+        // An override leaves every field it has not as the file has it.
+        let shown = super::with_exif_overrides(&map(&[("Artist", "Ana")]), &own);
         assert_eq!(shown["Copyright"], "Studio");
         assert_eq!(shown["SubSecTimeOriginal"], "05");
-        // An override set back to the file's value goes.
-        let back = map(&[("Artist", "Camera Owner")]);
-        assert!(super::exif_overrides(&back, &own).is_empty());
     }
 
     #[test]

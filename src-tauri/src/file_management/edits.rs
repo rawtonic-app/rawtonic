@@ -3325,8 +3325,8 @@ mod tests {
 
         // A field of another type (an EXIF number, a keyword that is no
         // string): a rating change keeps the recipe and the keywords; its
-        // copy of the camera's EXIF (no user override) goes with the write
-        // (SCW1).
+        // EXIF copy becomes overrides with the write (SCW1): a field the
+        // file has not stays.
         let (path, sidecar) = photo(
             "mistyped.jpg",
             serde_json::json!({
@@ -3340,6 +3340,10 @@ mod tests {
         assert_eq!(written["tags"], serde_json::json!(["user:a"]));
         assert_eq!(written["adjustments"], serde_json::json!({"exposure": 1.5}));
         assert_eq!(written["exif"], Value::Null);
+        assert_eq!(
+            written["exifOverrides"],
+            serde_json::json!({"Make": "Maker"})
+        );
 
         // A batch recipe edit (paste, preset, Auto: `edit_sidecars`) keeps
         // rating and keywords.
@@ -3892,11 +3896,15 @@ mod tests {
         (temp, raw)
     }
 
-    /// The `exif` of the sidecar file beside `raw`, as written.
-    fn sidecar_exif(raw: &Path) -> Option<Value> {
+    /// The `exif` copy and the `exifOverrides` of the sidecar file beside
+    /// `raw`, as written.
+    fn sidecar_exif(raw: &Path) -> (Option<Value>, Option<Value>) {
         let sidecar = crate::exif_processing::get_primary_sidecar_path(raw);
         let state: Value = serde_json::from_slice(&fs::read(sidecar).unwrap()).unwrap();
-        state.get("exif").cloned()
+        (
+            state.get("exif").cloned(),
+            state.get("exifOverrides").cloned(),
+        )
     }
 
     /// Each writer of an actual edit (editor save, paste, preset, auto lens,
@@ -4022,7 +4030,7 @@ mod tests {
                     crate::file_management::update_exif_of(&path, &updates).unwrap();
                     assert_eq!(
                         sidecar_exif(&raw),
-                        Some(serde_json::json!({"Artist": "Ana"})),
+                        (None, Some(serde_json::json!({"Artist": "Ana"}))),
                         "the Metadata tool keeps only the user's field"
                     );
                 }
@@ -4032,8 +4040,8 @@ mod tests {
                 assert!(holds(&state["adjustments"], &wanted), "{name}: {state}");
                 let expected = user_edit.then(|| serde_json::json!({"Artist": "Ana"}));
                 assert_eq!(
-                    state.get("exif").cloned(),
-                    expected,
+                    sidecar_exif(&raw),
+                    (None, expected),
                     "{name} (user edit {user_edit})"
                 );
                 // What the photo shows is still the file's EXIF with the edit.
@@ -4075,7 +4083,26 @@ mod tests {
             "reading leaves it alone"
         );
         write_editor_save(&path, serde_json::json!({"exposure": 1.0}), Some(true)).unwrap();
-        assert_eq!(sidecar_exif(&raw), None, "the copy goes with the edit");
+        assert_eq!(
+            sidecar_exif(&raw),
+            (None, None),
+            "the copy goes with the edit"
+        );
+
+        // An empty copy (an older build's, every field removed in the
+        // Metadata tool) keeps its removals.
+        write_copy(&HashMap::new());
+        write_editor_save(&path, serde_json::json!({"exposure": 1.0}), Some(true)).unwrap();
+        assert_eq!(
+            sidecar_exif(&raw),
+            (
+                None,
+                Some(serde_json::json!({"Artist": "", "Copyright": ""}))
+            )
+        );
+        let shown = crate::exif_processing::read_rrexif_sidecar(&raw).unwrap();
+        assert!(!shown.contains_key("Artist") && !shown.contains_key("Copyright"));
+        assert_eq!(shown["Make"], "Maker");
 
         // A copy holding the user's edits keeps just them.
         let mut edited = read.clone();
@@ -4083,22 +4110,27 @@ mod tests {
         edited.remove("Copyright");
         edited.insert("DateTimeOriginal".into(), "2026-10-31 00:30:00".into());
         write_copy(&edited);
-        // What an export embeds over the original's EXIF (`PinnedPhoto::exif`).
+        // What an export embeds over the original's EXIF.
         let export_edits = || {
-            let stored = crate::exif_processing::load_sidecar(&sidecar).exif.unwrap();
-            crate::exif_processing::exif_edits(&stored, &read)
+            let pinned =
+                crate::export_processing::pin_photos(std::slice::from_ref(&path), None, None, None)
+                    .unwrap();
+            pinned[0].exif(&raw).unwrap()
         };
         let before_edits = export_edits();
         write_editor_save(&path, serde_json::json!({"exposure": 1.0}), Some(true)).unwrap();
         assert_eq!(
             sidecar_exif(&raw),
-            Some(serde_json::json!({
-                "Artist": "Ana",
-                "Copyright": "",
-                "DateTimeOriginal": "2026-10-31 00:30:00",
-                "SubSecTimeOriginal": "",
-                "OffsetTimeOriginal": "",
-            }))
+            (
+                None,
+                Some(serde_json::json!({
+                    "Artist": "Ana",
+                    "Copyright": "",
+                    "DateTimeOriginal": "2026-10-31 00:30:00",
+                    "SubSecTimeOriginal": "",
+                    "OffsetTimeOriginal": "",
+                }))
+            )
         );
         // The export reads the same edits from the overrides as from the copy.
         assert_eq!(export_edits(), before_edits);
@@ -4110,6 +4142,35 @@ mod tests {
         assert_eq!(shown["Artist"], "Ana");
         assert!(!shown.contains_key("Copyright"));
         assert_eq!(shown["DateTimeOriginal"], "2026-10-31 00:30:00");
+    }
+
+    /// The Metadata tool keeps a caption as typed (quotes, an ellipsis), and
+    /// a virtual copy starts without EXIF of its own: its EXIF edits are its
+    /// master's (SCW1).
+    #[test]
+    fn exif_overrides_keep_the_typed_text_and_stay_with_the_master() {
+        let (_temp, raw) = linked_raw();
+        let path = raw.to_string_lossy().into_owned();
+        let caption = r#"Portrait of the band "Echo"..."#;
+        let updates = HashMap::from([
+            ("ImageDescription".to_string(), caption.to_string()),
+            ("UserComment".to_string(), "...".to_string()),
+        ]);
+        crate::file_management::update_exif_of(&path, &updates).unwrap();
+        let shown = crate::exif_processing::read_rrexif_sidecar(&raw).unwrap();
+        assert_eq!(shown["ImageDescription"], caption);
+        assert_eq!(shown["UserComment"], "...");
+
+        let sidecar = crate::exif_processing::get_primary_sidecar_path(&raw);
+        let mut state: Value = serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+        state["exif"] = serde_json::json!({"Make": "Maker"});
+        fs::write(&sidecar, state.to_string()).unwrap();
+        let copied: Value = serde_json::from_slice(
+            &crate::file_management::operations::new_copy_state(&sidecar).unwrap(),
+        )
+        .unwrap();
+        assert!(copied.get("exif").is_none() && copied.get("exifOverrides").is_none());
+        assert_eq!(copied["rating"], state["rating"]);
     }
 
     fn in_cloud(path: &str) {

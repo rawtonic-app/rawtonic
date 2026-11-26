@@ -548,6 +548,10 @@ pub struct PinnedPhoto {
     /// earlier build holds the cached map here, which counts the same way.
     #[serde(default)]
     pub exif: Option<std::collections::BTreeMap<String, String>>,
+    /// The user's own EXIF its editor state holds (`exifOverrides`, SCW1),
+    /// over `exif` or else the original's EXIF (`with_exif_overrides`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exif_overrides: Option<std::collections::BTreeMap<String, String>>,
     /// The original's EXIF as shown (`read_exif_data_from_bytes`), read once
     /// to tell the user's edits in `exif` from the camera's values.
     #[serde(skip)]
@@ -596,9 +600,9 @@ impl PinnedPhoto {
     /// original's (`exif_edits`). None without a map, or an original that
     /// cannot be read (its export embeds no EXIF then).
     fn exif_edits(&self, source: &Path) -> std::collections::HashMap<String, String> {
-        let Some(shown) = &self.exif else {
+        if self.exif.is_none() && self.exif_overrides.is_none() {
             return Default::default();
-        };
+        }
         let own = self.from_original.get_or_init(|| {
             let path = source.to_string_lossy();
             Some(match read_file_mapped(source) {
@@ -611,7 +615,15 @@ impl PinnedPhoto {
         let Some(own) = own else {
             return Default::default();
         };
-        let shown: std::collections::HashMap<String, String> = shown.clone().into_iter().collect();
+        let map =
+            |m: &std::collections::BTreeMap<String, String>| -> std::collections::HashMap<_, _> {
+                m.clone().into_iter().collect()
+            };
+        let base = self.exif.as_ref().map_or_else(|| own.clone(), map);
+        let shown = match &self.exif_overrides {
+            Some(overrides) => exif_processing::with_exif_overrides(&map(overrides), &base),
+            None => base,
+        };
         exif_processing::exif_edits(&shown, own)
     }
 
@@ -693,15 +705,17 @@ pub(crate) fn pin_photos(
                 // The EXIF edits live in the photograph's own editor state
                 // (a virtual copy's are its master's, `update_exif_of`).
                 let primary = exif_processing::get_primary_sidecar_path(&source);
-                let exif = if primary == sidecar {
-                    saved.exif
+                let (exif, exif_overrides) = if primary == sidecar {
+                    (saved.exif, saved.exif_overrides)
                 } else {
-                    exif_processing::load_sidecar(&primary).exif
+                    let primary = exif_processing::load_sidecar(&primary);
+                    (primary.exif, primary.exif_overrides)
                 };
                 Ok(PinnedPhoto {
                     adjustments,
                     metadata,
                     exif: exif.map(|exif| exif.into_iter().collect()),
+                    exif_overrides: exif_overrides.map(|exif| exif.into_iter().collect()),
                     owner: owner.clone(),
                     from_original: Default::default(),
                     capture: crate::session_bridge::capture_override(&source),
