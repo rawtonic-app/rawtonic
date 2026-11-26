@@ -1872,126 +1872,123 @@ pub fn export_metadata_with(
     // (`read_exif`), not into memory whole.
     if !source_read_success
         && let Ok(file) = rawtonic_engine::file_io::read_file_mapped(original_path)
+        && let Some(exif_obj) = read_exif(&file)
     {
-        if let Some(exif_obj) = read_exif(&file) {
-            source_read_success = true;
+        source_read_success = true;
 
-            let get_string_val = |field: &exif::Field| -> String {
-                match &field.value {
-                    exif::Value::Ascii(vec) => vec
-                        .iter()
-                        .map(|v| {
-                            String::from_utf8_lossy(v)
-                                .trim_matches(char::from(0))
-                                .to_string()
-                        })
-                        .collect::<Vec<String>>()
-                        .join(" "),
-                    _ => field
-                        .display_value()
-                        .to_string()
-                        .replace("\"", "")
-                        .trim()
-                        .to_string(),
-                }
-            };
+        let get_string_val = |field: &exif::Field| -> String {
+            match &field.value {
+                exif::Value::Ascii(vec) => vec
+                    .iter()
+                    .map(|v| {
+                        String::from_utf8_lossy(v)
+                            .trim_matches(char::from(0))
+                            .to_string()
+                    })
+                    .collect::<Vec<String>>()
+                    .join(" "),
+                _ => field
+                    .display_value()
+                    .to_string()
+                    .replace("\"", "")
+                    .trim()
+                    .to_string(),
+            }
+        };
 
-            // A blank text field (spaces or zeros, as cameras leave an
-            // unset one) is not written.
-            let text = |tag| {
-                exif_obj
-                    .get_field(tag, exif::In::PRIMARY)
-                    .map(get_string_val)
-                    .filter(|s| !s.trim().is_empty())
-            };
-            if let Some(text) = text(exif::Tag::Make) {
-                metadata.set_tag(ExifTag::Make(text));
-            }
-            if let Some(text) = text(exif::Tag::Model) {
-                metadata.set_tag(ExifTag::Model(text));
-            }
-            if let Some(text) = text(exif::Tag::LensMake) {
-                metadata.set_tag(ExifTag::LensMake(text));
-            }
-            if let Some(text) = text(exif::Tag::LensModel) {
-                metadata.set_tag(ExifTag::LensModel(text));
-            }
-            if let Some(text) = text(exif::Tag::Artist) {
-                metadata.set_tag(ExifTag::Artist(text));
-            }
-            if let Some(text) = text(exif::Tag::Copyright) {
-                metadata.set_tag(ExifTag::Copyright(text));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::ImageDescription, exif::In::PRIMARY)
-                && let Some(text) = clean_ascii_value(&f.value)
-            {
-                metadata.set_tag(ExifTag::ImageDescription(text));
-            }
-            // The whole comment with its character code, as the camera
-            // wrote it (UTF-16 turned to the export's byte order).
-            if let Some(f) = exif_obj.get_field(exif::Tag::UserComment, exif::In::PRIMARY)
-                && let exif::Value::Undefined(bytes, _) = &f.value
-                && user_comment_text(&f.value, exif_obj.little_endian()).is_some()
-            {
-                metadata.set_tag(ExifTag::UserComment(user_comment_little_endian(
-                    bytes,
-                    exif_obj.little_endian(),
-                )));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
-                metadata.set_tag(ExifTag::DateTimeOriginal(exif_datetime(&get_string_val(f))));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::DateTime, exif::In::PRIMARY) {
-                metadata.set_tag(ExifTag::CreateDate(exif_datetime(&get_string_val(f))));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::FNumber, exif::In::PRIMARY)
-                && let exif::Value::Rational(v) = &f.value
-                && !v.is_empty()
-            {
-                metadata.set_tag(ExifTag::FNumber(vec![to_ur64(&v[0])]));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::ExposureTime, exif::In::PRIMARY)
-                && let exif::Value::Rational(v) = &f.value
-                && !v.is_empty()
-            {
-                metadata.set_tag(ExifTag::ExposureTime(vec![to_ur64(&v[0])]));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::FocalLength, exif::In::PRIMARY)
-                && let exif::Value::Rational(v) = &f.value
-                && !v.is_empty()
-            {
-                metadata.set_tag(ExifTag::FocalLength(vec![to_ur64(&v[0])]));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::ExposureBiasValue, exif::In::PRIMARY) {
-                match &f.value {
-                    exif::Value::SRational(v) if !v.is_empty() => {
-                        metadata.set_tag(ExifTag::ExposureCompensation(vec![to_ir64(&v[0])]));
-                    }
-                    exif::Value::Rational(v) if !v.is_empty() => {
-                        metadata.set_tag(ExifTag::ExposureCompensation(vec![iR64 {
-                            nominator: v[0].num as i32,
-                            denominator: v[0].denom as i32,
-                        }]));
-                    }
-                    _ => {}
+        // A blank text field (spaces or zeros, as cameras leave an
+        // unset one) is not written.
+        let text = |tag| {
+            exif_obj
+                .get_field(tag, exif::In::PRIMARY)
+                .map(get_string_val)
+                .filter(|s| !s.trim().is_empty())
+        };
+        if let Some(text) = text(exif::Tag::Make) {
+            metadata.set_tag(ExifTag::Make(text));
+        }
+        if let Some(text) = text(exif::Tag::Model) {
+            metadata.set_tag(ExifTag::Model(text));
+        }
+        if let Some(text) = text(exif::Tag::LensMake) {
+            metadata.set_tag(ExifTag::LensMake(text));
+        }
+        if let Some(text) = text(exif::Tag::LensModel) {
+            metadata.set_tag(ExifTag::LensModel(text));
+        }
+        if let Some(text) = text(exif::Tag::Artist) {
+            metadata.set_tag(ExifTag::Artist(text));
+        }
+        if let Some(text) = text(exif::Tag::Copyright) {
+            metadata.set_tag(ExifTag::Copyright(text));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::ImageDescription, exif::In::PRIMARY)
+            && let Some(text) = clean_ascii_value(&f.value)
+        {
+            metadata.set_tag(ExifTag::ImageDescription(text));
+        }
+        // The whole comment with its character code, as the camera
+        // wrote it (UTF-16 turned to the export's byte order).
+        if let Some(f) = exif_obj.get_field(exif::Tag::UserComment, exif::In::PRIMARY)
+            && let exif::Value::Undefined(bytes, _) = &f.value
+            && user_comment_text(&f.value, exif_obj.little_endian()).is_some()
+        {
+            metadata.set_tag(ExifTag::UserComment(user_comment_little_endian(
+                bytes,
+                exif_obj.little_endian(),
+            )));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
+            metadata.set_tag(ExifTag::DateTimeOriginal(exif_datetime(&get_string_val(f))));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::DateTime, exif::In::PRIMARY) {
+            metadata.set_tag(ExifTag::CreateDate(exif_datetime(&get_string_val(f))));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::FNumber, exif::In::PRIMARY)
+            && let exif::Value::Rational(v) = &f.value
+            && !v.is_empty()
+        {
+            metadata.set_tag(ExifTag::FNumber(vec![to_ur64(&v[0])]));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::ExposureTime, exif::In::PRIMARY)
+            && let exif::Value::Rational(v) = &f.value
+            && !v.is_empty()
+        {
+            metadata.set_tag(ExifTag::ExposureTime(vec![to_ur64(&v[0])]));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::FocalLength, exif::In::PRIMARY)
+            && let exif::Value::Rational(v) = &f.value
+            && !v.is_empty()
+        {
+            metadata.set_tag(ExifTag::FocalLength(vec![to_ur64(&v[0])]));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::ExposureBiasValue, exif::In::PRIMARY) {
+            match &f.value {
+                exif::Value::SRational(v) if !v.is_empty() => {
+                    metadata.set_tag(ExifTag::ExposureCompensation(vec![to_ir64(&v[0])]));
                 }
-            }
-            if let Some(f) =
-                exif_obj.get_field(exif::Tag::PhotographicSensitivity, exif::In::PRIMARY)
-            {
-                if let Some(val) = f.value.get_uint(0) {
-                    metadata.set_tag(ExifTag::ISO(vec![val as u16]));
+                exif::Value::Rational(v) if !v.is_empty() => {
+                    metadata.set_tag(ExifTag::ExposureCompensation(vec![iR64 {
+                        nominator: v[0].num as i32,
+                        denominator: v[0].denom as i32,
+                    }]));
                 }
-            } else if let Some(f) = exif_obj.get_field(exif::Tag::ISOSpeed, exif::In::PRIMARY)
-                && let Some(val) = f.value.get_uint(0)
-            {
+                _ => {}
+            }
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::PhotographicSensitivity, exif::In::PRIMARY) {
+            if let Some(val) = f.value.get_uint(0) {
                 metadata.set_tag(ExifTag::ISO(vec![val as u16]));
             }
-            if let Some(f) = exif_obj.get_field(exif::Tag::FocalLengthIn35mmFilm, exif::In::PRIMARY)
-                && let Some(val) = f.value.get_uint(0)
-            {
-                metadata.set_tag(ExifTag::FocalLengthIn35mmFormat(vec![val as u16]));
-            }
+        } else if let Some(f) = exif_obj.get_field(exif::Tag::ISOSpeed, exif::In::PRIMARY)
+            && let Some(val) = f.value.get_uint(0)
+        {
+            metadata.set_tag(ExifTag::ISO(vec![val as u16]));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::FocalLengthIn35mmFilm, exif::In::PRIMARY)
+            && let Some(val) = f.value.get_uint(0)
+        {
+            metadata.set_tag(ExifTag::FocalLengthIn35mmFormat(vec![val as u16]));
         }
     }
 
