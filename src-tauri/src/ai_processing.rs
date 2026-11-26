@@ -1025,7 +1025,7 @@ pub async fn preload_sam_models(app_handle: &tauri::AppHandle, ai_state: &AiStat
         log_mask_model_skip("object", reason);
         return Ok(());
     }
-    sam_models(app_handle, ai_state, false).await?;
+    sam_models(app_handle, ai_state, false, false).await?;
     Ok(())
 }
 
@@ -1096,14 +1096,18 @@ where
 /// program after a run of the program failed: the ONNX model fetched first
 /// when it is missing (with `download`), put in place of `failed` among the
 /// loaded models, and the program not used again in this process.
+///
+/// `generation`: the lifecycle generation the failed request started in;
+/// after an unload since (the Library, memory pressure) the new models are
+/// used once, not kept.
 pub(crate) async fn sam_models_on_onnx(
     app_handle: &tauri::AppHandle,
     ai_state: &AiState,
     failed: &Arc<SamModels>,
     download: bool,
+    generation: u64,
 ) -> Result<Arc<SamModels>> {
     SAM_CORE_ML_FAILED.store(true, std::sync::atomic::Ordering::Release);
-    let generation = ai_state.lifecycle.generation();
     // Out of the loaded models at once: if the ONNX encoder cannot be
     // loaded now (not installed for an encoding ahead), the next request
     // loads the models again, on ONNX Runtime (`sam_core_ml_ready`).
@@ -1260,19 +1264,25 @@ async fn prepare_sam_core_ml_now(app: &tauri::AppHandle, download: bool) -> bool
 
 /// SAM 2.1's encoder and decoder (`SamModels`), downloaded and loaded on
 /// first use.
+///
+/// For an object selection the photographer makes (a click or a box): on
+/// macOS also the files of the encoder's Core ML program may be fetched
+/// (`prepare_sam_core_ml`).
 pub async fn get_or_init_sam_models(
     app_handle: &tauri::AppHandle,
     ai_state: &AiState,
 ) -> Result<Arc<SamModels>> {
-    sam_models(app_handle, ai_state, true).await
+    sam_models(app_handle, ai_state, true, true).await
 }
 
 /// `get_or_init_sam_models`; with `download` false only installed files
-/// are loaded (an error when one is missing) and nothing is fetched.
+/// are loaded (an error when one is missing), with `fetch_core_ml` false
+/// the Core ML program is prepared only from installed files.
 pub(crate) async fn sam_models(
     app_handle: &tauri::AppHandle,
     ai_state: &AiState,
     download: bool,
+    fetch_core_ml: bool,
 ) -> Result<Arc<SamModels>> {
     ensure_local_runtime()?;
     let loaded = || {
@@ -1284,9 +1294,9 @@ pub(crate) async fn sam_models(
     let prepare = |models: &SamModels| {
         #[cfg(target_os = "macos")]
         if matches!(models.encoder, SamEncoder::Onnx(_)) {
-            prepare_sam_core_ml(app_handle, download);
+            prepare_sam_core_ml(app_handle, download && fetch_core_ml);
         }
-        let _ = models;
+        let _ = (models, fetch_core_ml);
     };
     if let Some(models) = loaded() {
         prepare(&models);

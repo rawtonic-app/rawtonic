@@ -42,6 +42,7 @@ Needs: the export_sam2.py packages (torch 2.7, SAM-2 at 2b90b9f) plus
 coremltools==9.0 and onnxruntime (macOS); see build_model_pack.py.
 """
 import argparse
+import os
 import shutil
 import sys
 import tempfile
@@ -105,7 +106,7 @@ def convert(out: Path, encoder: Encoder, precision: str) -> Path:
     # complete in a staging folder, then moved into place.
     package = out / PACKAGE[precision]
     targets = [package] + [out / asset for asset in assets(precision)]
-    if any(t.exists() for t in targets):
+    if any(os.path.lexists(t) for t in targets):
         sys.exit(f"{out} already holds a {precision} conversion; convert into a fresh folder")
     staging = Path(tempfile.mkdtemp(prefix=".convert-", dir=out))
     try:
@@ -115,9 +116,12 @@ def convert(out: Path, encoder: Encoder, precision: str) -> Path:
         sort_spec(staged / MEMBERS["model.mlmodel"], CONVERSION_DATE)
         for asset, member in assets(precision).items():
             shutil.copyfile(staged / member, staging / asset)
-        staged.rename(package)
+        # No-clobber: mkdir and link fail on anything at the path (also a
+        # dangling link or a file made while this ran).
+        package.mkdir()
+        staged.rename(package)  # onto the empty folder just made
         for asset in assets(precision):
-            (staging / asset).rename(out / asset)
+            os.link(staging / asset, out / asset)
     finally:
         shutil.rmtree(staging)
     return package

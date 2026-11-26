@@ -872,7 +872,7 @@ async fn sam_embeddings(
         let app = app_handle.clone();
         async move {
             let ai_state = app.state::<AiState>();
-            crate::ai_processing::sam_models_on_onnx(&app, &ai_state, &failed, !ahead)
+            crate::ai_processing::sam_models_on_onnx(&app, &ai_state, &failed, !ahead, generation)
                 .await
                 .map_err(|e| e.to_string())
         }
@@ -1005,9 +1005,13 @@ pub async fn precompute_ai_subject_mask(
     let _load_turn = load_turn;
     // An encoding ahead of a photo opened downloads nothing, not even the
     // encoder's Core ML program prepared beside the loaded models.
-    let models = crate::ai_processing::sam_models(&app_handle, &ai_state, background != Some(true))
-        .await
-        .map_err(CommandError::from)?;
+    // Nor does one asked for by the masking tools (an existing object
+    // selection shown): the Core ML program's files are fetched only for a
+    // click or box (`generate_ai_subject_mask`).
+    let models =
+        crate::ai_processing::sam_models(&app_handle, &ai_state, background != Some(true), false)
+            .await
+            .map_err(CommandError::from)?;
     // A request for a photo that is no longer open is dropped.
     let current = crate::image_loader::original_image(&state.source)
         .await
