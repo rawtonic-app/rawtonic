@@ -652,7 +652,7 @@ export interface AppSettings {
   viewerProofMarginPercent?: number;
   /** Develop viewer bar: R, G, B under the pointer (View menu). */
   pointerReadout?: boolean;
-  /** Show the white balance picker’s loupe. Defaults to true. */
+  /** Show the white balance picker's loupe. Defaults to true. */
   showWbLoupe?: boolean;
   /** The pointer readout's and picker loupe's unit; unset: 0–255. */
   pointerReadoutUnit?: 'rgb255' | 'percent';
