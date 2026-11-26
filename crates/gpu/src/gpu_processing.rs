@@ -12971,25 +12971,6 @@ impl GpuProcessor {
 
                     let mut blur_encoder = device.create_command_encoder(&Default::default());
 
-                    let h_blur_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("H-Blur BG"),
-                        layout: &self.blur_bgl,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(input_texture_view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::TextureView(ping_pong_view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: self.blur_params_buffer.as_entire_binding(),
-                            },
-                        ],
-                    });
-
                     if carries_log(index) {
                         let log_view = Self::log_prepass_view(device, &mut log_texture, log_region);
                         if !log_prepass_done {
@@ -13056,6 +13037,26 @@ impl GpuProcessor {
                             1,
                         );
                     } else {
+                        let h_blur_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("H-Blur BG"),
+                            layout: &self.blur_bgl,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: wgpu::BindingResource::TextureView(
+                                        input_texture_view,
+                                    ),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: wgpu::BindingResource::TextureView(ping_pong_view),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 2,
+                                    resource: self.blur_params_buffer.as_entire_binding(),
+                                },
+                            ],
+                        });
                         let mut cpass = blur_encoder.begin_compute_pass(&Default::default());
                         cpass.set_pipeline(&self.h_blur_pipeline);
                         cpass.set_bind_group(0, &h_blur_bg, &[]);
