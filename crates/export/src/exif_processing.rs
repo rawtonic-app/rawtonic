@@ -1868,11 +1868,12 @@ pub fn export_metadata_with(
         && copy_full_exif_from_source(&mut metadata, original_path, strip_gps);
     let mut source_read_success = full_exif_copied;
 
-    if !source_read_success && let Ok(file) = std::fs::File::open(original_path) {
-        let mut bufreader = std::io::BufReader::new(&file);
-        let exifreader = exif::Reader::new();
-
-        if let Ok(exif_obj) = exifreader.read_from_container(&mut bufreader) {
+    // Mapped, so a TIFF-based RAW is read only where its EXIF lies
+    // (`read_exif`), not into memory whole.
+    if !source_read_success
+        && let Ok(file) = rawtonic_engine::file_io::read_file_mapped(original_path)
+    {
+        if let Some(exif_obj) = read_exif(&file) {
             source_read_success = true;
 
             let get_string_val = |field: &exif::Field| -> String {
