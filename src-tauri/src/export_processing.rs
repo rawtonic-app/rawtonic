@@ -5190,6 +5190,7 @@ mod tests {
         let unmanaged = dir.path().join("scan.jpg");
         std::fs::write(&unmanaged, b"an unmanaged JPEG").unwrap();
         std::fs::hard_link(&raw, &hard_link).unwrap();
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut own_files = vec![
             raw.clone(),
             sidecar.clone(),
