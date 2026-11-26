@@ -100,23 +100,25 @@ pub fn estimated_peak(job: AheadJob, on_cpu: bool, loaded: bool) -> u64 {
 /// the run made ahead, `estimated_peak` with the model loaded, when the
 /// memory allows it later) pays only the network (G74/MEM19).
 ///
-/// The largest rise measured from the load's start to its end (notes:
-/// benchmark-results/mem19-2026-11-26, phys_footprint at 0.25 s, 45 MP NEF
-/// in a 4-up, M5 Pro; and benchmark-results/aimem-cpu-mask-2026-11-14):
+/// The CPU's figure whatever the provider setting: a model loads on the
+/// CPU also when no GPU provider works, its check is pending or failed
+/// (Windows, Linux) or a Core ML file is missing, and the CPU load is the
+/// largest measured. The largest rise from the load's start to its end
+/// (notes: benchmark-results/mem19-2026-11-26, phys_footprint at 0.25 s,
+/// 45 MP NEF in a 4-up, M5 Pro; and benchmark-results/aimem-cpu-mask-2026-11-14):
 /// - Subject on the CPU: 1.0 GB settled with a 0.67 GB load transient on
 ///   x86-like settings (AIMEM); +0.42–1.35 GB on the Mac (5 loads from the
-///   saved optimized graph, 0.6–4.9 s) → 1700 MB.
-/// - Subject on Core ML: +0.28–0.60 GB (4 loads, 0.2–0.75 s) → 700 MB.
+///   saved optimized graph, 0.6–4.9 s) → 1700 MB. On Core ML +0.28–0.60 GB
+///   (4 loads, 0.2–0.75 s).
 /// - Sky: 0.2–0.5 GB beside Subject (AIMEM; Core ML +0.01 GB, MEM19) →
 ///   500 MB.
 /// - Object encoding: not loaded ahead on its own; the model's share of
 ///   `estimated_peak` (400 MB).
-pub fn estimated_load_peak(job: AheadJob, on_cpu: bool) -> u64 {
-    let load = match (job, on_cpu) {
-        (AheadJob::Subject, true) => 1700,
-        (AheadJob::Subject, false) => 700,
-        (AheadJob::Sky, _) => 500,
-        (AheadJob::ObjectEncoding, _) => 400,
+pub fn estimated_load_peak(job: AheadJob) -> u64 {
+    let load = match job {
+        AheadJob::Subject => 1700,
+        AheadJob::Sky => 500,
+        AheadJob::ObjectEncoding => 400,
     };
     load * MB
 }
@@ -442,7 +444,7 @@ mod tests {
         // WMEM18 (Radeon 680M, 14 GB, four large RAWs): 3.3–3.5 GB free for
         // work that may wait once the decodes settled.
         let room = Some(3300 * MB);
-        let load = estimated_load_peak(AheadJob::Subject, true);
+        let load = estimated_load_peak(AheadJob::Subject);
         assert_eq!(verdict(false, false, true, 0, room, load), Verdict::Start);
         // The run stays held, cold and with the model loaded beside it
         // (the load's memory then no longer counts as free).
@@ -484,7 +486,7 @@ mod tests {
     fn a_load_alone_needs_less_than_the_model_and_its_run() {
         for job in [AheadJob::Subject, AheadJob::Sky, AheadJob::ObjectEncoding] {
             for on_cpu in [true, false] {
-                let load = estimated_load_peak(job, on_cpu);
+                let load = estimated_load_peak(job);
                 assert!(load > 0);
                 assert!(load < estimated_peak(job, on_cpu, false));
             }

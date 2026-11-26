@@ -1809,14 +1809,14 @@ pub async fn preload_ai_mask_models(
         // click: not beside the full-resolution decodes, and only with
         // memory for the load (`ai_ahead`). Only the load: the run made
         // ahead waits for memory for its own peak, and where that never
-        // comes (14 GB beside large RAWs) a click still finds the model
-        // loaded and pays only the run (MEM19: 26 s against 18 s on a
-        // Radeon 680M laptop).
+        // comes (14 GB beside large RAWs) a click after the load finds the
+        // model loaded and pays only the run (WMEM18 on a Radeon 680M
+        // laptop: 26.3 s for the click, 9.9 s of it the model's load).
         let job = match kind {
             AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
             AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
         };
-        let need = crate::ai_ahead::estimated_load_peak(job, on_cpu);
+        let need = crate::ai_ahead::estimated_load_peak(job);
         let admitted = crate::ai_ahead::admit(
             job,
             || false,
