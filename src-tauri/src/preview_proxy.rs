@@ -312,9 +312,8 @@ fn location_with(source: &Path, outside: Option<&Path>) -> Option<(PathBuf, Stri
             source.to_string_lossy().into_owned(),
         )
     };
-    let stem = file_stem_for(&label);
-    adopt_as_spelled(&dir, &label, &stem);
-    Some((dir, stem))
+    adopt_once(&dir);
+    Some((dir, file_stem_for(&label)))
 }
 
 /// The label spelled with the platform's own separator (`file_stem_for`).
@@ -335,36 +334,62 @@ fn stem_of_bytes(bytes: &[u8]) -> String {
     blake3::hash(bytes).to_hex()[..32].to_string()
 }
 
+/// The previews folders already brought to native names in this run
+/// (`adopt_once`).
+static ADOPTED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<PathBuf>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Marks a previews folder whose previews all have native names.
+const NATIVE_NAMES: &str = ".native-labels";
+
 /// Previews made before `file_stem_for` spelled labels natively were named
-/// by the label as written; one written with `/` on Windows had another
-/// name. They take the native name the first time the photograph's
-/// previews are looked up, never replacing a file (the header's label
-/// still names them, `labels_file`). Nothing to do where the label is
-/// already spelled natively (always on macOS and Linux).
-fn adopt_as_spelled(dir: &Path, label: &str, stem: &str) {
-    /// The labels whose previews were looked for: one listing each per run.
-    static LOOKED: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<PathBuf>>> =
-        std::sync::LazyLock::new(Default::default);
-    if native_spelling(label).as_os_str() == std::ffi::OsStr::new(label)
-        || !LOOKED
+/// by the label as written, and on Windows one written with `/` had
+/// another name than the native one. Before a previews folder is first
+/// used, each such preview (and those kept beside it for other decode
+/// variants) takes the native name, never replacing a file; the folder is
+/// then marked so later runs do not list it again. Only Windows has two
+/// separators: elsewhere every label is already spelled natively.
+fn adopt_once(dir: &Path) {
+    if !cfg!(windows)
+        || !dir.is_dir()
+        || !ADOPTED
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(dir.join(label))
+            .insert(dir.to_path_buf())
+        || dir.join(NATIVE_NAMES).exists()
     {
         return;
     }
-    let old = format!("{}.", stem_of_bytes(label.as_bytes()));
-    let Ok(entries) = fs::read_dir(dir) else {
+    adopt_written_labels(dir);
+    if let Err(e) = rawtonic_fs::atomic_write(&dir.join(NATIVE_NAMES), b"") {
+        log::debug!("Could not mark {}: {e}", dir.display());
+    }
+}
+
+/// `adopt_once`'s renames: the old stem of each preview whose header label
+/// is not spelled natively, and every file of that stem renamed.
+fn adopt_written_labels(dir: &Path) {
+    let renamed: std::collections::HashMap<String, String> = proxy_files(dir)
+        .filter_map(|(path, _, _)| read_header(&path)?.source)
+        .filter(|label| native_spelling(label).as_os_str() != std::ffi::OsStr::new(label))
+        .map(|label| (stem_of_bytes(label.as_bytes()), file_stem_for(&label)))
+        .collect();
+    if renamed.is_empty() {
         return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(rest) = name.to_str().and_then(|n| n.strip_prefix(&old)) else {
+    }
+    for (path, _, _) in proxy_files(dir).collect::<Vec<_>>() {
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        let new = dir.join(format!("{stem}.{rest}"));
-        if let Err(e) = rawtonic_fs::rename_no_clobber(&entry.path(), &new) {
-            log::debug!("The preview {} keeps its name: {e}", entry.path().display());
+        let Some((stem, rest)) = name.split_once('.') else {
+            continue;
+        };
+        let Some(native) = renamed.get(stem) else {
+            continue;
+        };
+        if let Err(e) = rawtonic_fs::rename_no_clobber(&path, &dir.join(format!("{native}.{rest}")))
+        {
+            log::debug!("The preview {} keeps its name: {e}", path.display());
         }
     }
 }
@@ -398,7 +423,7 @@ fn labels_file(label: &str, path: &Path) -> bool {
         .and_then(|name| name.split('.').next())
         .is_some_and(|stem| {
             // Also by the label as written: a preview named before labels
-            // were spelled natively (`adopt_as_spelled`).
+            // were spelled natively and not renamed (`adopt_once`).
             stem == file_stem_for(label) || stem == stem_of_bytes(label.as_bytes())
         })
 }
@@ -2545,29 +2570,42 @@ pub(crate) mod tests {
     }
 
     /// A preview made before labels were spelled natively, named by its
-    /// label as written (`Capture/A.RAF` on Windows), is found under the
-    /// native spelling and is not evicted as another photograph's.
+    /// label as written (`Capture/A.NEF` on Windows), is found by the
+    /// native path at the first lookup, follows a folder rename and is not
+    /// evicted as another photograph's (meaningful on Windows; elsewhere
+    /// both names are one).
     #[test]
     fn a_preview_named_by_its_label_as_written_is_still_found() {
         let dir = tempfile::tempdir().unwrap();
-        let lib = rawtonic_catalog::Library::create(
-            &dir.path().join("Job"),
-            "Job",
-            rawtonic_catalog::Mode::Session,
-        )
-        .unwrap();
-        let previews = lib.directory.join(".cache").join("previews");
-        fs::create_dir_all(&previews).unwrap();
-        let written = "Capture/A.RAF";
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 40, &settings, NEW_EDIT, None).unwrap();
+        let native = proxy_path(&photo).unwrap();
+        let previews = native.parent().unwrap().to_path_buf();
+        // As the previous version named it.
+        let written = "Capture/A.NEF";
+        relabel(&native, written).unwrap();
         let old = previews.join(format!("{}.rtpx", stem_of_bytes(written.as_bytes())));
-        fs::write(&old, "standard preview").unwrap();
+        if old != native {
+            fs::rename(&native, &old).unwrap();
+        }
+        let before = image_bytes(&old);
         assert!(labels_file(written, &old));
-        let photo = lib.directory.join(written);
-        let found = proxy_path_of(&photo, ProxyKind::Standard).unwrap();
-        assert_eq!(fs::read(&found).unwrap(), b"standard preview");
-        let native = lib.directory.join("Capture").join("A.RAF");
-        assert_eq!(proxy_path_of(&native, ProxyKind::Standard).unwrap(), found);
-        assert!(labels_file(written, &found));
+        let _ = fs::remove_file(previews.join(NATIVE_NAMES));
+        ADOPTED.lock().unwrap().remove(&previews);
+
+        // The first lookup is by the native path (as the catalog gives it).
+        assert_eq!(proxy_path(&photo).unwrap(), native);
+        assert_eq!(image_bytes(&native), before);
+        assert!(labels_file(written, &native));
+        // A folder renamed afterwards carries it.
+        let renamed = photo.parent().unwrap().with_file_name("Capture 2");
+        fs::rename(photo.parent().unwrap(), &renamed).unwrap();
+        assert_eq!(carry_over(&photo, &renamed.join("A.NEF")), 1);
+        assert_eq!(
+            image_bytes(&proxy_path(&renamed.join("A.NEF")).unwrap()),
+            before
+        );
     }
 
     /// What a never-edited RAW's decode is made for.
