@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Editing keywords also reduces legacy EXIF copies in Rawtonic sidecars to your changes.
+
 - The Metadata panel shows saved EXIF text exactly, including literal quotes in captions.
 
 - The naming editor’s + Token list opens outside the entire name field, so every row stays visible and available for dropping tokens.
