@@ -150,22 +150,28 @@ function cropSelectionRect() {
 }
 
 /** The move a frame of the crop drag shows: the newest move whose pointer
- * offset equals how far the frame's edge followed it (the left or right
- * edge, whichever moved further; a resize moves one, a move both). The
- * time from that move to this animation frame is the overlay's lag. */
+ * offset equals how far the frame's edge followed it, on the axis the frame
+ * moved further along (the edge of that axis that moved further; a resize
+ * moves one edge, a move both). The time from that move to this animation
+ * frame is the overlay's lag. A rotation drag fits the frame to the turned
+ * photo instead of following the pointer: no samples then. */
 function cropFrameLag(track: CropTrack, now: number): number | null {
+  if (useEditorStore.getState().liveRotation != null) return null;
   const rect = cropSelectionRect();
   if (!rect) return null;
   const key = `${rect.left},${rect.top},${rect.right},${rect.bottom}`;
   if (key === track.last) return null;
   track.last = key;
-  const dl = rect.left - track.rect.left;
-  const dr = rect.right - track.rect.right;
-  const dx = Math.abs(dl) > Math.abs(dr) ? dl : dr;
-  if (Math.abs(dx) < 1) return null;
+  const further = (a: number, b: number) => (Math.abs(a) > Math.abs(b) ? a : b);
+  const dx = further(rect.left - track.rect.left, rect.right - track.rect.right);
+  const dy = further(rect.top - track.rect.top, rect.bottom - track.rect.bottom);
+  const horizontal = Math.abs(dx) >= Math.abs(dy);
+  const delta = horizontal ? dx : dy;
+  if (Math.abs(delta) < 1) return null;
   for (let i = track.moves.length - 1; i >= 0; i--) {
     const move = track.moves[i];
-    if (Math.abs(move.x - track.x - dx) <= 0.75) return now - move.time;
+    const offset = horizontal ? move.x - track.x : move.y - track.y;
+    if (Math.abs(offset - delta) <= 0.75) return now - move.time;
   }
   return null;
 }
