@@ -488,7 +488,7 @@ describe('[ and ]', () => {
     window.removeEventListener('keydown', rotate);
   });
 
-  it('resize the brush while the slider just dragged keeps the focus, never rotating', () => {
+  it('resize the brush with a focused slider', () => {
     withLinearLayer();
     workspace();
     fireEvent.click(screen.getByRole('button', { name: 'Brush' }));

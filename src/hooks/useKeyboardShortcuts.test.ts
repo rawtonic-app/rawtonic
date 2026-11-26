@@ -368,7 +368,7 @@ describe("M after a layer's first adjustment (Lightroom's automatic overlay)", (
     expect(useEditorStore.getState().maskOverlayAuto).toBe('pinned');
   });
 
-  it('shows it while the slider just dragged keeps the focus; the slider keeps its arrow keys', () => {
+  it('shows it with a focused slider while the slider keeps its arrow keys', () => {
     document.body.innerHTML = '<input type="range" aria-label="Exposure" />';
     document.querySelector('input')!.focus();
     press('ArrowRight');
