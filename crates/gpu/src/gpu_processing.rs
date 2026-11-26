@@ -4338,6 +4338,14 @@ fn create_window_texture(
     Ok(texture)
 }
 
+/// The log-luminance prepass's pipelines (`GpuProcessor::log_prepass`).
+struct LogPrepass {
+    prepass_bgl: wgpu::BindGroupLayout,
+    prepass_pipeline: wgpu::ComputePipeline,
+    blur_bgl: wgpu::BindGroupLayout,
+    blur_pipeline: wgpu::ComputePipeline,
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct BlurParams {
@@ -4754,12 +4762,12 @@ pub struct GpuProcessor {
     h_blur_pipeline: wgpu::ComputePipeline,
     v_blur_pipeline: wgpu::ComputePipeline,
     /// The log-luminance prepass and the horizontal pass that reads it, for
-    /// the blurs carrying the mean log luminance (byte-identical to
-    /// `h_blur_pipeline` computing it per tap).
-    log_prepass_bgl: wgpu::BindGroupLayout,
-    log_prepass_pipeline: wgpu::ComputePipeline,
-    h_blur_log_bgl: wgpu::BindGroupLayout,
-    h_blur_log_pipeline: wgpu::ComputePipeline,
+    /// the blurs carrying the mean log luminance: on Metal only, where its
+    /// exports are byte-identical to `h_blur_pipeline` computing it per tap
+    /// (notes: benchmark-results/exp3-2026-11-26). On NVIDIA Vulkan 206 of
+    /// the 326 preservation exports changed, so other backends keep the
+    /// per-tap path.
+    log_prepass: Option<LogPrepass>,
     blur_params_buffer: wgpu::Buffer,
 
     flare_bgl_0: wgpu::BindGroupLayout,
@@ -8946,13 +8954,23 @@ impl GpuProcessor {
                 CompileWeight::Tiny,
             )
         };
-        let log_prepass_pipeline =
-            blur_layout_pipeline(&log_prepass_bgl, "Log Prepass Pipeline", "log_luma_prepass")?;
-        let h_blur_log_pipeline = blur_layout_pipeline(
-            &h_blur_log_bgl,
-            "Log Horizontal Blur Pipeline",
-            "horizontal_blur_log",
-        )?;
+        let log_prepass = if device.adapter_info().backend == wgpu::Backend::Metal {
+            let prepass_pipeline =
+                blur_layout_pipeline(&log_prepass_bgl, "Log Prepass Pipeline", "log_luma_prepass")?;
+            let blur_pipeline = blur_layout_pipeline(
+                &h_blur_log_bgl,
+                "Log Horizontal Blur Pipeline",
+                "horizontal_blur_log",
+            )?;
+            Some(LogPrepass {
+                prepass_bgl: log_prepass_bgl,
+                prepass_pipeline,
+                blur_bgl: h_blur_log_bgl,
+                blur_pipeline,
+            })
+        } else {
+            None
+        };
 
         let blur_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Blur Params Buffer"),
@@ -9364,10 +9382,7 @@ impl GpuProcessor {
             blur_bgl,
             h_blur_pipeline,
             v_blur_pipeline,
-            log_prepass_bgl,
-            log_prepass_pipeline,
-            h_blur_log_bgl,
-            h_blur_log_pipeline,
+            log_prepass,
             blur_params_buffer,
             flare_bgl_0,
             flare_bgl_1,
@@ -12971,13 +12986,14 @@ impl GpuProcessor {
 
                     let mut blur_encoder = device.create_command_encoder(&Default::default());
 
-                    if carries_log(index) {
+                    if let Some(prepass) = self.log_prepass.as_ref().filter(|_| carries_log(index))
+                    {
                         let log_view = Self::log_prepass_view(device, &mut log_texture, log_region);
                         if !log_prepass_done {
                             log_prepass_done = true;
                             let prepass_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
                                 label: Some("Log Prepass BG"),
-                                layout: &self.log_prepass_bgl,
+                                layout: &prepass.prepass_bgl,
                                 entries: &[
                                     wgpu::BindGroupEntry {
                                         binding: 0,
@@ -12996,7 +13012,7 @@ impl GpuProcessor {
                                 ],
                             });
                             let mut cpass = blur_encoder.begin_compute_pass(&Default::default());
-                            cpass.set_pipeline(&self.log_prepass_pipeline);
+                            cpass.set_pipeline(&prepass.prepass_pipeline);
                             cpass.set_bind_group(0, &prepass_bg, &[]);
                             cpass.dispatch_workgroups(
                                 log_region[2].div_ceil(16),
@@ -13006,7 +13022,7 @@ impl GpuProcessor {
                         }
                         let h_blur_log_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
                             label: Some("Log H-Blur BG"),
-                            layout: &self.h_blur_log_bgl,
+                            layout: &prepass.blur_bgl,
                             entries: &[
                                 wgpu::BindGroupEntry {
                                     binding: 0,
@@ -13029,7 +13045,7 @@ impl GpuProcessor {
                             ],
                         });
                         let mut cpass = blur_encoder.begin_compute_pass(&Default::default());
-                        cpass.set_pipeline(&self.h_blur_log_pipeline);
+                        cpass.set_pipeline(&prepass.blur_pipeline);
                         cpass.set_bind_group(0, &h_blur_log_bg, &[]);
                         cpass.dispatch_workgroups(
                             input_width.div_ceil(16),
