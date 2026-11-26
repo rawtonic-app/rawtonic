@@ -239,7 +239,7 @@ struct Receipt {
     original: PathBuf,
     identity: Identity,
     parent_identity: Identity,
-    /// Set on volumes without file IDs (exFAT, FAT32), where the entry's
+    /// Set on volumes without unique file IDs (exFAT, FAT32, ReFS), where the entry's
     /// record, not its index, proves it after a move (`entry_proof`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     stamp: Option<Stamp>,
@@ -653,58 +653,6 @@ fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Proves that `location`, where the Shell says it recycled the receipt's
-/// entry, holds that entry. First by the receipt's own proof (file ID, or
-/// on exFAT/FAT32 the record's size and times). Failing that, the entry is
-/// still taken as recycled when it has left its original place and its Bin
-/// record (`$I`) names that original and its size: the receipt then keeps
-/// the facts the entry has now, so Undo can put it back. Anything else is
-/// an error, and the journal reports that the entry left its folder.
-fn prove_recycled(receipt: &mut Receipt, before: &EntryFacts, location: &Path) -> Result<()> {
-    use super::recycle_info::{MAX_STUB_LEN, info_stub_for, stub_describes};
-    let (now, file_system) = entry_facts(location)?;
-    if receipt.matches(&now) {
-        return Ok(());
-    }
-    // On NTFS and ReFS a different file ID is a different file: never
-    // adopted. On FAT-family volumes the entry itself must still be the one
-    // recycled: same kind and, for a file, same size.
-    ensure!(
-        receipt.stamp.is_some()
-            && now.stamp.directory == before.stamp.directory
-            && (now.stamp.directory || now.stamp.size == before.stamp.size),
-        "The entry in the Recycle Bin is not the one recycled"
-    );
-    ensure!(
-        matches!(fs::symlink_metadata(&receipt.original), Err(e) if e.kind() == std::io::ErrorKind::NotFound),
-        "The original place is not empty"
-    );
-    let stub = info_stub_for(location).context("The new entry is no Recycle Bin entry")?;
-    let mut bytes = Vec::new();
-    File::open(&stub)
-        .with_context(|| format!("Its Recycle Bin record {} cannot be read", stub.display()))?
-        .take(MAX_STUB_LEN + 1)
-        .read_to_end(&mut bytes)?;
-    let original = plain_drive_path(&receipt.original)?;
-    let size = (!before.stamp.directory).then_some(before.stamp.size);
-    ensure!(
-        bytes.len() as u64 <= MAX_STUB_LEN
-            && original
-                .to_str()
-                .is_some_and(|original| stub_describes(&bytes, original, size)),
-        "Its Recycle Bin record names another entry"
-    );
-    log::warn!(
-        "Recycled {} to {}: proven by its Recycle Bin record; its {} entry facts changed in the move",
-        receipt.original.display(),
-        location.display(),
-        file_system
-    );
-    receipt.identity = now.identity;
-    receipt.stamp = stamp_to_record(&file_system, &now);
-    Ok(())
-}
-
 impl SystemTrash for PlatformTrash {
     fn trash(&self, path: &Path) -> Result<String> {
         shell_thread(|| {
@@ -740,12 +688,13 @@ impl SystemTrash for PlatformTrash {
                 )?;
                 receipt.bin_id = desktop_id(&recycled)?;
                 let location = item_path(&recycled)?;
-                prove_recycled(&mut receipt, &before, &location).with_context(|| {
-                    format!(
-                        "Windows moved it to {}, but could not prove it is the same entry",
-                        location.display()
-                    )
-                })?;
+                // No weaker fallback: an entry that fails its proof is never
+                // adopted, and the journal reports that it left its folder.
+                ensure!(
+                    receipt.is_entry(&location)?,
+                    "Windows moved it to {}, but could not prove it is the same entry",
+                    location.display()
+                );
             }
             Ok(serde_json::to_string(&receipt)?)
         })

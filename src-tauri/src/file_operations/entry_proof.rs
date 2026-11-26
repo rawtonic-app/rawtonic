@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Which facts prove that a directory entry the Recycle Bin moved (or a
-//! restore moved back) is still the entry recorded. NTFS and ReFS keep a
-//! file ID across a move within the volume, and that ID is the proof. FAT,
+//! restore moved back) is still the entry recorded. NTFS keeps a unique
+//! file ID across a move within the volume, and that ID is the proof (ReFS
+//! IDs are 128-bit; their 64-bit index can repeat, so ReFS is proven like
+//! FAT). FAT,
 //! FAT32 and exFAT have no file IDs: Windows numbers an entry by where its
 //! directory record lies, so the number changes with every move (WQA7b:
 //! Trash on an exFAT volume failed with "recycled entry identity changed";
@@ -38,9 +40,7 @@ pub(super) struct EntryFacts {
 /// Whether `file_system` (as `GetVolumeInformationByHandleW` names it)
 /// keeps an entry's file ID when the entry moves within the volume.
 pub(super) fn keeps_file_ids(file_system: &str) -> bool {
-    ["NTFS", "ReFS"]
-        .iter()
-        .any(|kind| file_system.eq_ignore_ascii_case(kind))
+    file_system.eq_ignore_ascii_case("NTFS")
 }
 
 /// The stamp a receipt records for an entry on `file_system`: none where
@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn an_entry_moved_on_exfat_is_proven_by_its_record_not_its_index() {
         let (before, after) = exfat_move();
-        for kind in ["exFAT", "FAT32", "FAT", "fat32"] {
+        for kind in ["exFAT", "FAT32", "FAT", "fat32", "ReFS"] {
             assert!(!keeps_file_ids(kind), "{kind}");
             let stamp = stamp_to_record(kind, &before);
             assert_eq!(stamp, Some(before.stamp));
@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn on_ntfs_and_refs_the_file_id_stays_the_proof() {
+    fn on_ntfs_the_file_id_stays_the_proof() {
         let stamp = Stamp {
             size: 20,
             created: 1,
@@ -212,7 +212,7 @@ mod tests {
             directory: false,
         };
         let before = facts((0x0001_0000, 0x0000_1234), stamp);
-        for kind in ["NTFS", "ReFS", "ntfs"] {
+        for kind in ["NTFS", "ntfs"] {
             assert!(keeps_file_ids(kind), "{kind}");
             let recorded = stamp_to_record(kind, &before);
             assert_eq!(recorded, None, "{kind}: receipts stay as before");
