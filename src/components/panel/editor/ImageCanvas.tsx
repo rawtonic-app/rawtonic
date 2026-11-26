@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useCallback, memo, useMemo, type MutableRefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useCropGestures, useToolGesture } from '../../../utils/cropGesture';
-import ReactCrop from 'react-image-crop';
-import 'react-image-crop/dist/ReactCrop.css';
 import { Stage, Layer, Ellipse, Line, Group, Circle, Rect } from 'react-konva';
 import type Konva from 'konva';
 import type { KonvaEventObject } from 'konva/lib/Node';
@@ -27,7 +25,6 @@ import { useTranslation } from 'react-i18next';
 import { useEditorStore } from '../../../store/useEditorStore';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 import type { OverlayMode } from './overlays/CompositionOverlays';
-import CompositionOverlays from './overlays/CompositionOverlays';
 import { calculateStraightenAngle } from '../../../utils/cropUtils';
 import { pickColorRange } from '../../../utils/colorRanges';
 import { sampleLumaRange } from '../../../utils/lumaSample';
@@ -53,6 +50,9 @@ import {
 import { whiteBalanceForCurrentPreview } from '../../../utils/whiteBalance';
 import { isContextClick, useBrushGesture } from './brushGesture';
 import { isCropEdge, resizeCropFromEdge, type CropRect } from './cropEdges';
+import CropFrame from './CropFrame';
+import type { CropSelection } from './cropSelection';
+import { useStore } from 'zustand';
 import { DEFAULT_BRUSH_SIZE } from '../../../utils/brushSize';
 import { GUIDE_COLORS, guideOrientation, guideRejection } from '../../../utils/guideLines';
 import { useContextMenu } from '../../../context/ContextMenuContext';
@@ -196,7 +196,8 @@ interface ImageCanvasProps {
   activeMaskId: string | null;
   adjustments: Adjustments;
   brushSettings: BrushSettings | null;
-  crop: Crop | null;
+  /** The frame the crop tool shows (live during a drag). */
+  cropSelection: CropSelection;
   finalPreviewUrl: string | null;
   handleCropComplete(c: Crop, cp: PercentCrop): void;
   imageRenderSize: RenderSize;
@@ -1350,7 +1351,7 @@ const ImageCanvas = memo(
     activeMaskId,
     adjustments,
     brushSettings,
-    crop,
+    cropSelection,
     finalPreviewUrl,
     handleCropComplete,
     imageRenderSize,
@@ -1537,9 +1538,10 @@ const ImageCanvas = memo(
     // Closed or another photograph mid-drag: the crop component reports no
     // end then.
     const cropGestureEndAll = cropGesture.endAll;
+    const hasCropSelection = useStore(cropSelection, (state) => state.crop !== null);
     useEffect(() => {
-      if (!isCropping || !crop) cropGestureEndAll();
-    }, [isCropping, crop, cropGestureEndAll]);
+      if (!isCropping || !hasCropSelection) cropGestureEndAll();
+    }, [isCropping, hasCropSelection, cropGestureEndAll]);
     useEffect(() => cropGestureEndAll, [selectedImage.path, cropGestureEndAll]);
     const [straightenLine, setStraightenLine] = useState<{ start: Coord; end: Coord } | null>(null);
     const isStraightening = useRef(false);
@@ -1943,6 +1945,15 @@ const ImageCanvas = memo(
     // Capture One shows the grid and the frame's size only while the frame
     // is dragged; Lightroom can show the grid always (crop grid setting).
     const [isCropDragging, setIsCropDragging] = useState(false);
+    const { start: cropGestureStart, end: cropGestureEnd } = cropGesture;
+    const handleCropFrameDragStart = useCallback(() => {
+      setIsCropDragging(true);
+      cropGestureStart();
+    }, [cropGestureStart]);
+    const handleCropFrameDragEnd = useCallback(() => {
+      setIsCropDragging(false);
+      cropGestureEnd();
+    }, [cropGestureEnd]);
     const cropGrid = appSettings?.cropGrid ?? 'drag';
     const cropShade = (appSettings?.cropShade ?? 50) / 100;
     useEffect(() => {
@@ -3016,6 +3027,7 @@ const ImageCanvas = memo(
       (e: React.PointerEvent<HTMLDivElement>) => {
         const ord = (e.target as HTMLElement).closest('[data-ord]')?.getAttribute('data-ord');
         const aspect = adjustments.aspectRatio;
+        const crop = cropSelection.getState().crop;
         const media = cropImageRef.current;
         const boxWidth = uncroppedImageRenderSize?.width;
         const boxHeight = uncroppedImageRenderSize?.height;
@@ -3073,7 +3085,7 @@ const ImageCanvas = memo(
         window.addEventListener('pointerup', end, true);
         window.addEventListener('pointercancel', end, true);
       },
-      [adjustments.aspectRatio, uncroppedImageRenderSize, crop, setCrop, handleCropComplete, cropGesture]
+      [adjustments.aspectRatio, uncroppedImageRenderSize, cropSelection, setCrop, handleCropComplete, cropGesture]
     );
 
     // Lightroom / Capture One: dragging just outside the crop frame (or beside
@@ -3294,17 +3306,6 @@ const ImageCanvas = memo(
       const rotation = liveRotation !== null && liveRotation !== undefined ? liveRotation : adjustments.rotation || 0;
       return `rotate(${rotation}deg)`;
     }, [adjustments.rotation, liveRotation]);
-
-    const getCropDimensions = () => {
-      if (!crop || !uncroppedImageRenderSize?.width || !uncroppedImageRenderSize?.height) {
-        return { width: 0, height: 0 };
-      }
-
-      const width = crop.unit === '%' ? uncroppedImageRenderSize.width * (crop.width / 100) : crop.width;
-      const height = crop.unit === '%' ? uncroppedImageRenderSize.height * (crop.height / 100) : crop.height;
-
-      return { width, height };
-    };
 
     const effectiveCursor = useMemo(() => {
       if (isGuidedPerspectiveActive && isCropping) return 'crosshair';
@@ -3899,54 +3900,29 @@ const ImageCanvas = memo(
                 }
               }}
             >
-              <ReactCrop
+              <CropFrame
+                cropSelection={cropSelection}
                 aspect={adjustments.aspectRatio ?? undefined}
-                crop={crop ?? undefined}
                 onChange={setCrop}
                 onComplete={handleCropComplete}
-                onDragStart={() => {
-                  setIsCropDragging(true);
-                  cropGesture.start();
-                }}
-                onDragEnd={() => {
-                  setIsCropDragging(false);
-                  cropGesture.end();
-                }}
-                style={{ '--crop-shade': cropShade } as React.CSSProperties}
-                ruleOfThirds={false}
-                renderSelectionAddon={() => {
-                  const { width, height } = getCropDimensions();
-                  if (width <= 0 || height <= 0) {
-                    return null;
-                  }
-                  const showDenseGrid = isRotationActive && !isStraightenActive && !isGuidedPerspectiveActive;
-                  const gridVisible = cropGrid === 'always' || (cropGrid === 'drag' && isCropDragging);
-                  const currentOverlayMode =
-                    isRotationActive || isStraightenActive || isGuidedPerspectiveActive || !gridVisible
-                      ? 'none'
-                      : overlayMode || 'none';
-                  const steps = adjustments.orientationSteps || 0;
-                  const orientedW = steps % 2 === 1 ? selectedImage.height : selectedImage.width;
-                  const orientedH = steps % 2 === 1 ? selectedImage.width : selectedImage.height;
-                  const sizeLabel =
-                    crop && crop.unit === '%'
-                      ? `${Math.round((crop.width / 100) * orientedW)} × ${Math.round((crop.height / 100) * orientedH)}`
-                      : crop
-                        ? `${Math.round(crop.width)} × ${Math.round(crop.height)}`
-                        : '';
-                  return (
-                    <>
-                      <CompositionOverlays
-                        width={width}
-                        height={height}
-                        mode={currentOverlayMode}
-                        rotation={overlayRotation || 0}
-                        denseVisible={showDenseGrid}
-                      />
-                      {isCropDragging && sizeLabel && <div className="crop-size-label">{sizeLabel} px</div>}
-                    </>
-                  );
-                }}
+                onDragStart={handleCropFrameDragStart}
+                onDragEnd={handleCropFrameDragEnd}
+                shade={cropShade}
+                boxWidth={uncroppedImageRenderSize.width ?? 0}
+                boxHeight={uncroppedImageRenderSize.height ?? 0}
+                photoWidth={(adjustments.orientationSteps || 0) % 2 === 1 ? selectedImage.height : selectedImage.width}
+                photoHeight={(adjustments.orientationSteps || 0) % 2 === 1 ? selectedImage.width : selectedImage.height}
+                overlayMode={
+                  isRotationActive ||
+                  isStraightenActive ||
+                  isGuidedPerspectiveActive ||
+                  !(cropGrid === 'always' || (cropGrid === 'drag' && isCropDragging))
+                    ? 'none'
+                    : overlayMode || 'none'
+                }
+                overlayRotation={overlayRotation || 0}
+                denseGrid={Boolean(isRotationActive && !isStraightenActive && !isGuidedPerspectiveActive)}
+                dragging={isCropDragging}
               >
                 {/* With the native display this only sizes the crop box; the
                     photo itself is drawn natively underneath. */}
@@ -3963,7 +3939,7 @@ const ImageCanvas = memo(
                     imageRendering: isMaxZoom ? 'pixelated' : 'auto'
                   }}
                 />
-              </ReactCrop>
+              </CropFrame>
 
               {/* Guides show only while the Guided Upright tool is active, as
                   in Lightroom; automatic modes never show their lines. */}
