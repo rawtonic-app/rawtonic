@@ -114,20 +114,7 @@ fn load_sidecar_file_updating(
 }
 
 pub fn load_sidecar_with_exif(sidecar_path: &Path, source_path: &Path) -> ImageMetadata {
-    load_sidecar_with_own_exif(sidecar_path, source_path).0
-}
-
-/// `load_sidecar_with_exif`, and whether its EXIF is the sidecar's own (the
-/// user's corrections, an image the app made) rather than read for it from
-/// the app's cache or the file. A recipe save writes only its own back, so
-/// the sidecar beside an original does not take the camera's whole EXIF
-/// (WQA7; `without_read_exif`).
-pub(crate) fn load_sidecar_with_own_exif(
-    sidecar_path: &Path,
-    source_path: &Path,
-) -> (ImageMetadata, bool) {
     let mut meta = load_sidecar(sidecar_path);
-    let own = meta.exif.is_some();
 
     if let Some(exif) = meta.exif.take() {
         meta.exif = Some(with_maker_note_lens(source_path, exif));
@@ -154,15 +141,6 @@ pub(crate) fn load_sidecar_with_own_exif(
         }
     }
 
-    (meta, own)
-}
-
-/// `meta` as a recipe save writes it: without EXIF that was only read for it
-/// (`own` from `load_sidecar_with_own_exif` is false).
-pub(crate) fn without_read_exif(mut meta: ImageMetadata, own: bool) -> ImageMetadata {
-    if !own {
-        meta.exif = None;
-    }
     meta
 }
 
@@ -394,32 +372,6 @@ mod sidecar_write_tests {
 
         assert_eq!(fs::read(&sidecar).unwrap(), rated);
         assert_eq!(fs::read(&photo).unwrap(), b"original");
-    }
-
-    /// WQA7: an editor save wrote the EXIF it read for the recipe (from the
-    /// app's cache) into the sidecar beside the original; EXIF the sidecar
-    /// holds itself (the user's corrections) is written back.
-    #[test]
-    fn a_recipe_save_writes_back_only_the_sidecars_own_exif() {
-        let dir = tempfile::tempdir().unwrap();
-        let photo = dir.path().join("photo.nef");
-        fs::write(&photo, b"original").unwrap();
-        let sidecar = get_primary_sidecar_path(&photo);
-        rawtonic_fs::atomic_write(&sidecar, br#"{"version":1,"rating":3,"adjustments":null}"#)
-            .unwrap();
-        let read = HashMap::from([("Model".to_string(), "Camera".to_string())]);
-        save_exif_to_rrcache(&photo, read.clone());
-
-        let (meta, own) = load_sidecar_with_own_exif(&sidecar, &photo);
-        assert_eq!((meta.exif.as_ref(), own), (Some(&read), false));
-        assert_eq!(without_read_exif(meta, own).exif, None);
-
-        let corrected = br#"{"version":1,"rating":3,"adjustments":null,"exif":{"DateTimeOriginal":"2026:01:02 03:04:05"}}"#;
-        rawtonic_fs::atomic_write(&sidecar, corrected).unwrap();
-        let (meta, own) = load_sidecar_with_own_exif(&sidecar, &photo);
-        assert!(own);
-        let kept = without_read_exif(meta, own).exif.unwrap();
-        assert_eq!(kept["DateTimeOriginal"], "2026:01:02 03:04:05");
     }
 
     #[test]
