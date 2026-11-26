@@ -603,7 +603,9 @@ impl PinnedPhoto {
             let path = source.to_string_lossy();
             Some(match read_file_mapped(source) {
                 Ok(bytes) => exif_processing::read_exif_data_from_bytes(&path, &bytes),
-                Err(_) => exif_processing::read_exif_data_from_bytes(&path, &fs::read(source).ok()?),
+                Err(_) => {
+                    exif_processing::read_exif_data_from_bytes(&path, &fs::read(source).ok()?)
+                }
             })
         });
         let Some(own) = own else {

@@ -2187,10 +2187,16 @@ mod tests {
             crate::exif_processing::read_exif_data(&path, &bytes);
             state(Some(&shown));
             let warm = embedded();
-            assert_eq!(warm, cold, "{name}: warm and cold caches embed the same EXIF");
+            assert_eq!(
+                warm, cold,
+                "{name}: warm and cold caches embed the same EXIF"
+            );
 
             let read = exif::Reader::new().read_raw(cold).unwrap();
-            let field = |tag| read.get_field(tag, exif::In::PRIMARY).map(|f| f.value.clone());
+            let field = |tag| {
+                read.get_field(tag, exif::In::PRIMARY)
+                    .map(|f| f.value.clone())
+            };
             match field(exif::Tag::ExposureTime) {
                 Some(exif::Value::Rational(v)) => {
                     assert_eq!((v[0].num, v[0].denom), (2, 5), "{name}")
@@ -2222,7 +2228,10 @@ mod tests {
             let read = exif::Reader::new()
                 .read_raw(embedded_exif(&pinned, &source))
                 .unwrap();
-            let field = |tag| read.get_field(tag, exif::In::PRIMARY).map(|f| f.value.clone());
+            let field = |tag| {
+                read.get_field(tag, exif::In::PRIMARY)
+                    .map(|f| f.value.clone())
+            };
             assert!(
                 matches!(field(exif::Tag::UserComment),
                     Some(exif::Value::Undefined(v, _)) if v == b"ASCII\0\0\0Edited"),
