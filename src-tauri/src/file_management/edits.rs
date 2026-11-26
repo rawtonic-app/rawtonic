@@ -150,6 +150,16 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     camera_crop_known: Option<bool>,
     app_handle: AppHandle,
 ) -> Result<EditorSave, String> {
+    // The open photo's thumbnail renders it at full resolution: work of the
+    // open photo, as its frames, from the save on (the multi view's
+    // background decodes and AI runs wait for it where memory is short,
+    // G74/MEM20).
+    let open_photo = |path: &str| {
+        crate::state::lock::lock_recover(&app_handle.state::<AppState>().source.original_image)
+            .as_ref()
+            .is_some_and(|loaded| loaded.path == path)
+    };
+    let frame = open_photo(&path).then(|| crate::multi_view_prefetch::PreviewFrame::start(false));
     let saved = save_metadata_blocking(&path, adjustments, camera_crop_known, &app_handle)?;
     let state = app_handle.state::<AppState>();
 
@@ -176,6 +186,35 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     add_to_thumbnail_queue(&app_handle.state::<ThumbnailState>(), 1, &app_handle);
 
     rawtonic_runtime::spawn_render_thread("saved-thumbnail", move || {
+        let mut _frame = frame;
+        // Not beside a mask run asked for short of memory (MEM20), whichever
+        // photo is open by now: a Library thumbnail can wait, the
+        // photographer's mask and memory cannot. Not counted as the open
+        // photo's frame meanwhile (a run asked for next waits for the
+        // frames, not for this wait). One waits per photo (review r3).
+        let mut _turn = None;
+        if crate::ai_ahead::asked_runs_short() {
+            let was_frame = _frame.take().is_some();
+            let Some(waiting) = crate::ai_ahead::WaitingThumbnail::join(&path_clone) else {
+                log::info!(
+                    "Saved thumbnail of {path_clone} left to the one waiting for a mask run asked for short of memory"
+                );
+                increment_thumbnail_progress(
+                    &app_handle_clone.state::<ThumbnailState>(),
+                    &app_handle_clone,
+                );
+                return;
+            };
+            let (waited, turn) = waiting.wait();
+            _turn = Some(turn);
+            log::info!(
+                "Saved thumbnail of {path_clone} waited {} ms for a mask run asked for short of memory",
+                waited.as_millis()
+            );
+            if was_frame {
+                _frame = Some(crate::multi_view_prefetch::PreviewFrame::start(false));
+            }
+        }
         let settings = crate::state::settings::current(&app_handle_clone);
 
         let thumb_cache_dir = match resolve_thumbnail_cache_dir(&app_handle_clone) {
