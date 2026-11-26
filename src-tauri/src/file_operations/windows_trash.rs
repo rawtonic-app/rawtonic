@@ -432,7 +432,9 @@ impl Stage {
     }
 }
 
-fn restore_to_stage(receipt: &Receipt, stage: &Stage) -> Result<()> {
+/// Moves the receipt's Bin entry into the stage; returns the entry's own
+/// place in the Bin (its `$R` file) when this call moved it.
+fn restore_to_stage(receipt: &Receipt, stage: &Stage) -> Result<Option<PathBuf>> {
     if fs::symlink_metadata(stage.payload()).is_ok() {
         ensure!(
             identity(&stage.payload())? == receipt.identity,
@@ -442,11 +444,12 @@ fn restore_to_stage(receipt: &Receipt, stage: &Stage) -> Result<()> {
             receipt.bin_item()?.is_none(),
             "Both staged and bin entries exist"
         );
-        return Ok(());
+        return Ok(None);
     }
     let item = receipt
         .bin_item()?
         .context("Neither bin nor staged entry is available")?;
+    let data = item_path(&item)?;
     let (folder, _) = verified_item(&stage.path)?;
     ensure!(
         identity(&item_path(&folder)?)? == file_identity(&stage.directory)?,
@@ -469,7 +472,88 @@ fn restore_to_stage(receipt: &Receipt, stage: &Stage) -> Result<()> {
         identity(&stage.payload())? == receipt.identity,
         "Restored entry identity changed"
     );
-    Ok(())
+    Ok(Some(data))
+}
+
+/// The Shell moves only the `$R` data entry out of the Bin; its `$I` info
+/// stub stays behind, unlisted, for good (WQA7: notes
+/// benchmark-results/wqa7-2026-11-26/REPORT.md). After a verified restore
+/// this removes that stub — only the `$I` sibling of the entry restored,
+/// only once the entry is gone from the Bin and back at the receipt's
+/// original with its identity, and only when the stub records that
+/// original (and, for a file, its size). Anything else stays; a stub left
+/// is no loss. `data` is the entry's `$R` path, or `None` when an earlier
+/// attempt moved it (then the receipt's Bin id names it).
+fn remove_info_stub(data: Option<&Path>, receipt: &Receipt) -> Result<bool> {
+    use super::recycle_info::{MAX_STUB_LEN, info_stub_for, stub_describes};
+    let data = data.map_or_else(|| PathBuf::from(&receipt.bin_id), Path::to_path_buf);
+    let Some(stub) = info_stub_for(&data) else {
+        return Ok(false);
+    };
+    ensure!(
+        matches!(fs::symlink_metadata(&data), Err(e) if e.kind() == std::io::ErrorKind::NotFound),
+        "The Bin entry is still there"
+    );
+    ensure!(
+        identity(&receipt.original)? == receipt.identity,
+        "The restored entry identity changed"
+    );
+    let restored = fs::symlink_metadata(&receipt.original)?;
+    // Read through the handle that deletes it, shared for reading only, so
+    // the bytes checked are the ones removed.
+    let mut file = match OpenOptions::new()
+        .read(true)
+        .access_mode(0x8000_0000 | 0x0001_0000)
+        .share_mode(1)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0)
+        .open(&stub)
+    {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e.into()),
+    };
+    let metadata = file.metadata()?;
+    ensure!(
+        metadata.is_file()
+            && metadata.file_attributes() & 0x400 == 0
+            && metadata.len() <= MAX_STUB_LEN,
+        "Not a Recycle Bin info stub"
+    );
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(MAX_STUB_LEN + 1)
+        .read_to_end(&mut bytes)?;
+    let original = plain_drive_path(&receipt.original)?;
+    let size = (!restored.is_dir()).then_some(restored.len());
+    ensure!(
+        original
+            .to_str()
+            .is_some_and(|original| stub_describes(&bytes, original, size)),
+        "The info stub describes another entry"
+    );
+    let info = FILE_DISPOSITION_INFO {
+        DeleteFile: true.into(),
+    };
+    unsafe {
+        SetFileInformationByHandle(
+            HANDLE(file.as_raw_handle() as isize),
+            FileDispositionInfo,
+            (&info as *const FILE_DISPOSITION_INFO).cast(),
+            std::mem::size_of_val(&info) as u32,
+        )?;
+    }
+    Ok(true)
+}
+
+/// `remove_info_stub` after the restore succeeded: a stub that cannot be
+/// proven the entry's own stays, with a warning, and never fails the undo.
+fn settle_info_stub(data: Option<&Path>, receipt: &Receipt) {
+    if let Err(error) = remove_info_stub(data, receipt) {
+        log::warn!(
+            "Entry restored; its Recycle Bin info stub stays ({}): {error:#}",
+            receipt.bin_id
+        );
+    }
 }
 
 fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
@@ -507,10 +591,11 @@ fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
                 log::warn!("Restored entry verified; owned staging cleanup remains: {error:#}");
             }
         }
+        settle_info_stub(None, receipt);
         return Ok(());
     }
     let stage = Stage::open(receipt, true)?;
-    restore_to_stage(receipt, &stage)?;
+    let data = restore_to_stage(receipt, &stage)?;
     rawtonic_fs::rename_no_clobber(&stage.payload(), original).context(
         "Restore destination became occupied; item remains in its recoverable staging directory",
     )?;
@@ -519,6 +604,7 @@ fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
     if let Err(error) = stage.cleanup() {
         log::warn!("Entry restored; owned staging cleanup remains: {error:#}");
     }
+    settle_info_stub(data.as_deref(), receipt);
     Ok(())
 }
 
@@ -766,6 +852,112 @@ mod tests {
                 .contains("Windows cannot recycle this item")
         );
         assert_eq!(fs::read(&source).unwrap(), b"synthetic no-bin photograph");
+    }
+
+    /// A synthetic Bin folder (`<tmp>\$Recycle.Bin\<SID>`) holding the `$I`
+    /// stub `bytes` of an entry restored to `<tmp>\Shoot\photo.NEF`, whose
+    /// `$R` file is gone; the receipt names that entry.
+    fn restored_with_stub(stub: impl FnOnce(&str, u64) -> Vec<u8>) -> (tempfile::TempDir, Receipt) {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonical().unwrap();
+        let bin = root.join("$Recycle.Bin").join("S-1-5-21-1-2-3-1001");
+        fs::create_dir_all(&bin).unwrap();
+        fs::create_dir_all(root.join("Shoot")).unwrap();
+        let original = root.join("Shoot").join("photo.NEF");
+        fs::write(&original, b"synthetic photograph").unwrap();
+        let plain = plain_drive_path(&original).unwrap();
+        fs::write(bin.join("$IAB12CD.NEF"), stub(plain.to_str().unwrap(), 20)).unwrap();
+        let receipt = Receipt {
+            bin_id: plain_drive_path(&bin.join("$RAB12CD.NEF"))
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+            nonce: uuid::Uuid::new_v4(),
+            identity: identity(&original).unwrap(),
+            parent_identity: identity(&root.join("Shoot")).unwrap(),
+            original,
+        };
+        (temp, receipt)
+    }
+
+    fn stub_of(receipt: &Receipt) -> PathBuf {
+        super::super::recycle_info::info_stub_for(Path::new(&receipt.bin_id)).unwrap()
+    }
+
+    #[test]
+    fn a_restored_entrys_own_info_stub_is_removed() {
+        use super::super::recycle_info::v2_stub;
+        let (_temp, receipt) = restored_with_stub(|path, size| v2_stub(size, path));
+        assert!(stub_of(&receipt).exists());
+        assert!(remove_info_stub(None, &receipt).unwrap());
+        assert!(!stub_of(&receipt).exists());
+        assert_eq!(
+            fs::read(&receipt.original).unwrap(),
+            b"synthetic photograph"
+        );
+        // Again (a retried restore): nothing left to remove.
+        assert!(!remove_info_stub(None, &receipt).unwrap());
+    }
+
+    #[test]
+    fn an_info_stub_not_proven_the_entrys_own_stays() {
+        use super::super::recycle_info::v2_stub;
+        // Another original, another size.
+        let cases: [fn(&str, u64) -> Vec<u8>; 2] = [
+            |_, size| v2_stub(size, r"C:\Elsewhere\photo.NEF"),
+            |path, size| v2_stub(size + 1, path),
+        ];
+        for stub in cases {
+            let (_temp, receipt) = restored_with_stub(stub);
+            assert!(remove_info_stub(None, &receipt).is_err());
+            assert!(stub_of(&receipt).exists());
+        }
+        // Its `$R` entry is still in the Bin.
+        let (_temp, receipt) = restored_with_stub(|path, size| v2_stub(size, path));
+        fs::write(&receipt.bin_id, b"still recycled").unwrap();
+        assert!(remove_info_stub(None, &receipt).is_err());
+        assert!(stub_of(&receipt).exists());
+        // The original is not the restored entry any more.
+        let (_temp, mut receipt) = restored_with_stub(|path, size| v2_stub(size, path));
+        receipt.identity.2 ^= 1;
+        assert!(remove_info_stub(None, &receipt).is_err());
+        assert!(stub_of(&receipt).exists());
+        // A Bin id that names no `$R` entry has no stub.
+        let (_temp, mut receipt) = restored_with_stub(|path, size| v2_stub(size, path));
+        let stub = stub_of(&receipt);
+        receipt.bin_id = "::{645FF040-5081-101B-9F08-00AA002F954E}".into();
+        assert!(!remove_info_stub(None, &receipt).unwrap());
+        assert!(stub.exists());
+    }
+
+    /// WQA7 4b: Undo of a Trash left the `$I` stubs in the Recycle Bin.
+    #[test]
+    #[ignore = "Uses only a fresh synthetic file in the system Bin"]
+    fn platform_trash_restore_leaves_no_info_stub_in_the_bin() {
+        let temp = tempfile::tempdir().unwrap();
+        let original = temp
+            .path()
+            .canonical()
+            .unwrap()
+            .join("synthetic-stub-probe.txt");
+        fs::write(&original, b"synthetic stub photograph").unwrap();
+        let item = PlatformTrash.trash(&original).unwrap();
+        let data = shell_thread(|| {
+            let _apartment = Apartment::new()?;
+            item_path(
+                &Receipt::parse(&item)?
+                    .bin_item()?
+                    .context("not in the Bin")?,
+            )
+        })
+        .unwrap();
+        let stub = super::super::recycle_info::info_stub_for(&data).unwrap();
+        assert!(stub.exists(), "{}", stub.display());
+        PlatformTrash.restore(&item, &original).unwrap();
+        assert_eq!(fs::read(&original).unwrap(), b"synthetic stub photograph");
+        assert!(!data.exists(), "{}", data.display());
+        assert!(!stub.exists(), "{} left behind", stub.display());
+        assert!(!PlatformTrash.contains(&item));
     }
 
     #[test]

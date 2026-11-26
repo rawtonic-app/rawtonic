@@ -91,11 +91,10 @@ pub fn flush_all_dirty_caches() {
     drop(state);
 
     for (path, map) in to_write {
-        if let Ok(json) = serde_json::to_string(&map) {
-            let tmp_path = path.with_extension("tmp");
-            if std::fs::write(&tmp_path, json).is_ok() {
-                let _ = std::fs::rename(tmp_path, path);
-            }
+        if let Ok(json) = serde_json::to_string(&map)
+            && let Err(e) = rawtonic_fs::atomic_write(&path, json)
+        {
+            log::debug!("EXIF cache {} not written: {e}", path.display());
         }
     }
 }

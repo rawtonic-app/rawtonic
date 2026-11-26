@@ -16,6 +16,7 @@ import { debouncedSave } from './useEditorActions';
 import { notify as toast } from '../activity/notify';
 import { flushSliderDraft, renderDraft } from '../utils/sliderDraft';
 import { forgetLiveStroke } from '../utils/liveMaskRender';
+import { markLoadedRecipe } from '../utils/shownNotEdited';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => useSettingsStore.getState().osPlatform }));
@@ -198,6 +199,30 @@ it('renders immediately and retains the released slider value under a slow nativ
   await finish();
   act(() => vi.advanceTimersByTime(1000));
   expect(calls()).toHaveLength(4);
+});
+
+/** WQA7: a rated, never-edited photograph beside a linked original got its
+ * full recipe written into its sidecars when it loaded again (selected
+ * again, back after an undone Move): the new recipe object equals the saved
+ * one and is no edit. */
+it('does not save the recipe a load publishes again for the open photograph', async () => {
+  mount();
+  await finish();
+  const loaded = structuredClone(INITIAL_ADJUSTMENTS);
+  markLoadedRecipe(loaded);
+  act(() => useEditorStore.setState({ selectedImage: photo('/first.dng', false) }));
+  act(() => useEditorStore.setState({ selectedImage: photo('/first.dng'), adjustments: loaded }));
+  await finish();
+  act(() => vi.advanceTimersByTime(1000));
+  expect(debouncedSave).not.toHaveBeenCalled();
+  // An edit, and the Undo back to that very recipe, are saved.
+  act(() => useEditorStore.setState({ adjustments: { ...loaded, exposure: 1 } }));
+  await finish();
+  act(() => useEditorStore.setState({ adjustments: loaded }));
+  expect(vi.mocked(debouncedSave).mock.calls.map(([, recipe]) => recipe)).toEqual([
+    expect.objectContaining({ exposure: 1 }),
+    loaded
+  ]);
 });
 
 it('discards queued adjustments from the previous photograph while waiting for the new source', async () => {

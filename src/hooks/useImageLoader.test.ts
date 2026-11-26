@@ -316,6 +316,40 @@ it('serializes repeated saves of one photograph before releasing metadata reader
   expect(ready).toHaveBeenCalledExactlyOnceWith(undefined);
 });
 
+/** WQA7: loading the open photograph again (selected again, back after an
+ * undone Move) wrote its full recipe beside a linked original. */
+it('saves nothing when the open photograph loads again unchanged', async () => {
+  const renderRefs = {
+    previewJobIdRef: { current: 0 },
+    latestRenderedJobIdRef: { current: 0 },
+    currentResRef: { current: 0 }
+  };
+  const previous = { current: null };
+  renderHook(() => {
+    useImageLoader({ current: null });
+    useImageProcessing({ current: null }, previous, renderRefs);
+  });
+  await act(async () => {});
+  const rated = { rating: 3, adjustments: null };
+  await resolve(Invokes.LoadMetadata, '/first.dng', rated);
+  await resolve(Invokes.LoadImage, '/first.dng', nativeResult);
+  const first = useEditorStore.getState().adjustments;
+  act(() => useEditorStore.setState({ selectedImage: null }));
+  act(() => useEditorStore.setState({ selectedImage: photo('/first.dng') }));
+  await act(async () => {});
+  await resolve(Invokes.LoadMetadata, '/first.dng', rated);
+  await resolve(Invokes.LoadImage, '/first.dng', nativeResult);
+  expect(useEditorStore.getState().selectedImage?.isReady).toBe(true);
+  expect(useEditorStore.getState().adjustments).not.toBe(first);
+  expect(useEditorStore.getState().adjustments).toEqual(first);
+  // A save held back would go now.
+  await act(async () => debouncedSave.flush());
+  await act(async () => {});
+  expect(
+    vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.SaveMetadataAndUpdateThumbnail)
+  ).toHaveLength(0);
+});
+
 it('preserves the unsaved recipe on reopen after a failed write and reports the error', async () => {
   const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
   resetActivityStore();

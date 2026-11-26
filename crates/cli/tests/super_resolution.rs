@@ -26,6 +26,11 @@ fn super_resolution_with_no_model_reports_how_to_install_it() {
         .arg(lensfun)
         .arg("--models")
         .arg(models)
+        // Never the user's own app data (its recent libraries may be of a
+        // newer schema), as in catalog_export.rs.
+        .env("HOME", work.path())
+        .env("XDG_DATA_HOME", work.path())
+        .env("APPDATA", work.path())
         .output()
         .unwrap();
 
