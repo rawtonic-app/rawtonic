@@ -1286,7 +1286,28 @@ describe('Subject computed ahead when the masking tools open', () => {
     openMaskingTools();
     openMaskingTools();
     expect(calls('precompute_ai_foreground_mask')).toHaveLength(1);
-    expect(calls('admit_ai_ahead_work')).toHaveLength(1);
+    expect(calls('admit_ai_ahead_work')).toEqual([
+      ['admit_ai_ahead_work', { taskId: (calls('precompute_ai_foreground_mask')[0][1] as { taskId: string }).taskId }]
+    ]);
+  });
+
+  it('asks again when the tools open after the backend dropped a mask made ahead', async () => {
+    // Held too long for the decodes or memory: the backend answers false.
+    invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === 'precompute_ai_foreground_mask' ? false : null)
+    );
+    photo('/s/a.NEF');
+    renderHook(() => useAiMasking());
+    pointAtMaskingTools();
+    await wait(20);
+    expect(calls('precompute_ai_foreground_mask')).toHaveLength(1);
+    // Sky and the object encoding are left too.
+    expect(calls('precompute_ai_sky_mask')).toHaveLength(0);
+    expect(calls('precompute_ai_subject_mask')).toHaveLength(0);
+    // Opening the tools asks for it again, at once.
+    openMaskingTools();
+    expect(calls('precompute_ai_foreground_mask')).toHaveLength(2);
+    expect((calls('precompute_ai_foreground_mask')[1][1] as { asked: boolean }).asked).toBe(true);
   });
 
   it('cancels the object-mask encoding ahead when the photo changes', async () => {

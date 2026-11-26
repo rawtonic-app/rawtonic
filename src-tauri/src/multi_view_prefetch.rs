@@ -685,13 +685,14 @@ pub(crate) fn primary_settled(quiet: Duration) -> bool {
     !busy() && since(&LAST_PRIMARY_WORK) >= quiet
 }
 
-/// Whether a background decode or 1:1 preview write of the multi view, or
-/// a step prefetch decode (`proxy_worker`), is under way (`ai_ahead`
-/// counts its memory).
-pub(crate) fn background_under_way() -> bool {
-    WORKER.get().is_some_and(|worker| {
+/// How many background workers have a decode or 1:1 preview write under
+/// way: the multi view's (one step at a time) and the step prefetch's
+/// (`proxy_worker`); `ai_ahead` counts the memory of each.
+pub(crate) fn background_under_way() -> u64 {
+    let multi_view = WORKER.get().is_some_and(|worker| {
         worker.decoding.load(Ordering::SeqCst) || worker.writing.load(Ordering::SeqCst)
-    }) || crate::proxy_worker::prefetch_decoding()
+    });
+    u64::from(multi_view) + u64::from(crate::proxy_worker::prefetch_decoding())
 }
 
 fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {

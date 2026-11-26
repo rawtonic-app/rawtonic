@@ -257,7 +257,9 @@ export function precomputeAiMasks(asked = false) {
     // Asked for now while it waits as work made ahead: it starts at once.
     if (asked && !maskPrecompute.asked && maskPrecompute.running) {
       maskPrecompute.asked = true;
-      invoke(Invokes.AdmitAiAheadWork).catch((err) => console.error('Failed to start the masks made ahead:', err));
+      invoke(Invokes.AdmitAiAheadWork, { taskId: maskPrecompute.taskId }).catch((err) =>
+        console.error('Failed to start the masks made ahead:', err)
+      );
     }
     console.info('AI masks: not requested ahead again, already requested for this photo and geometry');
     return;
@@ -272,17 +274,32 @@ export function precomputeAiMasks(asked = false) {
   };
   maskPrecompute = run;
   let failed = false;
-  invoke(Invokes.PrecomputeAiForegroundMask, { jsAdjustments, path, taskId: run.taskId, asked: run.asked })
+  // The backend answers false when it did not compute the mask (made ahead,
+  // it was held too long for the photo's decodes or memory): the later
+  // stages are left too, and the run may be asked for again (opening the
+  // masking tools then asks for all of it).
+  let dropped = false;
+  invoke<boolean>(Invokes.PrecomputeAiForegroundMask, { jsAdjustments, path, taskId: run.taskId, asked: run.asked })
+    .then((done) => {
+      if (done === false) dropped = true;
+    })
     .catch((err) => {
       console.error('Failed to precompute the subject mask:', err);
       failed = true;
     })
     .then(() => {
-      if (run.cancelled) return;
+      if (run.cancelled || dropped) return;
       // Subject ran for a photo that stayed open: the models are warm.
       firstPhotoOfVisit = false;
       run.taskId = `sky-precompute-${crypto.randomUUID()}`;
-      return invoke(Invokes.PrecomputeAiSkyMask, { jsAdjustments, path, taskId: run.taskId, asked: run.asked });
+      return invoke<boolean>(Invokes.PrecomputeAiSkyMask, {
+        jsAdjustments,
+        path,
+        taskId: run.taskId,
+        asked: run.asked
+      }).then((done) => {
+        if (done === false) dropped = true;
+      });
     })
     .catch((err) => {
       console.error('Failed to precompute the sky mask:', err);
@@ -291,7 +308,7 @@ export function precomputeAiMasks(asked = false) {
     // SAM's encoding for object masks last: run beside Subject, the three
     // models' working memory added up (an app peak of about 10 GB on Core ML).
     .then(() => {
-      if (run.cancelled) return;
+      if (run.cancelled || dropped) return;
       run.taskId = `sam-precompute-${crypto.randomUUID()}`;
       return invoke(Invokes.PrecomputeAiSubjectMask, {
         jsAdjustments,
@@ -304,8 +321,8 @@ export function precomputeAiMasks(asked = false) {
     .catch((err) => console.error('Failed to precompute the object mask encoding:', err))
     .finally(() => {
       run.running = false;
-      // A failed run may be asked for again.
-      if (failed && maskPrecompute === run) maskPrecompute = null;
+      // A failed or dropped run may be asked for again.
+      if ((failed || dropped) && maskPrecompute === run) maskPrecompute = null;
     });
 }
 
