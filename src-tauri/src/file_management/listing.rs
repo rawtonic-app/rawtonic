@@ -489,7 +489,9 @@ pub(crate) fn update_exif_of(path: &str, updates: &HashMap<String, String>) -> R
     } else if let Some(cached) = crate::exif_processing::get_exif_from_rrcache(original_path) {
         Some(cached)
     } else if let Ok(mmap) = read_file_mapped(original_path) {
-        Some(crate::exif_processing::read_exif_data_from_bytes(path, &mmap))
+        Some(crate::exif_processing::read_exif_data_from_bytes(
+            path, &mmap,
+        ))
     } else {
         fs::read(original_path)
             .ok()

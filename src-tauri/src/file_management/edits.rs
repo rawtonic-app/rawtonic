@@ -3927,11 +3927,19 @@ mod tests {
                         new_edit: None,
                     };
                     let pasted = serde_json::json!({"contrast": 20});
-                    let edits = edit_sidecars(&[path.to_string()], None, |path, source, sidecar| {
-                        pasted_metadata(
-                            path, source, sidecar, &pasted, Some(&paste), None, None, None,
-                        )
-                    });
+                    let edits =
+                        edit_sidecars(&[path.to_string()], None, |path, source, sidecar| {
+                            pasted_metadata(
+                                path,
+                                source,
+                                sidecar,
+                                &pasted,
+                                Some(&paste),
+                                None,
+                                None,
+                                None,
+                            )
+                        });
                     assert!(edits.failures.is_empty(), "{:?}", edits.failures);
                     serde_json::json!({"contrast": 20})
                 }),
@@ -3940,9 +3948,10 @@ mod tests {
                 "preset",
                 Box::new(|path| {
                     let preset = serde_json::json!({"saturation": -10});
-                    let edits = edit_sidecars(&[path.to_string()], None, |path, source, sidecar| {
-                        pasted_metadata(path, source, sidecar, &preset, None, None, None, None)
-                    });
+                    let edits =
+                        edit_sidecars(&[path.to_string()], None, |path, source, sidecar| {
+                            pasted_metadata(path, source, sidecar, &preset, None, None, None, None)
+                        });
                     assert!(edits.failures.is_empty(), "{:?}", edits.failures);
                     serde_json::json!({"saturation": -10})
                 }),
@@ -3961,7 +3970,8 @@ mod tests {
                 "AI selection",
                 Box::new(move |path| {
                     let (source, _) = parse_virtual_path(path);
-                    let mut recipe = crate::exif_processing::load_sidecar(&parse_virtual_path(path).1);
+                    let mut recipe =
+                        crate::exif_processing::load_sidecar(&parse_virtual_path(path).1);
                     recipe.adjustments = pending_sky.clone();
                     // Its pending detection is in the recipe (as saved by
                     // an editor of the same build).
@@ -4019,7 +4029,11 @@ mod tests {
                 let state: Value = serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
                 assert!(holds(&state["adjustments"], &wanted), "{name}: {state}");
                 let expected = user_edit.then(|| serde_json::json!({"Artist": "Ana"}));
-                assert_eq!(state.get("exif").cloned(), expected, "{name} (user edit {user_edit})");
+                assert_eq!(
+                    state.get("exif").cloned(),
+                    expected,
+                    "{name} (user edit {user_edit})"
+                );
                 // What the photo shows is still the file's EXIF with the edit.
                 let shown = crate::exif_processing::read_rrexif_sidecar(&raw).unwrap();
                 assert_eq!(shown["Make"], "Maker", "{name}");
@@ -4037,7 +4051,8 @@ mod tests {
     fn an_edit_reduces_a_copied_exif_map_to_the_users_overrides() {
         let (_temp, raw) = linked_raw();
         let path = raw.to_string_lossy().into_owned();
-        let read = crate::exif_processing::read_exif_data_from_bytes(&path, &fs::read(&raw).unwrap());
+        let read =
+            crate::exif_processing::read_exif_data_from_bytes(&path, &fs::read(&raw).unwrap());
         let sidecar = crate::exif_processing::get_primary_sidecar_path(&raw);
         let write_copy = |exif: &HashMap<String, String>| {
             let state = serde_json::json!({"version": 1, "rating": 2, "tags": [],
@@ -4048,9 +4063,15 @@ mod tests {
         // A plain copy: nothing kept on the next edit.
         write_copy(&read);
         let before = fs::read(&sidecar).unwrap();
-        let shown = crate::exif_processing::load_sidecar_with_exif(&sidecar, &raw).exif.unwrap();
+        let shown = crate::exif_processing::load_sidecar_with_exif(&sidecar, &raw)
+            .exif
+            .unwrap();
         assert_eq!(shown["Make"], "Maker");
-        assert_eq!(fs::read(&sidecar).unwrap(), before, "reading leaves it alone");
+        assert_eq!(
+            fs::read(&sidecar).unwrap(),
+            before,
+            "reading leaves it alone"
+        );
         write_editor_save(&path, serde_json::json!({"exposure": 1.0}), Some(true)).unwrap();
         assert_eq!(sidecar_exif(&raw), None, "the copy goes with the edit");
 

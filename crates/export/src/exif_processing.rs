@@ -1322,9 +1322,9 @@ pub const CAPTURE_TIME_FIELDS: [&str; 3] = [
 /// absent was removed (SCW1). A copy of a file whose EXIF holds nothing but
 /// these fields reads as overrides: only a removal in it would be lost.
 pub fn is_exif_overrides(stored: &HashMap<String, String>) -> bool {
-    stored
-        .keys()
-        .all(|key| EDITABLE_EXIF_TEXT.contains(&key.as_str()) || CAPTURE_TIME_FIELDS.contains(&key.as_str()))
+    stored.keys().all(|key| {
+        EDITABLE_EXIF_TEXT.contains(&key.as_str()) || CAPTURE_TIME_FIELDS.contains(&key.as_str())
+    })
 }
 
 /// The EXIF a photo shows: `own` (read from its original) with the
