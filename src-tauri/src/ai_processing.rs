@@ -1392,9 +1392,42 @@ pub fn mask_model_installed(app_handle: &tauri::AppHandle, sky: bool) -> bool {
     let (onnx, sha) = if sky {
         (SKYSEG_FILENAME, SKYSEG_SHA256)
     } else {
-        (SUBJECT_FILENAME, SUBJECT_SHA256)
+        let file = subject_onnx_file(&models_dir);
+        (file.name, file.sha256)
     };
     verified(onnx, sha) && ensure_local_runtime().is_ok()
+}
+
+/// The Subject ONNX graph this machine runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SubjectOnnxFile {
+    name: &'static str,
+    sha256: &'static str,
+    /// The low-peak graph, loaded with the low-peak memory plan.
+    low_peak: bool,
+}
+
+/// BiRefNet's low-peak graph where it runs on the CPU of a machine with at
+/// most 16 GB (`rawtonic_segment::use_low_peak_subject`; downloaded on its
+/// first use as every model), else the usual one.
+fn subject_onnx_file(models_dir: &Path) -> SubjectOnnxFile {
+    let low_peak =
+        rawtonic_segment::use_low_peak_subject(crate::memory_pressure::total_memory(), || {
+            rawtonic_segment::subject_onnx_on_cpu(&models_dir.join(SUBJECT_FILENAME))
+        });
+    if low_peak {
+        SubjectOnnxFile {
+            name: rawtonic_segment::SUBJECT_LOW_PEAK_FILENAME,
+            sha256: rawtonic_segment::SUBJECT_LOW_PEAK_SHA256,
+            low_peak: true,
+        }
+    } else {
+        SubjectOnnxFile {
+            name: SUBJECT_FILENAME,
+            sha256: SUBJECT_SHA256,
+            low_peak: false,
+        }
+    }
 }
 
 /// BiRefNet for Subject and Background masks. With `download` false (a
@@ -1438,15 +1471,16 @@ pub async fn get_or_init_subject_model(
                 "AI subject mask: ONNX Runtime check {} ms",
                 runtime_start.elapsed().as_millis()
             );
-            let path = models_dir.join(SUBJECT_FILENAME);
+            let file = subject_onnx_file(&models_dir);
+            let path = models_dir.join(file.name);
             let file_start = std::time::Instant::now();
             let skip = if download {
                 runtime?;
                 let result = download_verified(
                     app_handle,
                     &models_dir,
-                    SUBJECT_FILENAME,
-                    SUBJECT_SHA256,
+                    file.name,
+                    file.sha256,
                     "Subject Model",
                 )
                 .await;
@@ -1457,8 +1491,7 @@ pub async fn get_or_init_subject_model(
                 result?;
                 None
             } else {
-                let skip =
-                    mask_model_skip(runtime.is_ok(), || verify_sha256(&path, SUBJECT_SHA256));
+                let skip = mask_model_skip(runtime.is_ok(), || verify_sha256(&path, file.sha256));
                 if runtime.is_ok() {
                     log::info!(
                         "AI subject mask: model file check/hash {} ms",
@@ -1477,7 +1510,11 @@ pub async fn get_or_init_subject_model(
                     "AI subject mask: model loader queue wait {} ms",
                     queued.elapsed().as_millis()
                 );
-                SubjectModel::onnx(&path)
+                if file.low_peak {
+                    SubjectModel::onnx_low_peak(&path)
+                } else {
+                    SubjectModel::onnx(&path)
+                }
             })
             .await??
         }
@@ -4150,6 +4187,65 @@ mod tool_tests {
             ious.iter().cloned().fold(1.0, f64::min),
             times.iter().sum::<f32>() / times.len() as f32
         );
+    }
+
+    /// Tool: BiRefNet's low-peak graph (`SUBJECT_LOW_PEAK_FILENAME`, CPU,
+    /// low-peak memory plan) against the usual graph on the CPU, on the
+    /// photos in `$AI_FILES` (`;`-separated, decoded as the app does) with
+    /// the models in `$AI_MODELS`: per photo the Subject selection's 8-bit
+    /// codes that differ, its IoU at 128 and both run times (notes:
+    /// benchmark-results/mem21-2026-11-26). Memory is measured outside.
+    #[test]
+    #[ignore = "tool: needs AI_FILES, AI_MODELS, ORT_DYLIB_PATH and RAWTONIC_AI_PROVIDER=cpu"]
+    fn print_subject_low_peak_agreement() {
+        use std::time::Instant;
+        let var = |k: &str| std::env::var(k).unwrap();
+        let models = std::path::PathBuf::from(var("AI_MODELS"));
+        // RAWTONIC_AI_PROVIDER=cpu keeps the usual graph on the CPU too.
+        let usual = super::SubjectModel::onnx(&models.join(super::SUBJECT_FILENAME)).unwrap();
+        let low_peak = super::SubjectModel::onnx_low_peak(
+            &models.join(rawtonic_segment::SUBJECT_LOW_PEAK_FILENAME),
+        )
+        .unwrap();
+        let settings = crate::app_settings::AppSettings::default();
+        for path in var("AI_FILES").split(';') {
+            let bytes = std::fs::read(path).unwrap();
+            let image = crate::image_loader::load_base_image_from_bytes(
+                &bytes, path, false, &settings, None,
+            )
+            .unwrap();
+            let raw = !path.to_lowercase().ends_with(".jpg");
+            let select = |model: &super::SubjectModel| {
+                let start = Instant::now();
+                let mask = rawtonic_segment::subject_selection(
+                    &image,
+                    model,
+                    raw,
+                    None,
+                    rawtonic_segment::SUBJECT_VERSION,
+                )
+                .unwrap();
+                (mask, start.elapsed().as_secs_f32())
+            };
+            let (a, t_a) = select(&usual);
+            let (b, t_b) = select(&low_peak);
+            let (mut differ, mut inter, mut union) = (0u64, 0u64, 0u64);
+            for (p, q) in a.pixels().zip(b.pixels()) {
+                differ += (p[0] != q[0]) as u64;
+                let (p, q) = (p[0] >= 128, q[0] >= 128);
+                inter += (p && q) as u64;
+                union += (p || q) as u64;
+            }
+            let iou = if union == 0 {
+                1.0
+            } else {
+                inter as f64 / union as f64
+            };
+            println!(
+                "{path}\t{} px\tcodes differing {differ}\tIoU {iou:.6}\tusual {t_a:.2} s\tlow peak {t_b:.2} s",
+                a.width() as u64 * a.height() as u64
+            );
+        }
     }
 
     /// Tool: the app's Subject masks (`run_subject_model`, mask at the

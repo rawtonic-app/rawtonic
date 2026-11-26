@@ -1266,13 +1266,17 @@ async fn auto_mask(
         crate::memory_pressure::release_rebuildable_memory_keeping(app_handle, true);
     }
     // Only an ONNX Runtime run can be stopped; Core ML needs no ONNX Runtime
-    // at all (without one, creating run options would fail).
-    let options = if network.on_onnx() {
-        Some(Arc::new(
+    // at all (without one, creating run options would fail). Subject's carry
+    // its memory plan's (the low-peak plan gives its arena back after the run).
+    let options = match &network {
+        Network::Subject(model) => model
+            .run_options()
+            .map_err(|e| e.to_string())?
+            .map(Arc::new),
+        Network::Sky(_) if network.on_onnx() => Some(Arc::new(
             ort::session::RunOptions::new().map_err(|e| e.to_string())?,
-        ))
-    } else {
-        None
+        )),
+        Network::Sky(_) => None,
     };
     let watcher = cancel.zip(options.clone()).map(|(token, options)| {
         let token = token.clone();

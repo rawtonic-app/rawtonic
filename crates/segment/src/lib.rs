@@ -34,6 +34,22 @@ pub use models::{Models, file_has_sha256};
 pub const SUBJECT_FILENAME: &str = "birefnet_subject.onnx";
 pub const SUBJECT_INPUT_SIZE: u32 = 1024;
 pub const SUBJECT_SHA256: &str = "1019aa4d150a10830d95d05b0e0e08ed2703c39d3e168dea3333bb0272c16cbf";
+// The same network rewritten for a lower working-memory peak on the CPU
+// (scripts/models/convert_birefnet_low_peak.py: the last 1x1 convolution
+// before its upsample, the large deformable convolutions in bands of rows;
+// same weights). Used only where `use_low_peak_subject` says, in a session
+// with the low-peak memory plan: there a run held +1.36 GB instead of
+// +2.13 GB (x86) and took 22 % longer; masks differ from the source graph's
+// in 0 or 1 of 1,048,576 8-bit codes (notes:
+// benchmark-results/mem21-2026-11-26).
+pub const SUBJECT_LOW_PEAK_FILENAME: &str = "birefnet_subject_low_peak.onnx";
+pub const SUBJECT_LOW_PEAK_SHA256: &str =
+    "8f42980863f6161a8c4368022b6299ee11d58372b5aea9b6a7424e82cbb3c9a1";
+/// Machines with at most this much memory run BiRefNet on the CPU with the
+/// low-peak graph and plan (`use_low_peak_subject`): on a 14-16 GB laptop
+/// a Subject run beside a 4-up Develop view otherwise left under 1.5 GB
+/// available (G74, WREV1).
+pub const LOW_PEAK_SUBJECT_MAX_MEMORY: u64 = 16 << 30;
 // The same checkpoint as a Core ML program in fp16
 // (scripts/models/convert_birefnet_coreml.py), macOS's fast path: about
 // 0.2 s on the GPU instead of 4-5 s on the CPU. Against subject references
@@ -728,6 +744,24 @@ pub fn refine_sky_mask_with(
     refined
 }
 
+/// Whether BiRefNet runs from its low-peak graph on the CPU
+/// (`SUBJECT_LOW_PEAK_FILENAME`, `SubjectModel::onnx_low_peak`): on a
+/// machine with `total_memory` bytes of at most
+/// `LOW_PEAK_SUBJECT_MAX_MEMORY` where the ONNX model would run on the CPU
+/// (`subject_onnx_on_cpu`, asked only then). Core ML (macOS) comes first
+/// and is not affected.
+pub fn use_low_peak_subject(total_memory: u64, onnx_on_cpu: impl FnOnce() -> bool) -> bool {
+    total_memory > 0 && total_memory <= LOW_PEAK_SUBJECT_MAX_MEMORY && onnx_on_cpu()
+}
+
+/// Whether BiRefNet's ONNX graph at `path` would run on the CPU in this
+/// process: every model stays there (`models_run_on_cpu_only`), or no GPU
+/// provider would take it (`runs_on_gpu`).
+pub fn subject_onnx_on_cpu(path: &Path) -> bool {
+    rawtonic_onnx::models_run_on_cpu_only()
+        || !rawtonic_onnx::runs_on_gpu(path, rawtonic_onnx::ModelKind::Subject)
+}
+
 impl SubjectModel {
     /// The ONNX model on ONNX Runtime: a GPU provider when one works, else
     /// the CPU (every platform).
@@ -738,6 +772,28 @@ impl SubjectModel {
                 rawtonic_onnx::ModelKind::Subject,
             )?),
         })
+    }
+
+    /// The low-peak graph (`SUBJECT_LOW_PEAK_FILENAME`) on the CPU with the
+    /// low-peak memory plan (`use_low_peak_subject`).
+    pub fn onnx_low_peak(path: &Path) -> Result<Self> {
+        Ok(Self {
+            backend: SubjectBackend::Onnx(rawtonic_onnx::Model::load_cpu_low_peak(
+                path,
+                rawtonic_onnx::ModelKind::Subject,
+            )?),
+        })
+    }
+
+    /// Run options for `probability` (`RunOptions::terminate` stops a run
+    /// from another thread): `None` on Core ML. On ONNX Runtime they carry
+    /// what the model's memory plan needs (`rawtonic_onnx::Model::run_options`).
+    pub fn run_options(&self) -> Result<Option<ort::session::RunOptions>> {
+        match &self.backend {
+            SubjectBackend::Onnx(model) => Ok(Some(model.run_options()?)),
+            #[cfg(target_os = "macos")]
+            SubjectBackend::CoreMl(_) => Ok(None),
+        }
     }
 
     pub fn backend_name(&self) -> String {
@@ -768,24 +824,32 @@ impl SubjectModel {
         }
     }
     /// BiRefNet's subject probability (`SUBJECT_INPUT_SIZE`² values) for
-    /// a normalised [1, 3, size, size] input. `run_options` lets another
-    /// thread stop an ONNX run (`RunOptions::terminate`).
+    /// a normalised [1, 3, size, size] input. `run_options` (from
+    /// `run_options`) lets another thread stop an ONNX run
+    /// (`RunOptions::terminate`); without them the model's own are used.
     pub fn probability(
         &self,
         input: Array<f32, ndarray::Ix4>,
         run_options: Option<&ort::session::RunOptions>,
     ) -> Result<Vec<f32>> {
         match &self.backend {
-            SubjectBackend::Onnx(model) => model.run(|session| {
-                let t_input = Tensor::from_array(input.clone().into_dyn())?;
-                let outputs = match run_options {
-                    Some(options) => session.run_with_options(ort::inputs![t_input], options)?,
-                    None => session.run(ort::inputs![t_input])?,
+            SubjectBackend::Onnx(model) => {
+                let own;
+                let options = match run_options {
+                    Some(options) => options,
+                    None => {
+                        own = model.run_options()?;
+                        &own
+                    }
                 };
-                let (_, data) = outputs[0].try_extract_tensor::<f32>()?;
-                rawtonic_onnx::ensure_finite(data)?;
-                Ok(data.to_vec())
-            }),
+                model.run(|session| {
+                    let t_input = Tensor::from_array(input.clone().into_dyn())?;
+                    let outputs = session.run_with_options(ort::inputs![t_input], options)?;
+                    let (_, data) = outputs[0].try_extract_tensor::<f32>()?;
+                    rawtonic_onnx::ensure_finite(data)?;
+                    Ok(data.to_vec())
+                })
+            }
             #[cfg(target_os = "macos")]
             SubjectBackend::CoreMl(model) => {
                 let shape = input.shape().to_vec();
@@ -1061,6 +1125,22 @@ pub fn mask_data_url(image: &GrayImage) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use image::{DynamicImage, GrayImage, Rgb32FImage, RgbImage, imageops::FilterType};
+
+    #[test]
+    fn the_low_peak_subject_graph_is_for_the_cpu_of_machines_up_to_16_gb() {
+        use super::use_low_peak_subject;
+        let gib = 1u64 << 30;
+        // The Lenovo of G74 (15.5 GB reported), a 16 GB machine, on the CPU.
+        assert!(use_low_peak_subject(15_859 << 20, || true));
+        assert!(use_low_peak_subject(16 * gib, || true));
+        // More memory, a GPU, or memory not known: the usual graph.
+        assert!(!use_low_peak_subject(18 * gib, || true));
+        assert!(!use_low_peak_subject(8 * gib, || false));
+        assert!(!use_low_peak_subject(0, || true));
+        // The CPU question (it may register a GPU plugin) is asked only when
+        // the memory qualifies.
+        assert!(!use_low_peak_subject(32 * gib, || unreachable!()));
+    }
 
     /// A float photo whose values also leave 0..1 (a RAW decode's highlights).
     fn photo(w: u32, h: u32) -> DynamicImage {

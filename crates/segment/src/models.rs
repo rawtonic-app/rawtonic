@@ -12,7 +12,8 @@ use anyhow::{Result, bail};
 
 use crate::{
     LANDSCAPE_FILENAME, LANDSCAPE_SHA256, LandscapeModel, SKYSEG_FILENAME, SKYSEG_SHA256,
-    SUBJECT_FILENAME, SUBJECT_SHA256, SkyModel, SubjectModel,
+    SUBJECT_FILENAME, SUBJECT_LOW_PEAK_FILENAME, SUBJECT_LOW_PEAK_SHA256, SUBJECT_SHA256, SkyModel,
+    SubjectModel,
 };
 
 /// Whether the file at `path` has the SHA-256 `expected_hash` (lower-case hex).
@@ -31,6 +32,9 @@ pub struct Models {
     sky: Mutex<Option<Arc<SkyModel>>>,
     subject: Mutex<Option<Arc<SubjectModel>>>,
     landscape: Mutex<Option<Arc<LandscapeModel>>>,
+    /// The machine's memory in bytes (0: unknown), for the Subject graph's
+    /// choice (`use_low_peak_subject`).
+    total_memory: u64,
 }
 
 impl Models {
@@ -40,7 +44,15 @@ impl Models {
             sky: Mutex::new(None),
             subject: Mutex::new(None),
             landscape: Mutex::new(None),
+            total_memory: 0,
         }
+    }
+
+    /// The machine's memory in bytes, so Subject runs from the graph the app
+    /// would use here (`use_low_peak_subject`; without it, the usual one).
+    pub fn with_total_memory(mut self, bytes: u64) -> Self {
+        self.total_memory = bytes;
+        self
     }
 
     /// The landscape-parts model (ONNX Runtime on every platform).
@@ -77,6 +89,20 @@ impl Models {
             &crate::SUBJECT_CORE_ML_FILES,
         )? {
             return Ok(slot.insert(Arc::new(SubjectModel::core_ml(model))).clone());
+        }
+        if crate::use_low_peak_subject(self.total_memory, || {
+            crate::subject_onnx_on_cpu(&self.dir.join(SUBJECT_FILENAME))
+        }) {
+            let low_peak = self.dir.join(SUBJECT_LOW_PEAK_FILENAME);
+            if verified(&low_peak, SUBJECT_LOW_PEAK_SHA256) {
+                return Ok(slot
+                    .insert(Arc::new(SubjectModel::onnx_low_peak(&low_peak)?))
+                    .clone());
+            }
+            log::info!(
+                "AI subject: {SUBJECT_LOW_PEAK_FILENAME} is not installed in {}; the usual graph runs",
+                self.dir.display()
+            );
         }
         let path = self.onnx(SUBJECT_FILENAME, SUBJECT_SHA256, "Subject")?;
         Ok(slot.insert(Arc::new(SubjectModel::onnx(&path)?)).clone())

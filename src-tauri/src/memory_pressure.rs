@@ -49,6 +49,16 @@ pub fn under_pressure() -> bool {
     total > 0 && system.available_memory() < low_threshold(total)
 }
 
+/// The machine's physical memory in bytes (0: unknown), read once.
+pub fn total_memory() -> u64 {
+    static TOTAL: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *TOTAL.get_or_init(|| {
+        let mut system = sysinfo::System::new();
+        system.refresh_memory();
+        system.total_memory()
+    })
+}
+
 /// How short of memory the system is now (None: not): macOS's pressure
 /// level, else the available memory below `low_threshold` (Warn) or half
 /// of it (Critical). For background work that should yield only when memory
