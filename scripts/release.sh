@@ -304,10 +304,13 @@ docs_gate() {
   if git -C "$WEBSITE" rev-parse -q --verify "refs/heads/$WEB_BRANCH" >/dev/null; then refs+=(--site-ref "$WEB_BRANCH")
   else refs+=(--site-ref "origin/$WEB_BRANCH"); fi
   refs+=(--site-ref origin/main)
-  python3 "$SCRIPTS/docs_check.py" --app "$REPO_ROOT" --prev-tag "v$(cat "$STATE/prev")" --head "$(sha)" --version "$VERSION" \
-    --website "$WEBSITE" "${refs[@]}" ${DOCS_REVIEWED:+--reviewed "$DOCS_REVIEWED"} \
-    || fail "a changed tool's docs page was not updated (above): update it on a website docs branch, or rerun with --docs-reviewed \"why the page still holds\""
+  docs_check "${refs[@]}"
   mv "$STATE/docs-branches.new" "$STATE/docs-branches"
+}
+docs_check() {  # --site-ref REF …
+  python3 "$SCRIPTS/docs_check.py" --app "$REPO_ROOT" --prev-tag "v$(cat "$STATE/prev")" --head "$(sha)" --version "$VERSION" \
+    --website "$WEBSITE" "$@" ${DOCS_REVIEWED:+--reviewed "$DOCS_REVIEWED"} \
+    || fail "a changed tool's docs page was not updated (above): update it on a website docs branch, or rerun with --docs-reviewed \"why the page still holds\""
 }
 # Every release checks whether the docs follow the app (user decision 2026-11-26):
 # each tool it changes must have its rawtonic.cc/docs page updated (en and de) on
@@ -774,6 +777,9 @@ st_site() {
       || { git -C "$WEBWT" merge --abort; fail "merge the docs branch $b into $WEB_BRANCH (resolve on $b, then --from site)"; }
     echo "docs branch $b ($c) merged"
   done < "$STATE/docs-branches"
+  # What ships is the merged tree: check it once more (merges can undo each other).
+  echo "docs check of the merged website branch:"
+  docs_check --site-ref "$(git -C "$WEBWT" rev-parse HEAD)"
   echo "website branch $WEB_BRANCH at $(git -C "$WEBWT" log -1 --format='%h %s')"
   python3 "$SCRIPTS/website.py" write --version "$VERSION" --changelog "$WORK/CHANGELOG.md" --assets "$ASSETS" \
     --release-json "$WEBWT/release.json" || fail "the website's release.json (see above)"
