@@ -403,8 +403,25 @@ fn model_url(source: &str) -> String {
 /// Downloads `source`, calling `progress(received, total)` as its bytes
 /// arrive (`total` 0 when the server does not say).
 async fn fetch_model(source: &str, progress: &mut (dyn FnMut(u64, u64) + Send)) -> Result<Vec<u8>> {
-    let url = model_url(source);
-    let mut response = reqwest::get(&url).await?;
+    fetch_url(&model_url(source), MODEL_READ_TIMEOUT, progress).await
+}
+
+/// A model download whose connection sends nothing for this long ends with
+/// an error (a stalled transfer would otherwise wait for good, and the
+/// low-peak Subject model's background fetch never try again).
+const MODEL_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// `fetch_model` from `url`, failing when no byte arrives for `read_timeout`.
+async fn fetch_url(
+    url: &str,
+    read_timeout: std::time::Duration,
+    progress: &mut (dyn FnMut(u64, u64) + Send),
+) -> Result<Vec<u8>> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(read_timeout)
+        .read_timeout(read_timeout)
+        .build()?;
+    let mut response = client.get(url).send().await?;
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
             "Could not download {url} (HTTP {}). Check the internet connection and try again.",
@@ -1488,9 +1505,32 @@ pub(crate) fn fetch_low_peak_subject_in_background(app_handle: &tauri::AppHandle
             _ => *fetch = LowPeakFetch::Running,
         }
     }
-    log::info!("AI subject mask: fetching the low-peak model in the background");
     let app = app_handle.clone();
     tauri::async_runtime::spawn(async move {
+        // Through the admission of work made ahead (G74): with memory for
+        // the download held in memory, not beside the photo's decode, a
+        // background decode or a Subject run; it starts and runs on its own
+        // (the background decodes do not wait for it). Not admitted within
+        // a minute: a later request tries again.
+        let ai_state = app.state::<AiState>();
+        let job = crate::ai_ahead::AheadJob::ModelFetch;
+        let need = crate::ai_ahead::estimated_peak(job, true, false);
+        let admitted = crate::ai_ahead::admit_beside(
+            job,
+            || false,
+            need,
+            || None,
+            || ai_state.subject_lock.try_lock().is_err(),
+        )
+        .await;
+        match admitted {
+            Ok(started) => drop(started),
+            Err(_) => {
+                *lock_recover(&LOW_PEAK_FETCH) = LowPeakFetch::Idle;
+                return;
+            }
+        }
+        log::info!("AI subject mask: fetching the low-peak model in the background");
         let result = download_verified(
             &app,
             &models_dir,
@@ -1501,7 +1541,6 @@ pub(crate) fn fetch_low_peak_subject_in_background(app_handle: &tauri::AppHandle
         .await;
         let next = match result {
             Ok(()) => {
-                let ai_state = app.state::<AiState>();
                 if let Some(ai) = lock_recover(&ai_state.models).as_mut()
                     && ai
                         .subject_model
@@ -4819,5 +4858,47 @@ mod download_tests {
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
         assert!(persist_downloaded_asset(&model, b"").is_err());
         assert_eq!(std::fs::read(&model).unwrap(), b"new model");
+    }
+}
+
+#[cfg(test)]
+mod model_fetch_tests {
+    use std::time::{Duration, Instant};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A transfer that stalls ends with an error after the read timeout
+    /// instead of waiting for good (so the low-peak Subject model's fetch can
+    /// try again); one that completes is returned whole.
+    #[tokio::test]
+    async fn a_stalled_model_download_ends_and_a_whole_one_is_returned() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            for stall in [true, false] {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut request = [0u8; 1024];
+                    let _ = socket.read(&mut request).await;
+                    let head = b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\n";
+                    socket.write_all(head).await.unwrap();
+                    if stall {
+                        socket.write_all(b"abc").await.unwrap();
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                    } else {
+                        socket.write_all(b"abcdef").await.unwrap();
+                    }
+                });
+            }
+        });
+        let url = format!("http://{address}/model.onnx");
+        let timeout = Duration::from_millis(300);
+        let started = Instant::now();
+        let stalled = super::fetch_url(&url, timeout, &mut |_, _| {}).await;
+        assert!(stalled.is_err(), "a stalled transfer must fail");
+        assert!(started.elapsed() < Duration::from_secs(10));
+        let whole = super::fetch_url(&url, timeout, &mut |_, _| {})
+            .await
+            .unwrap();
+        assert_eq!(whole, b"abcdef");
     }
 }

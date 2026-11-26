@@ -44,6 +44,9 @@ pub enum AheadJob {
     Sky,
     /// The object masks' SAM 2.1 encoding of the photo, the same.
     ObjectEncoding,
+    /// The one-time background fetch of the low-peak Subject model
+    /// (`ai_processing::fetch_low_peak_subject_in_background`).
+    ModelFetch,
 }
 
 impl AheadJob {
@@ -52,6 +55,7 @@ impl AheadJob {
             AheadJob::Subject => "subject",
             AheadJob::Sky => "sky",
             AheadJob::ObjectEncoding => "object",
+            AheadJob::ModelFetch => "subject model fetch",
         }
     }
 }
@@ -77,12 +81,15 @@ const MB: u64 = 1_000_000;
 ///   800 MB loaded.
 /// - Object encoding (SAM 2.1 encoder, ONNX Runtime on the CPU): +0.16–0.76
 ///   GB → 1000 MB cold, 600 MB loaded.
+/// - The low-peak Subject model's fetch: the download is held in memory whole
+///   and written from it (`fetch_model`): its 470 MB plus half → 700 MB.
 pub fn estimated_peak(job: AheadJob, on_cpu: bool, loaded: bool) -> u64 {
     let (model, run) = match (job, on_cpu) {
         (AheadJob::Subject, true) => (1000, 3700),
         (AheadJob::Subject, false) => (500, 4200),
         (AheadJob::Sky, _) => (400, 800),
         (AheadJob::ObjectEncoding, _) => (400, 600),
+        (AheadJob::ModelFetch, _) => (0, 700),
     };
     if loaded { run * MB } else { (model + run) * MB }
 }
@@ -97,6 +104,8 @@ pub enum Verdict {
     WaitForAheadRun,
     /// The open photo's full-resolution decode or a frame of it is under way.
     WaitForDecodes,
+    /// A Subject mask is being computed (`admit_beside`'s `mask_running`).
+    WaitForMaskRun,
     /// The memory free for such work (`room`) is below the job's `need`.
     WaitForMemory {
         room: u64,
@@ -138,6 +147,16 @@ pub fn verdict(
     match room {
         Some(room) if room < need => Verdict::WaitForMemory { room, need },
         _ => Verdict::Start,
+    }
+}
+
+/// `verdict` for a job that also waits while a mask is computed
+/// (`mask_running`): one free to start waits for that run too.
+pub fn verdict_beside(mask_running: bool, verdict: Verdict) -> Verdict {
+    if mask_running && verdict == Verdict::Start {
+        Verdict::WaitForMaskRun
+    } else {
+        verdict
     }
 }
 
@@ -252,7 +271,19 @@ pub async fn admit(
     job: AheadJob,
     asked: impl Fn() -> bool,
     need: u64,
+    give_up: impl FnMut() -> Option<&'static str>,
+) -> Result<AheadRun, NotStarted> {
+    admit_beside(job, asked, need, give_up, || false).await
+}
+
+/// `admit`, also waiting while `mask_running` says a mask is being computed
+/// (a photographer's run does not count as a job made ahead).
+pub async fn admit_beside(
+    job: AheadJob,
+    asked: impl Fn() -> bool,
+    need: u64,
     mut give_up: impl FnMut() -> Option<&'static str>,
+    mask_running: impl Fn() -> bool,
 ) -> Result<AheadRun, NotStarted> {
     let start = Instant::now();
     let mut held: Option<Verdict> = None;
@@ -264,7 +295,10 @@ pub async fn admit(
         let settled = crate::multi_view_prefetch::primary_settled(QUIET);
         let background = crate::multi_view_prefetch::background_under_way();
         let room = crate::memory_pressure::work_headroom();
-        let mut now = verdict(asked, running(), settled, background, room, need);
+        let mut now = verdict_beside(
+            mask_running(),
+            verdict(asked, running(), settled, background, room, need),
+        );
         let started = if now == Verdict::Start {
             AheadRun::start(asked)
         } else {
@@ -314,6 +348,7 @@ fn describe(verdict: Verdict) -> String {
         Verdict::Start => "free to start".into(),
         Verdict::WaitForAheadRun => "another job made ahead runs".into(),
         Verdict::WaitForDecodes => "the photo's decode or a frame of it is under way".into(),
+        Verdict::WaitForMaskRun => "a mask is being computed".into(),
         Verdict::WaitForMemory { room, need } => {
             format!("{} MB free for it of {} MB needed", room / MB, need / MB)
         }
@@ -382,6 +417,30 @@ mod tests {
                 need: need + 2 * BACKGROUND_DECODE
             }
         );
+    }
+
+    #[test]
+    fn the_model_fetch_waits_for_memory_decodes_and_mask_runs() {
+        let need = estimated_peak(AheadJob::ModelFetch, true, false);
+        assert_eq!(need, 700 * MB);
+        // WREV1's Lenovo with the model loaded: 1.9 GB free for work that may
+        // wait is enough for the fetch alone, not beside a background decode.
+        let free = verdict(false, false, true, 0, Some(1900 * MB), need);
+        assert_eq!(verdict_beside(false, free), Verdict::Start);
+        assert!(matches!(
+            verdict(false, false, true, 1, Some(1900 * MB), need),
+            Verdict::WaitForMemory { .. }
+        ));
+        assert!(matches!(
+            verdict(false, false, true, 0, Some(500 * MB), need),
+            Verdict::WaitForMemory { .. }
+        ));
+        // A Subject run (a click is not a job made ahead) holds it; so does
+        // the photo's decode, whatever the mask.
+        assert_eq!(verdict_beside(true, free), Verdict::WaitForMaskRun);
+        let decoding = verdict(false, false, false, 0, Some(9 * GB), need);
+        assert_eq!(verdict_beside(false, decoding), Verdict::WaitForDecodes);
+        assert_eq!(verdict_beside(true, decoding), Verdict::WaitForDecodes);
     }
 
     #[test]
