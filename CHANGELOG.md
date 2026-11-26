@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Editing keywords also reduces legacy EXIF copies in Rawtonic sidecars to your changes.
+
+- The Metadata panel shows saved EXIF text exactly, including literal quotes in captions.
+
+- The naming editor’s + Token list opens outside the entire name field, so every row stays visible and available for dropping tokens.
+
 - On computers with 16 GB of memory or less that run AI on the processor (for example a Windows laptop with a Radeon 680M), computing a Subject or Background selection needs less memory: in our tests about 0.8 GB less on an x86 processor, and a Subject click beside a 4-up Develop view peaked 0.5–1.8 GB lower on a Mac set up like such a laptop. Rawtonic downloads a memory-saving version of the Subject model (470 MB) the first time a Subject or Background selection is computed on such a computer (when you make one, also if its mask was computed ahead of your click, or when a photo with a pasted, synced or preset one opens), in the background when the usual version is installed, which keeps working until the download has finished (and offline); that download starts only when there is memory for it and no Subject selection or full-resolution decode is under way. Model downloads that stall for 30 seconds now end with an error instead of waiting for good. On an x86 processor the selection took about a fifth longer. Other computers keep their model and download nothing. (Technical: on computers with up to 16 GB that run AI on the CPU, a not-yet-computed Subject selection can differ from earlier exports by at most 1/255 in a few pixels: 0–37 pixels of a 30–45 MP mask in our test.)
 
 - A photo you move to the Trash leaves the library at once: its folder no longer lists it as **Offline** (which looked like a disconnected drive and offered Locate), and the folder's photo and offline counts drop with it. Undo brings it back with its edits, rating and virtual copies. Photos whose files vanished outside Rawtonic are still listed as Offline.

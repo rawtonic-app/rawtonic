@@ -53,6 +53,26 @@ it('shows tokens as chips with editable free text between them', () => {
 
 const openTokens = () => fireEvent.click(screen.getByRole('button', { name: 'Add a naming token' }));
 
+it.each([
+  { top: 100, bottom: 220, above: false },
+  { top: 400, bottom: 520, above: true }
+])('places the token list outside a wrapped field at $top–$bottom', ({ top, bottom, above }) => {
+  vi.stubGlobal('innerHeight', 700);
+  try {
+    render(<Editor initial="{orig_base}_{date}_{seq}_{lens}" />);
+    const toggle = screen.getByRole('button', { name: 'Add a naming token' });
+    vi.spyOn(toggle.parentElement!, 'getBoundingClientRect').mockReturnValue(
+      DOMRect.fromRect({ y: top, height: bottom - top })
+    );
+    openTokens();
+    const popup = screen.getByRole('dialog', { name: 'Add a naming token' });
+    expect(popup.style.top).toBe(above ? '' : 'calc(100% + 4px)');
+    expect(popup.style.bottom).toBe(above ? 'calc(100% + 4px)' : '');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 it('adds a token by double-click or Enter at the text cursor, not by a single click', () => {
   render(<Editor initial="ab" />);
   const text = texts()[0];

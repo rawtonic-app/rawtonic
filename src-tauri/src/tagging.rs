@@ -484,7 +484,7 @@ fn modify_tags_for_path(
     let (source_path, sidecar_path) = parse_virtual_path(path_str);
 
     let before = crate::exif_processing::load_sidecar(&sidecar_path).tags;
-    let metadata = change_tags(&sidecar_path, modify_fn)?;
+    let metadata = change_tags(&source_path, &sidecar_path, modify_fn)?;
     let change = KeywordChange::between(path_str, before.as_deref(), metadata.tags.as_deref());
     crate::session_bridge::write_editor_sidecar(
         &sidecar_path,
@@ -505,6 +505,7 @@ fn modify_tags_for_path(
 /// The metadata of `sidecar_path` with `modify_fn` applied to its tags (sorted
 /// and without doubles; empty tags are none), as a keyword write saves it.
 fn change_tags(
+    source_path: &Path,
     sidecar_path: &Path,
     modify_fn: impl Fn(&mut Vec<String>),
 ) -> Result<ImageMetadata, String> {
@@ -514,6 +515,7 @@ fn change_tags(
     tags.sort_unstable();
     tags.dedup();
     metadata.tags = (!tags.is_empty()).then_some(tags);
+    crate::exif_processing::keep_own_exif(&mut metadata, source_path);
     Ok(metadata)
 }
 
@@ -962,6 +964,9 @@ fn clear_tags_under(
         if tags.is_empty() {
             metadata.tags = None;
         }
+        if let Some(source) = photo_ref::source_path_of_sidecar(path) {
+            crate::exif_processing::keep_own_exif(&mut metadata, &source);
+        }
         if let Ok(json_string) = serde_json::to_string_pretty(&metadata)
             && crate::session_bridge::write_editor_sidecar(path, json_string).is_ok()
         {
@@ -1121,6 +1126,37 @@ mod tests {
         assert_eq!(tags, ["color:red", "user:Animals|Dogs", "user:beach"]);
     }
 
+    #[test]
+    fn a_keyword_write_reduces_a_legacy_exif_copy() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.tiff");
+        // A little-endian TIFF with an ImageDescription set to "Original".
+        let tiff = b"II*\0\x08\0\0\0\x01\0\x0e\x01\x02\0\x09\0\0\0\x1a\0\0\0\0\0\0\0Original\0";
+        rawtonic_fs::atomic_write(&source, tiff).unwrap();
+        let own = crate::exif_processing::original_exif(&source).unwrap();
+        assert_eq!(
+            own.get("ImageDescription").map(String::as_str),
+            Some("Original")
+        );
+
+        let sidecar = crate::exif_processing::get_primary_sidecar_path(&source);
+        crate::session_bridge::write_editor_sidecar(
+            &sidecar,
+            r#"{"version":1,"rating":3,"tags":["dog"],"adjustments":{},"exif":{"ImageDescription":"\"Original\"","Artist":"Ana"}}"#,
+        )
+        .unwrap();
+
+        let changed =
+            change_tags(&source, &sidecar, |tags| tags.push("user:beach".into())).unwrap();
+        assert_eq!(changed.tags.unwrap(), ["dog", "user:beach"]);
+        assert_eq!(changed.rating, 3);
+        assert_eq!(changed.exif, None);
+        assert_eq!(
+            changed.exif_overrides.unwrap(),
+            HashMap::from([("Artist".into(), "Ana".into())])
+        );
+    }
+
     /// A keyword batch whose save failed for some photographs reports exactly
     /// those paths (`SaveFailure.failed`), as the other batch writes do, so
     /// only they are marked failed; the others have the keyword.
@@ -1150,14 +1186,16 @@ mod tests {
         // Each photograph's write as `modify_tags_for_path` does it (the XMP
         // sync after it needs an `AppHandle`; it is not part of this result).
         let add = |path: &str| {
-            let (_, sidecar) = parse_virtual_path(path);
-            change_tags(&sidecar, |tags| tags.push("user:beach".into())).and_then(|changed| {
-                crate::session_bridge::write_editor_sidecar(
-                    &sidecar,
-                    serde_json::to_string_pretty(&changed).map_err(|e| e.to_string())?,
-                )
-                .map_err(|e| e.to_string())
-            })
+            let (source, sidecar) = parse_virtual_path(path);
+            change_tags(&source, &sidecar, |tags| tags.push("user:beach".into())).and_then(
+                |changed| {
+                    crate::session_bridge::write_editor_sidecar(
+                        &sidecar,
+                        serde_json::to_string_pretty(&changed).map_err(|e| e.to_string())?,
+                    )
+                    .map_err(|e| e.to_string())
+                },
+            )
         };
         let paths: Vec<String> = [&a, &b]
             .iter()
