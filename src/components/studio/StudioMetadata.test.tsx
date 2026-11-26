@@ -432,8 +432,8 @@ describe('Metadata tool', () => {
     useLibraryStore.setState({
       sessionDirectory: null,
       imageList: [
-        { ...file('/p/a.arw', null), exif: { Artist: '"N. F."', Copyright: 'default', ImageDescription: 'Pier' } },
-        { ...file('/p/b.arw', null), exif: { Artist: 'N. F.', ImageDescription: 'Dock' } }
+        { ...file('/p/a.arw', null), exif: { Artist: 'N. F.', Copyright: 'default', ImageDescription: 'Pier' } },
+        { ...file('/p/b.arw', null), exif: { Artist: 'N. F.', Copyright: 'default', ImageDescription: 'Dock' } }
       ],
       multiSelectedPaths: ['/p/a.arw', '/p/b.arw']
     });
@@ -442,9 +442,8 @@ describe('Metadata tool', () => {
     expect((screen.getByLabelText('Title') as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText(/title and IPTC fields are saved in a session or catalog/)).toBeTruthy();
     const creator = screen.getByLabelText('Creator') as HTMLInputElement;
-    // Quotes and a camera's "default" placeholder are not shown.
     expect(creator.value).toBe('N. F.');
-    expect((screen.getByLabelText('Copyright') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('Copyright') as HTMLInputElement).value).toBe('default');
     expect((screen.getByLabelText('Description') as HTMLTextAreaElement).placeholder).toBe('Mixed');
     fireEvent.focus(creator);
     fireEvent.change(creator, { target: { value: 'Alex Example' } });
@@ -457,6 +456,18 @@ describe('Metadata tool', () => {
     });
     expect(useLibraryStore.getState().imageList.every((image) => image.exif?.Artist === 'Alex Example')).toBe(true);
     expect(mockInvoke.mock.calls.some(([command]) => String(command).startsWith('session_'))).toBe(false);
+  });
+
+  it('shows the exact saved EXIF text, including literal quotes', () => {
+    mockInvoke.mockResolvedValue(undefined);
+    const caption = `"At the pier"`;
+    useLibraryStore.setState({
+      sessionDirectory: null,
+      imageList: [{ ...file('/p/a.arw', null), exif: { ImageDescription: caption } }],
+      multiSelectedPaths: ['/p/a.arw']
+    });
+    render(<StudioMetadataTool />);
+    expect((screen.getByLabelText('Description') as HTMLTextAreaElement).value).toBe(caption);
   });
 
   it('keeps the comment as EXIF UserComment in sessions too', async () => {

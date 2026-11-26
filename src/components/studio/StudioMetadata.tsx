@@ -105,13 +105,6 @@ const EXIF_TEXT_FIELDS: Record<string, string> = {
   copyright: 'Copyright'
 };
 
-/** An EXIF text value as shown: without the quotes some readers keep, and
- * without the placeholder "default" some cameras write. */
-export function exifText(value: string | undefined) {
-  const clean = (value ?? '').replace(/^"|"$/g, '').trim();
-  return clean.toLowerCase() === 'default' ? '' : clean;
-}
-
 /** The colour label of a photo's tags (`color:red`), or null. */
 export const colorLabelOf = (tags: string[] | null | undefined) =>
   tags?.find((tag) => tag.startsWith('color:'))?.slice(6) ?? null;
@@ -510,7 +503,7 @@ function useTargetExif(paths: string[]) {
 
 /** The selection's value of one EXIF text field, or `null` when they differ. */
 export function sharedExifValue(records: (Record<string, string> | null)[], key: string) {
-  const values = new Set(records.map((record) => exifText(record?.[key])));
+  const values = new Set(records.map((record) => record?.[key] ?? ''));
   return values.size === 1 ? [...values][0] : null;
 }
 
