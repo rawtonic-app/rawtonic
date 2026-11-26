@@ -6,9 +6,34 @@ export interface IngestDialogSize {
   height: number;
   maximized: boolean;
 }
+/** A resizable dialog's limits: its smallest size and its default (a
+ * fraction of the window up to a cap). */
+export interface DialogSizeLimits {
+  minWidth: number;
+  minHeight: number;
+  maxDefaultWidth: number;
+  maxDefaultHeight: number;
+  defaultFraction: number;
+}
+export const INGEST_DIALOG_LIMITS: DialogSizeLimits = {
+  minWidth: 760,
+  minHeight: 520,
+  maxDefaultWidth: 1600,
+  maxDefaultHeight: 1000,
+  defaultFraction: 0.9
+};
+/** Export opens at its former fixed size (860 × 790) and can grow. */
+export const EXPORT_DIALOG_LIMITS: DialogSizeLimits = {
+  minWidth: 640,
+  minHeight: 480,
+  maxDefaultWidth: 860,
+  maxDefaultHeight: 790,
+  defaultFraction: 0.9
+};
 export function clampIngestSize(
   size: IngestDialogSize | undefined,
-  viewport: { width: number; height: number }
+  viewport: { width: number; height: number },
+  limits: DialogSizeLimits = INGEST_DIALOG_LIMITS
 ): IngestDialogSize {
   const maxWidth = Math.max(1, viewport.width - 24);
   const maxHeight = Math.max(1, viewport.height - 24);
@@ -16,23 +41,33 @@ export function clampIngestSize(
     width: Math.min(
       maxWidth,
       Math.max(
-        Math.min(760, maxWidth),
-        Number.isFinite(size?.width) ? size!.width : Math.min(1600, viewport.width * 0.9)
+        Math.min(limits.minWidth, maxWidth),
+        Number.isFinite(size?.width)
+          ? size!.width
+          : Math.min(limits.maxDefaultWidth, viewport.width * limits.defaultFraction)
       )
     ),
     height: Math.min(
       maxHeight,
       Math.max(
-        Math.min(520, maxHeight),
-        Number.isFinite(size?.height) ? size!.height : Math.min(1000, viewport.height * 0.9)
+        Math.min(limits.minHeight, maxHeight),
+        Number.isFinite(size?.height)
+          ? size!.height
+          : Math.min(limits.maxDefaultHeight, viewport.height * limits.defaultFraction)
       )
     ),
     maximized: size?.maximized === true
   };
 }
 export const INGEST_RESIZE_EDGES = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'] as const;
-export function useIngestDialogSize() {
-  const stored = useSettingsStore((s) => s.appSettings?.ingestDialogSize);
+export const useIngestDialogSize = () => useDialogSize('ingestDialogSize', INGEST_DIALOG_LIMITS);
+/** A dialog's size, resized from its edges and maximized from its title bar,
+ * remembered in the settings under `key`. */
+export function useDialogSize(
+  key: 'ingestDialogSize' | 'exportDialogSize',
+  limits: DialogSizeLimits = INGEST_DIALOG_LIMITS
+) {
+  const stored = useSettingsStore((s) => s.appSettings?.[key]);
   const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
   const [dragSize, setDragSize] = useState<IngestDialogSize>();
   useEffect(() => {
@@ -40,10 +75,10 @@ export function useIngestDialogSize() {
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, []);
-  const size = clampIngestSize(dragSize ?? stored, viewport);
+  const size = clampIngestSize(dragSize ?? stored, viewport, limits);
   const save = (next: IngestDialogSize) => {
     const state = useSettingsStore.getState();
-    if (state.appSettings) void state.handleSettingsChange({ ...state.appSettings, ingestDialogSize: next });
+    if (state.appSettings) void state.handleSettingsChange({ ...state.appSettings, [key]: next });
   };
   const toggle = () => save({ ...(stored ?? size), maximized: !size.maximized });
   const start = (event: PointerEvent<HTMLElement>, edge: string) => {
@@ -63,7 +98,8 @@ export function useIngestDialogSize() {
           height:
             size.height + (edge.includes('s') ? 2 * (e.clientY - y) : edge.includes('n') ? -2 * (e.clientY - y) : 0)
         },
-        viewport
+        viewport,
+        limits
       );
       setDragSize(next);
     };

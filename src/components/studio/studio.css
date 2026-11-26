@@ -2853,10 +2853,10 @@
   position: fixed;
   inset: 0;
   margin: auto;
-  max-height: calc(100vh - 60px);
+  max-height: calc(100vh - 24px);
   height: 750px;
   width: 420px;
-  max-width: calc(100vw - 50px);
+  max-width: calc(100vw - 24px);
   border: 1px solid var(--studio-shade-line, #656a70);
   border-radius: 4px;
   padding: 0;
@@ -5352,6 +5352,16 @@ body.is-dragging.is-drop-refused * {
 .studio-tool-dialog > header strong {
   font-size: 15px;
   font-weight: 600;
+}
+/* Maximize/restore and close side by side; the window keeps its size
+   between visits (resized from its edges, as the import dialog). */
+.studio-tool-dialog-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.studio-tool-dialog > header {
+  user-select: none;
 }
 .studio-tool-dialog-content {
   padding: 0;

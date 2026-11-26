@@ -47,8 +47,11 @@ import {
   ListChecks,
   Maximize,
   ChevronsRight,
-  FolderTree
+  FolderTree,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
+import { EXPORT_DIALOG_LIMITS, INGEST_RESIZE_EDGES, useDialogSize } from '../session/useIngestDialogSize';
 import { canUndo, canRedo, getUndoLabel, getRedoLabel, undo, redo, useCatalogUndoStore } from '../../utils/appUndo';
 import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
@@ -783,6 +786,8 @@ export default function StudioWorkspace(props: Props) {
     return () => window.removeEventListener(OPEN_EXPORT_QUEUE, show);
   }, []);
   const dialog = useRef<HTMLDialogElement>(null);
+  // Export is resized from its edges and maximized like the import dialog.
+  const exportSize = useDialogSize('exportDialogSize', EXPORT_DIALOG_LIMITS);
   const beforeDrawerPanel = useRef<Panel | null>(Panel.Adjustments);
   useEffect(
     () =>
@@ -1914,6 +1919,7 @@ export default function StudioWorkspace(props: Props) {
       <dialog
         ref={dialog}
         className="studio-tool-dialog"
+        style={drawer ? exportSize.style : undefined}
         aria-labelledby="studio-export-title"
         onCancel={(e) => {
           e.preventDefault();
@@ -1923,12 +1929,39 @@ export default function StudioWorkspace(props: Props) {
           if (e.target === e.currentTarget) closeTools();
         }}
       >
+        {drawer &&
+          !exportSize.size.maximized &&
+          INGEST_RESIZE_EDGES.map((edge) => (
+            <div
+              key={edge}
+              aria-hidden
+              className={`ingest-resize ingest-resize-${edge}`}
+              onPointerDown={(e) => exportSize.start(e, edge)}
+            />
+          ))}
         {/* The dialog's title bar, not a second banner of the page. */}
-        <header role="none">
+        <header
+          role="none"
+          onDoubleClick={(e) => {
+            if (drawer && !(e.target as HTMLElement).closest('button')) exportSize.toggle();
+          }}
+        >
           <strong id="studio-export-title">{drawer ? t('studio.workspace.export.title') : ''}</strong>
-          <button aria-label={t('studio.workspace.export.close')} onClick={closeTools}>
-            <X size={17} />
-          </button>
+          <span className="studio-tool-dialog-actions">
+            {drawer && (
+              <button
+                type="button"
+                title={t(exportSize.size.maximized ? 'session.dialogs.restore' : 'session.dialogs.maximize')}
+                aria-label={t(exportSize.size.maximized ? 'session.dialogs.restore' : 'session.dialogs.maximize')}
+                onClick={exportSize.toggle}
+              >
+                {exportSize.size.maximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+              </button>
+            )}
+            <button aria-label={t('studio.workspace.export.close')} onClick={closeTools}>
+              <X size={17} />
+            </button>
+          </span>
         </header>
         <div className="studio-tool-dialog-content">
           <ErrorBoundary key={drawer ?? ''} name={t('studio.workspace.export.title')}>

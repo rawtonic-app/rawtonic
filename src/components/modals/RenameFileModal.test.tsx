@@ -1,6 +1,7 @@
 import '../../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { invoke } from '@tauri-apps/api/core';
 import RenameFileModal, { PREVIEW_ROWS, type RenamePlan } from './RenameFileModal';
 import { Invokes } from '../ui/AppProperties';
@@ -130,4 +131,25 @@ it('always lists a refused photo beyond the first rows', async () => {
   expect(list.querySelectorAll(':scope > li')).toHaveLength(PREVIEW_ROWS + 1);
   expect(screen.getByText('Taken.NEF already exists.')).toBeTruthy();
   expect(screen.getByText('More photos not listed: 6')).toBeTruthy();
+});
+
+it("Enter on the naming editor's own buttons opens them and does not rename", async () => {
+  // Real timers: userEvent drives the keys as a user does.
+  vi.useRealTimers();
+  const user = userEvent.setup();
+  const { onSave } = open(['/s/A.NEF', '/s/B.NEF'], {
+    photos: [photo('/s/A.NEF', '/s/Job_1.NEF'), photo('/s/B.NEF', '/s/Job_2.NEF')]
+  });
+  fireEvent.change(screen.getByLabelText('File Naming Template'), { target: { value: 'Job' } });
+  await screen.findByText('Photos renamed: 2 · files in all: 2', undefined, { timeout: 2000 });
+  screen.getByRole('button', { name: 'Add a naming token' }).focus();
+  await user.keyboard('{Enter}');
+  expect(screen.getByRole('searchbox', { name: 'Search tokens' })).toBeTruthy();
+  screen.getByRole('button', { name: 'Save as preset…' }).focus();
+  await user.keyboard('{Enter}');
+  expect(screen.getByLabelText('Preset name')).toBeTruthy();
+  expect(onSave).not.toHaveBeenCalled();
+  // Enter elsewhere still saves the previewed plan.
+  fireEvent.keyDown(screen.getByLabelText('File Naming Template'), { key: 'Enter' });
+  expect(onSave).toHaveBeenCalledOnce();
 });
