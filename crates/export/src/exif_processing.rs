@@ -2989,6 +2989,89 @@ mod tests {
         assert_eq!(super::user_comment_little_endian(ascii, false), ascii);
     }
 
+    /// EXF1 (round 3): a Keep Metadata export of a TIFF-based RAW carries
+    /// each of its times with the fraction and offset the file holds, in
+    /// their own tags; a corrected capture time replaces only the original's.
+    #[test]
+    fn a_raw_export_keeps_each_capture_time_with_its_fraction_and_offset() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("camera.dng");
+        let mut file = Metadata::new();
+        file.set_tag(ExifTag::Make("Maker".into()));
+        file.set_tag(ExifTag::DateTimeOriginal("2026:10:30 23:30:00".into()));
+        file.set_tag(ExifTag::CreateDate("2026:10:30 23:30:01".into()));
+        file.set_tag(ExifTag::ModifyDate("2026:11:01 10:00:00".into()));
+        file.set_tag(ExifTag::SubSecTime("1".into()));
+        file.set_tag(ExifTag::SubSecTimeOriginal("05".into()));
+        file.set_tag(ExifTag::SubSecTimeDigitized("06".into()));
+        file.set_tag(ExifTag::OffsetTime("+01:00".into()));
+        file.set_tag(ExifTag::OffsetTimeOriginal("+02:00".into()));
+        file.set_tag(ExifTag::OffsetTimeDigitized("+03:00".into()));
+        std::fs::write(&source, file.encode().unwrap()).unwrap();
+        let path = source.to_str().unwrap();
+        let exported = |edits: Option<HashMap<String, String>>| {
+            let metadata = super::export_metadata_with(
+                path,
+                "jpg",
+                OutputColorSpace::Srgb,
+                true,
+                false,
+                false,
+                32,
+                24,
+                false,
+                &|| edits.clone(),
+                &|| None,
+            )
+            .unwrap();
+            let mut jpeg = small_jpeg();
+            embed_export_metadata(&mut jpeg, "jpg", &metadata).unwrap();
+            let read = jpeg_exif_tags(&jpeg);
+            [
+                exif::Tag::DateTimeOriginal,
+                exif::Tag::DateTimeDigitized,
+                exif::Tag::DateTime,
+                exif::Tag::SubSecTime,
+                exif::Tag::SubSecTimeOriginal,
+                exif::Tag::SubSecTimeDigitized,
+                exif::Tag::OffsetTime,
+                exif::Tag::OffsetTimeOriginal,
+                exif::Tag::OffsetTimeDigitized,
+            ]
+            .map(|tag| {
+                read.get_field(tag, exif::In::PRIMARY)
+                    .and_then(|f| clean_ascii_value(&f.value))
+            })
+        };
+        let own = [
+            "2026:10:30 23:30:00",
+            "2026:10:30 23:30:01",
+            "2026:11:01 10:00:00",
+            "1",
+            "05",
+            "06",
+            "+01:00",
+            "+02:00",
+            "+03:00",
+        ]
+        .map(|v| Some(v.to_string()));
+        assert_eq!(exported(None), own);
+        let mut corrected = HashMap::new();
+        mark_corrected_capture(
+            &mut corrected,
+            &[
+                ("DateTimeOriginal", Some("2026-10-31 00:30:00".into())),
+                ("SubSecTimeOriginal", Some("07".into())),
+                ("OffsetTimeOriginal", None),
+            ],
+        );
+        let mut expected = own.clone();
+        expected[0] = Some("2026:10:31 00:30:00".into());
+        expected[4] = Some("07".into());
+        expected[7] = None;
+        assert_eq!(exported(Some(corrected)), expected);
+    }
+
     #[test]
     fn maker_note_lens_candidates_stay_out_of_the_export() {
         use super::OutputColorSpace;
