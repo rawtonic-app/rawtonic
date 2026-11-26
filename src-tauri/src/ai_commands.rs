@@ -572,6 +572,17 @@ pub async fn generate_ai_subject_mask(
     let generation = ai_state.lifecycle.generation();
     let started = std::time::Instant::now();
     let _load_turn = sam_load_turn(&ai_state, true).await;
+    // A click or box of the photographer: the encoder's load and run
+    // reserve their peak in the memory budget unless the photo's encoding
+    // is cached (the decoder alone is small).
+    let _reservation = admit_object_encoding(
+        &state,
+        &ai_state,
+        &js_adjustments,
+        "AI object selection",
+        &|| cancel_flag.is_some_and(|t| t.is_cancelled()),
+    )
+    .await?;
     let models = get_or_init_sam_models(&app_handle, &ai_state)
         .await
         .map_err(CommandError::from)?;
@@ -1001,6 +1012,21 @@ pub async fn precompute_ai_subject_mask(
         load_turn = sam_load_turn(&ai_state, true).await;
     }
     let _load_turn = load_turn;
+    // Asked for by the masking tools (or promoted while it waited): a
+    // request of the photographer in the memory budget, unless an encoding
+    // made ahead holds its reservation already or the encoding is cached.
+    let _asked = if _ahead.is_none() {
+        admit_object_encoding(
+            &state,
+            &ai_state,
+            &js_adjustments,
+            "AI object encoding for the masking tools",
+            &cancelled,
+        )
+        .await?
+    } else {
+        None
+    };
     // An encoding ahead of a photo opened downloads nothing, not even the
     // encoder's Core ML program prepared beside the loaded models.
     // Nor does one asked for by the masking tools (an existing object
@@ -1251,7 +1277,7 @@ async fn auto_mask(
                 kind,
                 origin,
                 low_peak: kind == AutoMask::Subject
-                    && crate::ai_processing::subject_low_peak_ready(app_handle, ai_state),
+                    && crate::ai_processing::subject_low_peak_ready(app_handle, ai_state, download),
                 on_cpu: rawtonic_onnx::models_run_on_cpu_only(),
                 loaded: model_loaded(ai_state, kind),
                 pixels: u64::from(loaded.image.width()) * u64::from(loaded.image.height()),
@@ -1702,6 +1728,36 @@ fn asked_request(e: &AskedEstimate) -> rawtonic_runtime::memory_budget::Request 
         )
     };
     request.exclusive().visible_wait(wait)
+}
+
+/// Reserves the object encoder's load and run for a request of the
+/// photographer (MEM18's measured peak, `ai_ahead::estimated_peak`), None
+/// when the photo's encoding is cached.
+async fn admit_object_encoding(
+    state: &AppState,
+    ai_state: &AiState,
+    js_adjustments: &serde_json::Value,
+    label: &'static str,
+    cancelled: &impl Fn() -> bool,
+) -> Result<Option<rawtonic_runtime::memory_budget::Reservation>, CommandError> {
+    use rawtonic_runtime::memory_budget::{Class, Request};
+    if sam_encoding_cached(state, ai_state, js_adjustments) {
+        return Ok(None);
+    }
+    let loaded = lock_recover(&ai_state.models)
+        .as_ref()
+        .is_some_and(|ai| ai.sam_models.is_some());
+    let need = crate::ai_ahead::estimated_peak(
+        crate::ai_ahead::AheadJob::ObjectEncoding,
+        rawtonic_onnx::models_run_on_cpu_only(),
+        loaded,
+    );
+    admit_asked(
+        Request::new(Class::Asked, label, need).exclusive(),
+        cancelled,
+    )
+    .await
+    .map(Some)
 }
 
 /// Reserves an asked run's peak (`asked_request`): waits only for another
@@ -2596,7 +2652,7 @@ mod tests {
         let prefetch = broker
             .try_reserve(
                 Request::new(Class::Speculative, "step prefetch decode", 1200 * MB),
-                reading,
+                &|| reading,
                 false,
                 Duration::ZERO,
                 Some(Arc::new(|| {
@@ -2610,7 +2666,7 @@ mod tests {
             broker
                 .try_reserve(
                     pending_subject(),
-                    reading,
+                    &|| reading,
                     true,
                     Duration::from_secs(2),
                     None
@@ -2620,12 +2676,27 @@ mod tests {
         );
         assert_eq!(PREFETCH_CANCELLED.load(Ordering::SeqCst), 0);
         // Settled: the full plan (3.0 GB) misses the 2.1 GB left beside the
-        // decode's reservation; the prefetch stops for it and gives its
-        // 1.2 GB back (4.9 − 1.59 = 3.3 GB): full plan.
+        // decode's reservation; the prefetch is cancelled and the layer
+        // waits for it to stop.
+        assert_eq!(
+            broker
+                .try_reserve(
+                    pending_subject(),
+                    &|| reading,
+                    false,
+                    Duration::from_secs(3),
+                    None
+                )
+                .unwrap_err(),
+            Wait::Stopping
+        );
+        assert_eq!(PREFETCH_CANCELLED.load(Ordering::SeqCst), 1);
+        drop(prefetch);
+        // Stopped: 4.9 − 1.59 = 3.3 GB room, full plan.
         let granted = broker
             .try_reserve(
                 pending_subject(),
-                reading,
+                &|| reading,
                 false,
                 Duration::from_secs(3),
                 None,
@@ -2633,14 +2704,12 @@ mod tests {
             .expect("a request of the photographer is never refused");
         assert_eq!(granted.reservation.class(), Class::Asked);
         assert_eq!(granted.reservation.plan(), Plan::Full);
-        assert_eq!(granted.cancelled, 1);
-        assert_eq!(PREFETCH_CANCELLED.load(Ordering::SeqCst), 1);
         // Speculative work waits while it runs.
         assert_eq!(
             broker
                 .try_reserve(
                     Request::new(Class::Speculative, "multi-view background decode", MB),
-                    reading,
+                    &|| reading,
                     false,
                     Duration::ZERO,
                     None
@@ -2649,14 +2718,13 @@ mod tests {
             Wait::Asked
         );
         drop(granted);
-        drop(prefetch);
         // 4.3 GB available (WMEM21 b10): only the reduced plan fits.
         let short = Reading {
             available: 4300 * MB,
             ..reading
         };
         let granted = broker
-            .try_reserve(pending_subject(), short, false, Duration::ZERO, None)
+            .try_reserve(pending_subject(), &|| short, false, Duration::ZERO, None)
             .expect("never refused");
         assert_eq!(granted.reservation.plan(), Plan::Reduced);
     }

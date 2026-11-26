@@ -32,6 +32,8 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
+
+use rawtonic_runtime::memory_budget::Wait;
 use std::time::{Duration, Instant};
 
 use tauri::Manager;
@@ -103,12 +105,12 @@ pub(crate) fn decode_peak(pixels: Option<u64>) -> u64 {
 }
 
 /// The memory budget's reservation for a background decode of `path`
-/// (`decode_peak`, leaving the click reserve), None while there is no room;
-/// a request of the photographer that needs its room cancels the decode.
+/// (`decode_peak`, leaving the click reserve), or why it waits; a request
+/// of the photographer that needs its room cancels the decode.
 fn reserve_decode(
     app_handle: &tauri::AppHandle,
     path: &str,
-) -> Option<rawtonic_runtime::memory_budget::Reservation> {
+) -> Result<rawtonic_runtime::memory_budget::Reservation, Wait> {
     use rawtonic_runtime::memory_budget::{Class, Request};
     let pixels = crate::multi_view::full_size_of(path).map(|(w, h)| u64::from(w) * u64::from(h));
     let request = Request::new(
@@ -124,7 +126,6 @@ fn reserve_decode(
         }) as Arc<dyn Fn() + Send + Sync>
     });
     crate::memory_broker::try_now(request, Duration::ZERO, cancel)
-        .ok()
         .map(|granted| granted.reservation)
 }
 
@@ -280,13 +281,14 @@ fn held_bytes(held: &VecDeque<HeldDecode>) -> usize {
     held.iter().map(|h| h.image.as_bytes().len()).sum()
 }
 
-/// Bytes of the decodes held whose previews are written (the memory
-/// budget's reclaim ledger, `memory_broker`).
+/// Bytes of the decodes held whose previews are written and that nothing
+/// else holds (the memory budget's reclaim ledger, `memory_broker`: what
+/// letting them go gives back).
 pub(crate) fn held_written_bytes() -> usize {
     HELD.lock()
         .unwrap_or_else(|e| e.into_inner())
         .iter()
-        .filter(|h| h.written)
+        .filter(|h| h.written && Arc::strong_count(&h.image) == 1)
         .map(|h| h.image.as_bytes().len())
         .sum()
 }
@@ -1037,7 +1039,7 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
     loop {
         // The next step, once the app is quiet; a decode with its
         // reservation in the memory budget, held until it ends.
-        let (step, _reservation) = {
+        let (step, _reservation, token) = {
             let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
             loop {
                 if let Some(step) = next_step(&mut queue) {
@@ -1057,25 +1059,33 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                     let mut step = step;
                     // Speculative work of the memory budget (G74/BRK1): its
                     // peak, the click reserve, beside every reservation held;
-                    // asked only when it would start otherwise.
+                    // asked only when it would start otherwise. The cancel
+                    // token is taken first: a request of the photographer
+                    // that cancels the reservation right after the grant
+                    // cancels this decode too.
+                    let token = worker.cancel.load(Ordering::SeqCst);
                     let mut granted = None;
-                    let mut no_room = match &step {
+                    let mut denied = None;
+                    match &step {
                         Step::Decode(path, _)
                             if !exporting && may_start(quiet, busy, short_of_memory) =>
                         {
                             match reserve_decode(app_handle, path) {
-                                Some(reservation) => {
-                                    granted = Some(reservation);
-                                    false
-                                }
-                                None => true,
+                                Ok(reservation) => granted = Some(reservation),
+                                Err(wait) => denied = Some(wait),
                             }
                         }
-                        Step::Decode(..) | Step::Write => false,
-                    };
+                        Step::Decode(..) | Step::Write => {}
+                    }
+                    let mut no_room = denied.is_some();
+                    // A request of the photographer runs or waits: no write
+                    // (unreserved: compressing and buffering a 1:1 preview)
+                    // beside it either.
+                    let asked = crate::memory_broker::BROKER.asked_active();
                     // No room for the next decode: a decode held and not
                     // written yet is written meanwhile (it may go after).
-                    if no_room
+                    if matches!(denied, Some(Wait::Memory { .. }))
+                        && !asked
                         && HELD
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
@@ -1085,12 +1095,17 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                         step = Step::Write;
                         no_room = false;
                     }
+                    if matches!(step, Step::Write) && asked {
+                        no_room = true;
+                    }
                     if !exporting && !no_room && may_start(quiet, busy, short_of_memory) {
                         waiting_for = "";
-                        break (step, granted);
+                        break (step, granted, token);
                     }
                     let reason = if exporting {
                         "an export runs"
+                    } else if asked || matches!(denied, Some(Wait::Asked | Wait::Stopping)) {
+                        "a request of the photographer"
                     } else if no_room {
                         "memory for the next decode"
                     } else if short_of_memory {
@@ -1128,7 +1143,6 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
         };
         match step {
             Step::Decode(path, generation) => {
-                let token = worker.cancel.load(Ordering::SeqCst);
                 worker.decoding.store(true, Ordering::SeqCst);
                 let outcome = decode_pool.install(|| {
                     decode(

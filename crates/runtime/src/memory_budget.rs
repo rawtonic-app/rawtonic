@@ -29,10 +29,12 @@
 //!   Subject/Sky, opening the masking tools, and the pending AI layers of
 //!   the open photo (render correctness). One exclusive P1 at a time. When
 //!   the room misses its estimate it waits briefly for the visible photo's
-//!   decode and frames (bounded), then cancels speculative work under way,
-//!   reclaims caches from the [`ledger`](Broker::register_reclaim), and if
-//!   the room still misses the full estimate runs its *reduced plan*
-//!   ([`Plan::Reduced`]) rather than wait. It never waits for P3.
+//!   decode and frames (bounded), then cancels speculative work under way
+//!   and waits for it to stop (bounded: `CANCEL_WAIT`; what it holds counts
+//!   until it is released), reclaims caches from the
+//!   [`ledger`](Broker::register_reclaim) (only buffers nothing else holds),
+//!   reads the memory again, and if the room still misses the full estimate
+//!   runs its *reduced plan* ([`Plan::Reduced`]) rather than wait.
 //! - [`Class::Export`] (P2): exports and batch AI (step 2 wires them; the
 //!   rule is here): a new unit does not start while a P1 waits or runs, nor
 //!   if it would leave less than the click reserve.
@@ -79,6 +81,12 @@ pub const ASKED_WAITS_FOR_VISIBLE: Duration = Duration::from_secs(5);
 /// The same for a pending layer computed as the photo opens: nobody waits on
 /// a click, and the photo's first frames are under way then.
 pub const PENDING_WAITS_FOR_VISIBLE: Duration = Duration::from_secs(15);
+
+/// How long a P0/P1 request waits at most for speculative work it cancelled
+/// to stop: an ONNX Runtime run stops at once (`RunOptions::terminate`), a
+/// decode at its next cancel check; a model load cannot be stopped, and
+/// after this its reservation still counts in the plan.
+pub const CANCEL_WAIT: Duration = Duration::from_secs(2);
 
 /// Priority classes, highest first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -182,6 +190,8 @@ pub enum Wait {
     Visible,
     /// A request the photographer made waits or runs (P2/P3 do not start).
     Asked,
+    /// Speculative work cancelled for this request has not stopped yet.
+    Stopping,
     /// The room is below the request's need (estimate + reserve).
     Memory { room: u64, need: u64 },
 }
@@ -189,13 +199,14 @@ pub enum Wait {
 /// The broker's answer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Decision {
-    /// Start with `plan`, after cancelling the speculative reservations
-    /// `cancel` (their ids) and reclaiming `reclaim` bytes from the ledger.
+    /// Start with `plan` after reclaiming `reclaim` bytes from the ledger.
     Grant {
         plan: Plan,
-        cancel: Vec<u64>,
         reclaim: u64,
     },
+    /// Cancel these speculative reservations (their ids) first, then ask
+    /// again (`Wait::Stopping` until they are released or `CANCEL_WAIT`).
+    Cancel(Vec<u64>),
     Wait(Wait),
 }
 
@@ -211,6 +222,9 @@ pub struct Held {
     /// Speculative work that stops when asked (`Broker::try_reserve`'s
     /// `cancel`).
     pub cancellable: bool,
+    /// How long ago it was cancelled (None: not cancelled). It counts until
+    /// it is released: it may still be allocating.
+    pub cancelled_for: Option<Duration>,
 }
 
 /// The unspent part of the reservations `held` with the app at `app_now`:
@@ -270,14 +284,10 @@ fn speculative_room(situation: &Situation) -> u64 {
 
 /// The broker's rule for `request` in `situation` (module docs).
 pub fn decide(request: &Request, situation: &Situation) -> Decision {
-    let grant = |plan, cancel, reclaim| Decision::Grant {
-        plan,
-        cancel,
-        reclaim,
-    };
+    let grant = |plan, reclaim| Decision::Grant { plan, reclaim };
     // Memory not readable: as the admissions before (everything starts).
     if situation.reading.total == 0 {
-        return grant(Plan::Full, Vec::new(), 0);
+        return grant(Plan::Full, 0);
     }
     let exclusive_held = |at_most: Class| {
         situation
@@ -292,7 +302,7 @@ pub fn decide(request: &Request, situation: &Situation) -> Decision {
                 return Decision::Wait(Wait::Exclusive);
             }
             if room >= request.need {
-                return grant(Plan::Full, Vec::new(), 0);
+                return grant(Plan::Full, 0);
             }
             if request.class == Class::Asked
                 && situation.visible_busy
@@ -300,43 +310,36 @@ pub fn decide(request: &Request, situation: &Situation) -> Decision {
             {
                 return Decision::Wait(Wait::Visible);
             }
-            // Speculative work under way stops: what it has not taken yet
-            // stays free.
-            let cancelled: Vec<&Held> = situation
+            // Speculative work under way stops first; it counts until it
+            // is released (it may still be allocating), up to CANCEL_WAIT.
+            let to_cancel: Vec<u64> = situation
                 .held
                 .iter()
-                .filter(|h| h.class == Class::Speculative && h.cancellable)
+                .filter(|h| {
+                    h.class == Class::Speculative && h.cancellable && h.cancelled_for.is_none()
+                })
+                .map(|h| h.id)
                 .collect();
-            let rest: Vec<Held> = situation
-                .held
-                .iter()
-                .filter(|h| !(h.class == Class::Speculative && h.cancellable))
-                .copied()
-                .collect();
-            let r = situation.reading;
-            let after_cancel = r
-                .available
-                .saturating_sub(floor(r.total))
-                .saturating_sub(unspent(&rest, r.app));
-            let cancel = cancelled.iter().map(|h| h.id).collect::<Vec<_>>();
-            if after_cancel >= request.need {
-                return grant(Plan::Full, cancel, 0);
+            if !to_cancel.is_empty() {
+                return Decision::Cancel(to_cancel);
             }
-            let short = request.need - after_cancel;
+            if situation.held.iter().any(|h| {
+                h.class == Class::Speculative && h.cancelled_for.is_some_and(|d| d < CANCEL_WAIT)
+            }) {
+                return Decision::Wait(Wait::Stopping);
+            }
+            let short = request.need - room;
             if situation.reclaimable >= short {
-                return grant(Plan::Full, cancel, short);
+                return grant(Plan::Full, short);
             }
             match request.reduced {
                 Some(reduced) => grant(
                     Plan::Reduced,
-                    cancel,
-                    reduced
-                        .saturating_sub(after_cancel)
-                        .min(situation.reclaimable),
+                    reduced.saturating_sub(room).min(situation.reclaimable),
                 ),
                 // No reduced plan: it runs as it is (never refused), with
                 // everything the ledger can give.
-                None => grant(Plan::Full, cancel, situation.reclaimable),
+                None => grant(Plan::Full, situation.reclaimable),
             }
         }
         Class::Export => {
@@ -347,7 +350,7 @@ pub fn decide(request: &Request, situation: &Situation) -> Decision {
             if room < need {
                 return Decision::Wait(Wait::Memory { room, need });
             }
-            grant(Plan::Full, Vec::new(), 0)
+            grant(Plan::Full, 0)
         }
         Class::Speculative => {
             if situation.asked_waiting
@@ -369,7 +372,7 @@ pub fn decide(request: &Request, situation: &Situation) -> Decision {
             if room < need {
                 return Decision::Wait(Wait::Memory { room, need });
             }
-            grant(Plan::Full, Vec::new(), 0)
+            grant(Plan::Full, 0)
         }
     }
 }
@@ -403,10 +406,22 @@ struct Entry {
     label: &'static str,
     plan: Plan,
     cancel: Option<Callback>,
+    /// When a P0/P1 request cancelled it.
+    cancelled_at: Option<Instant>,
     /// Largest growth of the app seen since its start (`Broker::observe`).
     peak_growth: u64,
     /// No other reservation was held at any time while it ran.
     alone: bool,
+}
+
+impl Entry {
+    /// As `decide` sees it now.
+    fn snapshot(&self) -> Held {
+        Held {
+            cancelled_for: self.cancelled_at.map(|at| at.elapsed()),
+            ..self.held
+        }
+    }
 }
 
 struct LedgerEntry {
@@ -473,8 +488,6 @@ pub struct Released {
 #[derive(Debug)]
 pub struct Granted {
     pub reservation: Reservation,
-    /// Speculative reservations cancelled for it.
-    pub cancelled: usize,
     /// Ledger entries released for it, with the bytes they held.
     pub reclaimed: Vec<(&'static str, u64)>,
     /// The need it was decided on (with the measured-peak correction).
@@ -607,7 +620,20 @@ impl Broker {
 
     /// The reservations held, as `decide` sees them.
     pub fn held(&self) -> Vec<Held> {
-        self.with(|inner| inner.held.iter().map(|e| e.held).collect())
+        self.with(|inner| inner.held.iter().map(Entry::snapshot).collect())
+    }
+
+    /// Whether a request of the photographer (an exclusive P1) runs or
+    /// waits: background work that is not reserved here (a 1:1 preview's
+    /// write) holds back meanwhile.
+    pub fn asked_active(&self) -> bool {
+        self.with(|inner| {
+            inner.asked_waiting > 0
+                || inner
+                    .held
+                    .iter()
+                    .any(|e| e.held.class == Class::Asked && e.held.exclusive)
+        })
     }
 
     /// The estimate for `label` with `plan`: `estimate`, or the last peak
@@ -622,14 +648,17 @@ impl Broker {
         })
     }
 
-    /// Decides `request` now (`decide`) and, when granted, cancels and
-    /// reclaims what the decision says and records the reservation.
-    /// `waited`: how long it has waited; `cancel`: how to stop it, for
-    /// speculative work (P1/P0 call it when they need its room).
+    /// Decides `request` with the memory `read` gives now (`decide`): when
+    /// it says to cancel speculative work, cancels it and answers
+    /// `Wait::Stopping` (ask again); when granted, releases what the
+    /// decision says from the ledger, reads the memory again and, if the
+    /// full plan's room is still not there, takes the reduced plan; records
+    /// the reservation. `waited`: how long it has waited; `cancel`: how to
+    /// stop it, for speculative work (P0/P1 call it when they need its room).
     pub fn try_reserve(
         &'static self,
         request: Request,
-        reading: Reading,
+        read: &dyn Fn() -> Reading,
         visible_busy: bool,
         waited: Duration,
         cancel: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -639,10 +668,11 @@ impl Broker {
         if let Some(reduced) = request.reduced {
             request.reduced = Some(self.corrected(request.label, Plan::Reduced, reduced));
         }
-        let (granted, cancels, releases) = {
+        let reading = read();
+        let decided = {
             let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             let inner = guard.get_or_insert_with(Inner::default);
-            let held: Vec<Held> = inner.held.iter().map(|e| e.held).collect();
+            let held: Vec<Held> = inner.held.iter().map(Entry::snapshot).collect();
             let ledger_bytes: Vec<(u8, u64)> = inner
                 .ledger
                 .iter()
@@ -657,92 +687,124 @@ impl Broker {
                 reclaimable: ledger_bytes.iter().map(|(_, b)| b).sum(),
             };
             let room = room(&situation);
-            let (plan, cancel_ids, reclaim) = match decide(&request, &situation) {
+            match decide(&request, &situation) {
                 Decision::Wait(wait) => return Err(wait),
-                Decision::Grant {
-                    plan,
-                    cancel,
-                    reclaim,
-                } => (plan, cancel, reclaim),
-            };
-            let cancels: Vec<Callback> = inner
-                .held
-                .iter_mut()
-                .filter(|e| cancel_ids.contains(&e.held.id))
-                .filter_map(|e| {
-                    // Cancelled once; its unspent part no longer counts.
-                    e.held.cancellable = false;
-                    e.held.estimate = 0;
-                    e.cancel.clone()
-                })
-                .collect();
-            let releases: Vec<(&'static str, u64, Callback)> = if reclaim > 0 {
-                reclaim_plan(&ledger_bytes, reclaim)
-                    .into_iter()
-                    .map(|i| {
-                        let e = &inner.ledger[i];
-                        (e.name, ledger_bytes[i].1, e.release.clone())
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let estimate = match plan {
-                Plan::Full => request.need,
-                Plan::Reduced => request.reduced.unwrap_or(request.need),
-            };
-            inner.next_id += 1;
-            let id = inner.next_id;
-            let alone = inner.held.is_empty();
-            for other in &mut inner.held {
-                other.alone = false;
+                Decision::Cancel(ids) => {
+                    let now = Instant::now();
+                    let cancels: Vec<Callback> = inner
+                        .held
+                        .iter_mut()
+                        .filter(|e| ids.contains(&e.held.id))
+                        .filter_map(|e| {
+                            e.cancelled_at = Some(now);
+                            e.cancel.clone()
+                        })
+                        .collect();
+                    Err(cancels)
+                }
+                Decision::Grant { plan, reclaim } => {
+                    let releases: Vec<(&'static str, u64, Callback)> = if reclaim > 0 {
+                        reclaim_plan(&ledger_bytes, reclaim)
+                            .into_iter()
+                            .map(|i| {
+                                let e = &inner.ledger[i];
+                                (e.name, ledger_bytes[i].1, e.release.clone())
+                            })
+                            .collect()
+                    } else {
+                        Vec::new()
+                    };
+                    let estimate = match plan {
+                        Plan::Full => request.need,
+                        Plan::Reduced => request.reduced.unwrap_or(request.need),
+                    };
+                    inner.next_id += 1;
+                    let id = inner.next_id;
+                    let alone = inner.held.is_empty();
+                    for other in &mut inner.held {
+                        other.alone = false;
+                    }
+                    inner.held.push(Entry {
+                        held: Held {
+                            id,
+                            class: request.class,
+                            estimate,
+                            app_at_start: reading.app,
+                            exclusive: request.exclusive,
+                            cancellable: cancel.is_some(),
+                            cancelled_for: None,
+                        },
+                        label: request.label,
+                        plan,
+                        cancel,
+                        cancelled_at: None,
+                        peak_growth: 0,
+                        alone,
+                    });
+                    let reservation = Reservation {
+                        broker: self,
+                        id,
+                        plan,
+                        estimate,
+                        label: request.label,
+                        class: request.class,
+                        started: Instant::now(),
+                    };
+                    Ok((reservation, room, releases))
+                }
             }
-            inner.held.push(Entry {
-                held: Held {
-                    id,
-                    class: request.class,
-                    estimate,
-                    app_at_start: reading.app,
-                    exclusive: request.exclusive,
-                    cancellable: cancel.is_some(),
-                },
-                label: request.label,
-                plan,
-                cancel,
-                peak_growth: 0,
-                alone,
-            });
-            let reservation = Reservation {
-                broker: self,
-                id,
-                plan,
-                estimate,
-                label: request.label,
-                class: request.class,
-                started: Instant::now(),
-            };
-            (
-                Granted {
-                    reservation,
-                    cancelled: cancel_ids.len(),
-                    reclaimed: Vec::new(),
-                    need: request.need,
-                    room,
-                },
-                cancels,
-                releases,
-            )
         };
         // Outside the broker's lock: the callbacks take other locks.
-        for cancel in cancels {
-            cancel();
-        }
-        let mut granted = granted;
+        let (mut reservation, room, releases) = match decided {
+            Ok(granted) => granted,
+            Err(cancels) => {
+                for cancel in cancels {
+                    cancel();
+                }
+                return Err(Wait::Stopping);
+            }
+        };
+        let mut reclaimed = Vec::new();
         for (name, bytes, release) in releases {
             release();
-            granted.reclaimed.push((name, bytes));
+            reclaimed.push((name, bytes));
         }
-        Ok(granted)
+        // What the ledger promised may not all come back (a buffer another
+        // holder took meanwhile): the full plan only if its room is there.
+        if !reclaimed.is_empty()
+            && reservation.plan == Plan::Full
+            && let Some(reduced) = request.reduced
+        {
+            let now = read();
+            let others: Vec<Held> = self.with(|inner| {
+                inner
+                    .held
+                    .iter()
+                    .filter(|e| e.held.id != reservation.id)
+                    .map(Entry::snapshot)
+                    .collect()
+            });
+            let room_now = now
+                .available
+                .saturating_sub(floor(now.total))
+                .saturating_sub(unspent(&others, now.app));
+            if now.total > 0 && room_now < request.need {
+                self.with(|inner| {
+                    if let Some(e) = inner.held.iter_mut().find(|e| e.held.id == reservation.id) {
+                        e.plan = Plan::Reduced;
+                        e.held.estimate = reduced;
+                    }
+                });
+                reservation.plan = Plan::Reduced;
+                reservation.estimate = reduced;
+            }
+        }
+        Ok(Granted {
+            reservation,
+            reclaimed,
+            need: request.need,
+            room,
+        })
     }
 
     fn release(&self, id: u64, started: Instant) -> Option<Released> {
@@ -805,6 +867,7 @@ mod tests {
             app_at_start: Some(app_at_start),
             exclusive: false,
             cancellable: false,
+            cancelled_for: None,
         }
     }
 
@@ -917,7 +980,6 @@ mod tests {
             decide(&click, &situation(&none, reading(8 * GB, 3 * GB))),
             Decision::Grant {
                 plan: Plan::Full,
-                cancel: vec![],
                 reclaim: 0
             }
         );
@@ -937,29 +999,54 @@ mod tests {
     }
 
     #[test]
-    fn a_click_cancels_speculative_work_and_takes_its_room() {
+    fn a_click_cancels_speculative_work_and_waits_for_it_to_stop() {
         // A neighbour's decode reserved 1.2 GB and took 0.2 GB so far.
-        let decode = [Held {
-            cancellable: true,
-            ..held(7, Class::Speculative, 1200 * MB, 3 * GB)
-        }];
+        let decode = |cancelled_for| {
+            [Held {
+                cancellable: true,
+                cancelled_for,
+                ..held(7, Class::Speculative, 1200 * MB, 3 * GB)
+            }]
+        };
         let click = Request::new(Class::Asked, "subject", 2600 * MB).exclusive();
-        let r = reading(5200 * MB, 3200 * MB);
         // Room beside the decode (1.0 GB of it unspent): 5.2 − 1.586 − 1.0
         // = 2.614 GB ≥ 2.6: fits without cancelling.
+        let r = reading(5200 * MB, 3200 * MB);
         assert!(matches!(
-            decide(&click, &situation(&decode, r)),
-            Decision::Grant { ref cancel, .. } if cancel.is_empty()
-        ));
-        let r = reading(4800 * MB, 3200 * MB);
-        assert_eq!(
-            decide(&click, &situation(&decode, r)),
+            decide(&click, &situation(&decode(None), r)),
             Decision::Grant {
                 plan: Plan::Full,
-                cancel: vec![7],
                 reclaim: 0
             }
+        ));
+        // 4.8 GB available: 2.214 GB room, short; the decode is cancelled
+        // first, and the click waits until it stops.
+        let r = reading(4800 * MB, 3200 * MB);
+        assert_eq!(
+            decide(&click, &situation(&decode(None), r)),
+            Decision::Cancel(vec![7])
         );
+        let stopping = decode(Some(Duration::from_millis(300)));
+        assert_eq!(
+            decide(&click, &situation(&stopping, r)),
+            Decision::Wait(Wait::Stopping)
+        );
+        // Released: its room is free for real.
+        let none: [Held; 0] = [];
+        assert!(matches!(
+            decide(&click, &situation(&none, reading(4800 * MB, 3400 * MB))),
+            Decision::Grant {
+                plan: Plan::Full,
+                ..
+            }
+        ));
+        // Still not stopped after CANCEL_WAIT (a model load): it counts and
+        // the click plans without it.
+        let stuck = decode(Some(CANCEL_WAIT));
+        assert!(matches!(
+            decide(&click, &situation(&stuck, r)),
+            Decision::Grant { .. }
+        ));
     }
 
     #[test]
@@ -975,7 +1062,6 @@ mod tests {
             decide(&click, &s),
             Decision::Grant {
                 plan: Plan::Full,
-                cancel: vec![],
                 reclaim: 585_900_000
             }
         );
@@ -985,7 +1071,6 @@ mod tests {
             decide(&click, &s),
             Decision::Grant {
                 plan: Plan::Reduced,
-                cancel: vec![],
                 reclaim: 0
             }
         );
@@ -996,7 +1081,6 @@ mod tests {
             decide(&click, &s),
             Decision::Grant {
                 plan: Plan::Reduced,
-                cancel: vec![],
                 reclaim: 100 * MB
             }
         );
@@ -1092,7 +1176,7 @@ mod tests {
         let first = b
             .try_reserve(
                 Request::new(Class::Speculative, "a", 2 * GB),
-                r,
+                &|| r,
                 false,
                 Duration::ZERO,
                 None,
@@ -1103,13 +1187,13 @@ mod tests {
         // only 7.14 − 3 − 2 = 2.14 GB: a second 4 GB one waits.
         let second = Request::new(Class::Speculative, "b", 4 * GB);
         assert!(matches!(
-            b.try_reserve(second, r, false, Duration::ZERO, None),
+            b.try_reserve(second, &|| r, false, Duration::ZERO, None),
             Err(Wait::Memory { .. })
         ));
         drop(first);
         assert!(b.held().is_empty());
         assert!(
-            b.try_reserve(second, r, false, Duration::ZERO, None)
+            b.try_reserve(second, &|| r, false, Duration::ZERO, None)
                 .is_ok()
         );
     }
@@ -1119,17 +1203,21 @@ mod tests {
         let b = broker();
         static CANCELLED: AtomicUsize = AtomicUsize::new(0);
         static HELD_DECODES: AtomicU64 = AtomicU64::new(900 * MB);
+        static AVAILABLE: AtomicU64 = AtomicU64::new(5 * GB);
         b.register_reclaim(
             "held decodes",
             0,
             || HELD_DECODES.load(Ordering::SeqCst),
-            || HELD_DECODES.store(0, Ordering::SeqCst),
+            || {
+                // Letting them go gives their memory back.
+                AVAILABLE.fetch_add(HELD_DECODES.swap(0, Ordering::SeqCst), Ordering::SeqCst);
+            },
         );
-        let r = reading(5 * GB, 3 * GB);
+        let r = || reading(AVAILABLE.load(Ordering::SeqCst), 3 * GB);
         let prefetch = b
             .try_reserve(
                 Request::new(Class::Speculative, "prefetch", 1200 * MB),
-                r,
+                &r,
                 false,
                 Duration::ZERO,
                 Some(Arc::new(|| {
@@ -1137,29 +1225,36 @@ mod tests {
                 })),
             )
             .expect("room");
-        // Room beside the prefetch: 5 − 1.586 − 1.2 = 2.2 GB; the click
-        // needs 3.5: cancel (→ 3.4 GB) and reclaim 0.1 GB of held decodes.
-        let click = b
-            .try_reserve(
-                Request::new(Class::Asked, "subject click", 3500 * MB)
-                    .reduced(2 * GB)
-                    .exclusive(),
-                r,
-                false,
-                Duration::ZERO,
-                None,
-            )
-            .expect("never refused");
+        let click = Request::new(Class::Asked, "subject click", 3500 * MB)
+            .reduced(2 * GB)
+            .exclusive();
+        // Room beside the prefetch: 5 − 1.586 − 1.2 = 2.2 GB < 3.5: the
+        // prefetch is cancelled, and the click waits for it to stop.
+        assert_eq!(
+            b.try_reserve(click, &r, false, Duration::ZERO, None)
+                .unwrap_err(),
+            Wait::Stopping
+        );
         assert_eq!(CANCELLED.load(Ordering::SeqCst), 1);
-        assert_eq!(click.cancelled, 1);
-        assert_eq!(click.reclaimed, vec![("held decodes", 900 * MB)]);
+        assert_eq!(
+            b.try_reserve(click, &r, false, Duration::ZERO, None)
+                .unwrap_err(),
+            Wait::Stopping
+        );
+        assert_eq!(CANCELLED.load(Ordering::SeqCst), 1, "cancelled once");
+        drop(prefetch);
+        // Stopped: 3.414 GB room, 86 MB short: the held decodes go.
+        let granted = b
+            .try_reserve(click, &r, false, Duration::ZERO, None)
+            .expect("never refused");
+        assert_eq!(granted.reclaimed, vec![("held decodes", 900 * MB)]);
         assert_eq!(HELD_DECODES.load(Ordering::SeqCst), 0);
-        assert_eq!(click.reservation.plan(), Plan::Full);
+        assert_eq!(granted.reservation.plan(), Plan::Full);
         // A second click waits for the first; speculative work too.
         assert_eq!(
             b.try_reserve(
                 Request::new(Class::Asked, "sky click", 800 * MB).exclusive(),
-                reading(20 * GB, 3 * GB),
+                &|| reading(20 * GB, 3 * GB),
                 false,
                 Duration::ZERO,
                 None
@@ -1170,7 +1265,7 @@ mod tests {
         assert_eq!(
             b.try_reserve(
                 Request::new(Class::Speculative, "decode", MB),
-                reading(20 * GB, 3 * GB),
+                &|| reading(20 * GB, 3 * GB),
                 false,
                 Duration::ZERO,
                 None
@@ -1178,8 +1273,38 @@ mod tests {
             .unwrap_err(),
             Wait::Asked
         );
-        drop(prefetch);
-        drop(click);
+        assert!(b.asked_active());
+        drop(granted);
+        assert!(!b.asked_active());
+    }
+
+    #[test]
+    fn a_reclaim_that_does_not_come_back_falls_back_to_the_reduced_plan() {
+        let b = broker();
+        static PROMISED: AtomicU64 = AtomicU64::new(GB);
+        // A cache that says it holds 1 GB, but its buffers are shared:
+        // releasing it frees nothing.
+        b.register_reclaim(
+            "shared cache",
+            1,
+            || PROMISED.load(Ordering::SeqCst),
+            || PROMISED.store(0, Ordering::SeqCst),
+        );
+        let r = || reading(4 * GB, 3 * GB);
+        let granted = b
+            .try_reserve(
+                Request::new(Class::Asked, "subject click", 3 * GB)
+                    .reduced(2 * GB)
+                    .exclusive(),
+                &r,
+                false,
+                Duration::ZERO,
+                None,
+            )
+            .expect("never refused");
+        assert_eq!(granted.reclaimed, vec![("shared cache", GB)]);
+        assert_eq!(granted.reservation.plan(), Plan::Reduced);
+        assert_eq!(granted.reservation.estimate(), 2 * GB);
     }
 
     #[test]
@@ -1188,14 +1313,26 @@ mod tests {
         let waiting = b.waiting_asked();
         let spec = Request::new(Class::Speculative, "decode", MB);
         assert_eq!(
-            b.try_reserve(spec, reading(20 * GB, 3 * GB), false, Duration::ZERO, None)
-                .unwrap_err(),
+            b.try_reserve(
+                spec,
+                &|| reading(20 * GB, 3 * GB),
+                false,
+                Duration::ZERO,
+                None
+            )
+            .unwrap_err(),
             Wait::Asked
         );
         drop(waiting);
         assert!(
-            b.try_reserve(spec, reading(20 * GB, 3 * GB), false, Duration::ZERO, None)
-                .is_ok()
+            b.try_reserve(
+                spec,
+                &|| reading(20 * GB, 3 * GB),
+                false,
+                Duration::ZERO,
+                None
+            )
+            .is_ok()
         );
     }
 
@@ -1204,7 +1341,9 @@ mod tests {
         let b = broker();
         let r = reading(20 * GB, 3 * GB);
         let req = Request::new(Class::Speculative, "subject ahead", 2 * GB);
-        let run = b.try_reserve(req, r, false, Duration::ZERO, None).unwrap();
+        let run = b
+            .try_reserve(req, &|| r, false, Duration::ZERO, None)
+            .unwrap();
         b.observe(3 * GB + 2600 * MB);
         b.observe(3 * GB + 1000 * MB);
         drop(run);
@@ -1215,7 +1354,7 @@ mod tests {
         let a = b
             .try_reserve(
                 Request::new(Class::Speculative, "x", MB),
-                r,
+                &|| r,
                 false,
                 Duration::ZERO,
                 None,
@@ -1224,7 +1363,7 @@ mod tests {
         let c = b
             .try_reserve(
                 Request::new(Class::Speculative, "y", MB),
-                r,
+                &|| r,
                 false,
                 Duration::ZERO,
                 None,

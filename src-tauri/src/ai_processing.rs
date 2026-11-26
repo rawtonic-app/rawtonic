@@ -1444,6 +1444,24 @@ fn subject_onnx_file(models_dir: &Path) -> SubjectOnnxFile {
     }
 }
 
+/// The ONNX file a Subject load takes (`get_or_init_subject_model_planned`;
+/// the memory budget's estimate asks the same, `subject_low_peak_ready`):
+/// the low-peak file once installed; until then the usual one if installed
+/// (offline, or before the background fetch ends: an update must not make
+/// masking wait for a download); with neither, the preferred one (a load
+/// that may download fetches it).
+fn subject_onnx_to_load(models_dir: &Path) -> SubjectOnnxFile {
+    let preferred = subject_onnx_file(models_dir);
+    if preferred.low_peak
+        && !preferred.installed(models_dir)
+        && SubjectOnnxFile::USUAL.installed(models_dir)
+    {
+        SubjectOnnxFile::USUAL
+    } else {
+        preferred
+    }
+}
+
 impl SubjectOnnxFile {
     const USUAL: Self = Self {
         name: SUBJECT_FILENAME,
@@ -1573,11 +1591,17 @@ fn serves(model: &SubjectModel, reduced: bool) -> bool {
     !(reduced && model.memory_plan() == Some(rawtonic_onnx::MemoryPlan::LowPeak))
 }
 
-/// Whether Subject runs BiRefNet's low-peak graph here: the loaded model's,
-/// else the file this machine prefers is installed (`subject_onnx_file`)
-/// and Core ML does not come first (the memory budget's estimate for a
-/// Subject run asked for, `ai_commands::asked_request`).
-pub(crate) fn subject_low_peak_ready(app_handle: &tauri::AppHandle, ai_state: &AiState) -> bool {
+/// Whether a Subject run (`download`: one that may download) takes
+/// BiRefNet's low-peak graph here: the loaded model's plan, else what the
+/// loader would load (`subject_onnx_to_load`, also on a fresh install that
+/// downloads it), unless Core ML comes first (macOS: its files installed,
+/// or fetched by a run that may download). For the memory budget's estimate
+/// of a Subject run asked for (`ai_commands::asked_request`).
+pub(crate) fn subject_low_peak_ready(
+    app_handle: &tauri::AppHandle,
+    ai_state: &AiState,
+    download: bool,
+) -> bool {
     if let Some(model) = lock_recover(&ai_state.models)
         .as_ref()
         .and_then(|state| state.subject_model.clone())
@@ -1588,14 +1612,16 @@ pub(crate) fn subject_low_peak_ready(app_handle: &tauri::AppHandle, ai_state: &A
         return false;
     };
     #[cfg(target_os = "macos")]
-    if SUBJECT_CORE_ML_FILES
-        .iter()
-        .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false))
+    if download
+        || SUBJECT_CORE_ML_FILES
+            .iter()
+            .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false))
     {
         return false;
     }
-    let preferred = subject_onnx_file(&models_dir);
-    preferred.low_peak && preferred.installed(&models_dir)
+    #[cfg(not(target_os = "macos"))]
+    let _ = download;
+    subject_onnx_to_load(&models_dir).low_peak
 }
 
 /// `get_or_init_subject_model`; `reduced`: the low-peak graph runs with the
@@ -1654,21 +1680,12 @@ pub async fn get_or_init_subject_model_planned(
                 "AI subject mask: ONNX Runtime check {} ms",
                 runtime_start.elapsed().as_millis()
             );
-            // The low-peak file once installed. Until then the usual one if
-            // installed (offline, or before the background fetch ends): an
-            // update must not make masking wait for a download.
-            let preferred = subject_onnx_file(&models_dir);
-            let file = if preferred.low_peak
-                && !preferred.installed(&models_dir)
-                && SubjectOnnxFile::USUAL.installed(&models_dir)
-            {
+            let file = subject_onnx_to_load(&models_dir);
+            if file != subject_onnx_file(&models_dir) {
                 log::info!(
                     "AI subject mask: low-peak model not installed yet; the installed usual model runs"
                 );
-                SubjectOnnxFile::USUAL
-            } else {
-                preferred
-            };
+            }
             let path = models_dir.join(file.name);
             let file_start = std::time::Instant::now();
             let skip = if download {

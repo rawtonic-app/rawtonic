@@ -68,6 +68,7 @@ pub(crate) fn describe(wait: Wait) -> String {
         Wait::Exclusive => "another run of its kind holds its turn".into(),
         Wait::Visible => "the photo's decode or a frame of it is under way".into(),
         Wait::Asked => "a request of the photographer waits or runs".into(),
+        Wait::Stopping => "speculative work cancelled for it is stopping".into(),
         Wait::Memory { room, need } => {
             format!("{} MB free for it of {} MB needed", room / MB, need / MB)
         }
@@ -85,9 +86,6 @@ fn plan_name(plan: Plan) -> &'static str {
 fn log_grant(granted: &Granted, waited: Duration) {
     let r = &granted.reservation;
     let mut done = String::new();
-    if granted.cancelled > 0 {
-        done.push_str(&format!(", cancelled {} speculative", granted.cancelled));
-    }
     for (name, bytes) in &granted.reclaimed {
         done.push_str(&format!(", released {name} ({} MB)", bytes / MB));
     }
@@ -161,7 +159,7 @@ pub(crate) fn try_now(
 ) -> Result<Granted, Wait> {
     let granted = BROKER.try_reserve(
         request,
-        crate::memory_pressure::reading(),
+        &crate::memory_pressure::reading,
         visible_busy(),
         waited,
         cancel,
@@ -330,7 +328,9 @@ impl Drop for Stage {
 /// Registers the reclaim ledger's holders and the release log (once, at
 /// start). Order: decodes held for neighbours (the multi view's written
 /// ones and the step prefetch's kept one) → other photos' decodes and
-/// preview bases in Develop's caches. Not the open photo's warped or
+/// preview bases in Develop's caches; each counts only buffers nothing else
+/// holds (the open photo's decode is shared with its cache entry), and the
+/// broker reads the memory again after releasing. Not the open photo's warped or
 /// transformed images: a click's new layer renders from them (REV1 review:
 /// dropping them made the frame rebuild the full-resolution transform beside
 /// the network). Idle models other than the one asked for and the GPU export
@@ -357,7 +357,7 @@ pub(crate) fn start(app: &tauri::AppHandle) {
         1,
         move || {
             let develop = bytes_app.state::<crate::state::develop::DevelopSession>();
-            crate::state::lock::lock_recover(&develop.decoded_image_cache).retained_bytes() as u64
+            crate::state::lock::lock_recover(&develop.decoded_image_cache).releasable_bytes() as u64
         },
         move || {
             let develop = release_app.state::<crate::state::develop::DevelopSession>();

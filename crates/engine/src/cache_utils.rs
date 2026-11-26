@@ -373,6 +373,16 @@ impl DecodedImageCache {
             .sum()
     }
 
+    /// Pixel storage only this cache holds: what `clear` gives back (a
+    /// decode the open photograph or a mask run also holds stays).
+    pub fn releasable_bytes(&self) -> usize {
+        self.items
+            .iter()
+            .filter(|(_, image, _)| Arc::strong_count(image) == 1)
+            .map(|(_, image, _)| image.as_bytes().len())
+            .sum()
+    }
+
     pub fn clear(&mut self) {
         self.items.clear();
         self.measures.clear();

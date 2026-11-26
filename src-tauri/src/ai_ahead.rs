@@ -270,6 +270,7 @@ mod tests {
             app_at_start: Some(2 * GB),
             exclusive: false,
             cancellable: true,
+            cancelled_for: None,
         }];
         assert!(matches!(
             decide(&sky, &situation(&decode, lenovo(4 * GB, 2 * GB))),
@@ -306,6 +307,7 @@ mod tests {
             app_at_start: Some(3 * GB),
             exclusive: true,
             cancellable: false,
+            cancelled_for: None,
         }];
         assert_eq!(
             decide(&fetch, &situation(&click, lenovo(20 * GB, 3 * GB))),

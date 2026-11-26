@@ -564,12 +564,14 @@ fn asked_ahead(source: &str) -> (bool, bool) {
     })
 }
 
-/// Bytes of the decodes kept ahead (the memory budget's reclaim ledger).
+/// Bytes of the decodes kept ahead that nothing else holds (the memory
+/// budget's reclaim ledger: what letting them go gives back).
 pub(crate) fn kept_ahead_bytes() -> usize {
     AHEAD
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .iter()
+        .filter(|kept| Arc::strong_count(&kept.image) == 1)
         .map(|kept| kept.image.as_bytes().len())
         .sum()
 }
