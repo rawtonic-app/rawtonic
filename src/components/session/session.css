@@ -1625,3 +1625,6 @@
 .session-ingest-settings .ingest-metadata-fields {
   grid-template-columns: minmax(0, 1fr);
 }
+.session-ingest-settings {
+  overflow-x: hidden;
+}

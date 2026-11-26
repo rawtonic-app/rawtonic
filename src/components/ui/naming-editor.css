@@ -375,3 +375,20 @@
   border: 1px solid var(--naming-line);
   border-radius: 4px;
 }
+/* A chip never makes the field wider than its column: long option names
+   (the counter's "Auto (fits the batch)") shorten instead. */
+.naming-field .naming-drop-slot {
+  max-width: 100%;
+  min-width: 0;
+}
+.naming-chip {
+  max-width: 100%;
+  min-width: 0;
+}
+.naming-editor .naming-chip .naming-chip-option {
+  max-width: 9em;
+  text-overflow: ellipsis;
+}
+.naming-popover-list {
+  padding-right: 6px;
+}
