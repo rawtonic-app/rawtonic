@@ -20,8 +20,9 @@ PyTorch model, both to match the ONNX model the other platforms run:
   kept as a constant (coremltools has no bicubic upsampling; the ONNX export
   folds it into a constant too).
 Against the ONNX model on ONNX Runtime's CPU, through the app's decoder and
-edge refinement on 32 RAW photos (4 clicks and 2 boxes each), 186 of 192
-masks are identical and the lowest IoU is 0.99995 (docs/MODELS.md); fp16
+edge refinement on 32 RAW photos (4 clicks and 2 boxes each), compared at
+the masks' 50 % threshold, 186 of 192 agree on every pixel and the lowest
+IoU is 0.99995 (docs/MODELS.md); fp16
 compute (`--precision fp16`, for comparisons) is faster again but its masks
 differ more (lowest IoU 0.997 on 3 photos).
 
@@ -33,7 +34,7 @@ sam2_tiny_encoder_coreml_model.mlmodel, sam2_tiny_encoder_coreml_weight.bin.
 The bytes repeat in every conversion (manifest identifiers, protobuf map
 order and coremltools' conversion date are fixed; checked twice).
 
-Usage: convert_sam2_coreml.py CHECKPOINT.pt OUT_DIR [--check IMAGE_DIR --onnx-dir DIR] [--precision fp32|fp16]
+Usage: convert_sam2_coreml.py CHECKPOINT.pt OUT_DIR (without an earlier conversion of that precision) [--check IMAGE_DIR --onnx-dir DIR] [--precision fp32|fp16]
   --check runs the package and the ONNX encoder (ONNX Runtime, CPU) on every
   image in IMAGE_DIR, then the ONNX decoder on both encodings with clicks
   and boxes, and prints the masks' agreement and the times.
@@ -100,8 +101,12 @@ def convert(out: Path, encoder: Encoder, precision: str) -> Path:
     )
     mlmodel.short_description = "SAM 2.1 Hiera-T image encoder (Meta, Apache-2.0): image embeddings"
     mlmodel.license = "Apache-2.0"
-    # Built complete in a staging folder, then moved into place: an
-    # interrupted run leaves the earlier package and files as they were.
+    # Never over an earlier conversion (nothing of it is lost); built
+    # complete in a staging folder, then moved into place.
+    package = out / PACKAGE[precision]
+    targets = [package] + [out / asset for asset in assets(precision)]
+    if any(t.exists() for t in targets):
+        sys.exit(f"{out} already holds a {precision} conversion; convert into a fresh folder")
     staging = Path(tempfile.mkdtemp(prefix=".convert-", dir=out))
     try:
         staged = staging / PACKAGE[precision]
@@ -110,13 +115,9 @@ def convert(out: Path, encoder: Encoder, precision: str) -> Path:
         sort_spec(staged / MEMBERS["model.mlmodel"], CONVERSION_DATE)
         for asset, member in assets(precision).items():
             shutil.copyfile(staged / member, staging / asset)
-        package = out / PACKAGE[precision]
-        old = staging / "previous.mlpackage"
-        if package.exists():
-            package.rename(old)
         staged.rename(package)
         for asset in assets(precision):
-            (staging / asset).replace(out / asset)
+            (staging / asset).rename(out / asset)
     finally:
         shutil.rmtree(staging)
     return package

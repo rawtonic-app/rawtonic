@@ -64,8 +64,9 @@ const DECODER_SHA256: &str = "998c1cc053a2aad703fd2519fe890a1f80115b238a0da6d7b5
 // The same encoder as a Core ML program (scripts/models/convert_sam2_coreml.py,
 // fp32), macOS's fast path: about 0.07 s on an M5 Pro's GPU instead of
 // 0.48-0.68 s on ONNX Runtime's CPU; through the decoder and refinement 186
-// of 192 click and box masks on 32 RAWs equal the ONNX model's, the lowest
-// IoU 0.99995 (docs/MODELS.md). Input the same values as float. Its
+// of 192 click and box masks on 32 RAWs agree with the ONNX model's on
+// every pixel at their 50 % threshold, the lowest IoU there 0.99995
+// (docs/MODELS.md). Input the same values as float. Its
 // three files are put back together into the package Core ML compiles.
 #[cfg(target_os = "macos")]
 const SAM_ENCODER_CORE_ML_PACKAGE: &str = "sam2.1_tiny_encoder.mlpackage";
@@ -1102,6 +1103,13 @@ pub(crate) async fn sam_models_on_onnx(
     download: bool,
 ) -> Result<Arc<SamModels>> {
     SAM_CORE_ML_FAILED.store(true, std::sync::atomic::Ordering::Release);
+    let generation = ai_state.lifecycle.generation();
+    // Out of the loaded models at once: if the ONNX encoder cannot be
+    // loaded now (not installed for an encoding ahead), the next request
+    // loads the models again, on ONNX Runtime (`sam_core_ml_ready`).
+    if let Some(state) = lock_recover(&ai_state.models).as_mut() {
+        take_if_same(&mut state.sam_models, failed);
+    }
     let models_dir = get_models_dir(app_handle)?;
     if download {
         download_verified(
@@ -1127,16 +1135,18 @@ pub(crate) async fn sam_models_on_onnx(
         encoder: SamEncoder::Onnx(encoder),
         decoder: failed.decoder.clone(),
     });
-    let mut ai = lock_recover(&ai_state.models);
-    if let Some(state) = ai.as_mut()
-        && state
-            .sam_models
-            .as_ref()
-            .is_some_and(|m| Arc::ptr_eq(m, failed))
-    {
-        state.sam_models = Some(models.clone());
-    }
+    keep_model(ai_state, generation, |ai| {
+        // Unless a request loaded them again meanwhile.
+        ai.sam_models.get_or_insert_with(|| models.clone());
+    });
     Ok(models)
+}
+
+/// Empties `slot` when it holds `failed` itself.
+fn take_if_same<T>(slot: &mut Option<Arc<T>>, failed: &Arc<T>) {
+    if slot.as_ref().is_some_and(|m| Arc::ptr_eq(m, failed)) {
+        *slot = None;
+    }
 }
 
 /// In the background: fetches the encoder's Core ML files when they are
@@ -3428,6 +3438,21 @@ mod tool_tests {
             )),
             Err("failed".to_string())
         );
+    }
+
+    /// A failed Core ML encoder leaves the loaded models before its ONNX
+    /// replacement loads, so a later request never finds it there; other
+    /// models (a reload meanwhile) stay.
+    #[test]
+    fn a_failed_encoder_leaves_the_loaded_models() {
+        let failed = std::sync::Arc::new(1);
+        let mut slot = Some(failed.clone());
+        super::take_if_same(&mut slot, &failed);
+        assert!(slot.is_none());
+        let other = std::sync::Arc::new(1);
+        let mut slot = Some(other.clone());
+        super::take_if_same(&mut slot, &failed);
+        assert!(slot.is_some_and(|m| std::sync::Arc::ptr_eq(&m, &other)));
     }
 
     /// The Core ML encoder's object masks against the ONNX encoder's on
