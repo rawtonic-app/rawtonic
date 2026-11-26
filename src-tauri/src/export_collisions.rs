@@ -393,6 +393,34 @@ mod tests {
         assert_eq!(photo_inputs(&pinned, &settings, &raw, true), edited);
     }
 
+    /// EXF1: a comment edited in the Metadata tool changes what Replace if
+    /// changed compares; a copy of the original's map does not.
+    #[test]
+    fn an_exif_edit_changes_the_inputs_and_a_copied_map_does_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("a.NEF");
+        rawtonic_fs::atomic_write(&raw, b"original RAW").unwrap();
+        let request = request(dir.path(), &raw, "{orig_base}-edited");
+        let pinned = pin_photos(&request.paths, None, None, None)
+            .unwrap()
+            .remove(0);
+        let settings = crate::app_settings::AppSettings::default();
+        let plain = photo_inputs(&pinned, &settings, &raw, true);
+        let with = |exif: serde_json::Value| {
+            let mut pinned = pinned.clone();
+            pinned.exif = Some(serde_json::from_value(exif).unwrap());
+            pinned.from_original = Default::default();
+            photo_inputs(&pinned, &settings, &raw, true)
+        };
+        assert_eq!(with(serde_json::json!({})), plain);
+        let edited = with(serde_json::json!({"UserComment": "Edited"}));
+        assert_eq!(
+            edited["exifEdits"],
+            serde_json::json!({"UserComment": "Edited"})
+        );
+        assert_ne!(edited, plain);
+    }
+
     #[test]
     fn closing_develop_after_replacing_a_numbered_export_does_not_change_its_inputs() {
         let dir = tempfile::tempdir().unwrap();

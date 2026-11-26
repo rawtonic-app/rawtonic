@@ -1324,13 +1324,15 @@ pub fn exif_edits(
         .iter()
         .filter_map(|key| {
             let shown = shown.get(*key).map(clean).filter(|s| !s.is_empty());
-            // Placeholders older readers showed for unreadable values
-            // ("...", a hex dump), never text a user typed.
+            // Placeholders older readers showed for unreadable values: "...",
+            // and a UserComment's whole bytes as hex (its 8-byte character
+            // code alone is 16 digits), never shorter text a user typed.
             let placeholder = |s: &str| {
                 s == "..."
-                    || s.strip_prefix("0x").is_some_and(|hex| {
-                        !hex.is_empty() && hex.chars().all(|c| c.is_ascii_hexdigit())
-                    })
+                    || (*key == "UserComment"
+                        && s.strip_prefix("0x").is_some_and(|hex| {
+                            hex.len() >= 16 && hex.chars().all(|c| c.is_ascii_hexdigit())
+                        }))
             };
             if shown.as_deref().is_some_and(placeholder) {
                 return None;
@@ -1937,8 +1939,28 @@ pub fn export_metadata_with(
         if let Some(f) = exif_obj.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
             metadata.set_tag(ExifTag::DateTimeOriginal(exif_datetime(&get_string_val(f))));
         }
-        if let Some(f) = exif_obj.get_field(exif::Tag::DateTime, exif::In::PRIMARY) {
+        // Each time with its fraction and offset as the file holds it
+        // (frames of one second stay apart).
+        if let Some(f) = exif_obj.get_field(exif::Tag::DateTimeDigitized, exif::In::PRIMARY) {
             metadata.set_tag(ExifTag::CreateDate(exif_datetime(&get_string_val(f))));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::DateTime, exif::In::PRIMARY) {
+            metadata.set_tag(ExifTag::ModifyDate(exif_datetime(&get_string_val(f))));
+        }
+        for (tag, set) in [
+            (
+                exif::Tag::SubSecTime,
+                ExifTag::SubSecTime as fn(String) -> ExifTag,
+            ),
+            (exif::Tag::SubSecTimeOriginal, ExifTag::SubSecTimeOriginal),
+            (exif::Tag::SubSecTimeDigitized, ExifTag::SubSecTimeDigitized),
+            (exif::Tag::OffsetTime, ExifTag::OffsetTime),
+            (exif::Tag::OffsetTimeOriginal, ExifTag::OffsetTimeOriginal),
+            (exif::Tag::OffsetTimeDigitized, ExifTag::OffsetTimeDigitized),
+        ] {
+            if let Some(value) = text(tag) {
+                metadata.set_tag(set(value.trim().to_string()));
+            }
         }
         if let Some(f) = exif_obj.get_field(exif::Tag::FNumber, exif::In::PRIMARY)
             && let exif::Value::Rational(v) = &f.value
@@ -2930,20 +2952,18 @@ mod tests {
         shown.insert("Artist".into(), "\"Camera Owner\"".into());
         assert!(super::exif_edits(&shown, &own).is_empty());
         // An edit, a removal, a new field; other fields never count.
-        shown.insert("UserComment".into(), "Edited".into());
         shown.remove("Artist");
         shown.insert("Copyright".into(), "Me".into());
         shown.insert("ExposureTime".into(), "1 s".into());
-        shown.insert("ImageDescription".into(), "0x00ff".into());
+        shown.insert("UserComment".into(), "0x41534349490000004869".into());
         assert_eq!(
             super::exif_edits(&shown, &own),
-            map(&[
-                ("UserComment", "Edited"),
-                ("Artist", ""),
-                ("Copyright", "Me")
-            ])
+            map(&[("Artist", ""), ("Copyright", "Me")]),
+            "a legacy hex dump of the comment is no edit"
         );
         // Text a user typed is an edit, also when it starts like a dump.
+        shown.insert("UserComment".into(), "0x2026".into());
+        assert_eq!(super::exif_edits(&shown, &own)["UserComment"], "0x2026");
         shown.insert("ImageDescription".into(), "0x Studio".into());
         assert_eq!(
             super::exif_edits(&shown, &own)["ImageDescription"],

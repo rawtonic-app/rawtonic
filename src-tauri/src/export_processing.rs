@@ -1995,9 +1995,10 @@ pub(crate) fn known_libraries(
 /// What decides a photo's exports besides each recipe, for Replace if
 /// changed: the photo as queued (its recipe, library metadata, corrected
 /// capture time and the original's file), the preferences the render reads
-/// and the LUT file it reads besides the photo. Not the EXIF cache: it is
-/// the original's own EXIF (the file is in `sourceIdentity`), cached only
-/// after a first decode, which would count as a change.
+/// and the LUT file it reads besides the photo, and the user's EXIF edits
+/// its files embed (`exif_edits`, only when there are any, so a photo
+/// without one keeps its earlier key). Not the EXIF cache: it is the
+/// original's own EXIF (the file is in `sourceIdentity`).
 pub(crate) fn photo_inputs(
     pinned: &PinnedPhoto,
     settings: &crate::app_settings::AppSettings,
@@ -2037,6 +2038,15 @@ pub(crate) fn photo_inputs(
         ],
     });
     parts["adjustments"] = existing_files::adjustments_for_hash(&pinned.adjustments, source);
+    let edits = pinned.exif_edits(source);
+    if !edits.is_empty() {
+        parts["exifEdits"] = serde_json::to_value(
+            edits
+                .into_iter()
+                .collect::<std::collections::BTreeMap<_, _>>(),
+        )
+        .unwrap_or_default();
+    }
     if let Some(defaults) = defaults.filter(|defaults| !defaults.settings.is_empty()) {
         parts["developDefaults"] = Value::Object(defaults.settings);
     }
