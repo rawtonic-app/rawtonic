@@ -409,14 +409,15 @@ pub async fn raw_sensor_kind(path: String) -> SensorKind {
                 remembered_sensor_kind(&library, &source)
             });
         }
-        // A photograph no library manages is read once, with nothing to remember.
-        let Some(library) = library else {
+        // A photograph no library manages is read once, with nothing to
+        // remember (no fingerprint reads).
+        let Some(library) = library.filter(|library| registered(library, &source)) else {
             return probe(&source);
         };
         let (kind, read) = read_sensor_kind(&source, probe);
-        if let Some(fingerprint) = read {
+        if let Some(read) = read {
             tauri::async_runtime::spawn_blocking(move || {
-                if let Err(e) = remember_sensor_kind(&library, &source, kind, &fingerprint) {
+                if let Err(e) = remember_sensor_kind(&library, &source, kind, &read) {
                     log::warn!("Sensor of {}: not remembered: {e}", source.display());
                 }
             });
@@ -427,32 +428,60 @@ pub async fn raw_sensor_kind(path: String) -> SensorKind {
     .unwrap_or(SensorKind::Unknown)
 }
 
-/// `probe`'s answer for the file at `source`, with the fingerprint of the
-/// file it read when that was the same before and after the read (else the
-/// answer is not remembered).
+/// Whether the library at `library` has a photograph at `source`.
+fn registered(library: &Path, source: &Path) -> bool {
+    rawtonic_catalog::Library::open(library)
+        .ok()
+        .is_some_and(|lib| matches!(lib.asset_at(source), Ok(Some(_))))
+}
+
+/// A sensor read to remember: the fingerprint of the file it read, and its
+/// place among the reads of that file (a later read wins, whichever of
+/// their background writes runs first).
+struct SensorRead {
+    fingerprint: String,
+    ticket: u64,
+}
+
+/// The newest sensor read of each file read this run (one number per file).
+static NEWEST_SENSOR_READS: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<PathBuf, u64>>,
+> = std::sync::LazyLock::new(Default::default);
+
+/// `probe`'s answer for the file at `source`, with what is needed to
+/// remember it when the file was the same before and after the read (else
+/// the answer is not remembered).
 fn read_sensor_kind(
     source: &Path,
     probe: impl FnOnce(&Path) -> SensorKind,
-) -> (SensorKind, Option<String>) {
+) -> (SensorKind, Option<SensorRead>) {
+    static TICKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let ticket = TICKETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    lock_recover(&NEWEST_SENSOR_READS).insert(source.to_path_buf(), ticket);
     let before = rawtonic_catalog::fingerprint(source).ok();
     let kind = probe(source);
-    let read =
-        before.filter(|before| rawtonic_catalog::fingerprint(source).ok().as_ref() == Some(before));
+    let read = before
+        .filter(|before| rawtonic_catalog::fingerprint(source).ok().as_ref() == Some(before))
+        .map(|fingerprint| SensorRead {
+            fingerprint,
+            ticket,
+        });
     (kind, read)
 }
 
 /// Records what a read of the photograph at `source` gave, from the file
-/// whose fingerprint was `fingerprint`, in the library at `library`: a
-/// Bayer or X-Trans answer replaces the recorded one; an Unknown answer
-/// keeps a kind read from the same file (the read failed this time) and
-/// forgets one of another file. Writes nothing when nothing changes (a
-/// photo opened again).
+/// `read` names, in the library at `library`: a Bayer or X-Trans answer
+/// replaces the recorded one; an Unknown answer keeps a kind read from the
+/// same file (the read failed this time) and forgets one of another file.
+/// Writes nothing when nothing changes (a photo opened again) or when a
+/// later read of the file was made meanwhile (its own write decides).
 fn remember_sensor_kind(
     library: &Path,
     source: &Path,
     kind: SensorKind,
-    fingerprint: &str,
+    read: &SensorRead,
 ) -> Result<(), String> {
+    let fingerprint = read.fingerprint.as_str();
     let verified = match kind {
         SensorKind::Bayer => Some(StoredSensorKind::Bayer),
         SensorKind::XTrans => Some(StoredSensorKind::XTrans),
@@ -472,12 +501,18 @@ fn remember_sensor_kind(
         };
         Ok((!done).then_some(asset.id))
     };
+    // Whether no later read of the file was made meanwhile.
+    let newest = || lock_recover(&NEWEST_SENSOR_READS).get(source) == Some(&read.ticket);
     let lib = rawtonic_catalog::Library::open(library).map_err(|e| e.to_string())?;
     if unchanged(&lib)?.is_none() {
         return Ok(());
     }
     drop(lib);
     crate::session_bridge::with_library_blocking(library, |lib| {
+        // Under the write lock: a later read's write cannot pass this one.
+        if !newest() {
+            return Ok(());
+        }
         let Some(id) = unchanged(lib)? else {
             return Ok(());
         };
@@ -533,9 +568,9 @@ mod tests {
         let directory = lib.directory.clone();
         drop(lib);
         let read = |path: &std::path::Path, answer: SensorKind| {
-            let (kind, fingerprint) = read_sensor_kind(path, |_| answer);
+            let (kind, read) = read_sensor_kind(path, |_| answer);
             assert_eq!(kind, answer);
-            remember_sensor_kind(&directory, path, kind, &fingerprint.unwrap()).unwrap();
+            remember_sensor_kind(&directory, path, kind, &read.unwrap()).unwrap();
         };
         read(&xtrans, SensorKind::XTrans);
         read(&bayer, SensorKind::Bayer);
@@ -550,11 +585,24 @@ mod tests {
         std::fs::write(&replaced, b"replaced by an unreadable file").unwrap();
         read(&replaced, SensorKind::Unknown);
         // A read during which the file changed is not remembered.
-        let (_, fingerprint) = read_sensor_kind(&unread, |path| {
+        let (_, changed) = read_sensor_kind(&unread, |path| {
             std::fs::write(path, b"replaced while it was read").unwrap();
             SensorKind::Bayer
         });
-        assert!(fingerprint.is_none());
+        assert!(changed.is_none());
+        // Two reads across a replacement: the later one wins although the
+        // earlier one's write runs last.
+        let (first, earlier) = read_sensor_kind(&xtrans, |_| SensorKind::XTrans);
+        std::fs::write(&xtrans, b"now a Bayer file").unwrap();
+        let (second, later) = read_sensor_kind(&xtrans, |_| SensorKind::Bayer);
+        remember_sensor_kind(&directory, &xtrans, second, &later.unwrap()).unwrap();
+        remember_sensor_kind(&directory, &xtrans, first, &earlier.unwrap()).unwrap();
+        assert_eq!(
+            remembered_sensor_kind(&directory, &xtrans),
+            SensorKind::Bayer
+        );
+        std::fs::write(&xtrans, b"back to X-Trans").unwrap();
+        read(&xtrans, SensorKind::XTrans);
         // Offline: the files are gone, the library answers.
         for path in [&xtrans, &bayer, &unread, &replaced] {
             std::fs::remove_file(path).unwrap();

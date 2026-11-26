@@ -84,6 +84,37 @@ fn a_read_of_the_file_changed_in_place_replaces_the_kind() {
 }
 
 #[test]
+fn a_relink_drops_a_kind_read_from_another_file_than_the_registered_one() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.DNG", "B.DNG"]);
+    let originals: Vec<Vec<u8>> = paths.iter().map(|p| fs::read(p).unwrap()).collect();
+    // A: read from its registered file. B: read from a Bayer file that took
+    // its place, which the library has not registered.
+    let a = fingerprint(&paths[0]).unwrap();
+    assert!(
+        lib.record_sensor_kind(&ids[0], SensorKind::XTrans, &a)
+            .unwrap()
+    );
+    fs::write(&paths[1], b"a Bayer file took its place").unwrap();
+    let replacement = fingerprint(&paths[1]).unwrap();
+    assert!(
+        lib.record_sensor_kind(&ids[1], SensorKind::Bayer, &replacement)
+            .unwrap()
+    );
+    // Both originals are found on a backup and relinked (Locate Photo).
+    let backup = lib.directory.join("Capture/Backup");
+    fs::create_dir_all(&backup).unwrap();
+    for ((id, path), bytes) in ids.iter().zip(&paths).zip(&originals) {
+        fs::remove_file(path).unwrap();
+        let found = backup.join(path.file_name().unwrap());
+        fs::write(&found, bytes).unwrap();
+        lib.relink(id, &found, false).unwrap();
+    }
+    assert_eq!(lib.sensor_kind(&ids[0]).unwrap(), Some(SensorKind::XTrans));
+    assert_eq!(lib.sensor_kind(&ids[1]).unwrap(), None);
+}
+
+#[test]
 fn a_new_registered_file_drops_the_kind() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids, paths) = session(d.path(), &["A.RAF", "B.RAF"]);

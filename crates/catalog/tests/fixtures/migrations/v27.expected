@@ -253,6 +253,9 @@ END'
 'trigger' | 'assets_image_hash_stale' | 'assets' | 'CREATE TRIGGER assets_image_hash_stale AFTER UPDATE OF size,mtime,fingerprint ON assets
  WHEN new.size IS NOT old.size OR new.mtime IS NOT old.mtime OR new.fingerprint IS NOT old.fingerprint
  BEGIN DELETE FROM image_hashes WHERE asset_id=new.id; END'
+'trigger' | 'assets_sensor_kind_moved' | 'assets' | 'CREATE TRIGGER assets_sensor_kind_moved AFTER UPDATE OF root_id,rel_path ON assets
+ WHEN new.root_id IS NOT old.root_id OR new.rel_path IS NOT old.rel_path
+ BEGIN DELETE FROM sensor_kinds WHERE asset_id=new.id AND fingerprint IS NOT new.fingerprint; END'
 'trigger' | 'assets_sensor_kind_stale' | 'assets' | 'CREATE TRIGGER assets_sensor_kind_stale AFTER UPDATE OF size,mtime,fingerprint ON assets
  WHEN new.size IS NOT old.size OR new.mtime IS NOT old.mtime OR new.fingerprint IS NOT old.fingerprint
  BEGIN DELETE FROM sensor_kinds WHERE asset_id=new.id; END'
