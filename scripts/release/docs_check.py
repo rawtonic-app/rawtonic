@@ -4,13 +4,15 @@
     docs_check.py --app REPO --prev-tag vPREV --head SHA --version V
                   --website CLONE --site-ref REF [--site-ref REF …]
                   [--map docs_map.json] [--reviewed REASON]
+    docs_check.py branches --website CLONE [--name B …]
+        The docs branches a release carries, one `NAME COMMIT` per line (below).
 
 Every release checks whether the tools it changes still match their pages on
 rawtonic.cc/docs (user decision 2026-11-26). A tool counts as changed since the
 previous release when
 
   * a line inside one of its `<ToolGroup …>` blocks in src/components/studio/
-    changed (the group's `key`, else its title in camelCase: "Lens correction" →
+    changed, was added or was removed (removed ones against the old file; the group's `key`, else its title in camelCase: "Lens correction" →
     lensCorrection), or
   * a file matching one of its `paths` in docs_map.json changed, or
   * a bullet of the release's CHANGELOG section names one of its `terms`
@@ -18,10 +20,15 @@ previous release when
 
 A docs page (website `pages/docs/*.html` and `pages/de/docs/*.html`, front matter
 `"docs": {"tool": KEY}`) covers the tool KEY and, for a key `group.control`,
-changes of the group too. A page counts as updated when a website commit since
-the previous release (the website's `Merge release-vPREV…` commit, else its
-`release: PREV` commit) changed it on one of the --site-ref refs the release
-ships (its website branch, the docs branches it carries, origin/main).
+changes of the group too. A page counts as updated when its content on one of the
+--site-ref refs the release ships (its website branch, the docs branches it
+carries, origin/main) differs from the website the previous release shipped (its
+`Merge release-PREV:` commit, else its `release: PREV` commit); an edit that was
+reverted does not count.
+
+The docs branches a release carries (`branches`): the --name ones (`none`: none),
+else every local or origin `docs-*` branch of the website not in origin/main,
+each at the newer of its local and origin commits (diverged ones fail).
 
 Fails (exit 1) when a changed tool's page was not updated in both languages,
 unless --reviewed gives the reason the pages still hold (it is printed in the
@@ -76,31 +83,43 @@ def tool_groups(text):
 
 
 def changed_lines(diff):
-    """{path: [new-side line numbers]} of a `git diff -U0` (a deletion counts at its place)."""
-    out, path = {}, None
+    """{path: ([old-side lines], [new-side lines])} of a `git diff -U0`: removed lines
+    by their number in the old file, added ones by theirs in the new file."""
+    out, old, new = {}, None, None
     for line in diff.split("\n"):
-        if line.startswith("+++ "):
-            path = line[6:] if line.startswith("+++ b/") else None
-        elif line.startswith("@@") and path:
-            m = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", line)
-            start, n = int(m.group(1)), int(m.group(2) if m.group(2) is not None else 1)
-            out.setdefault(path, []).extend(range(start, start + n) if n else [max(start, 1)])
+        if line.startswith("--- "):
+            old = line[6:] if line.startswith("--- a/") else None
+        elif line.startswith("+++ "):
+            new = line[6:] if line.startswith("+++ b/") else None
+        elif line.startswith("@@"):
+            m = re.match(r"@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", line)
+            a, b, c, d = (int(m.group(i)) if m.group(i) is not None else 1 for i in (1, 2, 3, 4))
+            path = new or old
+            lines = out.setdefault(path, ([], []))
+            if old:
+                lines[0].extend(range(a, a + b))
+            if new:
+                lines[1].extend(range(c, c + d))
     return out
 
 
 def groups_changed(app, base, head):
-    """{tool key: [files]} of the ToolGroup blocks whose lines changed between base and head."""
-    diff = git(app, "diff", "-U0", f"{base}..{head}", "--", STUDIO)
+    """{tool key: [files]} of the ToolGroup blocks whose lines changed between base and
+    head: removed lines against the groups of the old file (a removed group counts),
+    added ones against the new file's."""
+    diff = git(app, "diff", "-U0", "--no-renames", f"{base}..{head}", "--", STUDIO)
     out = {}
-    for path, nums in changed_lines(diff).items():
+    for path, sides in changed_lines(diff).items():
         if not path.endswith(".tsx") or ".test." in path:
             continue
-        groups = tool_groups(git(app, "show", f"{head}:{path}"))
-        for n in nums:
-            inner = [g for g in groups if g[0] <= n <= g[1]]
-            if inner:
-                key = max(inner, key=lambda g: g[0])[2]
-                out.setdefault(key, set()).add(path)
+        for ref, nums in zip((base, head), sides):
+            if not nums:
+                continue
+            groups = tool_groups(git(app, "show", f"{ref}:{path}"))
+            for n in nums:
+                inner = [g for g in groups if g[0] <= n <= g[1]]
+                if inner:
+                    out.setdefault(max(inner, key=lambda g: g[0])[2], set()).add(path)
     return {k: sorted(v) for k, v in out.items()}
 
 
@@ -150,9 +169,47 @@ def site_base(site, prev):
 
 
 def touched_pages(site, base, refs):
+    """Pages whose content on a ref differs from the previous release's (a change that
+    was reverted does not count)."""
     out = set()
     for ref in refs:
-        out.update(git(site, "log", "--format=", "--name-only", f"{base}..{ref}", "--", *DOC_DIRS).split())
+        out.update(git(site, "diff", "--name-only", "--no-renames", base, ref, "--", *DOC_DIRS).split())
+    return out
+
+
+def docs_branches(site, names):
+    """[(name, commit)] of the website docs branches a release carries: the given
+    names, else every local or origin docs-* branch not in origin/main. A branch that
+    exists locally and on origin is taken where it is newer; diverged ones fail."""
+    def commit(ref):
+        r = subprocess.run(["git", "-C", str(site), "rev-parse", "-q", "--verify", f"{ref}^{{commit}}"],
+                           capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+
+    def ancestor(a, b):
+        return subprocess.run(["git", "-C", str(site), "merge-base", "--is-ancestor", a, b]).returncode == 0
+
+    if names:
+        names = [n for n in names if n != "none"]
+    else:
+        refs = git(site, "for-each-ref", "--format=%(refname)", "refs/heads/docs-*", "refs/remotes/origin/docs-*").split()
+        names = sorted({r.split("/", 3)[3] if r.startswith("refs/remotes/") else r[len("refs/heads/"):] for r in refs})
+    out = []
+    for n in names:
+        local, remote = commit(f"refs/heads/{n}"), commit(f"refs/remotes/origin/{n}")
+        if local and remote and local != remote:
+            if ancestor(remote, local):
+                c = local
+            elif ancestor(local, remote):
+                c = remote
+            else:
+                raise SystemExit(f"docs: the website branch {n} differs locally and on origin: push or pull it first")
+        else:
+            c = local or remote
+        if not c:
+            raise SystemExit(f"docs: no website branch {n} (local or on origin)")
+        if not ancestor(c, "refs/remotes/origin/main"):
+            out.append((n, c))
     return out
 
 
@@ -179,6 +236,15 @@ def check(changed, pages, touched):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["branches"]:
+        bp = argparse.ArgumentParser(prog="docs_check.py branches")
+        bp.add_argument("--website", required=True)
+        bp.add_argument("--name", action="append", default=[])
+        b = bp.parse_args(argv[1:])
+        for name, c in docs_branches(b.website, b.name):
+            print(name, c)
+        return 0
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--app", required=True)
     ap.add_argument("--prev-tag", required=True)

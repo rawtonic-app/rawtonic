@@ -29,7 +29,8 @@
 #     --docs-reviewed WHY  the stage docs passes although a changed tool's docs
 #                          page was not updated: WHY the page still holds
 #     --docs-branch B      a website docs branch the release carries (repeatable;
-#                          default: every origin docs-* branch not in its main;
+#                          default: every local or origin docs-* branch not in
+#                          its main;
 #                          `none` for none)
 #     --list               list the stages
 #
@@ -108,7 +109,7 @@ WEBSITE=${RAWTONIC_WEBSITE_DIR:-}
 # The website's docs branches the release carries (stage docs; --docs-branch wins).
 read -ra DOCS_BRANCHES <<< "${RAWTONIC_DOCS_BRANCHES:-}"
 [ ${#DOCS_BRANCH_ARGS[@]} -gt 0 ] && DOCS_BRANCHES=("${DOCS_BRANCH_ARGS[@]}")
-DOCS_DESC="every origin/docs-* not in origin/main"
+DOCS_DESC="every local or origin docs-* not in origin/main"
 for v in ${DOCS_BRANCHES[@]+"${DOCS_BRANCHES[@]}"}; do
   [[ $v =~ ^[A-Za-z0-9._/-]+$ ]] && [[ $v != *..* ]] || { echo "release: docs branch '$v' may only hold letters, digits and . _ / -" >&2; exit 2; }
 done
@@ -155,7 +156,7 @@ describe() {
     preflight) echo "check tools (git gh node npm cargo hdiutil spctl xcrun python3), gh auth, $SIGNING_ENV (Apple credentials and TAURI_SIGNING_PRIVATE_KEY_PATH/_PASSWORD, key file mode 600), photos, recipes, the website branch $WEB_BRANCH in ${WEBSITE:-\$RAWTONIC_WEBSITE_DIR} (not checked out elsewhere, whatsNew of $VERSION), Linux host (ssh), free disk; find the previous release";;
     bump) if [ "$BUMP" = 0 ]; then echo "skipped (--no-bump): SHA = ${SHA_ARG:-origin/main}; check package.json = $VERSION and '## $VERSION — ' in its CHANGELOG"; else
           echo "git worktree add -b release-$VERSION $WORK/bump origin/main; set $VERSION in package.json, package-lock.json (top entries), src-tauri/Cargo.toml, src-tauri/tauri.conf.json, Cargo.lock (cargo update -p rawtonic-app --offline), both THIRD_PARTY_NOTICES.md rows; CHANGELOG '## Unreleased' → '## $VERSION — $DATE'; commit; scripts/ship.sh --title 'chore(release): $VERSION' → merged SHA"; fi;;
-    docs) echo "website clone: the docs branches to carry ($DOCS_DESC) → $STATE/docs-branches; scripts/release/docs_check.py: tools changed v<prev>..SHA (ToolGroup blocks in src/components/studio, docs_map.json paths and CHANGELOG terms) against the docs pages (front matter tool) the website changed since the previous release on $WEB_BRANCH + those branches + origin/main; fails when a changed tool's page (en or de) was not updated${DOCS_REVIEWED:+ — reviewed: $DOCS_REVIEWED}";;
+    docs) echo "website clone: the docs branches to carry ($DOCS_DESC; local or origin, the newer commit) → $STATE/docs-branches (name, commit); scripts/release/docs_check.py: tools changed v<prev>..SHA (ToolGroup blocks in src/components/studio, docs_map.json paths and CHANGELOG terms) against the docs pages (front matter tool) the website changed since the previous release on $WEB_BRANCH + those branches + origin/main; fails when a changed tool's page (en or de) was not updated${DOCS_REVIEWED:+ — reviewed: $DOCS_REVIEWED}";;
     source) echo "git worktree add --detach $WT SHA; git worktree add --detach $WTQA SHA; npm ci in both";;
     prev) echo "gh release download v<prev> (both DMGs, AppImage, LGPL source tarballs) → $PREVD; mount each DMG read-only, ditto Rawtonic.app out";;
     mac-arm64) echo "(credentials sourced from $SIGNING_ENV in a subshell) ${LOCK[*]} env RAWTONIC_BUNDLE_ONNX=1 npm run package:mac (in $WT) → $ASSETS/Rawtonic_${VERSION}_aarch64.dmg; the notarized Rawtonic.app as update package → $ASSETS/Rawtonic_${VERSION}_aarch64.app.tar.gz";;
@@ -172,7 +173,7 @@ describe() {
     creds) echo "count every signing credential value (Apple and updater key, except the public identity hash) in $LOGS, the built apps, the notes and latest.json: must be 0; gitleaks dir $LOGS";;
     sums) echo "LGPL tarballs (previous release or pinned URL, SHA-256 against scripts/tether/build_libgphoto2.sh); shasum -a 256 * > $ASSETS/SHA256SUMS.txt";;
     notes) echo "python3 scripts/release/notes.py: CHANGELOG section $VERSION + the previous release's install/feedback text → $WORK/notes.md";;
-    site) echo "website clone ${WEBSITE:-\$RAWTONIC_WEBSITE_DIR}: worktree $WEBWT on branch $WEB_BRANCH (the local or origin branch with whatsNew, else from origin/main); git merge --no-ff of each docs branch of $STATE/docs-branches not in it yet; scripts/release/website.py write: release.json version/date/dateText/tag and every file with size (MiB, half-up) and SHA-256 from $ASSETS/SHA256SUMS.txt; fails unless whatsNew is $VERSION's (en, de); RAWTONIC_CHANGELOG=$WORK/CHANGELOG.md node scripts/build.mjs --strict; commit 'release: $VERSION' on $WEB_BRANCH (not pushed, never deployed)";;
+    site) echo "website clone ${WEBSITE:-\$RAWTONIC_WEBSITE_DIR}: worktree $WEBWT on branch $WEB_BRANCH (the local or origin branch with whatsNew, else from origin/main); the docs check again (a docs branch moved since stage docs is checked anew), then git merge --no-ff of each docs commit of $STATE/docs-branches not in it yet; scripts/release/website.py write: release.json version/date/dateText/tag and every file with size (MiB, half-up) and SHA-256 from $ASSETS/SHA256SUMS.txt; fails unless whatsNew is $VERSION's (en, de); RAWTONIC_CHANGELOG=$WORK/CHANGELOG.md node scripts/build.mjs --strict; commit 'release: $VERSION' on $WEB_BRANCH (not pushed, never deployed)";;
     draft) if [ "$DRAFT" = 0 ]; then echo "skipped (--no-draft)"; else echo "gh release create $TAG --draft --prerelease --target SHA --title 'Rawtonic $VERSION' --notes-file $WORK/notes.md $ASSETS/* (never published here); every URL in latest.json among the draft's assets (updater_manifest.py verify --names)"; fi;;
     publish) echo "(--publish only) the draft $TAG must target SHA, a tag $TAG on origin (if any) must be SHA, and its files (names, GitHub's sha256 digests) must be the tested ones of $ASSETS/SHA256SUMS.txt; gh api -X PATCH repos/$GH_REPO/releases/ID -f tag_name=$TAG -f target_commitish=SHA -F draft=false -F prerelease=true; then the tag on origin must be SHA and the release no draft";;
     site-deploy) echo "(--publish only) in $WEBWT: git fetch; unless $WEB_BRANCH is in origin/main: detach at origin/main, git merge --no-ff $WEB_BRANCH, node scripts/build.mjs --strict, git push origin HEAD:main; scripts/deploy.sh (tests, build, wrangler deploy)";;
@@ -291,35 +292,32 @@ check_release_commit() {
   grep -q "^## $VERSION — " <<< "$(git -C "$REPO_ROOT" show "$1:CHANGELOG.md")" || fail "$1 has no CHANGELOG section '## $VERSION — '"
 }
 
-# Every release checks whether the docs follow the app (user decision 2026-11-26):
-# each tool it changes must have its rawtonic.cc/docs page updated (en and de) on
-# what the website ships with it — or --docs-reviewed says why the page still holds.
-# The website's finished docs branches (docs-*) go out with the release: stage
-# site merges those listed in STATE/docs-branches into the website branch.
-st_docs() {
-  need preflight bump
-  website_clone
-  git -C "$WEBSITE" fetch -q --prune origin || fail "fetch the website"
-  local b branches=() refs=()
-  if [ ${#DOCS_BRANCHES[@]} -gt 0 ]; then
-    for b in "${DOCS_BRANCHES[@]}"; do [ "$b" = none ] || branches+=("$b"); done
-  else
-    while IFS= read -r b; do
-      if [ -n "$b" ] && ! git -C "$WEBSITE" merge-base --is-ancestor "origin/$b" origin/main; then branches+=("$b"); fi
-    done < <(git -C "$WEBSITE" for-each-ref --format='%(refname:lstrip=3)' 'refs/remotes/origin/docs-*')
-  fi
-  for b in ${branches[@]+"${branches[@]}"}; do
-    git -C "$WEBSITE" rev-parse -q --verify "refs/remotes/origin/$b" >/dev/null || fail "no website branch origin/$b (--docs-branch, RAWTONIC_DOCS_BRANCHES)"
-    refs+=(--site-ref "origin/$b")
-  done
-  printf '%s\n' ${branches[@]+"${branches[@]}"} | sed '/^$/d' > "$STATE/docs-branches"
-  echo "docs branches carried by the release: $(tr '\n' ' ' < "$STATE/docs-branches")"
+# The docs branches (name and commit) and the check of them, into STATE/docs-branches.
+docs_gate() {
+  local names=() n line refs=()
+  for n in ${DOCS_BRANCHES[@]+"${DOCS_BRANCHES[@]}"}; do names+=(--name "$n"); done
+  python3 "$SCRIPTS/docs_check.py" branches --website "$WEBSITE" ${names[@]+"${names[@]}"} > "$STATE/docs-branches.new" \
+    || fail "the website's docs branches (above)"
+  echo "docs branches carried by the release: $(awk '{printf "%s (%.9s) ", $1, $2}' "$STATE/docs-branches.new")"
+  while read -r line; do refs+=(--site-ref "${line#* }"); done < "$STATE/docs-branches.new"
   if git -C "$WEBSITE" rev-parse -q --verify "refs/heads/$WEB_BRANCH" >/dev/null; then refs+=(--site-ref "$WEB_BRANCH")
   else refs+=(--site-ref "origin/$WEB_BRANCH"); fi
   refs+=(--site-ref origin/main)
   python3 "$SCRIPTS/docs_check.py" --app "$REPO_ROOT" --prev-tag "v$(cat "$STATE/prev")" --head "$(sha)" --version "$VERSION" \
     --website "$WEBSITE" "${refs[@]}" ${DOCS_REVIEWED:+--reviewed "$DOCS_REVIEWED"} \
     || fail "a changed tool's docs page was not updated (above): update it on a website docs branch, or rerun with --docs-reviewed \"why the page still holds\""
+  mv "$STATE/docs-branches.new" "$STATE/docs-branches"
+}
+# Every release checks whether the docs follow the app (user decision 2026-11-26):
+# each tool it changes must have its rawtonic.cc/docs page updated (en and de) on
+# what the website ships with it — or --docs-reviewed says why the page still holds.
+# The website's finished docs branches (docs-*, local or on origin) go out with the
+# release: stage site merges the commits checked here (STATE/docs-branches).
+st_docs() {
+  need preflight bump
+  website_clone
+  git -C "$WEBSITE" fetch -q --prune origin || fail "fetch the website"
+  docs_gate
 }
 
 worktree_at() {  # DIR SHA
@@ -759,14 +757,18 @@ st_site() {
     fi
   fi
   [ "$(git -C "$WEBWT" branch --show-current)" = "$WEB_BRANCH" ] || fail "$WEBWT is not on $WEB_BRANCH"
-  # The docs the release carries (stage docs).
-  local b
-  while IFS= read -r b; do
+  # The docs the release carries: the commits stage docs checked. A docs branch
+  # changed since (a conflict resolved on it) is checked again first.
+  local before; before=$(cat "$STATE/docs-branches")
+  docs_gate
+  [ "$before" = "$(cat "$STATE/docs-branches")" ] || echo "the docs branches changed since stage docs: checked again (above)"
+  local b c
+  while read -r b c; do
     [ -n "$b" ] || continue
-    if git -C "$WEBWT" merge-base --is-ancestor "origin/$b" HEAD; then echo "docs branch $b: already in $WEB_BRANCH"; continue; fi
-    git -C "$WEBWT" merge -q --no-ff -m "Merge $b into $WEB_BRANCH: docs for $VERSION" "origin/$b" \
+    if git -C "$WEBWT" merge-base --is-ancestor "$c" HEAD; then echo "docs branch $b: already in $WEB_BRANCH"; continue; fi
+    git -C "$WEBWT" merge -q --no-ff -m "Merge $b into $WEB_BRANCH: docs for $VERSION" "$c" \
       || { git -C "$WEBWT" merge --abort; fail "merge the docs branch $b into $WEB_BRANCH (resolve on $b, then --from site)"; }
-    echo "docs branch $b merged"
+    echo "docs branch $b ($c) merged"
   done < "$STATE/docs-branches"
   echo "website branch $WEB_BRANCH at $(git -C "$WEBWT" log -1 --format='%h %s')"
   python3 "$SCRIPTS/website.py" write --version "$VERSION" --changelog "$WORK/CHANGELOG.md" --assets "$ASSETS" \

@@ -472,8 +472,9 @@ class DocsCheck(unittest.TestCase):
         self.assertEqual(at(lines.index('        <Slider name="vignetting" />') + 1), "lensCorrection")
 
     def test_changed_lines_and_terms(self):
-        diff = "+++ b/a.tsx\n@@ -3,0 +4,2 @@\n+x\n+y\n@@ -9 +10 @@\n-z\n+w\n@@ -20,2 +21,0 @@\n-gone\n"
-        self.assertEqual(docs_check.changed_lines(diff), {"a.tsx": [4, 5, 10, 21]})
+        diff = "--- a/a.tsx\n+++ b/a.tsx\n@@ -3,0 +4,2 @@\n+x\n+y\n@@ -9 +10 @@\n-z\n+w\n@@ -20,2 +21,0 @@\n-gone\n-gone\n"
+        self.assertEqual(docs_check.changed_lines(diff), {"a.tsx": ([9, 20, 21], [4, 5, 10])})
+        self.assertEqual(docs_check.changed_lines("--- a/b.tsx\n+++ /dev/null\n@@ -1,2 +0,0 @@\n"), {"b.tsx": ([1, 2], [])})
         section = "\n- **Exports** are faster.\n- The Export dialog\n  remembers.\n- AI Denoise is quicker.\n- Highly shadowed.\n"
         self.assertEqual(len(docs_check.term_hits(section, ["Export"])), 1)
         self.assertEqual(docs_check.term_hits(section, ["AI Denoise"]), ["- AI Denoise is quicker."])
@@ -544,6 +545,43 @@ class DocsCheck(unittest.TestCase):
             rc, out = self.check(app, site)
             self.assertEqual(rc, 0, out)
             self.assertIn("every changed tool with a page has its page updated", out)
+
+    def test_a_removed_group_and_a_reverted_page_edit(self):
+        with tempfile.TemporaryDirectory() as d:
+            app, site, run, write = self.repos(d)
+            write(site, {"pages/docs/basic-tone.html": page("exposure", "en", "New."),
+                         "pages/de/docs/basic-tone.html": page("exposure", "de", "Neu.")}, "docs")
+            write(site, {"pages/docs/basic-tone.html": page("exposure", "en"),
+                         "pages/de/docs/basic-tone.html": page("exposure", "de")}, "revert")
+            rc, out = self.check(app, site, "--reviewed", "r")
+            self.assertIn("exposure: NOT updated: en", out)
+            tsx = Path(app, "src/components/studio/StudioDevelop.tsx")
+            text = tsx.read_text()
+            start = text.index('      <ToolGroup key="grain"')
+            end = text.index("</ToolGroup>", start) + len("</ToolGroup>\n")
+            write(app, {tsx.relative_to(app).as_posix(): text[:start] + text[end:]}, "no grain")
+            self.assertIn("grain", docs_check.groups_changed(app, "v1.0.0", "HEAD"))
+
+    def test_docs_branches_local_or_origin(self):
+        with tempfile.TemporaryDirectory() as d:
+            app, site, run, write = self.repos(d)
+            write(site, {"a.txt": "a"}, "docs work")
+            local = subprocess.run(["git", "-C", str(site), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+            run(site, "switch", "-q", "main")
+            run(site, "update-ref", "refs/remotes/origin/main", "main")
+            run(site, "update-ref", "refs/remotes/origin/docs-2", "main")
+            run(site, "update-ref", "refs/remotes/origin/docs-old", "main")
+            # docs-2: local is newer than origin; docs-old is in origin/main.
+            self.assertEqual(docs_check.docs_branches(site, []), [("docs-2", local)])
+            self.assertEqual(docs_check.docs_branches(site, ["none"]), [])
+            run(site, "switch", "-q", "-c", "docs-3")
+            write(site, {"b.txt": "b"}, "other")
+            run(site, "update-ref", "refs/remotes/origin/docs-3", local)
+            with self.assertRaises(SystemExit) as e:
+                docs_check.docs_branches(site, ["docs-3"])
+            self.assertIn("differs locally and on origin", str(e.exception))
+            with self.assertRaises(SystemExit):
+                docs_check.docs_branches(site, ["docs-9"])
 
     def test_a_tool_without_a_page_is_listed_not_failed(self):
         with tempfile.TemporaryDirectory() as d:
