@@ -1,7 +1,7 @@
 import '../../i18n';
 import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import NamingEditor from './NamingEditor';
 import type { NamingKind, NamingMode } from '../../utils/namingTemplates';
 
@@ -280,4 +280,22 @@ it('closes the token list with Escape without letting the import dialog see it',
   openTokens();
   const popover = screen.getByRole('dialog', { name: 'Add a naming token' });
   expect(popover.hasAttribute('data-escape-local')).toBe(true);
+});
+
+it('closes the save-preset panel with Escape from its buttons too, keeping the dialog', () => {
+  const outer = vi.fn();
+  render(
+    <div onKeyDown={(e) => e.key === 'Escape' && outer()}>
+      <Editor />
+    </div>
+  );
+  const toggle = screen.getByRole('button', { name: 'Save as preset…' });
+  fireEvent.click(toggle);
+  fireEvent.change(screen.getByLabelText('Preset name'), { target: { value: 'Web' } });
+  const save = screen.getByRole('button', { name: 'Save preset' });
+  expect(save.closest('[data-escape-local]')).toBeTruthy();
+  fireEvent.keyDown(save, { key: 'Escape' });
+  expect(screen.queryByLabelText('Preset name')).toBeNull();
+  expect(outer).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(toggle);
 });

@@ -736,11 +736,14 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+/* Wraps in a narrow column (several cards): never over the settings. */
 .session-ingest-source-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
+  min-width: 0;
 }
 .session-ingest-source-head h3 {
   margin: 0 auto 0 0 !important;
@@ -769,6 +772,7 @@
 }
 .session-ingest-preview-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   font-size: 12px;
@@ -1468,7 +1472,13 @@
    (task IMPD). */
 .session-ingest-cards {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
+}
+.session-ingest-source-head .session-action {
+  max-width: 100%;
+  min-width: 0;
 }
 .session-ingest-source-head .session-action.is-active {
   border-color: #b4c8d3;

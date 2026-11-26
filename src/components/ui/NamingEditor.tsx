@@ -89,6 +89,7 @@ export default function NamingEditor({
   const [name, setName] = useState('');
   const [storageError, setStorageError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const presetButton = useRef<HTMLButtonElement>(null);
   // "Custom format" chosen in the menu: shown as chosen (the field keeps the
   // format to edit from) until a template is picked again.
   const [customChosen, setCustomChosen] = useState(false);
@@ -295,6 +296,7 @@ export default function NamingEditor({
             ))}
           </select>
           <button
+            ref={presetButton}
             type="button"
             className="naming-icon-button"
             aria-label={t('naming.savePreset')}
@@ -316,7 +318,20 @@ export default function NamingEditor({
         </div>
       )}
       {!folder && saving && (
-        <div className="naming-save" id={`${id}-save`} data-escape-local>
+        <div
+          className="naming-save"
+          id={`${id}-save`}
+          data-escape-local
+          onKeyDown={(e) => {
+            // Escape anywhere in the panel (name or its buttons) closes it.
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              setSaving(false);
+              presetButton.current?.focus();
+            }
+          }}
+        >
           <input
             aria-label={t('naming.presetName')}
             placeholder={t('naming.presetName')}
@@ -330,10 +345,6 @@ export default function NamingEditor({
                 e.preventDefault();
                 e.stopPropagation();
                 savePreset();
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                e.stopPropagation();
-                setSaving(false);
               }
             }}
           />
