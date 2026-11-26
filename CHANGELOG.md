@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Crop & Rotate: dragging or moving the crop frame no longer redraws the rest of Develop on every mouse move (about a third of the work per move), and turning the photo redraws it half as often, so the frame keeps up with the pointer on slower computers too. Crops and exports are unchanged.
 - Rawtonic loads the Subject model ahead only when there is enough memory to compute the mask as well. Loading the model on its own could leave a Subject click short of memory on 14 GB computers.
 
 - The Import dialog gives the window to the photos: the thumbnails fill the dialog and scroll by themselves, and the settings (destination, file naming, metadata) sit in a side column of collapsible sections, with Copy always at the bottom right. "You can keep editing during the import" now sits inside the dialog's bottom bar instead of over its edge. File naming in Import, Rename and Export is one editor: click anywhere in the name field to type (also when it is empty or holds only tokens — before, an empty Custom format or Export's "Put in subfolder" took no typing), add tokens from a searchable "+ Token" list (double-click, Enter or drag them into the field), save the current format with the bookmark button beside the template menu; editing a chosen template turns it into Custom format. The Export dialog can be resized from its edges and maximized like the Import dialog, and remembers its size. Names made from existing templates and presets are unchanged.
