@@ -294,6 +294,45 @@ fn a_trash_that_takes_the_file_but_reports_a_failure_never_says_nothing_changed(
     let error = format!("{error:#}");
     assert!(error.starts_with("Nothing was changed"), "{error}");
     assert_eq!(fs::read_to_string(root.join("b.SRW")).unwrap(), "b");
+
+    // Redo of a Trash whose Trash takes the file but reports a failure.
+    struct SecondUnconfirmed(FolderTrash);
+    impl SystemTrash for SecondUnconfirmed {
+        fn trash(&self, path: &Path) -> anyhow::Result<String> {
+            let first = self.0.next.get() == 0;
+            let item = self.0.trash(path)?;
+            anyhow::ensure!(
+                first,
+                "Recycled into {item}, but its identity was not proven"
+            );
+            Ok(item)
+        }
+        fn restore(&self, item: &str, original: &Path) -> anyhow::Result<()> {
+            self.0.restore(item, original)
+        }
+        fn contains(&self, item: &str) -> bool {
+            self.0.contains(item)
+        }
+    }
+    let trash = SecondUnconfirmed(FolderTrash::new(&root.join("redo-trash")));
+    write(&root.join("c.SRW"), "c");
+    let op = journal
+        .execute(
+            "trash",
+            "Trash",
+            vec![Step::system_trash(root.join("c.SRW"))],
+            &trash,
+        )
+        .unwrap();
+    journal.undo(&op.id, &trash).unwrap();
+    let error = format!("{:#}", journal.redo(&op.id, &trash).unwrap_err());
+    assert!(!error.contains("Nothing was redone"), "{error}");
+    assert!(error.starts_with("Not everything was put back"), "{error}");
+    assert!(error.contains("c.SRW went to the Trash"), "{error}");
+    assert_eq!(
+        fs::read_to_string(root.join("redo-trash").join("1")).unwrap(),
+        "c"
+    );
 }
 
 #[test]

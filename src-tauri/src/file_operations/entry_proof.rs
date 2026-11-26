@@ -7,9 +7,12 @@
 //! Trash on an exFAT volume failed with "recycled entry identity changed";
 //! notes benchmark-results/wqa7b-2026-11-26/REPORT.md). There the proof is
 //! what such a move keeps of the record: the volume, the size, and the
-//! creation and last-write times exactly as the volume stores them (raw
-//! values read from the same volume, so its 2 s or 10 ms resolution needs
-//! no tolerance). Pure, so its tests run on every platform.
+//! creation and last-write times as the volume stores them (raw values read
+//! from the same volume, so its 2 s or 10 ms resolution needs no tolerance).
+//! FAT32 stores local time, which Windows reports as UTC with the current
+//! time-zone offset: after a daylight-saving or time-zone change both times
+//! of an untouched entry shift by the same whole quarter hours, and that
+//! shift is accepted. Pure, so its tests run on every platform.
 use serde::{Deserialize, Serialize};
 
 /// Volume serial number and file index (high, low).
@@ -51,8 +54,23 @@ pub(super) fn stamp_to_record(file_system: &str, facts: &EntryFacts) -> Option<S
 pub(super) fn same_entry(identity: Identity, stamp: Option<&Stamp>, now: &EntryFacts) -> bool {
     match stamp {
         None => now.identity == identity,
-        Some(stamp) => now.identity.0 == identity.0 && now.stamp == *stamp,
+        Some(stamp) => now.identity.0 == identity.0 && same_record(stamp, &now.stamp),
     }
+}
+
+/// FILETIME units (100 ns) in a quarter hour, the finest time-zone step.
+const QUARTER_HOUR: i128 = 15 * 60 * 10_000_000;
+/// The largest difference between two UTC offsets: −12 h to +14 h.
+const MAX_ZONE_SHIFT: i128 = 26 * 4 * QUARTER_HOUR;
+
+fn same_record(recorded: &Stamp, now: &Stamp) -> bool {
+    let created = i128::from(now.created) - i128::from(recorded.created);
+    let written = i128::from(now.written) - i128::from(recorded.written);
+    recorded.size == now.size
+        && recorded.directory == now.directory
+        && created == written
+        && created % QUARTER_HOUR == 0
+        && created.abs() <= MAX_ZONE_SHIFT
 }
 
 #[cfg(test)]
@@ -135,6 +153,54 @@ mod tests {
             ..after
         };
         assert!(!same_entry(before.identity, stamp.as_ref(), &other_volume));
+    }
+
+    /// FAT32 keeps local time: after a daylight-saving change Windows
+    /// reports both times of an untouched entry one hour off.
+    #[test]
+    fn a_time_zone_shift_of_both_times_is_the_same_entry() {
+        let (before, after) = exfat_move();
+        let stamp = stamp_to_record("FAT32", &before);
+        let hour = 4 * QUARTER_HOUR as u64;
+        for shift in [hour, 13 * hour / 2] {
+            let shifted = EntryFacts {
+                stamp: Stamp {
+                    created: after.stamp.created + shift,
+                    written: after.stamp.written + shift,
+                    ..after.stamp
+                },
+                ..after
+            };
+            assert!(same_entry(before.identity, stamp.as_ref(), &shifted));
+            let back = EntryFacts {
+                stamp: Stamp {
+                    created: after.stamp.created - shift,
+                    written: after.stamp.written - shift,
+                    ..after.stamp
+                },
+                ..after
+            };
+            assert!(same_entry(before.identity, stamp.as_ref(), &back));
+        }
+        for (created, written) in [
+            (hour, 0),
+            (hour, 2 * hour),
+            (hour + 1, hour + 1),
+            (27 * hour, 27 * hour),
+        ] {
+            let other = EntryFacts {
+                stamp: Stamp {
+                    created: after.stamp.created + created,
+                    written: after.stamp.written + written,
+                    ..after.stamp
+                },
+                ..after
+            };
+            assert!(
+                !same_entry(before.identity, stamp.as_ref(), &other),
+                "{created} {written}"
+            );
+        }
     }
 
     #[test]

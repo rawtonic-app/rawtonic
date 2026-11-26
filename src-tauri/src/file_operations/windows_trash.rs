@@ -666,6 +666,15 @@ fn prove_recycled(receipt: &mut Receipt, before: &EntryFacts, location: &Path) -
     if receipt.matches(&now) {
         return Ok(());
     }
+    // On NTFS and ReFS a different file ID is a different file: never
+    // adopted. On FAT-family volumes the entry itself must still be the one
+    // recycled: same kind and, for a file, same size.
+    ensure!(
+        receipt.stamp.is_some()
+            && now.stamp.directory == before.stamp.directory
+            && (now.stamp.directory || now.stamp.size == before.stamp.size),
+        "The entry in the Recycle Bin is not the one recycled"
+    );
     ensure!(
         matches!(fs::symlink_metadata(&receipt.original), Err(e) if e.kind() == std::io::ErrorKind::NotFound),
         "The original place is not empty"
