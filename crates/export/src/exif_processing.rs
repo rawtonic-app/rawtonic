@@ -1356,24 +1356,9 @@ pub fn overrides_of_copy(
     copy: &HashMap<String, String>,
     own: &HashMap<String, String>,
 ) -> HashMap<String, String> {
-    // Text as it was saved (quotes, an ellipsis): an edit when it differs
-    // from the file's as an export compares them (`text_edits`), or where
-    // the file has no such field at all (no older reader's placeholder then).
-    let filled = |map: &HashMap<String, String>, key: &str| {
-        map.get(key)
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-    };
-    let compared = text_edits(copy, own);
-    let mut overrides: HashMap<String, String> = EDITABLE_EXIF_TEXT
-        .iter()
-        .filter_map(|key| {
-            let saved = filled(copy, key);
-            let edited =
-                compared.contains_key(*key) || (saved.is_some() && filled(own, key).is_none());
-            edited.then(|| (key.to_string(), saved.unwrap_or_default()))
-        })
-        .collect();
+    // The text edits an export of the copy embeds (`text_edits`), so a
+    // write that reduces it changes no export.
+    let mut overrides = text_edits(copy, own);
     if let Some(fields) = capture_edit(copy, own) {
         for (key, value) in fields {
             overrides.insert(key.to_string(), value.unwrap_or_default());
@@ -1446,14 +1431,25 @@ fn text_edits(
     shown: &HashMap<String, String>,
     own: &HashMap<String, String>,
 ) -> HashMap<String, String> {
-    let clean = |s: &String| s.replace('"', "").trim().to_string();
+    // The quotes some older readers wrapped a value in; quotes inside the
+    // text are the text's.
+    let clean = |s: &String| {
+        let s = s.trim();
+        s.strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .unwrap_or(s)
+            .trim()
+            .to_string()
+    };
     EDITABLE_EXIF_TEXT
         .iter()
         .filter_map(|key| {
             let shown = shown.get(*key).map(clean).filter(|s| !s.is_empty());
-            // Placeholders older readers showed for unreadable values: "...",
-            // and a UserComment's whole bytes as hex (its 8-byte character
-            // code alone is 16 digits), never shorter text a user typed.
+            let own = own.get(*key).map(clean).filter(|s| !s.is_empty());
+            // Placeholders older readers showed for a value they could not
+            // read: "...", and a UserComment's whole bytes as hex (its 8-byte
+            // character code alone is 16 digits), never shorter text a user
+            // typed; only where the file has that field.
             let placeholder = |s: &str| {
                 s == "..."
                     || (*key == "UserComment"
@@ -1461,10 +1457,9 @@ fn text_edits(
                             hex.len() >= 16 && hex.chars().all(|c| c.is_ascii_hexdigit())
                         }))
             };
-            if shown.as_deref().is_some_and(placeholder) {
+            if own.is_some() && shown.as_deref().is_some_and(placeholder) {
                 return None;
             }
-            let own = own.get(*key).map(clean).filter(|s| !s.is_empty());
             (shown != own).then(|| (key.to_string(), shown.unwrap_or_default()))
         })
         .collect()
@@ -3161,6 +3156,7 @@ mod tests {
         // has no such field (no reader's placeholder then).
         let saved = map(&[
             ("Make", "Maker"),
+            ("Artist", "\"Camera Owner\""),
             ("ImageDescription", r#"The band "Echo""#),
             ("UserComment", "..."),
         ]);
@@ -3171,11 +3167,59 @@ mod tests {
         let edits = super::exif_edits_of(None, Some(&overrides), &own);
         assert_eq!(edits["ImageDescription"], r#"The band "Echo""#);
         assert_eq!(edits["UserComment"], "...");
-        assert_eq!(edits["Artist"], "", "the copy removed it");
+        assert_eq!(edits["Copyright"], "", "the copy removed it");
+        assert!(
+            !edits.contains_key("Artist"),
+            "a reader's quotes are no edit"
+        );
         // An older copy alone exports as before.
         assert_eq!(
             super::exif_edits_of(Some(&copied), None, &own),
             super::exif_edits(&copied, &own)
+        );
+        // Reducing a copy changes no export: a caption whose only change is
+        // quotes inside it, quotes an older reader wrapped a value in, an
+        // ellipsis or hex dump over the camera's comment, one where it has
+        // none, a removal, a capture time.
+        let file = map(&[
+            ("Make", "Maker"),
+            ("Artist", "Camera Owner"),
+            ("ImageDescription", "The band Echo tonight"),
+            ("UserComment", "camera"),
+            ("DateTimeOriginal", "2026-10-30 23:30:00"),
+        ]);
+        for copy in [
+            map(&[
+                ("Make", "Maker"),
+                ("ImageDescription", r#"The band "Echo" tonight"#),
+            ]),
+            map(&[
+                ("Make", "Maker"),
+                ("Artist", "\"Camera Owner\""),
+                ("UserComment", "..."),
+            ]),
+            map(&[
+                ("Make", "Maker"),
+                ("UserComment", "0x4153434949000000616263"),
+            ]),
+            map(&[("Make", "Maker"), ("Copyright", "...")]),
+            map(&[
+                ("Make", "Maker"),
+                ("DateTimeOriginal", "2026-10-31 00:30:00"),
+            ]),
+            HashMap::new(),
+        ] {
+            let overrides = super::overrides_of_copy(&copy, &file);
+            assert_eq!(
+                super::exif_edits_of(None, Some(&overrides), &file),
+                super::exif_edits_of(Some(&copy), None, &file),
+                "{copy:?}"
+            );
+        }
+        let quoted = map(&[("ImageDescription", r#"The band "Echo" tonight"#)]);
+        assert_eq!(
+            super::overrides_of_copy(&quoted, &file)["ImageDescription"],
+            r#"The band "Echo" tonight"#
         );
         // An override leaves every field it has not as the file has it.
         let shown = super::with_exif_overrides(&map(&[("Artist", "Ana")]), &own);
