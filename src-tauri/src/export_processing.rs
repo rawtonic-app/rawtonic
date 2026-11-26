@@ -546,9 +546,10 @@ pub struct PinnedPhoto {
     #[serde(default)]
     pub exif: Option<std::collections::BTreeMap<String, String>>,
     /// Without `exif`: whether its export embeds the EXIF its decode reads
-    /// from the original. It does unless the library keeps the photo's
-    /// editor state beside a sidecar file, where the decode's map goes to
-    /// the file, which the library's state outranks (as on main).
+    /// from the original. It always does now: a decode keeps that map in
+    /// the app's EXIF cache, never in a sidecar, so a cold cache must not
+    /// change what an export embeds (FOP1). Kept for queued jobs saved
+    /// before, which recorded false for a library photo beside its sidecar.
     #[serde(default)]
     pub exif_from_original: bool,
     /// The EXIF read from the original when it is embedded, once.
@@ -704,17 +705,10 @@ pub(crate) fn pin_photos(
                     _ => saved.adjustments,
                 };
                 let exif = exif_processing::read_rrexif_sidecar(&source);
-                let primary = exif_processing::get_primary_sidecar_path(&source);
-                let library_state = || {
-                    crate::session_bridge::read_editor_sidecar(&primary).is_some_and(|state| {
-                        serde_json::from_value::<crate::image_processing::ImageMetadata>(state)
-                            .is_ok()
-                    })
-                };
                 Ok(PinnedPhoto {
                     adjustments,
                     metadata,
-                    exif_from_original: exif.is_none() && !(primary.exists() && library_state()),
+                    exif_from_original: exif.is_none(),
                     exif: exif.map(|exif| exif.into_iter().collect()),
                     owner: owner.clone(),
                     from_original: Default::default(),
