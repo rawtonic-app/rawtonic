@@ -2,6 +2,7 @@
 //! The Shell uses ordinary paths; the library retains verbatim native paths.
 //! Verify the entry the Shell parsed before allowing a recycle operation.
 use super::PlatformTrash;
+use super::entry_proof::{EntryFacts, Identity, Stamp, same_entry, stamp_to_record};
 use anyhow::{Context, Result, ensure};
 use rawtonic_fileops::SystemTrash;
 use serde::{Deserialize, Serialize};
@@ -18,12 +19,13 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::HANDLE,
+        Foundation::{FILETIME, HANDLE},
         Storage::EnhancedStorage::PKEY_FileName,
         Storage::FileSystem::{
             BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_TEMPORARY, FILE_DISPOSITION_INFO,
             FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_DELETE_ON_CLOSE, FILE_FLAG_OPEN_REPARSE_POINT,
-            FileDispositionInfo, GetFileInformationByHandle, SetFileInformationByHandle,
+            FileDispositionInfo, GetFileInformationByHandle, GetVolumeInformationByHandleW,
+            SetFileInformationByHandle,
         },
         System::Com::{
             CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
@@ -111,6 +113,40 @@ fn file_identity(file: &File) -> Result<(u32, u32, u32)> {
     ))
 }
 
+/// The entry's facts for [`same_entry`] and its volume's file system name.
+fn entry_facts(path: &Path) -> Result<(EntryFacts, String)> {
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT.0 | FILE_FLAG_BACKUP_SEMANTICS.0)
+        .open(path)?;
+    let handle = HANDLE(file.as_raw_handle() as isize);
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    let mut name = [0u16; 64];
+    unsafe {
+        GetFileInformationByHandle(handle, &mut info)?;
+        GetVolumeInformationByHandleW(handle, None, None, None, None, Some(&mut name))?;
+    }
+    let time = |t: FILETIME| (u64::from(t.dwHighDateTime) << 32) | u64::from(t.dwLowDateTime);
+    let end = name
+        .iter()
+        .position(|&unit| unit == 0)
+        .unwrap_or(name.len());
+    let facts = EntryFacts {
+        identity: (
+            info.dwVolumeSerialNumber,
+            info.nFileIndexHigh,
+            info.nFileIndexLow,
+        ),
+        stamp: Stamp {
+            size: (u64::from(info.nFileSizeHigh) << 32) | u64::from(info.nFileSizeLow),
+            created: time(info.ftCreationTime),
+            written: time(info.ftLastWriteTime),
+            directory: info.dwFileAttributes & 0x10 != 0,
+        },
+    };
+    Ok((facts, String::from_utf16_lossy(&name[..end])))
+}
+
 fn item_path(item: &IShellItem) -> Result<PathBuf> {
     unsafe {
         let text = item.GetDisplayName(SIGDN_FILESYSPATH)?;
@@ -196,8 +232,6 @@ fn verified_item(path: &Path) -> Result<(IShellItem, PathBuf)> {
     Ok((item, plain))
 }
 
-type Identity = (u32, u32, u32);
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Receipt {
     bin_id: String,
@@ -205,6 +239,10 @@ struct Receipt {
     original: PathBuf,
     identity: Identity,
     parent_identity: Identity,
+    /// Set on volumes without unique file IDs (exFAT, FAT32, ReFS), where the entry's
+    /// record, not its index, proves it after a move (`entry_proof`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stamp: Option<Stamp>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -289,6 +327,13 @@ impl Receipt {
             .parent()
             .context("Receipt has no original parent")
     }
+    /// Whether `path` is this receipt's entry (it may have moved since).
+    fn is_entry(&self, path: &Path) -> Result<bool> {
+        Ok(self.matches(&entry_facts(path)?.0))
+    }
+    fn matches(&self, facts: &EntryFacts) -> bool {
+        same_entry(self.identity, self.stamp.as_ref(), facts)
+    }
     fn stage(&self) -> Result<PathBuf> {
         Ok(self
             .parent()?
@@ -306,7 +351,7 @@ impl Receipt {
             "Recycle Bin receipt names another original"
         );
         ensure!(
-            identity(&item_path(&found.item)?)? == self.identity,
+            self.is_entry(&item_path(&found.item)?)?,
             "Recycle Bin item identity changed"
         );
         Ok(Some(found.item))
@@ -437,7 +482,7 @@ impl Stage {
 fn restore_to_stage(receipt: &Receipt, stage: &Stage) -> Result<Option<PathBuf>> {
     if fs::symlink_metadata(stage.payload()).is_ok() {
         ensure!(
-            identity(&stage.payload())? == receipt.identity,
+            receipt.is_entry(&stage.payload())?,
             "Staged entry identity changed"
         );
         ensure!(
@@ -469,7 +514,7 @@ fn restore_to_stage(receipt: &Receipt, stage: &Stage) -> Result<Option<PathBuf>>
         );
     }
     ensure!(
-        identity(&stage.payload())? == receipt.identity,
+        receipt.is_entry(&stage.payload())?,
         "Restored entry identity changed"
     );
     Ok(Some(data))
@@ -495,7 +540,7 @@ fn remove_info_stub(data: Option<&Path>, receipt: &Receipt) -> Result<bool> {
         "The Bin entry is still there"
     );
     ensure!(
-        identity(&receipt.original)? == receipt.identity,
+        receipt.is_entry(&receipt.original)?,
         "The restored entry identity changed"
     );
     let restored = fs::symlink_metadata(&receipt.original)?;
@@ -578,7 +623,7 @@ fn restore_receipt(receipt: &Receipt, original: &Path) -> Result<()> {
     if fs::symlink_metadata(original).is_ok() {
         // Idempotent after the final rename, before the journal records success.
         ensure!(
-            identity(original)? == receipt.identity && receipt.bin_item()?.is_none(),
+            receipt.is_entry(original)? && receipt.bin_item()?.is_none(),
             "Restore destination is occupied; item retained"
         );
         if receipt.stage()?.exists() {
@@ -614,11 +659,13 @@ impl SystemTrash for PlatformTrash {
             let _apartment = Apartment::new()?;
             let (item, _) = verified_item(path)?;
             let original = canonical_entry(path)?;
+            let (before, file_system) = entry_facts(&original)?;
             let mut receipt = Receipt {
                 bin_id: String::new(),
                 nonce: uuid::Uuid::new_v4(),
-                identity: identity(&original)?,
+                identity: before.identity,
                 parent_identity: identity(original.parent().unwrap())?,
+                stamp: stamp_to_record(&file_system, &before),
                 original,
             };
             // RecycleItem has no permanent-delete fallback. DeleteItem with recycle
@@ -639,11 +686,15 @@ impl SystemTrash for PlatformTrash {
                 let recycled = source.RecycleItem(&item, &bin, 0).context(
                     "Windows cannot recycle this item; permanent deletion is not supported",
                 )?;
-                ensure!(
-                    identity(&item_path(&recycled)?)? == receipt.identity,
-                    "The recycled entry identity changed"
-                );
                 receipt.bin_id = desktop_id(&recycled)?;
+                let location = item_path(&recycled)?;
+                // No weaker fallback: an entry that fails its proof is never
+                // adopted, and the journal reports that it left its folder.
+                ensure!(
+                    receipt.is_entry(&location)?,
+                    "Windows moved it to {}, but could not prove it is the same entry",
+                    location.display()
+                );
             }
             Ok(serde_json::to_string(&receipt)?)
         })
@@ -679,7 +730,7 @@ impl SystemTrash for PlatformTrash {
             if receipt.stage()?.exists() {
                 let stage = Stage::open(&receipt, false)?;
                 if stage.payload().exists() {
-                    return Ok(identity(&stage.payload())? == receipt.identity);
+                    return receipt.is_entry(&stage.payload());
                 }
             }
             Ok(false)
@@ -731,6 +782,7 @@ mod tests {
             nonce: uuid::Uuid::new_v4(),
             identity: identity(&original).unwrap(),
             parent_identity: identity(root).unwrap(),
+            stamp: None,
             original,
         };
         let stage = Stage::open(&receipt, true).unwrap();
@@ -782,6 +834,7 @@ mod tests {
                 nonce: uuid::Uuid::new_v4(),
                 identity: identity(&original).unwrap(),
                 parent_identity: identity(&root).unwrap(),
+                stamp: None,
                 original,
             };
             let mut child = Command::new(std::env::current_exe().unwrap())
@@ -875,6 +928,7 @@ mod tests {
             nonce: uuid::Uuid::new_v4(),
             identity: identity(&original).unwrap(),
             parent_identity: identity(&root.join("Shoot")).unwrap(),
+            stamp: None,
             original,
         };
         (temp, receipt)
@@ -930,34 +984,62 @@ mod tests {
         assert!(stub.exists());
     }
 
-    /// WQA7 4b: Undo of a Trash left the `$I` stubs in the Recycle Bin.
-    #[test]
-    #[ignore = "Uses only a fresh synthetic file in the system Bin"]
-    fn platform_trash_restore_leaves_no_info_stub_in_the_bin() {
-        let temp = tempfile::tempdir().unwrap();
+    /// Trash and restore of a fresh synthetic file in `directory`: the
+    /// entry comes back with its bytes, the Bin keeps neither its `$R` data
+    /// nor its `$I` stub, and the receipt carries a record stamp exactly
+    /// where the volume keeps no file IDs.
+    fn round_trip_in(directory: &Path) {
+        let temp = tempfile::tempdir_in(directory).unwrap();
         let original = temp
             .path()
             .canonical()
             .unwrap()
             .join("synthetic-stub-probe.txt");
         fs::write(&original, b"synthetic stub photograph").unwrap();
+        let (_, file_system) = entry_facts(&original).unwrap();
         let item = PlatformTrash.trash(&original).unwrap();
+        assert!(!original.exists());
+        let receipt = Receipt::parse(&item).unwrap();
+        assert_eq!(
+            receipt.stamp.is_some(),
+            !super::super::entry_proof::keeps_file_ids(&file_system),
+            "{file_system}"
+        );
         let data = shell_thread(|| {
             let _apartment = Apartment::new()?;
-            item_path(
-                &Receipt::parse(&item)?
-                    .bin_item()?
-                    .context("not in the Bin")?,
-            )
+            item_path(&receipt.bin_item()?.context("not in the Bin")?)
         })
         .unwrap();
         let stub = super::super::recycle_info::info_stub_for(&data).unwrap();
         assert!(stub.exists(), "{}", stub.display());
+        assert!(PlatformTrash.contains(&item));
         PlatformTrash.restore(&item, &original).unwrap();
         assert_eq!(fs::read(&original).unwrap(), b"synthetic stub photograph");
         assert!(!data.exists(), "{}", data.display());
         assert!(!stub.exists(), "{} left behind", stub.display());
         assert!(!PlatformTrash.contains(&item));
+        eprintln!("round trip on {file_system} via {}: PASS", data.display());
+    }
+
+    /// WQA7 4b: Undo of a Trash left the `$I` stubs in the Recycle Bin.
+    #[test]
+    #[ignore = "Uses only a fresh synthetic file in the system Bin"]
+    fn platform_trash_restore_leaves_no_info_stub_in_the_bin() {
+        round_trip_in(&std::env::temp_dir());
+    }
+
+    /// TRS1 (WQA7b): Trash on an exFAT volume failed its identity check.
+    /// Set `RAWTONIC_TEST_TRASH_DIRS` to writable folders on disposable
+    /// volumes with a Recycle Bin, separated by `;` (e.g. an NTFS and an
+    /// exFAT VHDX).
+    #[test]
+    #[ignore = "Requires disposable volumes named in RAWTONIC_TEST_TRASH_DIRS"]
+    fn platform_trash_round_trips_on_each_named_volume() {
+        let directories = std::env::var("RAWTONIC_TEST_TRASH_DIRS")
+            .expect("Set RAWTONIC_TEST_TRASH_DIRS to folders on disposable volumes, `;`-separated");
+        for directory in directories.split(';').filter(|d| !d.is_empty()) {
+            round_trip_in(Path::new(directory));
+        }
     }
 
     #[test]

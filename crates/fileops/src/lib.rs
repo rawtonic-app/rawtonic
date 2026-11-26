@@ -404,6 +404,27 @@ impl std::fmt::Display for UnavailableTrashItem {
 }
 impl std::error::Error for UnavailableTrashItem {}
 
+/// A Trash step whose entry left its place although the system Trash
+/// reported a failure: the operation cannot say that nothing changed.
+#[derive(Debug)]
+struct LeftInTrash;
+impl std::fmt::Display for LeftInTrash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("The item left its folder for the system Trash")
+    }
+}
+impl std::error::Error for LeftInTrash {}
+
+fn left_in_trash(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.is::<LeftInTrash>())
+}
+
+/// Only a proven absence: an unreadable place (drive gone, no access) says
+/// nothing about where the entry is.
+fn proven_absent(path: &Path) -> bool {
+    matches!(fs::symlink_metadata(path), Err(e) if e.kind() == io::ErrorKind::NotFound)
+}
+
 /// A trash that refuses: for callers that only rename.
 pub struct NoSystemTrash;
 
@@ -507,9 +528,14 @@ impl Journal {
                 .as_deref()
                 .and_then(|n| n.split_once("; could not reverse every step: "))
                 .map(|(_, kept)| format!("Not everything was put back: {kept}"));
-            return Err(error
-                .context(kept.unwrap_or_else(|| "Nothing was changed".into()))
-                .into());
+            let headline = kept.unwrap_or_else(|| {
+                if left_in_trash(&error) {
+                    "Not everything was put back".into()
+                } else {
+                    "Nothing was changed".into()
+                }
+            });
+            return Err(error.context(headline).into());
         }
         if payload.has_copies() {
             self.store_clearing_redo(&id, State::Finishing, &payload)?;
@@ -1153,9 +1179,12 @@ impl Journal {
             let mut kept = keep_published_folders(&mut payload, Direction::Forward);
             kept.extend(keep_in_place(&mut payload, Direction::Forward));
             self.store_keeping_sync(id, State::Undone, &payload)?;
-            return Err(error
-                .context(rolled_back("Nothing was redone", &kept))
-                .into());
+            let nothing = if left_in_trash(&error) {
+                "Not everything was put back"
+            } else {
+                "Nothing was redone"
+            };
+            return Err(error.context(rolled_back(nothing, &kept)).into());
         }
         if payload.has_copies() {
             let tx = self.conn.unchecked_transaction()?;
@@ -2068,13 +2097,22 @@ fn apply(step: &mut Step, trash: &dyn SystemTrash, note: NoteClaim) -> Result<()
     match &mut step.to {
         Target::Path { path } => rename_noting(&step.from, path, note)
             .with_context(|| format!("Cannot move {} to {}", step.from.display(), path.display())),
-        Target::SystemTrash { item } => {
-            *item =
-                Some(trash.trash(&step.from).with_context(|| {
-                    format!("Cannot move {} to the Trash", step.from.display())
-                })?);
-            Ok(())
-        }
+        Target::SystemTrash { item } => match trash.trash(&step.from) {
+            Ok(trashed) => {
+                *item = Some(trashed);
+                Ok(())
+            }
+            // The Trash took it but could not prove where: never claim
+            // that nothing changed while the entry has left its folder.
+            Err(e) if proven_absent(&step.from) => {
+                Err(anyhow::Error::new(LeftInTrash).context(format!(
+                    "{} went to the Trash, which could not confirm it ({e:#}); \
+                     put it back from there to undo",
+                    step.from.display()
+                )))
+            }
+            Err(e) => Err(e.context(format!("Cannot move {} to the Trash", step.from.display()))),
+        },
         Target::OtherVolume { .. } => publish(step, Direction::Forward),
     }
 }

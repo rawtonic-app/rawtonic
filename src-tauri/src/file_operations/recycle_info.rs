@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! The Windows Recycle Bin keeps each recycled entry as two files in
-//! `<drive>\$Recycle.Bin\<SID>\`: the data `$R<id><ext>` and its info stub
+//! `<drive>\$Recycle.Bin\<SID>\` (on FAT-family volumes such as exFAT
+//! directly in `<drive>\$Recycle.Bin\`, WQA7b): the data `$R<id><ext>` and its info stub
 //! `$I<id><ext>` (original path, size, deletion time). Moving the `$R` entry
 //! out of the Bin (as a staged restore does) leaves the `$I` stub behind,
 //! invisible to the user but never cleaned up. These pure helpers name the
@@ -18,20 +19,25 @@ const V1_LEN: usize = 24 + 520;
 pub(super) const MAX_STUB_LEN: u64 = 28 + 2 * 32_768;
 
 /// The `$I` info stub belonging to the Bin entry `data` (`$R…` directly in
-/// a per-user folder of a `$Recycle.Bin`), or `None` when `data` is no such
-/// entry.
+/// a per-user folder of a `$Recycle.Bin`, or in the `$Recycle.Bin` itself
+/// as on exFAT and FAT32), or `None` when `data` is no such entry.
 pub(super) fn info_stub_for(data: &Path) -> Option<PathBuf> {
     let name = data.file_name()?.to_str()?;
     let rest = name.strip_prefix("$R")?;
     if rest.is_empty() || rest.contains(['\\', '/']) {
         return None;
     }
-    let user_folder = data.parent()?;
-    let bin = user_folder.parent()?.file_name()?.to_str()?;
-    if !bin.eq_ignore_ascii_case("$Recycle.Bin") || user_folder.file_name().is_none() {
+    let is_bin = |folder: &Path| {
+        folder
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case("$Recycle.Bin"))
+    };
+    let folder = data.parent()?;
+    if !is_bin(folder) && !folder.parent().is_some_and(is_bin) {
         return None;
     }
-    Some(user_folder.join(format!("$I{rest}")))
+    Some(folder.join(format!("$I{rest}")))
 }
 
 /// What an info stub records: the entry's original size and path.
@@ -137,6 +143,15 @@ mod tests {
         );
     }
 
+    /// exFAT and FAT32 volumes keep no per-user folders: WQA7b found
+    /// `S:\$Recycle.Bin\$R…` and its `$I…` directly in the Bin.
+    #[test]
+    fn on_exfat_the_stub_sits_directly_in_the_bin() {
+        let data: PathBuf = ["S:\\", "$Recycle.Bin", "$R7QK2ZD.srw"].iter().collect();
+        let stub: PathBuf = ["S:\\", "$Recycle.Bin", "$I7QK2ZD.srw"].iter().collect();
+        assert_eq!(info_stub_for(&data), Some(stub));
+    }
+
     #[test]
     fn nothing_outside_a_bin_or_not_a_data_entry_has_a_stub() {
         for path in [
@@ -144,7 +159,7 @@ mod tests {
             bin("photo.NEF"),
             bin("$R"),
             ["C:\\", "Photos", "S-1", "$R19PIPG.NEF"].iter().collect(),
-            ["C:\\", "$Recycle.Bin", "$R19PIPG.NEF"].iter().collect(),
+            ["C:\\", "Photos", "$R19PIPG.NEF"].iter().collect(),
             PathBuf::from("$R19PIPG.NEF"),
         ] {
             assert_eq!(info_stub_for(&path), None, "{}", path.display());
