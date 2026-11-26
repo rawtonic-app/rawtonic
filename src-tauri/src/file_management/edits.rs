@@ -87,7 +87,8 @@ fn save_metadata_blocking(
     let (source_path, sidecar_path) = parse_virtual_path(path);
 
     let turn = sidecar_field_edit();
-    let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
+    let (mut metadata, own_exif) =
+        crate::exif_processing::load_sidecar_with_own_exif(&sidecar_path, &source_path);
 
     let mut final_adjustments = adjustments;
     {
@@ -113,6 +114,7 @@ fn save_metadata_blocking(
         camera_crop_known,
     );
     metadata.adjustments = final_adjustments;
+    let metadata = crate::exif_processing::without_read_exif(metadata, own_exif);
 
     let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json_string)
