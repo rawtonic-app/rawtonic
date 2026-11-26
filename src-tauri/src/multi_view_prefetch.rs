@@ -675,6 +675,35 @@ pub(crate) fn busy() -> bool {
         || crate::multi_view::live_pending()
 }
 
+/// Whether the full-resolution decodes and the open photograph's frames
+/// have settled for `quiet` (`ai_ahead`: AI work made ahead starts after
+/// them, G74/MEM18): nothing [`busy`], no background decode of the multi
+/// view or of the step prefetch (`proxy_worker`) under way or still to
+/// come, no decode held for its 1:1 preview still to be written, and
+/// `quiet` since the primary's last decode or frame ended. Asking between
+/// two background decodes, an AI run started in the gap and the next decode
+/// beside it (MEM18: 8.6 GB on a Mac); one started beside the 1:1 previews
+/// written from held decodes reached 9.2 GB.
+pub(crate) fn decodes_settled(quiet: Duration) -> bool {
+    !busy()
+        && WORKER.get().is_none_or(|worker| {
+            !worker.decoding.load(Ordering::SeqCst)
+                && worker
+                    .queue
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .todo
+                    .is_empty()
+        })
+        && HELD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .all(|held| held.written)
+        && !crate::proxy_worker::prefetch_pending()
+        && since(&LAST_PRIMARY_WORK) >= quiet
+}
+
 fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
     WORKER
         .get_or_init(|| {
@@ -991,7 +1020,10 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
             loop {
                 if let Some(step) = next_step(&mut queue) {
                     let quiet = since_activity();
-                    let busy = busy();
+                    // An AI run made ahead holds the next decode or 1:1
+                    // preview (it was started with the memory free then;
+                    // `ai_ahead`).
+                    let busy = busy() || crate::ai_ahead::running();
                     // Critical only: a Mac with Capture One and Lightroom
                     // open beside it sat at the warning level for minutes.
                     let short_of_memory = crate::memory_pressure::level_now()

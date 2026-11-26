@@ -12,6 +12,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 include!(concat!(env!("OUT_DIR"), "/windows-test-resources.rs"));
 
 mod adjustment_utils;
+mod ai_ahead;
 mod ai_commands;
 mod ai_denoise;
 mod ai_faces;
@@ -1132,6 +1133,7 @@ fn start(args: Vec<String>) {
             ai_commands::precompute_ai_subject_mask,
             ai_commands::precompute_ai_foreground_mask,
             ai_commands::precompute_ai_sky_mask,
+            ai_commands::admit_ai_ahead_work,
             super_resolution::prepare_super_resolution,
             ai_commands::preload_ai_mask_models,
             ai_commands::warm_up_ai_mask_models,

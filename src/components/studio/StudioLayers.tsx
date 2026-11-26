@@ -21,7 +21,7 @@ import { useProcessStore } from '../../store/useProcessStore';
 import { useUIStore } from '../../store/useUIStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
-import { openMaskingTools } from '../../hooks/useAiMasking';
+import { openMaskingTools, pointAtMaskingTools } from '../../hooks/useAiMasking';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { formatKeyCode, shortcutHint } from '../../utils/keyboardUtils';
 import { OPTION_SEPARATOR, Panel } from '../ui/AppProperties';
@@ -91,7 +91,7 @@ export function NewLayerButton() {
       disabled={!ready}
       // Pointing at it starts Subject and Sky in the background, so the
       // automatic selections are ready when picked.
-      onPointerEnter={() => openMaskingTools()}
+      onPointerEnter={() => pointAtMaskingTools()}
       onClick={(e) => {
         e.preventDefault();
         openMaskingTools();
@@ -154,8 +154,8 @@ function QuickLayerBar() {
             className="studio-layer-quick-group"
             // Pointing at the selections starts Subject and Sky in the
             // background, as the grid and the "+" do.
-            onPointerEnter={group === 'select' ? () => openMaskingTools() : undefined}
-            onFocus={group === 'select' ? () => openMaskingTools() : undefined}
+            onPointerEnter={group === 'select' ? () => pointAtMaskingTools() : undefined}
+            onFocus={group === 'select' ? () => pointAtMaskingTools() : undefined}
           >
             {kinds.map((kind) => {
               const Icon = MASK_KIND_ICONS[kind];
@@ -189,8 +189,8 @@ function NewLayerGrid() {
           aria-labelledby={`studio-layer-grid-${group}`}
           // Pointing at the selections starts Subject and Sky in the
           // background (instant Subject/Background/Sky).
-          onPointerEnter={group === 'select' ? () => openMaskingTools() : undefined}
-          onFocus={group === 'select' ? () => openMaskingTools() : undefined}
+          onPointerEnter={group === 'select' ? () => pointAtMaskingTools() : undefined}
+          onFocus={group === 'select' ? () => pointAtMaskingTools() : undefined}
         >
           <p className="studio-layer-grid-caption" id={`studio-layer-grid-${group}`}>
             {t(`studio.develop.layers.groups.${group}`)}

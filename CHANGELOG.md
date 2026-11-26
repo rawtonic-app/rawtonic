@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Opening Develop no longer stacks the background Subject, Sky and object-mask work on the full-resolution decodes of large RAWs. That work, and loading its AI models, now starts only after the photos have decoded, and only when there is memory for it; otherwise it is left for your click. Opening the masking tools or clicking Subject still starts at once. On a 14 GB laptop with AI on the processor, opening four 24–50 MP RAWs had taken Rawtonic to 6–7 GB.
+
 - Headless export accepts `--super-resolution-quality fast|full` to enlarge photos 2×. The desktop binary fetches missing Super Resolution models as the Export dialog does. The standalone CLI tells you how to install them when they are missing.
 
 - Press Shift+L or use View → Dim Surroundings to dim or black out the interface around the photo in Develop and Library loupe. Escape restores the surroundings. Choose a background color in Preferences or by right-clicking beside the photo.
