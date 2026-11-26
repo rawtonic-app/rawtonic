@@ -26,6 +26,7 @@ import {
   AI_WARM_UP_DELAY_MS,
   objectSelectionBusy,
   openMaskingTools,
+  pointAtMaskingTools,
   resetAiMaskSession,
   useAiMasking,
   useAiModelLifecycle
@@ -1250,6 +1251,77 @@ describe('Subject computed ahead when the masking tools open', () => {
     await waitFor(() => expect(calls('precompute_ai_foreground_mask')).toHaveLength(2));
     expect(calls('cancel_ai_task')).toEqual([['cancel_ai_task', { taskId: first.taskId }]]);
     expect((calls('precompute_ai_foreground_mask')[1][1] as { path: string }).path).toBe('/s/b.NEF');
+  });
+
+  it('asks for the masks of the photo the tools open on, and makes those of the next photo ahead', async () => {
+    invoke.mockResolvedValue(null);
+    photo('/s/a.NEF');
+    renderHook(() => useAiMasking());
+    act(() => useUIStore.setState({ activePanel: Panel.Masks }));
+    await waitFor(() => expect(calls('precompute_ai_subject_mask')).toHaveLength(1));
+    // Opened by the photographer: nothing waits for the decodes or memory.
+    for (const command of ['precompute_ai_foreground_mask', 'precompute_ai_sky_mask', 'precompute_ai_subject_mask']) {
+      expect((calls(command)[0][1] as { asked: boolean }).asked).toBe(true);
+    }
+    // The next photo while the tools stay open: made ahead (G74/MEM18).
+    act(() => photo('/s/b.NEF'));
+    await waitFor(() => expect(calls('precompute_ai_subject_mask')).toHaveLength(2));
+    for (const command of ['precompute_ai_foreground_mask', 'precompute_ai_sky_mask', 'precompute_ai_subject_mask']) {
+      expect((calls(command)[1][1] as { asked: boolean; path: string }).asked).toBe(false);
+      expect((calls(command)[1][1] as { path: string }).path).toBe('/s/b.NEF');
+    }
+  });
+
+  it('starts masks waiting as work made ahead once the tools are opened', async () => {
+    invoke.mockImplementation((command: string) =>
+      command === 'precompute_ai_foreground_mask' ? new Promise(() => {}) : Promise.resolve(null)
+    );
+    photo('/s/a.NEF');
+    renderHook(() => useAiMasking());
+    pointAtMaskingTools();
+    expect(calls('precompute_ai_foreground_mask')).toHaveLength(1);
+    expect((calls('precompute_ai_foreground_mask')[0][1] as { asked: boolean }).asked).toBe(false);
+    expect(calls('admit_ai_ahead_work')).toHaveLength(0);
+    // Opening the tools: the run waiting in the backend starts, no second run.
+    openMaskingTools();
+    openMaskingTools();
+    expect(calls('precompute_ai_foreground_mask')).toHaveLength(1);
+    expect(calls('admit_ai_ahead_work')).toEqual([
+      ['admit_ai_ahead_work', { taskId: (calls('precompute_ai_foreground_mask')[0][1] as { taskId: string }).taskId }]
+    ]);
+  });
+
+  it('goes on to Sky when Subject is unavailable (its model not installed)', async () => {
+    invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === 'precompute_ai_foreground_mask' ? 'unavailable' : 'ready')
+    );
+    photo('/s/a.NEF');
+    renderHook(() => useAiMasking());
+    pointAtMaskingTools();
+    await waitFor(() => expect(calls('precompute_ai_subject_mask')).toHaveLength(1));
+    expect(calls('precompute_ai_sky_mask')).toHaveLength(1);
+    // Nothing to ask for again: the same photo is not run twice.
+    openMaskingTools();
+    expect(calls('precompute_ai_foreground_mask')).toHaveLength(1);
+  });
+
+  it('asks again when the tools open after the backend dropped a mask made ahead', async () => {
+    // Held too long for the decodes or memory: the backend answers 'dropped'.
+    invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === 'precompute_ai_foreground_mask' ? 'dropped' : null)
+    );
+    photo('/s/a.NEF');
+    renderHook(() => useAiMasking());
+    pointAtMaskingTools();
+    await wait(20);
+    expect(calls('precompute_ai_foreground_mask')).toHaveLength(1);
+    // Sky and the object encoding are left too.
+    expect(calls('precompute_ai_sky_mask')).toHaveLength(0);
+    expect(calls('precompute_ai_subject_mask')).toHaveLength(0);
+    // Opening the tools asks for it again, at once.
+    openMaskingTools();
+    expect(calls('precompute_ai_foreground_mask')).toHaveLength(2);
+    expect((calls('precompute_ai_foreground_mask')[1][1] as { asked: boolean }).asked).toBe(true);
   });
 
   it('cancels the object-mask encoding ahead when the photo changes', async () => {

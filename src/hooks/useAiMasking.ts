@@ -44,8 +44,15 @@ const retouchBasis = (a: Adjustments) => {
 
 /** The Subject and Sky masks computed ahead (`precompute_ai_foreground_mask`,
  * then `precompute_ai_sky_mask`): the photo and geometry asked for, the task
- * that runs now, and whether the run is still going. */
-let maskPrecompute: { key: string; taskId: string; running: boolean; cancelled: boolean } | null = null;
+ * that runs now, whether the run is still going, and whether the
+ * photographer asked for it by opening the masking tools (`asked`: the
+ * backend starts it at once instead of after the decodes and with memory to
+ * spare, `ai_ahead`). */
+let maskPrecompute: { key: string; taskId: string; running: boolean; cancelled: boolean; asked: boolean } | null = null;
+
+/** What a mask made ahead came to (`precompute_ai_foreground_mask`,
+ * `precompute_ai_sky_mask`). */
+type AheadMask = 'ready' | 'unavailable' | 'dropped';
 
 /** What an Object selection request checks it still stands on: whether
  * the component is there, its mask, its prompts and a recipe's one box. */
@@ -236,9 +243,12 @@ export function resetAiMaskSession() {
  * moment). Loads the models if they are not loaded; only
  * with the models already installed. The backend caches the masks per photo
  * and geometry, and a click during a run waits for it. Not masking use by
- * itself (see `openMaskingTools`).
+ * itself (see `openMaskingTools`). `asked`: the photographer opened the
+ * masking tools, so nothing waits for the decodes or for memory (made ahead,
+ * the backend starts it only after the photo's full-resolution decodes and
+ * with memory for its peak; G74/MEM18).
  */
-export function precomputeAiMasks() {
+export function precomputeAiMasks(asked = false) {
   const { selectedImage, adjustments } = useEditorStore.getState();
   if (!selectedImage?.path || !selectedImage.isReady) {
     console.info('AI masks: not requested ahead, the photo is not ready');
@@ -248,24 +258,53 @@ export function precomputeAiMasks() {
   const path = selectedImage.path;
   const key = `${path}\n${JSON.stringify(jsAdjustments)}`;
   if (maskPrecompute?.key === key) {
+    // Asked for now while it waits as work made ahead: it starts at once.
+    if (asked && !maskPrecompute.asked && maskPrecompute.running) {
+      maskPrecompute.asked = true;
+      invoke(Invokes.AdmitAiAheadWork, { taskId: maskPrecompute.taskId }).catch((err) =>
+        console.error('Failed to start the masks made ahead:', err)
+      );
+    }
     console.info('AI masks: not requested ahead again, already requested for this photo and geometry');
     return;
   }
   cancelAiMaskPrecompute();
-  const run = { key, taskId: `subject-precompute-${crypto.randomUUID()}`, running: true, cancelled: false };
+  const run = {
+    key,
+    taskId: `subject-precompute-${crypto.randomUUID()}`,
+    running: true,
+    cancelled: false,
+    asked
+  };
   maskPrecompute = run;
   let failed = false;
-  invoke(Invokes.PrecomputeAiForegroundMask, { jsAdjustments, path, taskId: run.taskId })
+  // The backend answers 'dropped' when it did not compute the mask for now
+  // (made ahead, it was held too long for the photo's decodes or memory):
+  // the later stages are left too, and the run may be asked for again
+  // (opening the masking tools then asks for all of it). 'unavailable' (its
+  // model is not installed, the photo changed) goes on with the next stage.
+  let dropped = false;
+  invoke<AheadMask>(Invokes.PrecomputeAiForegroundMask, { jsAdjustments, path, taskId: run.taskId, asked: run.asked })
+    .then((done) => {
+      if (done === 'dropped') dropped = true;
+    })
     .catch((err) => {
       console.error('Failed to precompute the subject mask:', err);
       failed = true;
     })
     .then(() => {
-      if (run.cancelled) return;
+      if (run.cancelled || dropped) return;
       // Subject ran for a photo that stayed open: the models are warm.
       firstPhotoOfVisit = false;
       run.taskId = `sky-precompute-${crypto.randomUUID()}`;
-      return invoke(Invokes.PrecomputeAiSkyMask, { jsAdjustments, path, taskId: run.taskId });
+      return invoke<AheadMask>(Invokes.PrecomputeAiSkyMask, {
+        jsAdjustments,
+        path,
+        taskId: run.taskId,
+        asked: run.asked
+      }).then((done) => {
+        if (done === 'dropped') dropped = true;
+      });
     })
     .catch((err) => {
       console.error('Failed to precompute the sky mask:', err);
@@ -274,24 +313,38 @@ export function precomputeAiMasks() {
     // SAM's encoding for object masks last: run beside Subject, the three
     // models' working memory added up (an app peak of about 10 GB on Core ML).
     .then(() => {
-      if (run.cancelled) return;
+      if (run.cancelled || dropped) return;
       run.taskId = `sam-precompute-${crypto.randomUUID()}`;
-      return invoke(Invokes.PrecomputeAiSubjectMask, { jsAdjustments, path, background: true, taskId: run.taskId });
+      return invoke(Invokes.PrecomputeAiSubjectMask, {
+        jsAdjustments,
+        path,
+        background: true,
+        taskId: run.taskId,
+        asked: run.asked
+      });
     })
     .catch((err) => console.error('Failed to precompute the object mask encoding:', err))
     .finally(() => {
       run.running = false;
-      // A failed run may be asked for again.
-      if (failed && maskPrecompute === run) maskPrecompute = null;
+      // A failed or dropped run may be asked for again.
+      if ((failed || dropped) && maskPrecompute === run) maskPrecompute = null;
     });
 }
 
-/** The masking tools are opened or pointed at (the Layers tab, the layer
- * panel's selection buttons, a component menu): masking use, and the masks
- * computed ahead. */
+/** The masking tools are opened (the Layers tab, the layer panel's
+ * selection buttons, a component menu): masking use, and the masks
+ * computed at once (asked for: nothing waits for the decodes or memory). */
 export function openMaskingTools() {
   noteMaskingToolsUsed();
-  precomputeAiMasks();
+  precomputeAiMasks(true);
+}
+
+/** The masking tools are pointed at (hover, focus) or open as a photo
+ * opens: masking use, and the masks computed ahead (after the photo's
+ * decodes, with memory to spare). */
+export function pointAtMaskingTools() {
+  noteMaskingToolsUsed();
+  precomputeAiMasks(false);
 }
 
 /** Stops the background Subject/Sky run (the photo changed). */
@@ -1076,6 +1129,12 @@ export function useAiMasking() {
   // the models; the backend drops them after minutes without use, in the
   // Library and under memory pressure). They stop when the photo changes.
   const masksPanelOpen = useUIStore((s) => s.activePanel === Panel.Masks);
+  // The photo the masking tools were opened on: its masks are asked for;
+  // a photo opened while they stay open gets them made ahead.
+  const masksPanelOpenedFor = useRef<string | null>(null);
+  useEffect(() => {
+    masksPanelOpenedFor.current = masksPanelOpen ? (useEditorStore.getState().selectedImage?.path ?? null) : null;
+  }, [masksPanelOpen]);
   useEffect(() => {
     if (!selectedImageReady || !selectedImagePathKey) {
       if (masksPanelOpen || computeAheadOnOpen()) {
@@ -1084,7 +1143,8 @@ export function useAiMasking() {
       return;
     }
     if (masksPanelOpen) {
-      openMaskingTools();
+      if (masksPanelOpenedFor.current === selectedImagePathKey) openMaskingTools();
+      else pointAtMaskingTools();
       return;
     }
     if (maskingUsedRecently()) {

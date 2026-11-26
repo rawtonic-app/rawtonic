@@ -180,6 +180,14 @@ New Rust workspace crates isolate data and file safety.
   version (schema 31: `imported_recipes`, digests of the other editor's settings, of the recipe made of them and of the
   recipe as stored), `imported_recipe`, `record_imported_recipe`: a repeated import updates only an edit still as the last
   import left it (one Undo step); one changed here is kept and changed settings there come as a new virtual copy (C1RI1).
+- `sensor_kind`: the sensor layout (Bayer / X-Trans) the latest read of the RAW's own bytes verified, in
+  `sensor_kinds` (schema 38) with the fingerprint of the file read; `record_sensor_kind` replaces it with each verified
+  read (also of a file changed in place), `forget_sensor_kind` drops it when an unknown read is of another file, a
+  trigger drops it when the registered size, time or fingerprint changes, and a relink to a file found by the
+  registered fingerprint (Locate Photo, relink folder, Synchronize Folder moves) drops one read from another file
+  (renames and moves in Rawtonic keep it); an unknown read is never stored. Only
+  Develop's AI Denoise controls use it while the original is offline (`ai_denoise::raw_sensor_kind`); renders and
+  exports read the sensor from the file.
 - `duplicates` + `image_hash`: Find Duplicates stage 1 — a hash of each photograph's image data as its file stores it
   (TIFF-based RAWs: the IFD with the most strip/tile bytes; RAF: the CFA section; ISO media/CR3: the largest track's
   samples; JPEG: all but APPn/COM segments; PNG: IHDR/PLTE/tRNS/IDAT; else the whole file, marked `file`), recorded in

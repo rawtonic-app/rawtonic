@@ -1606,6 +1606,12 @@ pub async fn load_image(
             measures,
         },
     )?;
+    // Develop's memory at its stages, for runs on small machines (G74/MEM18;
+    // the AI work made ahead logs its own, `ai_ahead`).
+    log::info!(
+        "Develop memory: full-resolution decode of {path} ({orig_width}x{orig_height}) done; {}",
+        crate::memory_pressure::memory_line()
+    );
     // The full decode replaces the proxy; keep (or make) the proxy on disk
     // for the next time, at the size the viewer needs (from an undenoised
     // decode only: the proxy stands for the photograph without AI Denoise).

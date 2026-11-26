@@ -527,6 +527,17 @@ pub(crate) fn decoding_ahead(key: &str) -> bool {
         == Some(key)
 }
 
+/// Whether a prefetch decode is under way
+/// (`multi_view_prefetch::background_under_way`).
+pub(crate) fn prefetch_decoding() -> bool {
+    UNDER_WAY
+        .0
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .key
+        .is_some()
+}
+
 /// Waits up to `wait` while the prefetch decode of decoded-cache key `key`
 /// is under way (and its preview base built ahead, `decode`). Neither takes
 /// nor asks for it: kept ahead, it is then shared (`kept_decode`).
@@ -668,10 +679,13 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
         let job = {
             let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
             loop {
-                let start = worker.prefetch_gate.start(
-                    crate::multi_view_prefetch::step_prefetch_wait,
-                    crate::multi_view_prefetch::busy,
-                );
+                // An AI run made ahead holds the next decode too (it was
+                // started with the memory free then; `ai_ahead`).
+                let start = worker
+                    .prefetch_gate
+                    .start(crate::multi_view_prefetch::step_prefetch_wait, || {
+                        crate::multi_view_prefetch::busy() || crate::ai_ahead::running()
+                    });
                 if let Some(job) = queue.next(start.is_some()) {
                     let keep = matches!(&job, Job::Prefetch(path) if queue.keeps_decode(path));
                     break (job, queue.prefetch_generation, start, keep);

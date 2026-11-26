@@ -1020,6 +1020,7 @@ impl Library {
             }
             // Also drops external roots left without photographs.
             self.apply_places(&tx, &places)?;
+            crate::sensor_kind::forget_reads_of_other_files(&tx, places.iter().map(|(id, _)| id))?;
             crate::prune_blobs(&tx)?;
             tx.commit()?;
             applied.moved = moves.into_iter().map(|(_, from, to)| (from, to)).collect();

@@ -101,6 +101,27 @@ pub fn work_headroom() -> Option<u64> {
     Some(headroom(total, system.available_memory(), own))
 }
 
+/// The memory now for the app log (G74/MEM18: Develop's stages and the AI
+/// work made ahead): "app X MB, Y MB available of Z MB, W MB free for work
+/// that may wait" (`work_headroom`).
+pub fn memory_line() -> String {
+    let mut system = sysinfo::System::new();
+    system.refresh_memory();
+    let (total, available) = (system.total_memory(), system.available_memory());
+    let own = app_memory(&mut system);
+    let mb = |bytes: u64| bytes / 1_000_000;
+    let app = own.map_or_else(|| "unknown".to_string(), |own| format!("{} MB", mb(own)));
+    if total == 0 {
+        return format!("app {app}, system memory unknown");
+    }
+    format!(
+        "app {app}, {} MB available of {} MB, {} MB free for work that may wait",
+        mb(available),
+        mb(total),
+        mb(headroom(total, available, own))
+    )
+}
+
 /// `work_headroom` from the physical memory `total`, the memory the system
 /// has `available` and the app's own (`own`, None when unknown).
 fn headroom(total: u64, available: u64, own: Option<u64>) -> u64 {

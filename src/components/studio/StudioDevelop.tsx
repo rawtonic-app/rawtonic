@@ -1119,7 +1119,10 @@ export default function StudioDevelop() {
   const aiDenoiseDefault = useAiDenoiseDefaultQuality(selectedImage?.path);
   const offline = Boolean(selectedImage?.offline);
   const sensor = useRawSensorKind(selectedImage?.path, selectedImage?.isRaw, offline);
-  const sensorDeferred = offline && (sensor === 'unknown' || sensor === null);
+  // Offline, the session or catalog answers with the kind it remembered;
+  // until it has, AI Denoise waits (a move now could keep a version the
+  // remembered sensor would change).
+  const sensorDeferred = offline && sensor === 'unknown';
   const aiDenoiseEditable = sensor === 'bayer' || sensor === 'xTrans' || sensorDeferred;
   const change = (patch: Partial<Adjustments>) =>
     selectedImage?.isReady &&

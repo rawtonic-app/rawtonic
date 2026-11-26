@@ -135,6 +135,8 @@ struct Worker {
     cancel: Arc<AtomicUsize>,
     /// The decode under way, if any.
     decoding: AtomicBool,
+    /// A 1:1 preview being written from a held decode.
+    writing: AtomicBool,
 }
 
 static WORKER: OnceLock<Arc<Worker>> = OnceLock::new();
@@ -675,6 +677,24 @@ pub(crate) fn busy() -> bool {
         || crate::multi_view::live_pending()
 }
 
+/// Whether the open photograph's full decode and its frames have settled
+/// for `quiet` (`ai_ahead`: AI work made ahead starts after them,
+/// G74/MEM18): nothing [`busy`], and `quiet` since the primary's last
+/// decode or frame ended.
+pub(crate) fn primary_settled(quiet: Duration) -> bool {
+    !busy() && since(&LAST_PRIMARY_WORK) >= quiet
+}
+
+/// How many background workers have a decode or 1:1 preview write under
+/// way: the multi view's (one step at a time) and the step prefetch's
+/// (`proxy_worker`); `ai_ahead` counts the memory of each.
+pub(crate) fn background_under_way() -> u64 {
+    let multi_view = WORKER.get().is_some_and(|worker| {
+        worker.decoding.load(Ordering::SeqCst) || worker.writing.load(Ordering::SeqCst)
+    });
+    u64::from(multi_view) + u64::from(crate::proxy_worker::prefetch_decoding())
+}
+
 fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
     WORKER
         .get_or_init(|| {
@@ -683,6 +703,7 @@ fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
                 wake: Condvar::new(),
                 cancel: Arc::new(AtomicUsize::new(0)),
                 decoding: AtomicBool::new(false),
+                writing: AtomicBool::new(false),
             });
             let shared = Arc::clone(&worker);
             let app_handle = app_handle.clone();
@@ -991,7 +1012,10 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
             loop {
                 if let Some(step) = next_step(&mut queue) {
                     let quiet = since_activity();
-                    let busy = busy();
+                    // An AI run made ahead holds the next decode or 1:1
+                    // preview (it was started with the memory free then;
+                    // `ai_ahead`).
+                    let busy = busy() || crate::ai_ahead::running();
                     // Critical only: a Mac with Capture One and Lightroom
                     // open beside it sat at the warning level for minutes.
                     let short_of_memory = crate::memory_pressure::level_now()
@@ -1149,7 +1173,9 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                 let Some((key, oldest)) = oldest else {
                     continue;
                 };
+                worker.writing.store(true, Ordering::SeqCst);
                 write_pool.install(|| write(app_handle, &oldest));
+                worker.writing.store(false, Ordering::SeqCst);
                 let Written { path, image, .. } = oldest;
                 let trimmed = {
                     let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
@@ -1423,6 +1449,7 @@ pub(crate) mod tests {
                     wake: Condvar::new(),
                     cancel: Arc::new(AtomicUsize::new(0)),
                     decoding: AtomicBool::new(true),
+                    writing: AtomicBool::new(false),
                 })
             })
             .clone()
