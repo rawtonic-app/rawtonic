@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- The sidecar files beside a photo now change only when you edit it. Before, a rated photo added to a catalog where it is got about 12 KB of camera data written into its `.rrdata` file, and selecting it again or opening it after an undone Move wrote its full edit into the `.rrdata` and `.xmp` files (about 23 KB) without any change.
+- A rated photo's `.rrdata` and `.xmp` files beside it no longer grow without an edit. Before, reading the photo's camera data stored about 3–12 KB of it in its `.rrdata` file, and selecting the open photo again or opening it after an undone Move saved its full unchanged edit into the `.rrdata` and `.xmp` files (about 23 KB).
 - Windows: undoing a Move to Trash now also removes the Recycle Bin's hidden information file of each restored photo. Before, one stayed behind for every photo put back, invisible in the Recycle Bin.
 
 - Headless export accepts `--super-resolution-quality fast|full` to enlarge photos 2×. The desktop binary fetches missing Super Resolution models as the Export dialog does. The standalone CLI tells you how to install them when they are missing.
