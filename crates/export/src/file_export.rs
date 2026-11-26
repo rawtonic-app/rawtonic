@@ -79,17 +79,22 @@ pub struct FileExport<'a> {
 /// outside any session folder carries (a catalog keeps its photographs
 /// anywhere, so the CLI cannot find the catalog from the photograph).
 pub fn sidecar_capture(source: &Path) -> Option<crate::exif_processing::CaptureFields> {
-    let (shown, own) = sidecar_shown_exif(source)?;
+    let (state, own) = sidecar_exif_maps(source)?;
+    let base = state.exif.unwrap_or_else(|| own.clone());
+    let shown = match &state.exif_overrides {
+        Some(overrides) => crate::exif_processing::with_exif_overrides(overrides, &base),
+        None => base,
+    };
     crate::exif_processing::capture_edit(&shown, &own)
 }
 
-/// What the `.rrdata` beside `source` shows of its EXIF (its own overrides,
-/// or an older copy of the read map, `with_exif_overrides`) and the file's
-/// own EXIF; None without either in the sidecar, or an unreadable file.
-fn sidecar_shown_exif(
+/// The EXIF maps of the `.rrdata` beside `source` (its older copy of the
+/// read map, its own overrides) and the file's own EXIF; None without
+/// either in the sidecar, or an unreadable file.
+fn sidecar_exif_maps(
     source: &Path,
 ) -> Option<(
-    crate::export_processing::ExifMap,
+    rawtonic_engine::image_processing::ImageMetadata,
     crate::export_processing::ExifMap,
 )> {
     let sidecar = crate::exif_processing::get_primary_sidecar_path(source);
@@ -100,24 +105,23 @@ fn sidecar_shown_exif(
     }
     let bytes = fs::read(source).ok()?;
     let own = read_exif_data_from_bytes(&source.to_string_lossy(), &bytes);
-    let base = state.exif.unwrap_or_else(|| own.clone());
-    let shown = match &state.exif_overrides {
-        Some(overrides) => crate::exif_processing::with_exif_overrides(overrides, &base),
-        None => base,
-    };
-    Some((shown, own))
+    Some((state, own))
 }
 
 /// What the user changed of the source's EXIF, as the app's export reads
-/// it: the text fields edited in the sidecar beside it (`exif_edits`
-/// against the file's own), with a corrected capture time marked on it.
-/// `None` without either; the export reads every other field from the file.
+/// it: the edits the sidecar beside it holds (`exif_edits_of` against the
+/// file's own), with a corrected capture time marked on it. `None` without
+/// either; the export reads every other field from the file.
 fn source_exif(
     source: &Path,
     capture: Option<&crate::exif_processing::CaptureFields>,
 ) -> Option<crate::export_processing::ExifMap> {
-    let mut map = match sidecar_shown_exif(source) {
-        Some((shown, own)) => crate::exif_processing::exif_edits(&shown, &own),
+    let mut map = match sidecar_exif_maps(source) {
+        Some((state, own)) => crate::exif_processing::exif_edits_of(
+            state.exif.as_ref(),
+            state.exif_overrides.as_ref(),
+            &own,
+        ),
         None => Default::default(),
     };
     if let Some(fields) = capture {

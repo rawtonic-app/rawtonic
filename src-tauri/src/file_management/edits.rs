@@ -4160,6 +4160,13 @@ mod tests {
         let shown = crate::exif_processing::read_rrexif_sidecar(&raw).unwrap();
         assert_eq!(shown["ImageDescription"], caption);
         assert_eq!(shown["UserComment"], "...");
+        // An export embeds them as typed.
+        let pinned =
+            crate::export_processing::pin_photos(std::slice::from_ref(&path), None, None, None)
+                .unwrap();
+        let edits = pinned[0].exif(&raw).unwrap();
+        assert_eq!(edits["ImageDescription"], caption);
+        assert_eq!(edits["UserComment"], "...");
 
         let sidecar = crate::exif_processing::get_primary_sidecar_path(&raw);
         let mut state: Value = serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();

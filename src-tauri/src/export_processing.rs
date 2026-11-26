@@ -619,12 +619,11 @@ impl PinnedPhoto {
             |m: &std::collections::BTreeMap<String, String>| -> std::collections::HashMap<_, _> {
                 m.clone().into_iter().collect()
             };
-        let base = self.exif.as_ref().map_or_else(|| own.clone(), map);
-        let shown = match &self.exif_overrides {
-            Some(overrides) => exif_processing::with_exif_overrides(&map(overrides), &base),
-            None => base,
-        };
-        exif_processing::exif_edits(&shown, own)
+        exif_processing::exif_edits_of(
+            self.exif.as_ref().map(map).as_ref(),
+            self.exif_overrides.as_ref().map(map).as_ref(),
+            own,
+        )
     }
 
     /// The capture date of `source` (`exif`), for its files' times.
