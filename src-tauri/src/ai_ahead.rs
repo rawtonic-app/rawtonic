@@ -23,6 +23,13 @@
 //!   instead had the ahead Subject ready 11-17 s after the photo's decode
 //!   started instead of 3-5 s on a Mac with 9 GB free (MEM18).
 //!
+//! Loading a model ahead (`preload_ai_mask_models`) is a job of its own,
+//! admitted on the load's peak alone (`estimated_load_peak`), not on the
+//! model and its run: where the memory never covers the run (14 GB beside
+//! large RAWs, WMEM18: 3.3–3.5 GB free of 4.7 GB needed), the model is
+//! loaded and a click pays only the network (MEM19). The run made ahead
+//! keeps its own rule (`estimated_peak` with the model loaded).
+//!
 //! It waits for that up to `ADMIT_WAIT`, then is dropped (a click computes
 //! the mask), and the command says so (the webview asks again when the
 //! tools open). While it runs (`AheadRun`), the background decodes wait in
@@ -85,6 +92,33 @@ pub fn estimated_peak(job: AheadJob, on_cpu: bool, loaded: bool) -> u64 {
         (AheadJob::ObjectEncoding, _) => (400, 600),
     };
     if loaded { run * MB } else { (model + run) * MB }
+}
+
+/// The memory loading a job's model alone adds to the app at its peak (the
+/// weights and the load's transient, no run): what `preload_ai_mask_models`
+/// needs, which loads the model ahead without running it, so a click (or
+/// the run made ahead, `estimated_peak` with the model loaded, when the
+/// memory allows it later) pays only the network (G74/MEM19).
+///
+/// The largest rise measured from the load's start to its end (notes:
+/// benchmark-results/mem19-2026-11-26, phys_footprint at 0.25 s, 45 MP NEF
+/// in a 4-up, M5 Pro; and benchmark-results/aimem-cpu-mask-2026-11-14):
+/// - Subject on the CPU: 1.0 GB settled with a 0.67 GB load transient on
+///   x86-like settings (AIMEM); +0.42–1.35 GB on the Mac (5 loads from the
+///   saved optimized graph, 0.6–4.9 s) → 1700 MB.
+/// - Subject on Core ML: +0.28–0.60 GB (4 loads, 0.2–0.75 s) → 700 MB.
+/// - Sky: 0.2–0.5 GB beside Subject (AIMEM; Core ML +0.01 GB, MEM19) →
+///   500 MB.
+/// - Object encoding: not loaded ahead on its own; the model's share of
+///   `estimated_peak` (400 MB).
+pub fn estimated_load_peak(job: AheadJob, on_cpu: bool) -> u64 {
+    let load = match (job, on_cpu) {
+        (AheadJob::Subject, true) => 1700,
+        (AheadJob::Subject, false) => 700,
+        (AheadJob::Sky, _) => 500,
+        (AheadJob::ObjectEncoding, _) => 400,
+    };
+    load * MB
 }
 
 /// Whether a job made ahead may start now.
@@ -243,7 +277,8 @@ pub fn memory_line() -> String {
     crate::memory_pressure::memory_line()
 }
 
-/// Waits until `job` (estimated peak `need`) may start: `Ok` with the guard
+/// Waits until `job` (estimated peak `need`, read again at each poll: a
+/// model loaded ahead meanwhile leaves only its run, MEM19) may start: `Ok` with the guard
 /// to hold while it runs, at once when `asked` says the photographer asked
 /// for it (`asked_since`); checks `give_up` before each verdict. Logs a line
 /// when it is held and when it starts, with the memory, so a run's log
@@ -251,7 +286,7 @@ pub fn memory_line() -> String {
 pub async fn admit(
     job: AheadJob,
     asked: impl Fn() -> bool,
-    need: u64,
+    need: impl Fn() -> u64,
     mut give_up: impl FnMut() -> Option<&'static str>,
 ) -> Result<AheadRun, NotStarted> {
     let start = Instant::now();
@@ -264,6 +299,7 @@ pub async fn admit(
         let settled = crate::multi_view_prefetch::primary_settled(QUIET);
         let background = crate::multi_view_prefetch::background_under_way();
         let room = crate::memory_pressure::work_headroom();
+        let need = need();
         let mut now = verdict(asked, running(), settled, background, room, need);
         let started = if now == Verdict::Start {
             AheadRun::start(asked)
@@ -401,6 +437,87 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_model_is_loaded_ahead_where_its_run_is_held() {
+        // WMEM18 (Radeon 680M, 14 GB, four large RAWs): 3.3–3.5 GB free for
+        // work that may wait once the decodes settled.
+        let room = Some(3300 * MB);
+        let load = estimated_load_peak(AheadJob::Subject, true);
+        assert_eq!(verdict(false, false, true, 0, room, load), Verdict::Start);
+        // The run stays held, cold and with the model loaded beside it
+        // (the load's memory then no longer counts as free).
+        let after_load = Some(3300 * MB - load);
+        for (room, loaded) in [(room, false), (after_load, true)] {
+            let need = estimated_peak(AheadJob::Subject, true, loaded);
+            assert_eq!(
+                verdict(false, false, true, 0, room, need),
+                Verdict::WaitForMemory {
+                    room: room.unwrap(),
+                    need
+                }
+            );
+        }
+        // Still not beside the decodes, nor beside another job made ahead.
+        assert_eq!(
+            verdict(false, false, false, 0, Some(20 * GB), load),
+            Verdict::WaitForDecodes
+        );
+        assert_eq!(
+            verdict(false, true, true, 0, Some(20 * GB), load),
+            Verdict::WaitForAheadRun
+        );
+        // A click is never held, preload or not.
+        assert_eq!(
+            verdict(
+                true,
+                true,
+                false,
+                1,
+                Some(0),
+                estimated_peak(AheadJob::Subject, true, true)
+            ),
+            Verdict::Start
+        );
+    }
+
+    #[test]
+    fn a_load_alone_needs_less_than_the_model_and_its_run() {
+        for job in [AheadJob::Subject, AheadJob::Sky, AheadJob::ObjectEncoding] {
+            for on_cpu in [true, false] {
+                let load = estimated_load_peak(job, on_cpu);
+                assert!(load > 0);
+                assert!(load < estimated_peak(job, on_cpu, false));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn the_run_reads_its_estimate_again_once_the_model_is_loaded() {
+        // Held on an estimate no memory covers until the model is
+        // "loaded" (here: the second poll), then it needs nothing.
+        let polls = std::sync::atomic::AtomicU32::new(0);
+        let need = || {
+            if polls.fetch_add(1, Ordering::SeqCst) == 0 {
+                u64::MAX
+            } else {
+                0
+            }
+        };
+        // Up to 10 s: another test's run may hold the way (one at a time).
+        let run = tokio::time::timeout(
+            Duration::from_secs(10),
+            admit(AheadJob::Subject, || false, need, || None),
+        )
+        .await
+        .expect("started before the timeout")
+        .expect("started");
+        // Memory that cannot be read starts it on the first poll.
+        if crate::memory_pressure::work_headroom().is_some() {
+            assert!(polls.load(Ordering::SeqCst) >= 2);
+        }
+        drop(run);
+    }
+
     #[tokio::test]
     async fn the_photographer_asking_starts_a_held_job() {
         // Never room here (u64::MAX needed); the ask lets it start.
@@ -414,7 +531,7 @@ mod tests {
             admit(
                 AheadJob::Sky,
                 || asked_since(asked_at, None),
-                u64::MAX,
+                || u64::MAX,
                 || None,
             ),
         )
@@ -441,7 +558,7 @@ mod tests {
         let result = admit(
             AheadJob::Subject,
             || true,
-            0,
+            || 0,
             || Some("the photo has changed"),
         )
         .await;

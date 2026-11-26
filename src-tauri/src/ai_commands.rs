@@ -947,12 +947,17 @@ pub async fn precompute_ai_subject_mask(
                 loaded,
             );
             let asked = || crate::ai_ahead::asked_since(asked_at, task_id.as_deref());
-            let admitted = crate::ai_ahead::admit(job, asked, need, || {
-                if cancelled() {
-                    return Some("the task was cancelled");
-                }
-                ahead_photo_skip(current_photo(&state.source).as_deref(), &path)
-            })
+            let admitted = crate::ai_ahead::admit(
+                job,
+                asked,
+                || need,
+                || {
+                    if cancelled() {
+                        return Some("the task was cancelled");
+                    }
+                    ahead_photo_skip(current_photo(&state.source).as_deref(), &path)
+                },
+            )
             .await;
             match admitted {
                 Ok(run) => _ahead = Some(run),
@@ -1624,11 +1629,15 @@ async fn precompute(
             AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
             AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
         };
-        let need = crate::ai_ahead::estimated_peak(
-            job,
-            rawtonic_onnx::models_run_on_cpu_only(),
-            model_loaded(&ai_state, kind),
-        );
+        // Read at each poll: a model loaded ahead meanwhile
+        // (`preload_ai_mask_models`) leaves only the run's peak (MEM19).
+        let need = || {
+            crate::ai_ahead::estimated_peak(
+                job,
+                rawtonic_onnx::models_run_on_cpu_only(),
+                model_loaded(&ai_state, kind),
+            )
+        };
         let asked = || crate::ai_ahead::asked_since(asked_at, task_id.as_deref());
         let admitted = crate::ai_ahead::admit(job, asked, need, || {
             if cancel.is_some_and(|t| t.is_cancelled()) {
@@ -1796,18 +1805,22 @@ pub async fn preload_ai_mask_models(
         if model_loaded(&ai_state, kind) {
             continue;
         }
-        // A model is loaded ahead for the run after it (`precompute`): not
-        // beside the full-resolution decodes, and only with memory for both
-        // (`ai_ahead`).
+        // A model is loaded ahead for the run after it (`precompute`) or a
+        // click: not beside the full-resolution decodes, and only with
+        // memory for the load (`ai_ahead`). Only the load: the run made
+        // ahead waits for memory for its own peak, and where that never
+        // comes (14 GB beside large RAWs) a click still finds the model
+        // loaded and pays only the run (MEM19: 26 s against 18 s on a
+        // Radeon 680M laptop).
         let job = match kind {
             AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
             AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
         };
-        let need = crate::ai_ahead::estimated_peak(job, on_cpu, false);
+        let need = crate::ai_ahead::estimated_load_peak(job, on_cpu);
         let admitted = crate::ai_ahead::admit(
             job,
             || false,
-            need,
+            || need,
             || {
                 if ai_state.lifecycle.generation() != generation {
                     return Some("the models were unloaded");
@@ -1860,8 +1873,9 @@ pub async fn preload_ai_mask_models(
         }
         if loaded.is_some() {
             log::info!(
-                "AI {name} mask: model ready ahead after {} ms",
-                start.elapsed().as_millis()
+                "AI {name} mask: model ready ahead after {} ms; {}",
+                start.elapsed().as_millis(),
+                crate::ai_ahead::memory_line()
             );
         }
     }
@@ -1927,7 +1941,7 @@ pub async fn warm_up_ai_mask_models(
             rawtonic_onnx::models_run_on_cpu_only(),
             model_loaded(&ai_state, kind),
         );
-        let _ahead = match crate::ai_ahead::admit(job, || false, need, &stop).await {
+        let _ahead = match crate::ai_ahead::admit(job, || false, || need, &stop).await {
             Ok(run) => run,
             Err(why) => {
                 log::info!(
