@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Develop remembers whether a RAW has a Bayer or an X-Trans sensor once it has read the file, so an offline photo of a session or catalog shows the same AI Denoise controls as online: the X-Trans note for X-Trans, the Quality choice for Bayer. Nothing is remembered from a read that could not tell, and the memory is dropped when the file changes. Rendering and export still read the sensor from the file, so no output changes. Libraries are upgraded to schema 38; older Rawtonic versions cannot open an upgraded library.
+
 - Headless export accepts `--super-resolution-quality fast|full` to enlarge photos 2×. The desktop binary fetches missing Super Resolution models as the Export dialog does. The standalone CLI tells you how to install them when they are missing.
 
 - Press Shift+L or use View → Dim Surroundings to dim or black out the interface around the photo in Develop and Library loupe. Escape restores the surroundings. Choose a background color in Preferences or by right-clicking beside the photo.

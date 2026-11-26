@@ -907,6 +907,22 @@ fn fill(conn: &Connection, version: usize) {
         "cull_dismissed",
         &[("asset_id", t(&asset_id(9))), ("criterion", t("misfire"))],
     );
+    // Sensor layouts (schema 38): photograph 1 read from its registered
+    // file, photograph 2 from a file it no longer has.
+    for (photo, kind, fingerprint) in [
+        (1, "xTrans", format!("xxh3:{:016x}", 7919)),
+        (2, "bayer", "xxh3:00000000000000aa".to_string()),
+    ] {
+        put(
+            conn,
+            "sensor_kinds",
+            &[
+                ("asset_id", t(&asset_id(photo))),
+                ("kind", t(kind)),
+                ("fingerprint", t(&fingerprint)),
+            ],
+        );
+    }
     // Photograph 1's edit as an import from another editor wrote it
     // (schema 31).
     put(
