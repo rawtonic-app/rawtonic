@@ -1588,6 +1588,20 @@ async fn precompute(
         .map(|l| l.path);
     if let Some(reason) = ahead_photo_skip(current.as_deref(), &path) {
         log::info!("AI {} mask: not computed ahead, {reason}", kind.name());
+        // Still decoding after the wait: asked for again when the tools open.
+        return Ok(if current.is_none() {
+            AheadMask::Dropped
+        } else {
+            AheadMask::Unavailable
+        });
+    }
+    // Made ahead only with an installed model (nothing is downloaded): no
+    // wait for memory for a model that is not there.
+    if !model_loaded(&ai_state, kind) && !mask_model_installed(&app_handle, kind == AutoMask::Sky) {
+        log::info!(
+            "AI {} mask: not computed ahead, its model is not installed",
+            kind.name()
+        );
         return Ok(AheadMask::Unavailable);
     }
     // Ahead of a click only with memory to spare: a run holds about 1.6 GB
@@ -1816,6 +1830,17 @@ pub async fn preload_ai_mask_models(
         if ai_state.lifecycle.generation() != generation {
             log::info!("AI {name} mask: model not loaded ahead, the models were unloaded");
             return Ok(());
+        }
+        // Another load holds the model's loader (the photo's mask made
+        // ahead or asked for loads it): not queued behind it, where an
+        // unload meanwhile would go unseen until the loader runs.
+        let loader = match kind {
+            AutoMask::Subject => &ai_state.init_lock,
+            AutoMask::Sky => &ai_state.sky_init_lock,
+        };
+        if loader.try_lock().is_err() {
+            log::info!("AI {name} mask: model not loaded ahead, another load of it runs");
+            continue;
         }
         let start = std::time::Instant::now();
         let loaded = network(&ai_state, &app_handle, kind, false)
