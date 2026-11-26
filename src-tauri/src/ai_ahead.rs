@@ -1,39 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! When AI work made ahead of a click may start (G74/MEM18).
+//! When AI work made ahead of a click may start (G74/MEM18, BRK1).
 //!
 //! The masks computed when a photo opens in Develop (Subject, then Sky, then
-//! the object masks' encoding) and the models loaded for them are a
-//! convenience: a click on Subject answers at once. Running out of memory is
-//! not acceptable for it. On a 14 GB Radeon 680M laptop (AI on the CPU) the
-//! Subject model's session build and its first run started beside the
-//! full-resolution decodes of a 50 MP RAF and three CR2s and took the app to
-//! 6.0–7.0 GB at +6–8 s after the Develop click, and the system below
-//! 1.2 GB available when about 7 GB were free before (G74/WG74).
+//! the object masks' encoding), the models loaded for them and the low-peak
+//! Subject model's fetch are a convenience: a click on Subject answers at
+//! once. Running out of memory is not acceptable for it. On a 14 GB Radeon
+//! 680M laptop (AI on the CPU) the Subject model's session build and its
+//! first run started beside the full-resolution decodes of a 50 MP RAF and
+//! three CR2s and took the app to 6.0–7.0 GB at +6–8 s after the Develop
+//! click (G74/WG74).
 //!
-//! So a job made ahead starts only
-//! - once the open photo's full-resolution decode and its frames have
-//!   settled (`multi_view_prefetch::primary_settled`);
-//! - one job at a time;
-//! - and when the memory free for work that may wait
-//!   (`memory_pressure::work_headroom`, the multi view's background decodes
-//!   use the same) covers the job's estimated peak (`estimated_peak`), and
-//!   a background decode's peak (`BACKGROUND_DECODE`) for each of the multi
-//!   view and the step prefetch that has one under way (it ends beside the
-//!   job; the next one waits for the job). Waiting for the background decodes
-//!   instead had the ahead Subject ready 11-17 s after the photo's decode
-//!   started instead of 3-5 s on a Mac with 9 GB free (MEM18).
+//! Such a job is speculative work of the app's memory budget
+//! (`memory_broker`, `Class::Speculative`): it reserves its measured peak
+//! (`estimated_peak`) and starts only once the open photo's decode and
+//! frames have settled, while no request of the photographer waits or runs,
+//! one at a time (Subject, Sky, object encoding; the fetch beside them), and
+//! when the room beside every reservation held covers its peak and the
+//! click reserve (`memory_broker::click_reserve`; not for Subject's own
+//! jobs, which are the click's work made ahead). The background decodes
+//! reserve theirs in the same budget, so neither waits for the other blindly.
 //!
 //! It waits for that up to `ADMIT_WAIT`, then is dropped (a click computes
 //! the mask), and the command says so (the webview asks again when the
-//! tools open). While it runs (`AheadRun`), the background decodes wait in
-//! turn (`running`): the multi view's and the step prefetch's, which were
-//! counted in neither the job's verdict nor its estimate. A request the photographer makes (opening the masking tools,
-//! a click on Subject) never waits here: it starts at once, and a job made
-//! ahead that waits here starts with it (`ask_now`). Nothing changes in how a
-//! mask is computed, only when.
+//! tools open). A request the photographer makes (opening the masking tools,
+//! a click on Subject) is `Class::Asked`: it never waits for this, and a job
+//! made ahead that waits here becomes one when asked for (`ask_now`).
+//! Nothing changes in how a mask is computed, only when.
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+
+use rawtonic_runtime::memory_budget::{Class, Request};
 
 /// Work made ahead of a click.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -50,12 +47,13 @@ pub enum AheadJob {
 }
 
 impl AheadJob {
-    pub fn name(self) -> &'static str {
+    /// The memory budget's label.
+    pub fn label(self) -> &'static str {
         match self {
-            AheadJob::Subject => "subject",
-            AheadJob::Sky => "sky",
-            AheadJob::ObjectEncoding => "object",
-            AheadJob::ModelFetch => "subject model fetch",
+            AheadJob::Subject => "AI subject ahead",
+            AheadJob::Sky => "AI sky ahead",
+            AheadJob::ObjectEncoding => "AI object encoding ahead",
+            AheadJob::ModelFetch => "AI subject model fetch",
         }
     }
 }
@@ -94,76 +92,8 @@ pub fn estimated_peak(job: AheadJob, on_cpu: bool, loaded: bool) -> u64 {
     if loaded { run * MB } else { (model + run) * MB }
 }
 
-/// Whether a job made ahead may start now.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Verdict {
-    Start,
-    /// Another job made ahead runs (`running`): one at a time, so their
-    /// peaks do not add up (Sky's model load had started beside Subject's
-    /// run).
-    WaitForAheadRun,
-    /// The open photo's full-resolution decode or a frame of it is under way.
-    WaitForDecodes,
-    /// A Subject mask is being computed (`admit_beside`'s `mask_running`).
-    WaitForMaskRun,
-    /// The memory free for such work (`room`) is below the job's `need`.
-    WaitForMemory {
-        room: u64,
-        need: u64,
-    },
-}
-
-/// A background decode's peak: 61 MP at 40 B per pixel, as the multi view
-/// counts one whose size is not known (`multi_view::DECODE_BYTES_PER_PIXEL`,
-/// `UNKNOWN_PIXELS`).
-pub const BACKGROUND_DECODE: u64 =
-    crate::multi_view::UNKNOWN_PIXELS * crate::multi_view::DECODE_BYTES_PER_PIXEL;
-
-/// The verdict for a job of estimated peak `need` (`estimated_peak`), with
-/// another job made ahead running or not (`ahead_running`), the open
-/// photo's decode and frames settled or not (`primary_settled`), the
-/// background workers with a decode under way (`background`) and `room` bytes free
-/// for work that may wait (`memory_pressure::work_headroom`; None: the
-/// memory cannot be read, as for the multi view's background decodes). A
-/// request the photographer made (`asked`) always starts.
-pub fn verdict(
-    asked: bool,
-    ahead_running: bool,
-    primary_settled: bool,
-    background: u64,
-    room: Option<u64>,
-    need: u64,
-) -> Verdict {
-    if asked {
-        return Verdict::Start;
-    }
-    if ahead_running {
-        return Verdict::WaitForAheadRun;
-    }
-    if !primary_settled {
-        return Verdict::WaitForDecodes;
-    }
-    let need = need.saturating_add(background.saturating_mul(BACKGROUND_DECODE));
-    match room {
-        Some(room) if room < need => Verdict::WaitForMemory { room, need },
-        _ => Verdict::Start,
-    }
-}
-
-/// `verdict` for a job that also waits while a mask is computed
-/// (`mask_running`): one free to start waits for that run too.
-pub fn verdict_beside(mask_running: bool, verdict: Verdict) -> Verdict {
-    if mask_running && verdict == Verdict::Start {
-        Verdict::WaitForMaskRun
-    } else {
-        verdict
-    }
-}
-
-/// How long a job made ahead waits for its verdict at most.
+/// How long a job made ahead waits for its start at most.
 pub const ADMIT_WAIT: Duration = Duration::from_secs(60);
-/// How often the verdict is asked again while it waits.
-const POLL: Duration = Duration::from_millis(250);
 /// How long the open photo's decode and frames must have been quiet.
 pub const QUIET: Duration = Duration::from_millis(750);
 
@@ -211,244 +141,176 @@ pub fn asked_since(count: u64, task_id: Option<&str>) -> bool {
         })
 }
 
-/// Jobs made ahead that run (`AheadRun`).
-static RUNNING: AtomicUsize = AtomicUsize::new(0);
-
-/// Whether a job made ahead runs: the background decodes wait for it.
-pub fn running() -> bool {
-    RUNNING.load(Ordering::SeqCst) > 0
-}
-
-/// A job made ahead runs while this lives (`admit`).
-#[must_use = "the job counts as running while this lives"]
-#[derive(Debug)]
-pub struct AheadRun(());
-
-impl AheadRun {
-    /// Starts a job: `asked` at once, else only while no other job made
-    /// ahead runs (None: one started meanwhile). Two jobs that found the way
-    /// free in the same instant (Subject's model load and its run, asked for
-    /// together as Develop opens) start one after the other.
-    fn start(asked: bool) -> Option<Self> {
-        if asked {
-            RUNNING.fetch_add(1, Ordering::SeqCst);
-            return Some(AheadRun(()));
-        }
-        RUNNING
-            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
-            .ok()
-            .map(|_| AheadRun(()))
-    }
-}
-
-impl Drop for AheadRun {
-    fn drop(&mut self) {
-        RUNNING.fetch_sub(1, Ordering::SeqCst);
-    }
-}
+/// A job made ahead runs while this lives (`admit`): its reservation in
+/// the memory budget.
+pub type AheadRun = rawtonic_runtime::memory_budget::Reservation;
 
 /// Why a job made ahead was not started.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NotStarted {
-    /// `give_up` said so (the photo changed, the task was cancelled).
-    GaveUp(&'static str),
-    /// Its verdict was not `Start` within `ADMIT_WAIT`.
-    TimedOut(Verdict),
+pub(crate) use crate::memory_broker::NotStarted;
+
+/// The memory budget's request for `job` of estimated peak `need`: one job
+/// at a time beside each other (the fetch beside them), leaving the click
+/// reserve unless it is Subject's own work (`reserve`).
+pub fn request(job: AheadJob, need: u64, reserve: u64) -> Request {
+    let request = Request::new(Class::Speculative, job.label(), need);
+    let request = match job {
+        AheadJob::ModelFetch => request,
+        _ => request.exclusive(),
+    };
+    match job {
+        AheadJob::Subject => request,
+        _ => request.reserve(reserve),
+    }
 }
 
-/// The app's memory for the log: "app X MB, Y MB available of Z MB, W MB
-/// free for work that may wait".
-pub fn memory_line() -> String {
-    crate::memory_pressure::memory_line()
-}
-
-/// Waits until `job` (estimated peak `need`) may start: `Ok` with the guard
-/// to hold while it runs, at once when `asked` says the photographer asked
-/// for it (`asked_since`); checks `give_up` before each verdict. Logs a line
-/// when it is held and when it starts, with the memory, so a run's log
-/// shows where the memory went.
+/// Waits until `job` (estimated peak `need`) may start (`request`): `Ok`
+/// with the reservation to hold while it runs; at once (as a request of the
+/// photographer, `Class::Asked`) when `asked` says the photographer asked
+/// for it (`asked_since`); checks `give_up` before each attempt; dropped
+/// after `ADMIT_WAIT`. The broker logs when it waits and starts, with the
+/// memory, so a run's log shows where the memory went.
 pub async fn admit(
+    app: &tauri::AppHandle,
     job: AheadJob,
     asked: impl Fn() -> bool,
     need: u64,
     give_up: impl FnMut() -> Option<&'static str>,
 ) -> Result<AheadRun, NotStarted> {
-    admit_beside(job, asked, need, give_up, || false).await
+    admit_cancellable(app, job, asked, need, give_up, None).await
 }
 
-/// `admit`, also waiting while `mask_running` says a mask is being computed
-/// (a photographer's run does not count as a job made ahead).
-pub async fn admit_beside(
+/// `admit`, with `cancel` stopping the job when a request of the
+/// photographer needs its room (`memory_budget`: speculative work yields).
+pub async fn admit_cancellable(
+    app: &tauri::AppHandle,
     job: AheadJob,
     asked: impl Fn() -> bool,
     need: u64,
-    mut give_up: impl FnMut() -> Option<&'static str>,
-    mask_running: impl Fn() -> bool,
+    give_up: impl FnMut() -> Option<&'static str>,
+    cancel: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
 ) -> Result<AheadRun, NotStarted> {
-    let start = Instant::now();
-    let mut held: Option<Verdict> = None;
-    loop {
-        if let Some(reason) = give_up() {
-            return Err(NotStarted::GaveUp(reason));
-        }
-        let asked = asked();
-        let settled = crate::multi_view_prefetch::primary_settled(QUIET);
-        let background = crate::multi_view_prefetch::background_under_way();
-        let room = crate::memory_pressure::work_headroom();
-        let mut now = verdict_beside(
-            mask_running(),
-            verdict(asked, running(), settled, background, room, need),
-        );
-        let started = if now == Verdict::Start {
-            AheadRun::start(asked)
-        } else {
-            None
-        };
-        if now == Verdict::Start && started.is_none() {
-            now = Verdict::WaitForAheadRun;
-        }
-        if let Some(started) = started {
-            log::info!(
-                "AI {} ahead: started after {} ms{} (estimate {} MB); {}",
-                job.name(),
-                start.elapsed().as_millis(),
-                if asked { ", asked for" } else { "" },
-                need / MB,
-                memory_line()
-            );
-            return Ok(started);
-        }
-        // One line per change of reason, not per poll.
-        if held.as_ref().map(std::mem::discriminant) != Some(std::mem::discriminant(&now)) {
-            log::info!(
-                "AI {} ahead: held, {} (estimate {} MB); {}",
-                job.name(),
-                describe(now),
-                need / MB,
-                memory_line()
-            );
-        }
-        held = Some(now);
-        if start.elapsed() >= ADMIT_WAIT {
-            log::info!(
-                "AI {} ahead: not started, still {} after {} s; {}",
-                job.name(),
-                describe(now),
-                ADMIT_WAIT.as_secs(),
-                memory_line()
-            );
-            return Err(NotStarted::TimedOut(now));
-        }
-        tokio::time::sleep(POLL).await;
-    }
-}
-
-fn describe(verdict: Verdict) -> String {
-    match verdict {
-        Verdict::Start => "free to start".into(),
-        Verdict::WaitForAheadRun => "another job made ahead runs".into(),
-        Verdict::WaitForDecodes => "the photo's decode or a frame of it is under way".into(),
-        Verdict::WaitForMaskRun => "a mask is being computed".into(),
-        Verdict::WaitForMemory { room, need } => {
-            format!("{} MB free for it of {} MB needed", room / MB, need / MB)
-        }
-    }
+    let request = request(job, need, crate::memory_broker::click_reserve(app));
+    crate::memory_broker::reserve(
+        request,
+        || {
+            if asked() {
+                Class::Asked
+            } else {
+                Class::Speculative
+            }
+        },
+        give_up,
+        cancel,
+        Some(ADMIT_WAIT),
+    )
+    .await
+    .map(|granted| granted.reservation)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rawtonic_runtime::memory_budget::{Decision, GB, Held, Reading, Situation, Wait, decide};
 
-    const GB: u64 = 1000 * MB;
+    /// The Lenovo of WMEM21 (15859 MB) with `available` and the app at `app`.
+    fn lenovo(available: u64, app: u64) -> Reading {
+        Reading {
+            total: 15_859 * MB,
+            available,
+            app: Some(app),
+        }
+    }
+
+    fn situation(held: &[Held], reading: Reading) -> Situation<'_> {
+        Situation {
+            held,
+            reading,
+            visible_busy: false,
+            waited: Duration::ZERO,
+            asked_waiting: false,
+            reclaimable: 0,
+        }
+    }
 
     #[test]
     fn a_job_made_ahead_waits_for_the_photo_then_for_memory() {
         let need = estimated_peak(AheadJob::Subject, true, false);
         assert_eq!(need, 4700 * MB);
+        let subject = request(AheadJob::Subject, need, 3 * GB);
+        // Subject's own job leaves no click reserve: it is the click's work.
+        assert_eq!(subject.reserve, 0);
+        let none: [Held; 0] = [];
         // The photo's decode or frame under way: held whatever the memory.
-        assert_eq!(
-            verdict(false, false, false, 0, Some(20 * GB), need),
-            Verdict::WaitForDecodes
-        );
-        // Settled, too little room (WG74: about 1.4 GB beside four large decodes).
-        assert_eq!(
-            verdict(false, false, true, 0, Some(1400 * MB), need),
-            Verdict::WaitForMemory {
-                room: 1400 * MB,
-                need
-            }
-        );
+        let mut s = situation(&none, lenovo(20 * GB, 3 * GB));
+        s.visible_busy = true;
+        assert_eq!(decide(&subject, &s), Decision::Wait(Wait::Visible));
+        // Settled, too little room (WMEM18: 3.5–4.0 GB free beside the
+        // decodes): held, as MEM18 measured on the Lenovo.
+        assert!(matches!(
+            decide(&subject, &situation(&none, lenovo(5 * GB, 3 * GB))),
+            Decision::Wait(Wait::Memory { .. })
+        ));
         // Settled with room for its peak.
-        assert_eq!(
-            verdict(false, false, true, 0, Some(need), need),
-            Verdict::Start
-        );
-        // Memory not readable: as the multi view's background decodes.
-        assert_eq!(verdict(false, false, true, 0, None, need), Verdict::Start);
-        // Another job made ahead runs: one at a time.
-        assert_eq!(
-            verdict(false, true, true, 0, Some(20 * GB), need),
-            Verdict::WaitForAheadRun
-        );
+        assert!(matches!(
+            decide(&subject, &situation(&none, lenovo(7 * GB, 2 * GB))),
+            Decision::Grant { .. }
+        ));
     }
 
     #[test]
-    fn a_background_decode_under_way_counts_its_peak() {
-        let need = estimated_peak(AheadJob::Subject, false, false);
-        // Room for the job alone is not enough beside a background decode.
-        assert_eq!(
-            verdict(false, false, true, 1, Some(need), need),
-            Verdict::WaitForMemory {
-                room: need,
-                need: need + BACKGROUND_DECODE
-            }
-        );
-        // Room for both (a Mac with 9 GB free): it starts, no waiting for
-        // the decode.
-        assert_eq!(
-            verdict(false, false, true, 1, Some(9 * GB), need),
-            Verdict::Start
-        );
-        // The multi view and the step prefetch both decoding: each counts.
-        assert_eq!(
-            verdict(false, false, true, 2, Some(9 * GB), need),
-            Verdict::WaitForMemory {
-                room: 9 * GB,
-                need: need + 2 * BACKGROUND_DECODE
-            }
-        );
+    fn a_background_decode_under_way_counts_its_reservation() {
+        let need = estimated_peak(AheadJob::Sky, true, false);
+        let sky = request(AheadJob::Sky, need, 0);
+        // A neighbour's decode reserved 2.44 GB (61 MP) and took nothing
+        // yet: Sky (1.2 GB) waits with 4 GB available, starts with 6 GB.
+        let decode = [Held {
+            id: 1,
+            class: Class::Speculative,
+            estimate: 2440 * MB,
+            app_at_start: Some(2 * GB),
+            exclusive: false,
+            cancellable: true,
+        }];
+        assert!(matches!(
+            decide(&sky, &situation(&decode, lenovo(4 * GB, 2 * GB))),
+            Decision::Wait(Wait::Memory { .. })
+        ));
+        assert!(matches!(
+            decide(&sky, &situation(&decode, lenovo(6 * GB, 2 * GB))),
+            Decision::Grant { .. }
+        ));
     }
 
     #[test]
-    fn the_model_fetch_waits_for_memory_decodes_and_mask_runs() {
+    fn the_model_fetch_waits_for_memory_and_a_mask_run_and_leaves_the_click_reserve() {
         let need = estimated_peak(AheadJob::ModelFetch, true, false);
         assert_eq!(need, 700 * MB);
-        // WREV1's Lenovo with the model loaded: 1.9 GB free for work that may
-        // wait is enough for the fetch alone, not beside a background decode.
-        let free = verdict(false, false, true, 0, Some(1900 * MB), need);
-        assert_eq!(verdict_beside(false, free), Verdict::Start);
+        let fetch = request(AheadJob::ModelFetch, need, 2 * GB);
+        assert!(!fetch.exclusive, "it runs beside a job made ahead");
+        let none: [Held; 0] = [];
+        // WREV1's Lenovo with the model loaded, 4.3 GB available: 2.7 GB
+        // room covers the fetch and the 2 GB click reserve; 3.5 GB does not.
         assert!(matches!(
-            verdict(false, false, true, 1, Some(1900 * MB), need),
-            Verdict::WaitForMemory { .. }
+            decide(&fetch, &situation(&none, lenovo(4300 * MB, 3 * GB))),
+            Decision::Grant { .. }
         ));
         assert!(matches!(
-            verdict(false, false, true, 0, Some(500 * MB), need),
-            Verdict::WaitForMemory { .. }
+            decide(&fetch, &situation(&none, lenovo(3500 * MB, 3 * GB))),
+            Decision::Wait(Wait::Memory { .. })
         ));
-        // A Subject run (a click is not a job made ahead) holds it; so does
-        // the photo's decode, whatever the mask.
-        assert_eq!(verdict_beside(true, free), Verdict::WaitForMaskRun);
-        let decoding = verdict(false, false, false, 0, Some(9 * GB), need);
-        assert_eq!(verdict_beside(false, decoding), Verdict::WaitForDecodes);
-        assert_eq!(verdict_beside(true, decoding), Verdict::WaitForDecodes);
-    }
-
-    #[test]
-    fn a_request_the_photographer_made_is_never_held() {
-        let need = estimated_peak(AheadJob::Subject, true, false);
-        assert_eq!(verdict(true, true, false, 1, Some(0), need), Verdict::Start);
-        assert_eq!(verdict(true, false, true, 1, Some(0), need), Verdict::Start);
-        assert_eq!(verdict(true, true, false, 0, None, need), Verdict::Start);
+        // A Subject click's run holds it, whatever the memory.
+        let click = [Held {
+            id: 1,
+            class: Class::Asked,
+            estimate: 2 * GB,
+            app_at_start: Some(3 * GB),
+            exclusive: true,
+            cancellable: false,
+        }];
+        assert_eq!(
+            decide(&fetch, &situation(&click, lenovo(20 * GB, 3 * GB))),
+            Decision::Wait(Wait::Asked)
+        );
     }
 
     #[test]
@@ -462,27 +324,35 @@ mod tests {
 
     #[tokio::test]
     async fn the_photographer_asking_starts_a_held_job() {
-        // Never room here (u64::MAX needed); the ask lets it start.
+        // Never room here (u64::MAX needed); the ask makes it a request of
+        // the photographer, which is never refused.
         let asked_at = asked_count();
         let asking = tokio::spawn(async {
             tokio::time::sleep(Duration::from_millis(50)).await;
             ask_now(None);
         });
+        let job = request(AheadJob::Sky, u64::MAX, 0);
         let result = tokio::time::timeout(
-            Duration::from_secs(5),
-            admit(
-                AheadJob::Sky,
-                || asked_since(asked_at, None),
-                u64::MAX,
+            Duration::from_secs(10),
+            crate::memory_broker::reserve(
+                job,
+                || {
+                    if asked_since(asked_at, None) {
+                        Class::Asked
+                    } else {
+                        Class::Speculative
+                    }
+                },
                 || None,
+                None,
+                Some(ADMIT_WAIT),
             ),
         )
         .await
         .expect("started before the timeout");
         asking.await.unwrap();
-        let run = result.expect("started");
-        assert!(running(), "the background decodes wait for it");
-        drop(run);
+        let granted = result.expect("started");
+        assert_eq!(granted.reservation.class(), Class::Asked);
     }
 
     #[test]
@@ -496,12 +366,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_held_job_gives_up_when_its_photo_changes() {
-        // Checked before each verdict, so before a start too.
-        let result = admit(
-            AheadJob::Subject,
-            || true,
-            0,
+        // Checked before each attempt, so before a start too.
+        let result = crate::memory_broker::reserve(
+            request(AheadJob::Subject, 0, 0),
+            || Class::Speculative,
             || Some("the photo has changed"),
+            None,
+            Some(ADMIT_WAIT),
         )
         .await;
         assert_eq!(

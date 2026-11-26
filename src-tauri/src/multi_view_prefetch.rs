@@ -96,15 +96,36 @@ pub(crate) fn may_start(since_interaction: Duration, busy: bool, short_of_memory
     !busy && !short_of_memory && since_interaction >= QUIET
 }
 
-/// Whether a background decode of a photograph of `pixels` (None: not
-/// known) fits in the memory free for such work (`headroom`, None: not
-/// known) at its peak (`multi_view::DECODE_BYTES_PER_PIXEL`).
-fn decode_fits(pixels: Option<u64>, headroom: Option<u64>) -> bool {
-    headroom.is_none_or(|room| {
-        pixels.unwrap_or(crate::multi_view::UNKNOWN_PIXELS)
-            * crate::multi_view::DECODE_BYTES_PER_PIXEL
-            <= room
-    })
+/// A background decode's peak: `pixels` (None: not known, 61 MP) at
+/// `multi_view::DECODE_BYTES_PER_PIXEL`.
+pub(crate) fn decode_peak(pixels: Option<u64>) -> u64 {
+    pixels.unwrap_or(crate::multi_view::UNKNOWN_PIXELS) * crate::multi_view::DECODE_BYTES_PER_PIXEL
+}
+
+/// The memory budget's reservation for a background decode of `path`
+/// (`decode_peak`, leaving the click reserve), None while there is no room;
+/// a request of the photographer that needs its room cancels the decode.
+fn reserve_decode(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+) -> Option<rawtonic_runtime::memory_budget::Reservation> {
+    use rawtonic_runtime::memory_budget::{Class, Request};
+    let pixels = crate::multi_view::full_size_of(path).map(|(w, h)| u64::from(w) * u64::from(h));
+    let request = Request::new(
+        Class::Speculative,
+        "multi-view background decode",
+        decode_peak(pixels),
+    )
+    .reserve(crate::memory_broker::click_reserve(app_handle));
+    let cancel = WORKER.get().map(|worker| {
+        let worker = Arc::clone(worker);
+        Arc::new(move || {
+            worker.cancel.fetch_add(1, Ordering::SeqCst);
+        }) as Arc<dyn Fn() + Send + Sync>
+    });
+    crate::memory_broker::try_now(request, Duration::ZERO, cancel)
+        .ok()
+        .map(|granted| granted.reservation)
 }
 
 #[derive(Default)]
@@ -257,6 +278,24 @@ fn decoding(key: &str) -> bool {
 
 fn held_bytes(held: &VecDeque<HeldDecode>) -> usize {
     held.iter().map(|h| h.image.as_bytes().len()).sum()
+}
+
+/// Bytes of the decodes held whose previews are written (the memory
+/// budget's reclaim ledger, `memory_broker`).
+pub(crate) fn held_written_bytes() -> usize {
+    HELD.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .filter(|h| h.written)
+        .map(|h| h.image.as_bytes().len())
+        .sum()
+}
+
+/// Lets the decodes held whose previews are written go (a click needs their
+/// room, `memory_broker`); one not written yet stays for its write.
+pub(crate) fn release_held_written() {
+    let mut held = HELD.lock().unwrap_or_else(|e| e.into_inner());
+    make_room(&mut held, 0, 0, None);
 }
 
 /// Bytes of decodes held at most, beside none held yet ([`hold_budget_beside`]).
@@ -685,16 +724,6 @@ pub(crate) fn primary_settled(quiet: Duration) -> bool {
     !busy() && since(&LAST_PRIMARY_WORK) >= quiet
 }
 
-/// How many background workers have a decode or 1:1 preview write under
-/// way: the multi view's (one step at a time) and the step prefetch's
-/// (`proxy_worker`); `ai_ahead` counts the memory of each.
-pub(crate) fn background_under_way() -> u64 {
-    let multi_view = WORKER.get().is_some_and(|worker| {
-        worker.decoding.load(Ordering::SeqCst) || worker.writing.load(Ordering::SeqCst)
-    });
-    u64::from(multi_view) + u64::from(crate::proxy_worker::prefetch_decoding())
-}
-
 fn worker(app_handle: &tauri::AppHandle) -> Arc<Worker> {
     WORKER
         .get_or_init(|| {
@@ -1006,16 +1035,16 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
     let write_pool = pool(WRITE_THREADS, "write");
     let mut waiting_for = "";
     loop {
-        // The next step, once the app is quiet.
-        let step = {
+        // The next step, once the app is quiet; a decode with its
+        // reservation in the memory budget, held until it ends.
+        let (step, _reservation) = {
             let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
             loop {
                 if let Some(step) = next_step(&mut queue) {
                     let quiet = since_activity();
-                    // An AI run made ahead holds the next decode or 1:1
-                    // preview (it was started with the memory free then;
-                    // `ai_ahead`).
-                    let busy = busy() || crate::ai_ahead::running();
+                    // An AI run made ahead counts through its reservation in
+                    // the memory budget (below), not as busy.
+                    let busy = busy();
                     // Critical only: a Mac with Capture One and Lightroom
                     // open beside it sat at the warning level for minutes.
                     let short_of_memory = crate::memory_pressure::level_now()
@@ -1026,13 +1055,23 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                         .state::<crate::state::export::ExportState>()
                         .running();
                     let mut step = step;
+                    // Speculative work of the memory budget (G74/BRK1): its
+                    // peak, the click reserve, beside every reservation held;
+                    // asked only when it would start otherwise.
+                    let mut granted = None;
                     let mut no_room = match &step {
-                        Step::Decode(path, _) => !decode_fits(
-                            crate::multi_view::full_size_of(path)
-                                .map(|(w, h)| u64::from(w) * u64::from(h)),
-                            crate::memory_pressure::work_headroom(),
-                        ),
-                        Step::Write => false,
+                        Step::Decode(path, _)
+                            if !exporting && may_start(quiet, busy, short_of_memory) =>
+                        {
+                            match reserve_decode(app_handle, path) {
+                                Some(reservation) => {
+                                    granted = Some(reservation);
+                                    false
+                                }
+                                None => true,
+                            }
+                        }
+                        Step::Decode(..) | Step::Write => false,
                     };
                     // No room for the next decode: a decode held and not
                     // written yet is written meanwhile (it may go after).
@@ -1048,7 +1087,7 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
                     }
                     if !exporting && !no_room && may_start(quiet, busy, short_of_memory) {
                         waiting_for = "";
-                        break step;
+                        break (step, granted);
                     }
                     let reason = if exporting {
                         "an export runs"
@@ -1791,15 +1830,39 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_background_decode_waits_for_memory_for_its_peak() {
+    fn a_background_decode_reserves_its_peak() {
+        use rawtonic_runtime::memory_budget::{
+            Class, Decision, Held, Reading, Request, Situation, Wait, decide,
+        };
         let mp = 1_000_000;
-        // 61 MP at 40 B/px: 2.44 GB.
-        assert!(decode_fits(Some(61 * mp), Some(3_000_000_000)));
-        assert!(!decode_fits(Some(61 * mp), Some(2_000_000_000)));
-        // Size not known: counted as 61 MP.
-        assert!(!decode_fits(None, Some(2_000_000_000)));
-        // Memory not readable: as before.
-        assert!(decode_fits(Some(61 * mp), None));
+        // 61 MP at 40 B/px: 2.44 GB; size not known: counted as 61 MP.
+        assert_eq!(decode_peak(Some(61 * mp)), 2_440_000_000);
+        assert_eq!(decode_peak(None), decode_peak(Some(61 * mp)));
+        // A 30 MP CR2 on the Lenovo with 4.9 GB available at the Develop
+        // click (MEMB1 §5): 1.2 GB + 3.0 GB click reserve do not fit.
+        let decode = Request::new(Class::Speculative, "decode", decode_peak(Some(30 * mp)))
+            .reserve(3_000_000_000);
+        let none: [Held; 0] = [];
+        let at = |available| Situation {
+            held: &none,
+            reading: Reading {
+                total: 15_859_000_000,
+                available,
+                app: Some(2_800_000_000),
+            },
+            visible_busy: false,
+            waited: Duration::ZERO,
+            asked_waiting: false,
+            reclaimable: 0,
+        };
+        assert!(matches!(
+            decide(&decode, &at(4_900_000_000)),
+            Decision::Wait(Wait::Memory { .. })
+        ));
+        assert!(matches!(
+            decide(&decode, &at(8_500_000_000)),
+            Decision::Grant { .. }
+        ));
     }
 
     #[test]

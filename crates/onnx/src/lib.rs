@@ -871,6 +871,22 @@ pub enum MemoryPlan {
     /// each run (`Model::run_options`). BiRefNet's low-peak graph: +1.36 GB
     /// on x86 for a session's first run instead of +2.13 GB, 22 % slower.
     LowPeak,
+    /// The parallel execution mode of `LowPeak` without the CPU memory
+    /// arena: each tensor's memory goes back when it ends and nothing is
+    /// reserved beyond it. BiRefNet's low-peak graph: +643 MB on x86
+    /// (+770–800 MB arm) instead of `LowPeak`'s +1362 MB first run, 16.4–16.7
+    /// s instead of 12.3–12.6 s (+30 %; page faults per tensor), same masks
+    /// (MEM21 option B, notes: benchmark-results/mem21-2026-11-26). The
+    /// reduced plan of a Subject run the memory budget cannot give
+    /// `LowPeak`'s room (G74/BRK1).
+    LowPeakNoArena,
+}
+
+impl MemoryPlan {
+    /// ONNX Runtime's parallel execution mode (no buffer reuse).
+    fn parallel(self) -> bool {
+        matches!(self, MemoryPlan::LowPeak | MemoryPlan::LowPeakNoArena)
+    }
 }
 
 /// The CPU options of a session: `threads` (as `session_with`) and its
@@ -1071,7 +1087,7 @@ fn saving_builder(
 fn builder(kind: ModelKind, device: Option<&Device>, tuning: Tuning) -> Result<SessionBuilder> {
     let mut builder = Session::builder(runtime::environment()?)?;
     let low_peak = device.is_none() && tuning.plan == MemoryPlan::LowPeak;
-    if low_peak {
+    if device.is_none() && tuning.plan.parallel() {
         builder = builder
             .with_parallel_execution(true)
             .map_err(|e| anyhow!("parallel execution: {e}"))?
@@ -1193,16 +1209,29 @@ impl Model {
     /// (BiRefNet's low-peak graph) on a machine short of memory. Runs need
     /// `run_options` to give the arena back after each run.
     pub fn load_cpu_low_peak(path: &Path, kind: ModelKind) -> Result<Self> {
+        Self::load_cpu_planned(path, kind, MemoryPlan::LowPeak)
+    }
+
+    /// Loads `path` on the CPU with `plan` (`LowPeak` or `LowPeakNoArena`
+    /// for a graph made for them; `Reuse` as every CPU session), never on a
+    /// GPU. The saved optimized graph serves every plan (its key does not
+    /// depend on it).
+    pub fn load_cpu_planned(path: &Path, kind: ModelKind, plan: MemoryPlan) -> Result<Self> {
         ensure_runtime()?;
         let started = Instant::now();
         let tuning = Tuning {
             threads: None,
-            plan: MemoryPlan::LowPeak,
+            plan,
         };
         let session = session_with(path, kind, None, tuning)
             .map_err(|e| e.context(format!("loading {} on CPU", path.display())))?;
+        let what = match plan {
+            MemoryPlan::Reuse => "",
+            MemoryPlan::LowPeak => " (low-peak memory plan)",
+            MemoryPlan::LowPeakNoArena => " (low-peak memory plan without arena)",
+        };
         log::info!(
-            "AI {}: loaded on CPU (low-peak memory plan) in {} ms",
+            "AI {}: loaded on CPU{what} in {} ms",
             kind.name(),
             started.elapsed().as_millis()
         );
@@ -1210,7 +1239,7 @@ impl Model {
             kind,
             path: path.to_path_buf(),
             state: Arc::new(watch::Slot::new(kind.name(), session, Provider::Cpu)),
-            plan: MemoryPlan::LowPeak,
+            plan,
         })
     }
 

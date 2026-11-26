@@ -1507,29 +1507,21 @@ pub(crate) fn fetch_low_peak_subject_in_background(app_handle: &tauri::AppHandle
     }
     let app = app_handle.clone();
     tauri::async_runtime::spawn(async move {
-        // Through the admission of work made ahead (G74): with memory for
-        // the download held in memory, not beside the photo's decode, a
-        // background decode or a Subject run; it starts and runs on its own
-        // (the background decodes do not wait for it). Not admitted within
-        // a minute: a later request tries again.
+        // Speculative work of the memory budget (G74, BRK1): with room
+        // for the download held in memory and the click reserve, not beside
+        // the photo's decode or a request of the photographer (a Subject
+        // click's run); its reservation is held until the download ends.
+        // Not admitted within a minute: a later request tries again.
         let ai_state = app.state::<AiState>();
         let job = crate::ai_ahead::AheadJob::ModelFetch;
         let need = crate::ai_ahead::estimated_peak(job, true, false);
-        let admitted = crate::ai_ahead::admit_beside(
-            job,
-            || false,
-            need,
-            || None,
-            || ai_state.subject_lock.try_lock().is_err(),
-        )
-        .await;
-        match admitted {
-            Ok(started) => drop(started),
+        let _reservation = match crate::ai_ahead::admit(&app, job, || false, need, || None).await {
+            Ok(reservation) => reservation,
             Err(_) => {
                 *lock_recover(&LOW_PEAK_FETCH) = LowPeakFetch::Idle;
                 return;
             }
-        }
+        };
         log::info!("AI subject mask: fetching the low-peak model in the background");
         let result = download_verified(
             &app,
@@ -1571,6 +1563,52 @@ pub async fn get_or_init_subject_model(
     ai_state: &AiState,
     download: bool,
 ) -> Result<Option<Arc<SubjectModel>>> {
+    get_or_init_subject_model_planned(app_handle, ai_state, download, false).await
+}
+
+/// Whether a loaded Subject model serves a run with the `reduced` plan: any
+/// model for the full plan; for the reduced one not the low-peak graph with
+/// its arena (`MemoryPlan::LowPeak`), which is loaded again without it.
+fn serves(model: &SubjectModel, reduced: bool) -> bool {
+    !(reduced && model.memory_plan() == Some(rawtonic_onnx::MemoryPlan::LowPeak))
+}
+
+/// Whether Subject runs BiRefNet's low-peak graph here: the loaded model's,
+/// else the file this machine prefers is installed (`subject_onnx_file`)
+/// and Core ML does not come first (the memory budget's estimate for a
+/// Subject run asked for, `ai_commands::asked_request`).
+pub(crate) fn subject_low_peak_ready(app_handle: &tauri::AppHandle, ai_state: &AiState) -> bool {
+    if let Some(model) = lock_recover(&ai_state.models)
+        .as_ref()
+        .and_then(|state| state.subject_model.clone())
+    {
+        return model.low_peak();
+    }
+    let Ok(models_dir) = get_models_dir(app_handle) else {
+        return false;
+    };
+    #[cfg(target_os = "macos")]
+    if SUBJECT_CORE_ML_FILES
+        .iter()
+        .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false))
+    {
+        return false;
+    }
+    let preferred = subject_onnx_file(&models_dir);
+    preferred.low_peak && preferred.installed(&models_dir)
+}
+
+/// `get_or_init_subject_model`; `reduced`: the low-peak graph runs with the
+/// reduced memory plan (`MemoryPlan::LowPeakNoArena`: same masks, ~30 %
+/// slower, −0.7 GB; the memory budget could not give the full plan's room,
+/// G74/BRK1). A loaded model with the full low-peak plan is loaded again
+/// without its arena for it; one without it serves either plan.
+pub async fn get_or_init_subject_model_planned(
+    app_handle: &tauri::AppHandle,
+    ai_state: &AiState,
+    download: bool,
+    reduced: bool,
+) -> Result<Option<Arc<SubjectModel>>> {
     let loaded = || {
         lock_recover(&ai_state.models)
             .as_ref()
@@ -1579,7 +1617,7 @@ pub async fn get_or_init_subject_model(
     if download {
         fetch_low_peak_subject_in_background(app_handle);
     }
-    if let Some(model) = loaded() {
+    if let Some(model) = loaded().filter(|m| serves(m, reduced)) {
         return Ok(Some(model));
     }
     let lock_wait = std::time::Instant::now();
@@ -1589,7 +1627,16 @@ pub async fn get_or_init_subject_model(
         lock_wait.elapsed().as_millis()
     );
     if let Some(model) = loaded() {
-        return Ok(Some(model));
+        if serves(&model, reduced) {
+            return Ok(Some(model));
+        }
+        // A run holding it ends with it.
+        if let Some(ai) = lock_recover(&ai_state.models).as_mut() {
+            ai.subject_model = None;
+        }
+        log::info!(
+            "AI subject mask: loading the low-peak model again without its arena (reduced memory plan)"
+        );
     }
     let generation = ai_state.lifecycle.generation();
     let models_dir = get_models_dir(app_handle)?;
@@ -1661,7 +1708,14 @@ pub async fn get_or_init_subject_model(
                     queued.elapsed().as_millis()
                 );
                 if file.low_peak {
-                    SubjectModel::onnx_low_peak(&path)
+                    SubjectModel::onnx_low_peak_planned(
+                        &path,
+                        if reduced {
+                            rawtonic_onnx::MemoryPlan::LowPeakNoArena
+                        } else {
+                            rawtonic_onnx::MemoryPlan::LowPeak
+                        },
+                    )
                 } else {
                     SubjectModel::onnx(&path)
                 }
@@ -4397,6 +4451,66 @@ mod tool_tests {
                 a.width() as u64 * a.height() as u64
             );
         }
+    }
+
+    /// Tool: the reduced memory plan (`MemoryPlan::LowPeakNoArena`, the
+    /// memory budget's fallback, G74/BRK1) against the shipped low-peak plan
+    /// (`LowPeak`) of BiRefNet's low-peak graph on the CPU, on the photos in
+    /// `$AI_FILES` (`;`-separated, decoded as the app does) with
+    /// `$AI_MODELS/birefnet_subject_low_peak.onnx`: per photo the stored
+    /// selection's 8-bit codes that differ (must be 0) and both run times.
+    #[test]
+    #[ignore = "tool: needs AI_FILES, AI_MODELS and ORT_DYLIB_PATH"]
+    fn print_subject_reduced_plan_agreement() {
+        use std::time::Instant;
+        let var = |k: &str| std::env::var(k).unwrap();
+        let file = std::path::PathBuf::from(var("AI_MODELS"))
+            .join(rawtonic_segment::SUBJECT_LOW_PEAK_FILENAME);
+        let full =
+            super::SubjectModel::onnx_low_peak_planned(&file, rawtonic_onnx::MemoryPlan::LowPeak)
+                .unwrap();
+        let reduced = super::SubjectModel::onnx_low_peak_planned(
+            &file,
+            rawtonic_onnx::MemoryPlan::LowPeakNoArena,
+        )
+        .unwrap();
+        let settings = crate::app_settings::AppSettings::default();
+        let mut all_equal = true;
+        for path in var("AI_FILES").split(';') {
+            let bytes = std::fs::read(path).unwrap();
+            let image = crate::image_loader::load_base_image_from_bytes(
+                &bytes, path, false, &settings, None,
+            )
+            .unwrap();
+            let raw = !path.to_lowercase().ends_with(".jpg");
+            let select = |model: &super::SubjectModel| {
+                let start = Instant::now();
+                let options = model.run_options().unwrap();
+                let mask = rawtonic_segment::subject_selection(
+                    &image,
+                    model,
+                    raw,
+                    options.as_ref(),
+                    rawtonic_segment::SUBJECT_VERSION,
+                )
+                .unwrap();
+                (mask, start.elapsed().as_secs_f32())
+            };
+            let (a, t_a) = select(&full);
+            let (b, t_b) = select(&reduced);
+            let differ = a
+                .pixels()
+                .zip(b.pixels())
+                .filter(|(p, q)| p[0] != q[0])
+                .count();
+            all_equal &= differ == 0 && a.dimensions() == b.dimensions();
+            println!(
+                "{path}\t{}x{}\tcodes differing {differ}\tlow-peak {t_a:.2} s\treduced {t_b:.2} s",
+                a.width(),
+                a.height()
+            );
+        }
+        assert!(all_equal, "the reduced plan changed a stored mask");
     }
 
     /// Tool: the app's Subject masks (`run_subject_model`, mask at the

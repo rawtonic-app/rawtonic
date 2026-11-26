@@ -780,23 +780,37 @@ impl SubjectModel {
     /// The low-peak graph (`SUBJECT_LOW_PEAK_FILENAME`) on the CPU with the
     /// low-peak memory plan (`use_low_peak_subject`).
     pub fn onnx_low_peak(path: &Path) -> Result<Self> {
+        Self::onnx_low_peak_planned(path, rawtonic_onnx::MemoryPlan::LowPeak)
+    }
+
+    /// The low-peak graph on the CPU with `plan`: `LowPeak`, or
+    /// `LowPeakNoArena` (the reduced plan when the memory budget cannot give
+    /// `LowPeak`'s room; same masks, ~30 % slower, G74/BRK1).
+    pub fn onnx_low_peak_planned(path: &Path, plan: rawtonic_onnx::MemoryPlan) -> Result<Self> {
         Ok(Self {
-            backend: SubjectBackend::Onnx(rawtonic_onnx::Model::load_cpu_low_peak(
+            backend: SubjectBackend::Onnx(rawtonic_onnx::Model::load_cpu_planned(
                 path,
                 rawtonic_onnx::ModelKind::Subject,
+                plan,
             )?),
         })
     }
 
-    /// Runs the low-peak graph with the low-peak memory plan
-    /// (`onnx_low_peak`).
+    /// Runs the low-peak graph with a low-peak memory plan
+    /// (`onnx_low_peak_planned`).
     pub fn low_peak(&self) -> bool {
+        matches!(
+            self.memory_plan(),
+            Some(rawtonic_onnx::MemoryPlan::LowPeak | rawtonic_onnx::MemoryPlan::LowPeakNoArena)
+        )
+    }
+
+    /// The memory plan of its ONNX Runtime sessions (None: Core ML).
+    pub fn memory_plan(&self) -> Option<rawtonic_onnx::MemoryPlan> {
         match &self.backend {
-            SubjectBackend::Onnx(model) => {
-                model.memory_plan() == rawtonic_onnx::MemoryPlan::LowPeak
-            }
+            SubjectBackend::Onnx(model) => Some(model.memory_plan()),
             #[cfg(target_os = "macos")]
-            SubjectBackend::CoreMl(_) => false,
+            SubjectBackend::CoreMl(_) => None,
         }
     }
 

@@ -3265,6 +3265,12 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             let responder = job.responder;
             let frame = crate::multi_view_prefetch::PreviewFrame::start(job.is_interactive);
             crate::proxy_worker::note_preview(job.is_interactive);
+            // Profiling builds: the memory at a settled frame's start and end
+            // (G74/BRK1 harness: what a click's new layer frame adds).
+            #[cfg(feature = "performance-profiling")]
+            let _memory = (!interactive).then(|| {
+                crate::memory_broker::Stage::new(format!("preview job {:?}", job.sequence))
+            });
             #[cfg(feature = "performance-profiling")]
             let (job_start_epoch, job_interactive, job_sequence, job_full_source) = (
                 crate::performance::epoch_ms(),
