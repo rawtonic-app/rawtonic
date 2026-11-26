@@ -19,12 +19,15 @@ PyTorch model, both to match the ONNX model the other platforms run:
   1024 x 1024 input's 256 x 256 tokens on every run, is computed once and
   kept as a constant (coremltools has no bicubic upsampling; the ONNX export
   folds it into a constant too).
-On 30 photos the masks of click and box prompts equal the ONNX model's on
-ONNX Runtime's CPU (docs/MODELS.md); fp16 compute (`--precision fp16`, for
-comparisons) is faster again but not equal.
+Against the ONNX model on ONNX Runtime's CPU, through the app's decoder and
+edge refinement on 32 RAW photos (4 clicks and 2 boxes each), 186 of 192
+masks are identical and the lowest IoU is 0.99995 (docs/MODELS.md); fp16
+compute (`--precision fp16`, for comparisons) is faster again but its masks
+differ more (lowest IoU 0.997 on 3 photos).
 
-Writes OUT_DIR/sam2.1_tiny_encoder.mlpackage and, for the model pack, its
-three files as flat assets (the app puts the package back together, as for
+Writes OUT_DIR/sam2.1_tiny_encoder.mlpackage (fp16:
+sam2.1_tiny_encoder_fp16.mlpackage) and, for the model pack, its three files
+as flat assets (the app puts the package back together, as for
 the sky model's skyseg_coreml_*): sam2_tiny_encoder_coreml_Manifest.json,
 sam2_tiny_encoder_coreml_model.mlmodel, sam2_tiny_encoder_coreml_weight.bin.
 The bytes repeat in every conversion (manifest identifiers, protobuf map
@@ -40,6 +43,7 @@ coremltools==9.0 and onnxruntime (macOS); see build_model_pack.py.
 import argparse
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -49,7 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from coreml_package import MEMBERS, fix_manifest, sort_spec  # noqa: E402
 from export_sam2 import CONFIGS, SIZE, Encoder  # noqa: E402
 
-PACKAGE = "sam2.1_tiny_encoder.mlpackage"
+PACKAGE = {"fp32": "sam2.1_tiny_encoder.mlpackage", "fp16": "sam2.1_tiny_encoder_fp16.mlpackage"}
 PREFIX = {"fp32": "sam2_tiny_encoder_coreml_", "fp16": "sam2_tiny_encoder_fp16_coreml_"}
 OUTPUTS = ("image_embed", "high_res_feats_0", "high_res_feats_1")
 # coremltools writes the day of conversion into the model's metadata; the
@@ -96,14 +100,25 @@ def convert(out: Path, encoder: Encoder, precision: str) -> Path:
     )
     mlmodel.short_description = "SAM 2.1 Hiera-T image encoder (Meta, Apache-2.0): image embeddings"
     mlmodel.license = "Apache-2.0"
-    package = out / PACKAGE
-    if package.exists():
-        shutil.rmtree(package)
-    mlmodel.save(str(package))
-    fix_manifest(package / "Manifest.json")
-    sort_spec(package / MEMBERS["model.mlmodel"], CONVERSION_DATE)
-    for asset, member in assets(precision).items():
-        shutil.copyfile(package / member, out / asset)
+    # Built complete in a staging folder, then moved into place: an
+    # interrupted run leaves the earlier package and files as they were.
+    staging = Path(tempfile.mkdtemp(prefix=".convert-", dir=out))
+    try:
+        staged = staging / PACKAGE[precision]
+        mlmodel.save(str(staged))
+        fix_manifest(staged / "Manifest.json")
+        sort_spec(staged / MEMBERS["model.mlmodel"], CONVERSION_DATE)
+        for asset, member in assets(precision).items():
+            shutil.copyfile(staged / member, staging / asset)
+        package = out / PACKAGE[precision]
+        old = staging / "previous.mlpackage"
+        if package.exists():
+            package.rename(old)
+        staged.rename(package)
+        for asset in assets(precision):
+            (staging / asset).replace(out / asset)
+    finally:
+        shutil.rmtree(staging)
     return package
 
 

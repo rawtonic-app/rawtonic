@@ -804,8 +804,8 @@ about 0.07 s (M5 Pro, CPU and GPU), against 0.11–0.34 s and a 30–70 s
 session compile for the provider (MLProgram, measured again with ONNX
 Runtime 1.23.2: 455 of 515 nodes in 19 partitions; the NeuralNetwork format
 took 5–12 s per encode). fp16 compute encodes in 0.03 s but its masks are
-no longer equal to the CPU's (lowest IoU 0.997 on 3 photos); fp32 keeps
-the same masks on every platform. Peak footprint of an encoding process:
+further from the CPU's (lowest IoU 0.997 on 3 photos); fp32 keeps them
+within IoU 0.99995 of the CPU's (186 of 192 identical, 32 RAWs). Peak footprint of an encoding process:
 0.94 GB on Core ML against 2.4 GB on ONNX Runtime's CPU.
 fp16 storage against the
 fp32 export (100 images): mean IoU equal to ±0.0005 in every mode.

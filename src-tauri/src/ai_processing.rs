@@ -63,8 +63,9 @@ const ENCODER_SHA256: &str = "b6249b5dfb882d3eaf447d57273340005cd6efd9645c0004f8
 const DECODER_SHA256: &str = "998c1cc053a2aad703fd2519fe890a1f80115b238a0da6d7b5fba70b210131d7";
 // The same encoder as a Core ML program (scripts/models/convert_sam2_coreml.py,
 // fp32), macOS's fast path: about 0.07 s on an M5 Pro's GPU instead of
-// 0.68 s on ONNX Runtime's CPU, masks equal to the ONNX model's (30 photos,
-// clicks and boxes; docs/MODELS.md). Input the same values as float. Its
+// 0.48-0.68 s on ONNX Runtime's CPU; through the decoder and refinement 186
+// of 192 click and box masks on 32 RAWs equal the ONNX model's, the lowest
+// IoU 0.99995 (docs/MODELS.md). Input the same values as float. Its
 // three files are put back together into the package Core ML compiles.
 #[cfg(target_os = "macos")]
 const SAM_ENCODER_CORE_ML_PACKAGE: &str = "sam2.1_tiny_encoder.mlpackage";
@@ -132,6 +133,15 @@ pub enum SamEncoder {
 }
 
 impl SamEncoder {
+    /// Runs the Core ML program.
+    pub fn on_core_ml(&self) -> bool {
+        match self {
+            SamEncoder::Onnx(_) => false,
+            #[cfg(target_os = "macos")]
+            SamEncoder::CoreMl(_) => true,
+        }
+    }
+
     pub fn backend_name(&self) -> String {
         match self {
             SamEncoder::Onnx(model) => format!("ONNX Runtime ({})", model.provider()),
@@ -1038,9 +1048,10 @@ fn sam_encoder_installed(app_handle: &tauri::AppHandle, models_dir: &Path) -> Re
 /// the background (`prepare_sam_core_ml`).
 #[cfg(target_os = "macos")]
 fn sam_core_ml_ready(app_handle: &tauri::AppHandle, models_dir: &Path) -> bool {
-    SAM_ENCODER_CORE_ML_FILES
-        .iter()
-        .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false))
+    !SAM_CORE_ML_FAILED.load(std::sync::atomic::Ordering::Acquire)
+        && SAM_ENCODER_CORE_ML_FILES
+            .iter()
+            .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false))
         && first_run_marker(app_handle, "object", &SAM_ENCODER_CORE_ML_FILES)
             .is_some_and(|marker| marker.is_set())
 }
@@ -1049,6 +1060,84 @@ fn sam_core_ml_ready(app_handle: &tauri::AppHandle, models_dir: &Path) -> bool {
 /// (ready, or Core ML failed: not tried again until the app starts again).
 #[cfg(target_os = "macos")]
 static SAM_CORE_ML_PREPARATION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+/// A run of the encoder's Core ML program failed in this process
+/// (`sam_models_on_onnx`): the ONNX encoder serves the rest of it.
+static SAM_CORE_ML_FAILED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// `run` on `models`; when it fails on the encoder's Core ML program
+/// (`on_core_ml`), once more on the models `fallback` gives (the ONNX
+/// encoder, `sam_models_on_onnx`).
+pub(crate) async fn retry_on_onnx<M, T, Run, Ran, Fallback, FellBack>(
+    models: M,
+    on_core_ml: impl Fn(&M) -> bool,
+    run: Run,
+    fallback: Fallback,
+) -> Result<T, String>
+where
+    M: Clone,
+    Run: Fn(M) -> Ran,
+    Ran: std::future::Future<Output = Result<T, String>>,
+    Fallback: FnOnce(M) -> FellBack,
+    FellBack: std::future::Future<Output = Result<M, String>>,
+{
+    match run(models.clone()).await {
+        Err(e) if on_core_ml(&models) => {
+            log::warn!("AI object mask: Core ML encoder failed ({e}); using ONNX Runtime");
+            let onnx = fallback(models).await?;
+            run(onnx).await
+        }
+        other => other,
+    }
+}
+
+/// Models like `failed` with the ONNX encoder in place of its Core ML
+/// program after a run of the program failed: the ONNX model fetched first
+/// when it is missing (with `download`), put in place of `failed` among the
+/// loaded models, and the program not used again in this process.
+pub(crate) async fn sam_models_on_onnx(
+    app_handle: &tauri::AppHandle,
+    ai_state: &AiState,
+    failed: &Arc<SamModels>,
+    download: bool,
+) -> Result<Arc<SamModels>> {
+    SAM_CORE_ML_FAILED.store(true, std::sync::atomic::Ordering::Release);
+    let models_dir = get_models_dir(app_handle)?;
+    if download {
+        download_verified(
+            app_handle,
+            &models_dir,
+            ENCODER_FILENAME,
+            ENCODER_SHA256,
+            "SAM Encoder",
+        )
+        .await?;
+    } else {
+        anyhow::ensure!(
+            verify_sha256(&models_dir.join(ENCODER_FILENAME), ENCODER_SHA256)?,
+            "SAM Encoder is not installed"
+        );
+    }
+    let path = models_dir.join(ENCODER_FILENAME);
+    let encoder = tokio::task::spawn_blocking(move || {
+        rawtonic_onnx::Model::load(&path, rawtonic_onnx::ModelKind::SamEncoder)
+    })
+    .await??;
+    let models = Arc::new(SamModels {
+        encoder: SamEncoder::Onnx(encoder),
+        decoder: failed.decoder.clone(),
+    });
+    let mut ai = lock_recover(&ai_state.models);
+    if let Some(state) = ai.as_mut()
+        && state
+            .sam_models
+            .as_ref()
+            .is_some_and(|m| Arc::ptr_eq(m, failed))
+    {
+        state.sam_models = Some(models.clone());
+    }
+    Ok(models)
+}
 
 /// In the background: fetches the encoder's Core ML files when they are
 /// missing (only with `download`, i.e. for an object mask the photographer
@@ -1076,6 +1165,7 @@ fn prepare_sam_core_ml(app_handle: &tauri::AppHandle, download: bool) {
 /// `prepare_sam_core_ml`'s work; `false` when it should be tried again later.
 #[cfg(target_os = "macos")]
 async fn prepare_sam_core_ml_now(app: &tauri::AppHandle, download: bool) -> bool {
+    use std::sync::atomic::Ordering;
     let ai_state = app.state::<AiState>();
     let Ok(models_dir) = get_models_dir(app) else {
         return false;
@@ -1085,6 +1175,10 @@ async fn prepare_sam_core_ml_now(app: &tauri::AppHandle, download: bool) -> bool
             .iter()
             .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false))
     };
+    let failed = || SAM_CORE_ML_FAILED.load(Ordering::Acquire);
+    if failed() {
+        return true;
+    }
     if (!download && !installed()) || crate::memory_pressure::under_pressure() {
         return false;
     }
@@ -1109,6 +1203,12 @@ async fn prepare_sam_core_ml_now(app: &tauri::AppHandle, download: bool) -> bool
     } else {
         None
     };
+    // The download and the turn may take a while: the models may have been
+    // let go (the Library, memory pressure) or memory become short since;
+    // the kernels are then built at a later request.
+    if crate::memory_pressure::under_pressure() || !ai_state.lifecycle.keep(generation) {
+        return false;
+    }
     let start = std::time::Instant::now();
     let side = SAM_INPUT_SIZE as usize;
     let run = tokio::task::spawn_blocking(move || {
@@ -1134,6 +1234,7 @@ async fn prepare_sam_core_ml_now(app: &tauri::AppHandle, download: bool) -> bool
     );
     let mut ai = lock_recover(&ai_state.models);
     if ai_state.lifecycle.keep(generation)
+        && !failed()
         && let Some(state) = ai.as_mut()
         && let Some(current) = &state.sam_models
         && matches!(current.encoder, SamEncoder::Onnx(_))
@@ -3278,6 +3379,55 @@ mod tool_tests {
     fn the_refinement_radius_follows_the_photo_size() {
         let r = |e| super::sam_refine_radius(e);
         assert!(r(400) < r(1600) && r(1600) < r(6000));
+    }
+
+    /// A failed run on the Core ML encoder is repeated once on the ONNX
+    /// encoder the fallback gives; a failure on ONNX Runtime, or a run that
+    /// worked, is returned as it is (models: `true` = on Core ML).
+    #[test]
+    fn a_failed_core_ml_encoding_repeats_on_onnx_runtime() {
+        let run = |fails_on: bool| {
+            move |on_core_ml: bool| async move {
+                if on_core_ml == fails_on {
+                    Err("failed".to_string())
+                } else {
+                    Ok(on_core_ml)
+                }
+            }
+        };
+        let on_core_ml = |m: &bool| *m;
+        let fallbacks = std::cell::Cell::new(0);
+        let fallback = |_: bool| {
+            fallbacks.set(fallbacks.get() + 1);
+            async { Ok(false) }
+        };
+        let retried = tauri::async_runtime::block_on(super::retry_on_onnx(
+            true,
+            on_core_ml,
+            run(true),
+            fallback,
+        ));
+        assert_eq!((retried, fallbacks.get()), (Ok(false), 1));
+        let unused = |_: bool| async { panic!("no fallback") };
+        assert_eq!(
+            tauri::async_runtime::block_on(super::retry_on_onnx(
+                true,
+                on_core_ml,
+                run(false),
+                unused
+            )),
+            Ok(true)
+        );
+        let unused = |_: bool| async { panic!("no fallback") };
+        assert_eq!(
+            tauri::async_runtime::block_on(super::retry_on_onnx(
+                false,
+                on_core_ml,
+                run(false),
+                unused
+            )),
+            Err("failed".to_string())
+        );
     }
 
     /// The Core ML encoder's object masks against the ONNX encoder's on
