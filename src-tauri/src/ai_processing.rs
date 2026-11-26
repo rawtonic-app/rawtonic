@@ -118,7 +118,9 @@ const DEPTH_SHA256: &str = "d2b11a11c1d4a12b47608fa65a17ee9a4c605b55ee1730c8e3b5
 /// for BiRefNet (470 MB), sky and depth.
 pub struct SamModels {
     pub encoder: SamEncoder,
-    pub decoder: rawtonic_onnx::Model,
+    /// Shared with the models that take the Core ML encoder's place
+    /// (`prepare_sam_core_ml`).
+    pub decoder: Arc<rawtonic_onnx::Model>,
 }
 
 /// SAM 2.1's image encoder: the Core ML program on macOS when it loads,
@@ -1005,7 +1007,7 @@ pub async fn preload_sam_models(app_handle: &tauri::AppHandle, ai_state: &AiStat
     }
     let skip = mask_model_skip(ensure_local_runtime().is_ok(), || {
         let models_dir = get_models_dir(app_handle)?;
-        Ok(sam_encoder_installed(&models_dir)?
+        Ok(sam_encoder_installed(app_handle, &models_dir)?
             && verify_sha256(&models_dir.join(DECODER_FILENAME), DECODER_SHA256)?)
     })?;
     if let Some(reason) = skip {
@@ -1016,22 +1018,133 @@ pub async fn preload_sam_models(app_handle: &tauri::AppHandle, ai_state: &AiStat
     Ok(())
 }
 
-/// Whether the encoder a preload would load without downloading is
-/// installed: on macOS its Core ML files (a Mac with only the ONNX encoder
-/// from an earlier version fetches them at the first object mask, which
-/// may download, instead of keeping the slower ONNX encoder loaded), else
-/// the ONNX model.
-fn sam_encoder_installed(models_dir: &Path) -> Result<bool> {
+/// Whether an encoder a preload would load without downloading is
+/// installed: the Core ML program when it is ready (`sam_core_ml_ready`),
+/// else the ONNX model.
+fn sam_encoder_installed(app_handle: &tauri::AppHandle, models_dir: &Path) -> Result<bool> {
     #[cfg(target_os = "macos")]
+    if sam_core_ml_ready(app_handle, models_dir) {
+        return Ok(true);
+    }
+    let _ = app_handle;
+    verify_sha256(&models_dir.join(ENCODER_FILENAME), ENCODER_SHA256)
+}
+
+/// Whether the encoder's Core ML program can take a click at once: its
+/// files are installed and it has run once in this app on this macOS build
+/// (`FirstRunMarker`). Its first run waits for Metal to build its GPU
+/// kernels (11 s on an M5 Pro under load, then 0.3 s in a new launch), so
+/// until then the ONNX encoder serves clicks and the program is prepared in
+/// the background (`prepare_sam_core_ml`).
+#[cfg(target_os = "macos")]
+fn sam_core_ml_ready(app_handle: &tauri::AppHandle, models_dir: &Path) -> bool {
+    SAM_ENCODER_CORE_ML_FILES
+        .iter()
+        .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false))
+        && first_run_marker(app_handle, "object", &SAM_ENCODER_CORE_ML_FILES)
+            .is_some_and(|marker| marker.is_set())
+}
+
+/// `prepare_sam_core_ml`'s state in this process: idle, running, or done
+/// (ready, or Core ML failed: not tried again until the app starts again).
+#[cfg(target_os = "macos")]
+static SAM_CORE_ML_PREPARATION: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// In the background: fetches the encoder's Core ML files when they are
+/// missing (only with `download`, i.e. for an object mask the photographer
+/// asked for), runs the program once on a constant input at utility QoS
+/// (which builds its GPU kernels and sets its first-run marker) and then
+/// puts it in place of the ONNX encoder of the loaded models. Once per
+/// process; nothing when the system is short of memory or the files are
+/// missing without `download` (a later request tries again).
+#[cfg(target_os = "macos")]
+fn prepare_sam_core_ml(app_handle: &tauri::AppHandle, download: bool) {
+    use std::sync::atomic::Ordering;
+    if SAM_CORE_ML_PREPARATION
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
     {
-        Ok(SAM_ENCODER_CORE_ML_FILES
+        return;
+    }
+    let app = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        let done = prepare_sam_core_ml_now(&app, download).await;
+        SAM_CORE_ML_PREPARATION.store(if done { 2 } else { 0 }, Ordering::Release);
+    });
+}
+
+/// `prepare_sam_core_ml`'s work; `false` when it should be tried again later.
+#[cfg(target_os = "macos")]
+async fn prepare_sam_core_ml_now(app: &tauri::AppHandle, download: bool) -> bool {
+    let ai_state = app.state::<AiState>();
+    let Ok(models_dir) = get_models_dir(app) else {
+        return false;
+    };
+    let installed = || {
+        SAM_ENCODER_CORE_ML_FILES
             .iter()
-            .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false)))
+            .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false))
+    };
+    if (!download && !installed()) || crate::memory_pressure::under_pressure() {
+        return false;
     }
-    #[cfg(not(target_os = "macos"))]
+    let _running = ai_state.lifecycle.run();
+    let generation = ai_state.lifecycle.generation();
+    let Some(model) = load_core_ml(
+        app,
+        &models_dir,
+        SAM_ENCODER_CORE_ML_PACKAGE,
+        &SAM_ENCODER_CORE_ML_FILES,
+        download,
+        "object",
+        "SAM Encoder",
+    )
+    .await
+    else {
+        // A failed download is tried again; a failed Core ML load is not.
+        return installed();
+    };
+    let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
+        Some(crate::ai_lifecycle::turn(false).await)
+    } else {
+        None
+    };
+    let start = std::time::Instant::now();
+    let side = SAM_INPUT_SIZE as usize;
+    let run = tokio::task::spawn_blocking(move || {
+        let result =
+            at_utility_qos(|| model.warm_up("image", &[1, 3, side, side], SAM_ENCODER_OUTPUTS[0]));
+        (model, result)
+    })
+    .await;
+    let model = match run {
+        Ok((model, Ok(()))) => model,
+        Ok((_, Err(e))) => {
+            log::warn!("AI object mask: Core ML encoder failed ({e}); using ONNX Runtime");
+            return true;
+        }
+        Err(e) => {
+            log::warn!("AI object mask: Core ML encoder failed ({e}); using ONNX Runtime");
+            return true;
+        }
+    };
+    log::info!(
+        "AI object mask: Core ML encoder's GPU kernels built in {} ms",
+        start.elapsed().as_millis()
+    );
+    let mut ai = lock_recover(&ai_state.models);
+    if ai_state.lifecycle.keep(generation)
+        && let Some(state) = ai.as_mut()
+        && let Some(current) = &state.sam_models
+        && matches!(current.encoder, SamEncoder::Onnx(_))
     {
-        verify_sha256(&models_dir.join(ENCODER_FILENAME), ENCODER_SHA256)
+        state.sam_models = Some(Arc::new(SamModels {
+            encoder: SamEncoder::CoreMl(model),
+            decoder: current.decoder.clone(),
+        }));
+        log::info!("AI object mask: the encoder now runs on Core ML");
     }
+    true
 }
 
 /// SAM 2.1's encoder and decoder (`SamModels`), downloaded and loaded on
@@ -1044,8 +1157,8 @@ pub async fn get_or_init_sam_models(
 }
 
 /// `get_or_init_sam_models`; with `download` false only installed files
-/// are loaded (an error when one is missing).
-async fn sam_models(
+/// are loaded (an error when one is missing) and nothing is fetched.
+pub(crate) async fn sam_models(
     app_handle: &tauri::AppHandle,
     ai_state: &AiState,
     download: bool,
@@ -1056,28 +1169,42 @@ async fn sam_models(
             .as_ref()
             .and_then(|state| state.sam_models.clone())
     };
+    // On the ONNX encoder (macOS): its Core ML program is prepared beside it.
+    let prepare = |models: &SamModels| {
+        #[cfg(target_os = "macos")]
+        if matches!(models.encoder, SamEncoder::Onnx(_)) {
+            prepare_sam_core_ml(app_handle, download);
+        }
+        let _ = models;
+    };
     if let Some(models) = loaded() {
+        prepare(&models);
         return Ok(models);
     }
     let _guard = ai_state.init_lock.lock().await;
     if let Some(models) = loaded() {
+        prepare(&models);
         return Ok(models);
     }
     let generation = ai_state.lifecycle.generation();
     let models_dir = get_models_dir(app_handle)?;
     let start = std::time::Instant::now();
     #[cfg(target_os = "macos")]
-    let core_ml = load_core_ml(
-        app_handle,
-        &models_dir,
-        SAM_ENCODER_CORE_ML_PACKAGE,
-        &SAM_ENCODER_CORE_ML_FILES,
-        download,
-        "object",
-        "SAM Encoder",
-    )
-    .await
-    .map(SamEncoder::CoreMl);
+    let core_ml = if sam_core_ml_ready(app_handle, &models_dir) {
+        load_core_ml(
+            app_handle,
+            &models_dir,
+            SAM_ENCODER_CORE_ML_PACKAGE,
+            &SAM_ENCODER_CORE_ML_FILES,
+            false,
+            "object",
+            "SAM Encoder",
+        )
+        .await
+        .map(SamEncoder::CoreMl)
+    } else {
+        None
+    };
     #[cfg(not(target_os = "macos"))]
     let core_ml: Option<SamEncoder> = None;
     let mut files = vec![(DECODER_FILENAME, DECODER_SHA256, "SAM Decoder")];
@@ -1103,10 +1230,10 @@ async fn sam_models(
     };
     let models = Arc::new(SamModels {
         encoder,
-        decoder: rawtonic_onnx::Model::load(
+        decoder: Arc::new(rawtonic_onnx::Model::load(
             &models_dir.join(DECODER_FILENAME),
             rawtonic_onnx::ModelKind::SamDecoder,
-        )?,
+        )?),
     });
     log::info!(
         "AI object mask: models loaded in {} ms, encoder on {}",
@@ -1117,6 +1244,7 @@ async fn sam_models(
     keep_model(ai_state, generation, |ai| {
         ai.sam_models = Some(models.clone())
     });
+    prepare(&models);
     Ok(models)
 }
 

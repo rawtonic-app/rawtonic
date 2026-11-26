@@ -982,7 +982,9 @@ pub async fn precompute_ai_subject_mask(
         load_turn = sam_load_turn(&ai_state, true).await;
     }
     let _load_turn = load_turn;
-    let models = get_or_init_sam_models(&app_handle, &ai_state)
+    // An encoding ahead of a photo opened downloads nothing, not even the
+    // encoder's Core ML program prepared beside the loaded models.
+    let models = crate::ai_processing::sam_models(&app_handle, &ai_state, background != Some(true))
         .await
         .map_err(CommandError::from)?;
     // A request for a photo that is no longer open is dropped.
