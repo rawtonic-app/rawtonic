@@ -13,16 +13,16 @@ export const DEFAULT_VIEWER_BACKGROUND: ViewerBackground = 'default';
 /**
  * Neutral greys as display-encoded sRGB values (0–255). The display surface is
  * not an sRGB format, so these reach the screen unchanged. Medium is 119: an
- * 18 % reflectance grey (L* 50), the middle of perceived lightness, for
- * judging tones. The other steps are spaced evenly in L* from Medium down
- * (Dark 34, Darker 5.5, Black 0) and up (Light 81, White 100), so Dark sits
- * halfway between Medium and Darker instead of repeating the canvas colour.
+ * 18 % reflectance grey (L* 50, OKLab L 0.57), the middle of perceived
+ * lightness, for judging tones. The other fixed steps are spaced evenly in
+ * OKLab lightness from Medium down and up, so Dark (80, OKLab L 0.43) is a
+ * step of its own between Medium and Darker, not a repeat of the canvas.
  * Default is the app's canvas colour (`--app-bg-primary`, see
- * viewerBackgroundCss) rather than a fixed grey: its entry here is only the
- * Darkest canvas, for contexts without a stylesheet.
+ * viewerBackgroundCss) and follows the interface shade; its entry here is
+ * only the fallback when no stylesheet answers (the Darkest canvas, 24).
  */
 export const VIEWER_BACKGROUND_LEVELS: Record<ViewerBackground, number> = {
-  default: 38,
+  default: 24,
   black: 0,
   veryDark: 18,
   dark: 80,
@@ -59,9 +59,9 @@ function canvasLevel(): number {
     .match(/[\d.]+/g)
     ?.slice(0, 3)
     .map(Number);
-  if (!values || values.length < 3 || values.some((n) => !Number.isFinite(n))) {
-    return VIEWER_BACKGROUND_LEVELS.default;
-  }
+  // Not expected to fail; should it, the viewer shows black, which is at
+  // least one of the choices rather than a second Default.
+  if (!values || values.length < 3 || values.some((n) => !Number.isFinite(n))) return 0;
   return (values[0] + values[1] + values[2]) / 3;
 }
 
@@ -75,7 +75,8 @@ export function viewerBackgroundRgba(background: ViewerBackground, brightness = 
 export function viewerBackgroundCss(background: ViewerBackground, brightness = 1): string {
   const level = backgroundLevel(background);
   if (level === null) {
-    const canvas = `var(--app-bg-primary, rgb(${VIEWER_BACKGROUND_LEVELS.default}, ${VIEWER_BACKGROUND_LEVELS.default}, ${VIEWER_BACKGROUND_LEVELS.default}))`;
+    const fallback = VIEWER_BACKGROUND_LEVELS.default;
+    const canvas = `var(--app-bg-primary, rgb(${fallback}, ${fallback}, ${fallback}))`;
     return brightness === 1 ? canvas : `color-mix(in srgb, ${canvas} ${brightness * 100}%, black)`;
   }
   const v = level * brightness;

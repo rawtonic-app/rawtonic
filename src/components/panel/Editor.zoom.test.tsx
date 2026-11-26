@@ -10,10 +10,18 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import { ContextMenuProvider } from '../../context/ContextMenuContext';
 import { Invokes, type AppSettings } from '../ui/AppProperties';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
+// @ts-expect-error node:fs is untyped in the frontend tsconfig
+import { readFileSync } from 'node:fs';
 
 // Keep the real viewer and targeted pointer surface; replace the renderer.
 // Zoom tests also check the preview size requested at animation start.
 // The photo pane ImageCanvas last got (`photoHost`).
+
+// The Darkest canvas the stylesheet gives `--app-bg-primary` (jsdom has no
+// cascade, so the token is read from it directly): Default's viewer colour.
+const CANVAS = Number(
+  readFileSync('src/styles.css', 'utf8').match(/:root \{\s*--app-bg-primary: rgb\((\d+), \d+, \d+\)/)![1]
+);
 const canvasProps = vi.hoisted(() => ({ photoHost: undefined as HTMLElement | null | undefined }));
 vi.mock('./editor/ImageCanvas', async () => {
   const { default: TargetedAdjustmentOverlay } = await import('./editor/TargetedAdjustmentOverlay');
@@ -88,6 +96,7 @@ describe('Editor zoom', () => {
     // Unmount while the stubs still stand, so no React work outlives the file's jsdom.
     cleanup();
     useSettingsStore.setState({ osPlatform: platform });
+    document.documentElement.style.removeProperty('--app-bg-primary');
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -103,6 +112,9 @@ describe('Editor zoom', () => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(10, 20, 500, 300));
     useUIStore.setState(view);
     useSettingsStore.setState({ osPlatform: 'macos', appSettings: { keybinds: {} } as AppSettings });
+    // Default is the app's canvas colour (`--app-bg-primary`); jsdom has no
+    // cascade, so the token is set here (and removed after).
+    document.documentElement.style.setProperty('--app-bg-primary', `rgb(${CANVAS}, ${CANVAS}, ${CANVAS})`);
     useEditorStore.setState({ hasRenderedFirstFrame: true });
     vi.mocked(invoke).mockClear();
     const viewer = createRef<TransformWrapperHandle>();
@@ -116,7 +128,7 @@ describe('Editor zoom', () => {
         vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.UpdateWgpuTransform);
       await vi.waitFor(() => expect(transforms().length).toBeGreaterThan(0));
       const initial = (transforms().at(-1)?.[1] as { payload: Record<string, unknown> }).payload;
-      expect(initial.bgSecondary).toEqual([38 / 255, 38 / 255, 38 / 255, 1]);
+      expect(initial.bgSecondary).toEqual([CANVAS / 255, CANVAS / 255, CANVAS / 255, 1]);
 
       fireEvent.contextMenu(viewer.current!.instance.wrapperComponent!, { clientX: 460, clientY: 45 });
       fireEvent.click(getByText('White'));
