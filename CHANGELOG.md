@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- A rated photo's `.rrdata` and `.xmp` files beside it no longer grow without an edit. Before, reading the photo's camera data stored about 3–12 KB of it in its `.rrdata` file, and selecting the open photo again or opening it after an undone Move saved its full unchanged edit into the `.rrdata` and `.xmp` files (about 23 KB).
+- Reading a photo's camera data no longer stores it in the `.rrdata` file beside the photo (it stays in Rawtonic's cache; that added about 3–12 KB to a rated photo's file), and selecting the open photo again or opening it after an undone Move no longer saves its unchanged edit into the `.rrdata` and `.xmp` files (about 23 KB).
 - Windows: undoing a Move to Trash now also removes the Recycle Bin's hidden information file of each restored photo. Before, one stayed behind for every photo put back, invisible in the Recycle Bin.
 
 - Headless export accepts `--super-resolution-quality fast|full` to enlarge photos 2×. The desktop binary fetches missing Super Resolution models as the Export dialog does. The standalone CLI tells you how to install them when they are missing.
