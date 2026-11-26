@@ -100,6 +100,43 @@ describe('automatic AI masks from imported presets', () => {
     expect(generated()).toHaveLength(3);
   });
 
+  it('asks for the layers a photo opens with as pending, a layer added later as a click (memory budget)', async () => {
+    useEditorStore.setState({
+      selectedImage: { path: '/s/a.NEF', isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [
+          layer('ai-foreground', { maskDataBase64: null, grow: 0, feather: 0 }),
+          layer('ai-sky', { maskDataBase64: null, grow: 0, feather: 0 })
+        ] as never
+      }
+    });
+    const calls = (command: string) => invoke.mock.calls.filter((c) => c[0] === command).map((c) => c[1]);
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(calls('generate_ai_foreground_mask')).toHaveLength(1));
+    await waitFor(() => expect(calls('generate_ai_sky_mask')).toHaveLength(1));
+    expect(calls('generate_ai_foreground_mask')[0]).toMatchObject({ pending: true, taskId: 'sub-ai-foreground' });
+    expect(calls('generate_ai_sky_mask')[0]).toMatchObject({ pending: true });
+    // A new Subject layer while the photo is open: the photographer's click.
+    act(() =>
+      useEditorStore.setState((state) => ({
+        adjustments: {
+          ...state.adjustments,
+          masks: [
+            ...state.adjustments.masks,
+            {
+              ...layer('ai-foreground', { maskDataBase64: null }),
+              id: 'layer-new',
+              subMasks: [{ ...layer('ai-foreground', {}).subMasks[0], id: 'sub-new' }]
+            }
+          ] as never
+        }
+      }))
+    );
+    await waitFor(() => expect(calls('generate_ai_foreground_mask')).toHaveLength(2));
+    expect(calls('generate_ai_foreground_mask')[1]).toMatchObject({ pending: false, taskId: 'sub-new' });
+  });
+
   /** Answers `generate_*` calls only when the test resolves them. */
   function deferredMasks() {
     const pending: ((value: unknown) => void)[] = [];

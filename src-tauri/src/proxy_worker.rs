@@ -527,17 +527,6 @@ pub(crate) fn decoding_ahead(key: &str) -> bool {
         == Some(key)
 }
 
-/// Whether a prefetch decode is under way
-/// (`multi_view_prefetch::background_under_way`).
-pub(crate) fn prefetch_decoding() -> bool {
-    UNDER_WAY
-        .0
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .key
-        .is_some()
-}
-
 /// Waits up to `wait` while the prefetch decode of decoded-cache key `key`
 /// is under way (and its preview base built ahead, `decode`). Neither takes
 /// nor asks for it: kept ahead, it is then shared (`kept_decode`).
@@ -573,6 +562,18 @@ fn asked_ahead(source: &str) -> (bool, bool) {
         let queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
         (queue.asks_ahead_for(source), queue.asks_first_for(source))
     })
+}
+
+/// Bytes of the decodes kept ahead that nothing else holds (the memory
+/// budget's reclaim ledger: what letting them go gives back).
+pub(crate) fn kept_ahead_bytes() -> usize {
+    AHEAD
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .filter(|kept| Arc::strong_count(&kept.image) == 1)
+        .map(|kept| kept.image.as_bytes().len())
+        .sum()
 }
 
 /// The decoder's settings changed or the caches were cleared: the decode
@@ -679,13 +680,12 @@ fn run(worker: &Worker, app_handle: &tauri::AppHandle) {
         let job = {
             let mut queue = worker.queue.lock().unwrap_or_else(|e| e.into_inner());
             loop {
-                // An AI run made ahead holds the next decode too (it was
-                // started with the memory free then; `ai_ahead`).
-                let start = worker
-                    .prefetch_gate
-                    .start(crate::multi_view_prefetch::step_prefetch_wait, || {
-                        crate::multi_view_prefetch::busy() || crate::ai_ahead::running()
-                    });
+                // Memory: each decode reserves its peak in the memory budget
+                // (`reserve_prefetch_decode`), beside an AI run made ahead.
+                let start = worker.prefetch_gate.start(
+                    crate::multi_view_prefetch::step_prefetch_wait,
+                    crate::multi_view_prefetch::busy,
+                );
                 if let Some(job) = queue.next(start.is_some()) {
                     let keep = matches!(&job, Job::Prefetch(path) if queue.keeps_decode(path));
                     break (job, queue.prefetch_generation, start, keep);
@@ -812,10 +812,11 @@ fn prepare(
                 .remember(path, proxy);
         }
         // Decoded only to be kept: not while nothing may be held (short of
-        // memory).
+        // memory), and only with its peak's room (`reserve_prefetch_decode`).
         if keep
             && preview_proxy::source_available(&source)
             && crate::multi_view_prefetch::hold_budget() > 0
+            && let Some(_reservation) = reserve_prefetch_decode(app_handle, path, &cancel)
         {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("preview_prefetch_decode");
@@ -823,6 +824,9 @@ fn prepare(
         }
         return;
     }
+    let Some(_reservation) = reserve_prefetch_decode(app_handle, path, &cancel) else {
+        return;
+    };
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("preview_proxy_prefetch");
     let Ok((image, variant, measures)) = decode(
@@ -868,6 +872,66 @@ fn prepare(
         }
         Err(e) => log::warn!("Preview proxy for {} not written: {}", source.display(), e),
     }
+}
+
+/// How long a prefetch decode waits at most for its room in the memory
+/// budget before it is left (the photograph decodes when it is opened).
+const PREFETCH_ROOM_WAIT: Duration = Duration::from_secs(30);
+
+/// The memory budget's reservation for a prefetch decode of `path`
+/// (speculative: its peak at `multi_view::DECODE_BYTES_PER_PIXEL` and the
+/// click reserve beside every reservation held; G74/BRK1 — MEMB1 found the
+/// step prefetch checked only `hold_budget() > 0`, not the decode's own
+/// peak). Waits up to `PREFETCH_ROOM_WAIT` unless `cancel` (an edit, a
+/// step), a new prefetch request or a preview build asked for ends it; a
+/// request of the photographer that needs its room cancels the decode as an
+/// edit does.
+fn reserve_prefetch_decode(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    cancel: &rawtonic_runtime::CancelToken,
+) -> Option<rawtonic_runtime::memory_budget::Reservation> {
+    use rawtonic_runtime::memory_budget::{Class, Request};
+    let pixels = crate::multi_view::full_size_of(path).map(|(w, h)| u64::from(w) * u64::from(h));
+    let request = Request::new(
+        Class::Speculative,
+        "step prefetch decode",
+        crate::multi_view_prefetch::decode_peak(pixels),
+    )
+    .reserve(crate::memory_broker::click_reserve(app_handle));
+    let worker = WORKER.get();
+    let stop = worker.map(|worker| {
+        let worker = Arc::clone(worker);
+        Arc::new(move || worker.prefetch_gate.interaction()) as Arc<dyn Fn() + Send + Sync>
+    });
+    let generation = worker.map(|w| {
+        w.queue
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .prefetch_generation
+    });
+    let asked_meanwhile = || {
+        worker.is_some_and(|w| {
+            let queue = w.queue.lock().unwrap_or_else(|e| e.into_inner());
+            Some(queue.prefetch_generation) != generation || !queue.builds.is_empty()
+        })
+    };
+    crate::memory_broker::reserve_blocking(
+        request,
+        || {
+            if cancel.is_cancelled() {
+                Some("cancelled")
+            } else if asked_meanwhile() {
+                Some("another request came")
+            } else {
+                None
+            }
+        },
+        stop,
+        Some(PREFETCH_ROOM_WAIT),
+    )
+    .ok()
+    .map(|granted| granted.reservation)
 }
 
 type DecodedProxy = (

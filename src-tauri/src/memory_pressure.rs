@@ -111,6 +111,21 @@ pub fn work_headroom() -> Option<u64> {
     Some(headroom(total, system.available_memory(), own))
 }
 
+/// The memory now for the memory budget (`memory_broker`): physical,
+/// available and the app's own (`app_memory`).
+pub fn reading() -> rawtonic_runtime::memory_budget::Reading {
+    static SYSTEM: std::sync::Mutex<Option<sysinfo::System>> = std::sync::Mutex::new(None);
+    let mut guard = SYSTEM.lock().unwrap_or_else(|e| e.into_inner());
+    let system = guard.get_or_insert_with(sysinfo::System::new);
+    system.refresh_memory();
+    let (total, available) = (system.total_memory(), system.available_memory());
+    rawtonic_runtime::memory_budget::Reading {
+        total,
+        available,
+        app: app_memory(system),
+    }
+}
+
 /// The memory now for the app log (G74/MEM18: Develop's stages and the AI
 /// work made ahead): "app X MB, Y MB available of Z MB, W MB free for work
 /// that may wait" (`work_headroom`).

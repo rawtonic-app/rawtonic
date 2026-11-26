@@ -42,7 +42,7 @@ of the lists (rawdecode, engine, export, ingest and merge use it).
 
 | Crate | Owns | Depends on | Key modules | Tests/hooks |
 |---|---|---|---|---|
-| `runtime` | stage timing, allocator release, shared local time | none | `performance`, `allocator`, `local_time` | Windows zone override regression test |
+| `runtime` | stage timing, allocator release, shared local time, the app-wide memory budget (`memory_budget`: reservations, priority classes, reclaim ledger; pure logic) | none | `performance`, `allocator`, `local_time`, `memory_broker` | Windows zone override regression test, `-p rawtonic-runtime memory_budget` |
 | `rawdecode` | RAW bytes → oriented linear RGB | `rawler`, `runtime` | `raw_processing`, `demosaic` | fixtures |
 | `recipe` | stored + resolved develop recipe, typed keys | serde, serde_json only | `stored`, `tone`, `color`, `detail`, `geometry`, `effects`, `lens`, `masks`, `resources` | `-p recipe` |
 | `engine` | develop model, masks, looks, lens | fs, metadata, rawdecode, recipe, runtime | `image_processing` | `-p engine` |
@@ -642,6 +642,15 @@ and, with film grain, a grain field pass over 2 x 2 blocks, which the main and f
 exports without a compile limit keep their own one-pass export variants;
 `memory_turns`: on an integrated GPU under a compile limit an idle compile, an export and a masking network on the CPU
 take turns (`src-tauri/src/ai_lifecycle.rs` `turn`, `export_turn`).
+Memory for heavy work (G74/BRK1): `rawtonic_runtime::memory_budget` is one broker in which every heavy consumer reserves
+its estimated peak before it allocates (room = available − max(1.5 GB, 10 % RAM) − unspent reservations), by class: P0
+visible photo, P1 asked (a click, the masking tools, pending AI layers of the open photo; cancels speculative work,
+reclaims from the ledger, falls back to a reduced plan, e.g. Subject's low-peak graph without its arena), P2 export,
+P3 speculative (step prefetch, multi-view background decodes, AI work made ahead and model fetches; they leave the click
+reserve). `src-tauri/src/memory_broker.rs` feeds it the readings, the open photo's state and the ledger (held neighbour
+decodes, other photos' decodes); step 1 covers the AI mask runs, their model loads and fetch, the step prefetch and the
+multi view's decodes (`ai_ahead`, `ai_commands::auto_mask`, `proxy_worker`, `multi_view_prefetch`); exports and the other
+AI tools join in step 2 through `memory_broker::reserve`.
 
 
 #### `export`

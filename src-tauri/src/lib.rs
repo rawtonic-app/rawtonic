@@ -82,6 +82,7 @@ mod library_search;
 mod live_stroke;
 mod lut_processing;
 mod mask_generation;
+mod memory_broker;
 mod memory_pressure;
 mod merges;
 mod moebius;
@@ -644,6 +645,7 @@ fn start(args: Vec<String>) {
             if !is_headless {
                 // Masking models: unloaded when idle or short of memory.
                 ai_lifecycle::start(&app_handle);
+                memory_broker::start(&app_handle);
                 // GPU idle compiles: held while memory is short or an
                 // export runs.
                 memory_pressure::guard_idle_compiles(&app_handle);

@@ -607,7 +607,9 @@ export function useAiMasking() {
     }
   };
 
-  const handleGenerateAiForegroundMask = async (subMaskId: string): Promise<boolean> => {
+  /** `pending`: a layer the photo opened with (not a click), for the
+   * backend's memory budget (G74/BRK1). */
+  const handleGenerateAiForegroundMask = async (subMaskId: string, pending = false): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'foreground');
@@ -629,7 +631,8 @@ export function useAiMasking() {
         orientationSteps: adjustments.orientationSteps,
         rotation: adjustments.rotation,
         subjectVersion,
-        taskId: subMaskId
+        taskId: subMaskId,
+        pending
       });
 
       return !applyAiResult(selectedImage.path, subMaskId, newParameters);
@@ -642,7 +645,7 @@ export function useAiMasking() {
     }
   };
 
-  const handleGenerateAiSkyMask = async (subMaskId: string): Promise<boolean> => {
+  const handleGenerateAiSkyMask = async (subMaskId: string, pending = false): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'sky');
@@ -657,7 +660,8 @@ export function useAiMasking() {
         flipVertical: adjustments.flipVertical,
         orientationSteps: adjustments.orientationSteps,
         rotation: adjustments.rotation,
-        taskId: subMaskId
+        taskId: subMaskId,
+        pending
       });
 
       return !applyAiResult(selectedImage.path, subMaskId, newParameters);
@@ -821,6 +825,10 @@ export function useAiMasking() {
     return Boolean((sub?.parameters as { maskDataBase64?: string | null } | undefined)?.maskDataBase64);
   };
   const requestedAutoMasks = useRef(new Set<string>());
+  // The Subject/Sky components still without mask data when the open photo
+  // became ready (`photo:id`): computed as pending layers, not clicks.
+  const readyPhoto = useRef<string | null>(null);
+  const pendingAtOpen = useRef(new Set<string>());
   const [askAgain, setAskAgain] = useState(0);
   /** The Landscape request that failed last, by component. */
   const failedLandscape = useRef(new Map<string, string>());
@@ -909,9 +917,25 @@ export function useAiMasking() {
       .catch((error) => console.error('Placing Lightroom masks failed:', error));
   }, [selectedImageDecoded, sliderDragging, masksKey, placeMasksAgain]);
   useEffect(() => {
-    if (!selectedImageReady) return;
+    if (!selectedImageReady) {
+      readyPhoto.current = null;
+      return;
+    }
     const { selectedImage } = useEditorStore.getState();
     const masks = useEditorStore.getState().adjustments.masks ?? [];
+    if (readyPhoto.current !== (selectedImage?.path ?? null)) {
+      readyPhoto.current = selectedImage?.path ?? null;
+      pendingAtOpen.current = new Set(
+        masks
+          .flatMap((m: MaskContainer) => m.subMasks)
+          .filter(
+            (sub: SubMask) =>
+              (sub.type === 'ai-sky' || sub.type === 'ai-foreground') &&
+              !(sub.parameters as { maskDataBase64?: string | null } | undefined)?.maskDataBase64
+          )
+          .map((sub: SubMask) => `${selectedImage?.path}:${sub.id}`)
+      );
+    }
     const hidden = new Set(
       masks.flatMap((m: MaskContainer) =>
         m.subMasks.filter((sub: SubMask) => m.visible === false || sub.visible === false).map((sub: SubMask) => sub.id)
@@ -987,12 +1011,13 @@ export function useAiMasking() {
       if (sub.type !== 'ai-depth' && (!sub.parameters || Object.keys(sub.parameters).length === 0)) {
         updateSubMask(sub.id, { parameters: { maskDataBase64: null, grow: 0, feather: 0 } });
       }
+      const atOpen = pendingAtOpen.current.has(key);
       const run =
         sub.type === 'ai-depth'
           ? handleGenerateAiDepthMask(sub.id, sub.parameters as AiDepthMaskSettings)
           : sub.type === 'ai-sky'
-            ? handleGenerateAiSkyMask(sub.id)
-            : handleGenerateAiForegroundMask(sub.id);
+            ? handleGenerateAiSkyMask(sub.id, atOpen)
+            : handleGenerateAiForegroundMask(sub.id, atOpen);
       // A result dropped because the photo changed is asked for again when
       // the photo opens again, or now when it is open again already.
       const asked = selectedImage?.path;

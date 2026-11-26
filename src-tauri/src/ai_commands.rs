@@ -12,9 +12,8 @@ use crate::ai_processing::{
     AI_MASKS_KEPT, AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters,
     AiSubjectMaskParameters, CachedDepthMap, CachedLandscape, CachedMask, ImageEmbeddings,
     SamModels, SamPrompt, generate_image_embeddings, get_or_init_depth_model,
-    get_or_init_sam_models, get_or_init_sky_model, get_or_init_subject_model, mask_model_installed,
-    run_depth_anything_model, run_sam_decoder, run_sam_decoder_prompts, run_sky_seg_model,
-    subject_selection,
+    get_or_init_sam_models, get_or_init_sky_model, mask_model_installed, run_depth_anything_model,
+    run_sam_decoder, run_sam_decoder_prompts, run_sky_seg_model, subject_selection,
 };
 use crate::app_state::{AiTaskGuard, AiTaskToken, AppState};
 use crate::cache_utils::GEOMETRY_KEYS;
@@ -66,6 +65,7 @@ pub async fn generate_ai_foreground_mask(
     subject_version: Option<u32>,
     task_id: Option<String>,
     download: Option<bool>,
+    pending: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiForegroundMaskParameters, CommandError> {
@@ -92,6 +92,7 @@ pub async fn generate_ai_foreground_mask(
         version,
         &path,
         download.unwrap_or(true),
+        Origin::asked(pending),
         cancel_flag,
     )
     .await?
@@ -122,6 +123,7 @@ pub async fn generate_ai_sky_mask(
     orientation_steps: u8,
     task_id: Option<String>,
     download: Option<bool>,
+    pending: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiSkyMaskParameters, CommandError> {
@@ -144,6 +146,7 @@ pub async fn generate_ai_sky_mask(
         &js_adjustments,
         &path,
         download.unwrap_or(true),
+        Origin::asked(pending),
         cancel_flag,
     )
     .await?
@@ -569,6 +572,17 @@ pub async fn generate_ai_subject_mask(
     let generation = ai_state.lifecycle.generation();
     let started = std::time::Instant::now();
     let _load_turn = sam_load_turn(&ai_state, true).await;
+    // A click or box of the photographer: the encoder's load and run
+    // reserve their peak in the memory budget unless the photo's encoding
+    // is cached (the decoder alone is small).
+    let _reservation = admit_object_encoding(
+        &state,
+        &ai_state,
+        &js_adjustments,
+        "AI object selection",
+        &|| cancel_flag.is_some_and(|t| t.is_cancelled()),
+    )
+    .await?;
     let models = get_or_init_sam_models(&app_handle, &ai_state)
         .await
         .map_err(CommandError::from)?;
@@ -940,8 +954,10 @@ pub async fn precompute_ai_subject_mask(
     let cancelled = || _guard.as_ref().is_some_and(|g| g.token.is_cancelled());
     // The models' load takes a turn as their run does (`sam_load_turn`).
     let mut load_turn = None;
-    // Held while an encoding made ahead runs (`ai_ahead::running`).
+    // An encoding made ahead's reservation in the memory budget, or one of
+    // the photographer's (the masking tools), taken before the models load.
     let mut _ahead = None;
+    let mut _asked = None;
     // `background`: asked for by opening a photo, not by the user: only
     // with a model that is already installed (no download), and while the
     // system is not short of memory (as `precompute`).
@@ -968,7 +984,7 @@ pub async fn precompute_ai_subject_mask(
                 loaded,
             );
             let asked = || crate::ai_ahead::asked_since(asked_at, task_id.as_deref());
-            let admitted = crate::ai_ahead::admit(job, asked, need, || {
+            let admitted = crate::ai_ahead::admit(&app_handle, job, asked, need, || {
                 if cancelled() {
                     return Some("the task was cancelled");
                 }
@@ -982,6 +998,18 @@ pub async fn precompute_ai_subject_mask(
                     return Ok(());
                 }
             }
+        }
+        // Asked for by the masking tools: a request of the photographer,
+        // reserved before the encoder's models load.
+        if _ahead.is_none() {
+            _asked = admit_object_encoding(
+                &state,
+                &ai_state,
+                &js_adjustments,
+                "AI object encoding for the masking tools",
+                &cancelled,
+            )
+            .await?;
         }
         load_turn = sam_load_turn(&ai_state, false).await;
         crate::ai_processing::preload_sam_models(&app_handle, &ai_state)
@@ -998,6 +1026,19 @@ pub async fn precompute_ai_subject_mask(
         load_turn = sam_load_turn(&ai_state, true).await;
     }
     let _load_turn = load_turn;
+    // Not made ahead (the masking tools without `background`): a request of
+    // the photographer in the memory budget before the encoder loads,
+    // unless one is held already or the encoding is cached.
+    if _ahead.is_none() && _asked.is_none() {
+        _asked = admit_object_encoding(
+            &state,
+            &ai_state,
+            &js_adjustments,
+            "AI object encoding for the masking tools",
+            &cancelled,
+        )
+        .await?;
+    }
     // An encoding ahead of a photo opened downloads nothing, not even the
     // encoder's Core ML program prepared beside the loaded models.
     // Nor does one asked for by the masking tools (an existing object
@@ -1142,11 +1183,25 @@ async fn network(
     kind: AutoMask,
     download: bool,
 ) -> Result<Option<Network>, CommandError> {
+    network_planned(ai_state, app_handle, kind, download, false).await
+}
+
+/// `network`; `reduced`: Subject's low-peak graph with the reduced memory
+/// plan (`memory_budget::Plan::Reduced`, `get_or_init_subject_model_planned`).
+async fn network_planned(
+    ai_state: &AiState,
+    app_handle: &tauri::AppHandle,
+    kind: AutoMask,
+    download: bool,
+    reduced: bool,
+) -> Result<Option<Network>, CommandError> {
     Ok(match kind {
-        AutoMask::Subject => get_or_init_subject_model(app_handle, ai_state, download)
-            .await
-            .map_err(CommandError::from)?
-            .map(Network::Subject),
+        AutoMask::Subject => crate::ai_processing::get_or_init_subject_model_planned(
+            app_handle, ai_state, download, reduced,
+        )
+        .await
+        .map_err(CommandError::from)?
+        .map(Network::Subject),
         AutoMask::Sky => get_or_init_sky_model(app_handle, ai_state, download)
             .await
             .map_err(CommandError::from)?
@@ -1172,6 +1227,7 @@ async fn auto_mask(
     subject_version: u32,
     asked: Option<&str>,
     download: bool,
+    origin: Option<Origin>,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, CommandError> {
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
@@ -1222,6 +1278,30 @@ async fn auto_mask(
     } else {
         None
     };
+    // A request of the photographer (`origin`) reserves its peak in the
+    // memory budget here, after the cache (a cached mask needs none) and the
+    // turn: speculative work yields to it, caches are let go for it, and on
+    // a machine short of memory Subject runs its reduced plan (G74/BRK1).
+    // One made ahead holds its reservation already (`precompute`).
+    let reservation = match origin {
+        Some(origin) => {
+            let request = asked_request(&AskedEstimate {
+                kind,
+                origin,
+                low_peak: kind == AutoMask::Subject
+                    && crate::ai_processing::subject_low_peak_ready(app_handle, ai_state, download),
+                on_cpu: rawtonic_onnx::models_run_on_cpu_only(),
+                loaded: model_loaded(ai_state, kind),
+                pixels: u64::from(loaded.image.width()) * u64::from(loaded.image.height()),
+            });
+            Some(admit_asked(request, &cancelled).await?)
+        }
+        None => None,
+    };
+    let reduced = reservation
+        .as_ref()
+        .is_some_and(|r| r.plan() == rawtonic_runtime::memory_budget::Plan::Reduced);
+    let _stage = crate::memory_broker::Stage::new(format!("AI {} mask run", kind.name()));
     // The photo's warped image is made while a model that is not loaded yet
     // loads (Core ML loads on a worker thread): a first click waits for the
     // longer of the two instead of both. Only when the model will be there:
@@ -1240,11 +1320,22 @@ async fn auto_mask(
     let (network, warped) = if !model_loaded(ai_state, kind)
         && (download || mask_model_installed(app_handle, kind == AutoMask::Sky))
     {
-        let (network, warped) = tokio::join!(network(ai_state, app_handle, kind, download), warp());
+        let (network, warped) = tokio::join!(
+            network_planned(ai_state, app_handle, kind, download, reduced),
+            warp()
+        );
         (network?, Some(warped?))
     } else {
-        (network(ai_state, app_handle, kind, download).await?, None)
+        (
+            network_planned(ai_state, app_handle, kind, download, reduced).await?,
+            None,
+        )
     };
+    log::info!(
+        "Develop memory: AI {} mask model ready; {}",
+        kind.name(),
+        crate::memory_pressure::memory_line()
+    );
     let during_load = if warped.is_some() {
         " (while the model loaded)"
     } else {
@@ -1262,6 +1353,11 @@ async fn auto_mask(
         None => warp().await?,
     };
     let (width, height) = (warped_image.width(), warped_image.height());
+    log::info!(
+        "Develop memory: AI {} mask warped image {width}x{height} ready; {}",
+        kind.name(),
+        crate::memory_pressure::memory_line()
+    );
     // A background run on the CPU peaks 2.2-2.5 GB above the model: what
     // rebuilds on demand goes first (AIMEM: 5699 -> 5580 MB on a Mac mini).
     // A click's run keeps the caches the next edit uses; so does this one for
@@ -1499,6 +1595,7 @@ async fn subject_mask(
     version: u32,
     asked: &str,
     download: bool,
+    origin: Origin,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, CommandError> {
     auto_mask(
@@ -1510,11 +1607,13 @@ async fn subject_mask(
         version,
         Some(asked),
         download,
+        Some(origin),
         cancel,
     )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn sky_mask(
     state: &tauri::State<'_, AppState>,
     ai_state: &AiState,
@@ -1522,6 +1621,7 @@ async fn sky_mask(
     js_adjustments: &serde_json::Value,
     asked: &str,
     download: bool,
+    origin: Origin,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, CommandError> {
     auto_mask(
@@ -1533,9 +1633,165 @@ async fn sky_mask(
         1,
         Some(asked),
         download,
+        Some(origin),
         cancel,
     )
     .await
+}
+
+/// `precompute`'s admission gave up: the photographer opened the masking
+/// tools meanwhile, so it runs as their request.
+const ASKED_MEANWHILE: &str = "asked for meanwhile";
+
+/// Which request of the photographer an AI mask run serves (the memory
+/// budget's `Class::Asked`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Origin {
+    /// A click (a new Subject or Sky layer, a component added).
+    Click,
+    /// The masking tools opened (`precompute` asked for).
+    Tools,
+    /// A pending layer of the open photo (no mask data yet: pasted or synced
+    /// settings, a preset, a crash before the mask was saved), computed as
+    /// the photo opens (`useAiMasking`). MEMB1: these ran past every memory
+    /// check and started a model load and run at Develop open.
+    Pending,
+}
+
+impl Origin {
+    /// The webview's `pending` flag of a mask command.
+    pub(crate) fn asked(pending: Option<bool>) -> Self {
+        if pending == Some(true) {
+            Origin::Pending
+        } else {
+            Origin::Click
+        }
+    }
+}
+
+/// What an asked AI mask run's estimate depends on (`asked_request`).
+#[derive(Clone, Copy, Debug)]
+struct AskedEstimate {
+    kind: AutoMask,
+    origin: Origin,
+    /// Subject runs the low-peak graph on the CPU (≤ 16 GB, file installed).
+    low_peak: bool,
+    /// Every model runs on the CPU.
+    on_cpu: bool,
+    /// The model is loaded already.
+    loaded: bool,
+    /// The open photo's full-resolution pixels.
+    pixels: u64,
+}
+
+const MB: u64 = 1_000_000;
+
+/// The low-peak Subject model's weights on x86 (MEM21: 2.50 GB resident
+/// after the first run with +1.36 GB of it the run → ≈ 1.0 GB model, as
+/// AIMEM measured the usual graph's).
+const LOW_PEAK_MODEL: u64 = 1000 * MB;
+/// Its first run with the shipped plan (`MemoryPlan::LowPeak`, arena shrunk
+/// after the run): +1362 MB on x86 in 3 fresh processes (MEM21), rounded up.
+const LOW_PEAK_RUN: u64 = 1400 * MB;
+/// The reduced plan's run (`MemoryPlan::LowPeakNoArena`, MEM21 option B):
+/// +643 MB on x86, +770–800 MB on arm64 → 650 MB (the target, x86).
+const LOW_PEAK_RUN_REDUCED: u64 = 650 * MB;
+/// The photo's warped full-resolution image the network reads: 12 bytes
+/// per pixel (8-bit RGB working copy and its float input; MEMB1 §4,
+/// ≈ 0.6 GB for the 51 MP RAF).
+const WARP_BYTES_PER_PIXEL: u64 = 12;
+
+/// The memory budget's request for an AI mask run the photographer asked
+/// for: one at a time, never refused. Subject on the low-peak CPU graph
+/// (the 14–16 GB machines where memory runs short): the model (unless
+/// loaded), the run and the warped image, with the reduced plan's run as its
+/// fallback;
+/// elsewhere MEM18's measured peaks (`ai_ahead::estimated_peak`), no
+/// fallback. A pending layer waits longer for the open photo's frames.
+fn asked_request(e: &AskedEstimate) -> rawtonic_runtime::memory_budget::Request {
+    use rawtonic_runtime::memory_budget::{
+        ASKED_WAITS_FOR_VISIBLE, Class, PENDING_WAITS_FOR_VISIBLE, Request,
+    };
+    let label = match (e.kind, e.origin) {
+        (AutoMask::Subject, Origin::Click) => "AI subject click",
+        (AutoMask::Subject, Origin::Tools) => "AI subject for the masking tools",
+        (AutoMask::Subject, Origin::Pending) => "AI subject pending layer",
+        (AutoMask::Sky, Origin::Click) => "AI sky click",
+        (AutoMask::Sky, Origin::Tools) => "AI sky for the masking tools",
+        (AutoMask::Sky, Origin::Pending) => "AI sky pending layer",
+    };
+    let wait = if e.origin == Origin::Pending {
+        PENDING_WAITS_FOR_VISIBLE
+    } else {
+        ASKED_WAITS_FOR_VISIBLE
+    };
+    let request = if e.kind == AutoMask::Subject && e.low_peak {
+        let base = if e.loaded { 0 } else { LOW_PEAK_MODEL } + e.pixels * WARP_BYTES_PER_PIXEL;
+        Request::new(Class::Asked, label, base + LOW_PEAK_RUN).reduced(base + LOW_PEAK_RUN_REDUCED)
+    } else {
+        let job = match e.kind {
+            AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
+            AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
+        };
+        Request::new(
+            Class::Asked,
+            label,
+            crate::ai_ahead::estimated_peak(job, e.on_cpu, e.loaded),
+        )
+    };
+    request.exclusive().visible_wait(wait)
+}
+
+/// Reserves the object encoder's load and run for a request of the
+/// photographer (MEM18's measured peak, `ai_ahead::estimated_peak`), None
+/// when the photo's encoding is cached.
+async fn admit_object_encoding(
+    state: &AppState,
+    ai_state: &AiState,
+    js_adjustments: &serde_json::Value,
+    label: &'static str,
+    cancelled: &impl Fn() -> bool,
+) -> Result<Option<rawtonic_runtime::memory_budget::Reservation>, CommandError> {
+    use rawtonic_runtime::memory_budget::{Class, Request};
+    if sam_encoding_cached(state, ai_state, js_adjustments) {
+        return Ok(None);
+    }
+    let loaded = lock_recover(&ai_state.models)
+        .as_ref()
+        .is_some_and(|ai| ai.sam_models.is_some());
+    let need = crate::ai_ahead::estimated_peak(
+        crate::ai_ahead::AheadJob::ObjectEncoding,
+        rawtonic_onnx::models_run_on_cpu_only(),
+        loaded,
+    );
+    admit_asked(
+        Request::new(Class::Asked, label, need).exclusive(),
+        cancelled,
+    )
+    .await
+    .map(Some)
+}
+
+/// Reserves an asked run's peak (`asked_request`): waits only for another
+/// asked run and, briefly, for the open photo's frames; `cancelled` stops
+/// the wait.
+async fn admit_asked(
+    request: rawtonic_runtime::memory_budget::Request,
+    cancelled: &impl Fn() -> bool,
+) -> Result<rawtonic_runtime::memory_budget::Reservation, CommandError> {
+    use rawtonic_runtime::memory_budget::Class;
+    match crate::memory_broker::reserve(
+        request,
+        || Class::Asked,
+        || cancelled().then_some("cancelled"),
+        None,
+        None,
+    )
+    .await
+    {
+        Ok(granted) => Ok(granted.reservation),
+        Err(_) => Err(task_cancelled()),
+    }
 }
 
 fn ahead_photo_skip(current: Option<&str>, requested: &str) -> Option<&'static str> {
@@ -1653,8 +1909,10 @@ async fn precompute(
     let version = rawtonic_segment::SUBJECT_VERSION;
     // Not beside the full-resolution decodes, and only with memory for its
     // peak (`ai_ahead`); a mask computed already needs neither. Opening the
-    // masking tools (`asked`) starts it at once.
+    // masking tools (`asked`, also while it waits) makes it a request of the
+    // photographer, admitted in `auto_mask` (`Origin::Tools`).
     let mut _ahead = None;
+    let mut origin = asked.then_some(Origin::Tools);
     if !asked && !auto_mask_cached(&state, &ai_state, kind, &js_adjustments, version) {
         let job = match kind {
             AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
@@ -1665,16 +1923,33 @@ async fn precompute(
             rawtonic_onnx::models_run_on_cpu_only(),
             model_loaded(&ai_state, kind),
         );
-        let asked = || crate::ai_ahead::asked_since(asked_at, task_id.as_deref());
-        let admitted = crate::ai_ahead::admit(job, asked, need, || {
-            if cancel.is_some_and(|t| t.is_cancelled()) {
-                return Some("the task was cancelled");
-            }
-            ahead_photo_skip(current_photo(&state.source).as_deref(), &path)
-        })
+        // A request of the photographer that needs this job's room stops it.
+        let stop: Option<Arc<dyn Fn() + Send + Sync>> = cancel.map(|token| {
+            let token = Arc::clone(token);
+            Arc::new(move || token.cancel()) as Arc<dyn Fn() + Send + Sync>
+        });
+        let admitted = crate::ai_ahead::admit_cancellable(
+            &app_handle,
+            job,
+            || false,
+            need,
+            || {
+                if cancel.is_some_and(|t| t.is_cancelled()) {
+                    return Some("the task was cancelled");
+                }
+                if crate::ai_ahead::asked_since(asked_at, task_id.as_deref()) {
+                    return Some(ASKED_MEANWHILE);
+                }
+                ahead_photo_skip(current_photo(&state.source).as_deref(), &path)
+            },
+            stop,
+        )
         .await;
         match admitted {
             Ok(run) => _ahead = Some(run),
+            Err(crate::ai_ahead::NotStarted::GaveUp(ASKED_MEANWHILE)) => {
+                origin = Some(Origin::Tools);
+            }
             Err(why) => {
                 log::info!("AI {} mask: not computed ahead, {why:?}", kind.name());
                 return Ok(match why {
@@ -1694,6 +1969,7 @@ async fn precompute(
         version,
         None,
         false,
+        origin,
         cancel,
     )
     .await
@@ -1841,6 +2117,7 @@ pub async fn preload_ai_mask_models(
         };
         let need = crate::ai_ahead::estimated_peak(job, on_cpu, false);
         let admitted = crate::ai_ahead::admit(
+            &app_handle,
             job,
             || false,
             need,
@@ -1963,7 +2240,7 @@ pub async fn warm_up_ai_mask_models(
             rawtonic_onnx::models_run_on_cpu_only(),
             model_loaded(&ai_state, kind),
         );
-        let _ahead = match crate::ai_ahead::admit(job, || false, need, &stop).await {
+        let _ahead = match crate::ai_ahead::admit(&app_handle, job, || false, need, &stop).await {
             Ok(run) => run,
             Err(why) => {
                 log::info!(
@@ -2311,6 +2588,185 @@ pub async fn load_relight_pattern(path: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    use super::{AskedEstimate, MB, Origin, asked_request};
+    use rawtonic_runtime::memory_budget::{
+        Broker, Class, PENDING_WAITS_FOR_VISIBLE, Plan, Reading, Request, Wait,
+    };
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    /// A pending Subject layer of the 51 MP RAF on the Lenovo (low-peak CPU
+    /// graph, model not loaded), as `generate_ai_foreground_mask` builds it
+    /// from the webview's `pending: true`.
+    fn pending_subject() -> Request {
+        asked_request(&AskedEstimate {
+            kind: AutoMask::Subject,
+            origin: Origin::asked(Some(true)),
+            low_peak: true,
+            on_cpu: true,
+            loaded: false,
+            pixels: 8256 * 6192,
+        })
+    }
+
+    #[test]
+    fn a_pending_layer_is_a_request_of_the_photographer_with_a_reduced_plan() {
+        assert_eq!(Origin::asked(Some(true)), Origin::Pending);
+        assert_eq!(Origin::asked(None), Origin::Click);
+        let r = pending_subject();
+        assert_eq!(r.class, Class::Asked);
+        assert!(r.exclusive);
+        assert_eq!(r.label, "AI subject pending layer");
+        assert_eq!(r.visible_wait, PENDING_WAITS_FOR_VISIBLE);
+        // Model 1.0 GB + warped image 12 B/px (0.61 GB) + run: 1.4 GB with
+        // the arena, 0.65 GB without (MEM21 option A / B).
+        let warp = 8256 * 6192 * 12;
+        assert_eq!(r.need, 1000 * MB + warp + 1400 * MB);
+        assert_eq!(r.reduced, Some(1000 * MB + warp + 650 * MB));
+        // Elsewhere (Core ML, or the usual graph): MEM18's measured peaks,
+        // no reduced plan.
+        let usual = asked_request(&AskedEstimate {
+            kind: AutoMask::Subject,
+            origin: Origin::Click,
+            low_peak: false,
+            on_cpu: false,
+            loaded: true,
+            pixels: 45_000_000,
+        });
+        assert_eq!(usual.need, 4200 * MB);
+        assert_eq!(usual.reduced, None);
+        let sky = asked_request(&AskedEstimate {
+            kind: AutoMask::Sky,
+            origin: Origin::Pending,
+            low_peak: true,
+            on_cpu: true,
+            loaded: false,
+            pixels: 45_000_000,
+        });
+        assert_eq!((sky.need, sky.reduced), (1200 * MB, None));
+    }
+
+    /// MEMB1's failing case through the broker: 4-up Develop open on the
+    /// Lenovo with a browser open, a pending Subject layer in the recipe, a
+    /// neighbour's prefetch decode under way. Before BRK1 the layer's run
+    /// started at once past every check.
+    #[test]
+    fn a_pending_layer_on_open_goes_through_the_broker() {
+        let broker: &'static Broker = Box::leak(Box::new(Broker::new()));
+        static PREFETCH_CANCELLED: AtomicUsize = AtomicUsize::new(0);
+        // 4.9 GB available at the Develop click, app 2.8 GB.
+        let reading = Reading {
+            total: 15_859 * MB,
+            available: 4900 * MB,
+            app: Some(2800 * MB),
+        };
+        let prefetch = broker
+            .try_reserve(
+                Request::new(Class::Speculative, "step prefetch decode", 1200 * MB),
+                &|| reading,
+                false,
+                Duration::ZERO,
+                Some(Arc::new(|| {
+                    PREFETCH_CANCELLED.fetch_add(1, Ordering::SeqCst);
+                })),
+            )
+            .expect("room for the decode alone");
+        // The photo's first frames are under way: the layer waits for them
+        // (up to 15 s), not beside them.
+        assert_eq!(
+            broker
+                .try_reserve(
+                    pending_subject(),
+                    &|| reading,
+                    true,
+                    Duration::from_secs(2),
+                    None
+                )
+                .unwrap_err(),
+            Wait::Visible
+        );
+        assert_eq!(PREFETCH_CANCELLED.load(Ordering::SeqCst), 0);
+        // Settled: the full plan (3.0 GB) misses the 2.1 GB left beside the
+        // decode's reservation; the prefetch is cancelled and the layer
+        // waits for it to stop.
+        assert_eq!(
+            broker
+                .try_reserve(
+                    pending_subject(),
+                    &|| reading,
+                    false,
+                    Duration::from_secs(3),
+                    None
+                )
+                .unwrap_err(),
+            Wait::Stopping
+        );
+        assert_eq!(PREFETCH_CANCELLED.load(Ordering::SeqCst), 1);
+        drop(prefetch);
+        // Stopped: 4.9 − 1.59 = 3.3 GB room, full plan.
+        let granted = broker
+            .try_reserve(
+                pending_subject(),
+                &|| reading,
+                false,
+                Duration::from_secs(3),
+                None,
+            )
+            .expect("a request of the photographer is never refused");
+        assert_eq!(granted.reservation.class(), Class::Asked);
+        assert_eq!(granted.reservation.plan(), Plan::Full);
+        // Speculative work waits while it runs.
+        assert_eq!(
+            broker
+                .try_reserve(
+                    Request::new(Class::Speculative, "multi-view background decode", MB),
+                    &|| reading,
+                    false,
+                    Duration::ZERO,
+                    None
+                )
+                .unwrap_err(),
+            Wait::Asked
+        );
+        drop(granted);
+        // 4.3 GB available (WMEM21 b10): only the reduced plan fits.
+        let short = Reading {
+            available: 4300 * MB,
+            ..reading
+        };
+        let granted = broker
+            .try_reserve(pending_subject(), &|| short, false, Duration::ZERO, None)
+            .expect("never refused");
+        assert_eq!(granted.reservation.plan(), Plan::Reduced);
+    }
+
+    /// The admission `auto_mask` runs for a pending layer, on the app's
+    /// broker: a reservation of the photographer's class.
+    #[tokio::test]
+    async fn the_pending_layer_admission_reserves_in_the_apps_broker() {
+        let reservation = super::admit_asked(pending_subject(), &|| false)
+            .await
+            .expect("admitted");
+        assert_eq!(reservation.class(), Class::Asked);
+        assert_eq!(reservation.label(), "AI subject pending layer");
+        assert!(
+            crate::memory_broker::BROKER
+                .held()
+                .iter()
+                .any(|h| h.class == Class::Asked && h.exclusive)
+        );
+        drop(reservation);
+        // A cancelled task stops waiting (here: for its turn behind another
+        // asked run).
+        let other = super::admit_asked(pending_subject(), &|| false)
+            .await
+            .expect("admitted");
+        let stopped = super::admit_asked(pending_subject(), &|| true).await;
+        assert!(stopped.is_err());
+        drop(other);
+    }
+
     #[test]
     fn masks_made_ahead_tell_the_webview_which_to_ask_for_again() {
         // `useAiMasking` asks again for 'dropped' only.
