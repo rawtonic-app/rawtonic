@@ -4338,6 +4338,18 @@ fn create_window_texture(
     Ok(texture)
 }
 
+/// Whether the log-luminance prepass runs on this adapter: Apple-silicon
+/// GPUs on Metal, where its exports were compared byte for byte with the
+/// per-tap path (M5 Pro and M4 Pro: 37-photo set and the preservation
+/// matrix; notes: benchmark-results/exp3-2026-11-26). Elsewhere it is not
+/// verified (NVIDIA Vulkan changed 206 of 326 exports), so the per-tap path
+/// stays: Intel and AMD GPUs on Metal, Vulkan, DX12, GL.
+fn log_prepass_verified(info: &wgpu::AdapterInfo) -> bool {
+    let verified = info.backend == wgpu::Backend::Metal && info.name.starts_with("Apple");
+    log::debug!("log-luminance blur prepass on {}: {verified}", info.name);
+    verified
+}
+
 /// The log-luminance prepass's pipelines (`GpuProcessor::log_prepass`).
 struct LogPrepass {
     prepass_bgl: wgpu::BindGroupLayout,
@@ -4762,11 +4774,9 @@ pub struct GpuProcessor {
     h_blur_pipeline: wgpu::ComputePipeline,
     v_blur_pipeline: wgpu::ComputePipeline,
     /// The log-luminance prepass and the horizontal pass that reads it, for
-    /// the blurs carrying the mean log luminance: on Metal only, where its
-    /// exports are byte-identical to `h_blur_pipeline` computing it per tap
-    /// (notes: benchmark-results/exp3-2026-11-26). On NVIDIA Vulkan 206 of
-    /// the 326 preservation exports changed, so other backends keep the
-    /// per-tap path.
+    /// the blurs carrying the mean log luminance, where its exports are
+    /// byte-identical to `h_blur_pipeline` computing it per tap
+    /// (`log_prepass_verified`).
     log_prepass: Option<LogPrepass>,
     blur_params_buffer: wgpu::Buffer,
 
@@ -8888,73 +8898,75 @@ impl GpuProcessor {
             CompileWeight::Tiny,
         )?;
 
-        let blur_entry = |binding: u32, ty: wgpu::BindingType| wgpu::BindGroupLayoutEntry {
-            binding,
-            visibility: wgpu::ShaderStages::COMPUTE,
-            ty,
-            count: None,
-        };
-        let float_texture = wgpu::BindingType::Texture {
-            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-            view_dimension: wgpu::TextureViewDimension::D2,
-            multisampled: false,
-        };
-        let uniform = wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        };
-        let log_prepass_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Log Prepass BGL"),
-            entries: &[
-                blur_entry(0, float_texture),
-                blur_entry(2, uniform),
-                blur_entry(
-                    4,
-                    wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::R32Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                ),
-            ],
-        });
-        let h_blur_log_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Log H-Blur BGL"),
-            entries: &[
-                blur_entry(0, float_texture),
-                blur_entry(
-                    1,
-                    wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                ),
-                blur_entry(2, uniform),
-                blur_entry(3, float_texture),
-            ],
-        });
-        let blur_layout_pipeline = |bgl: &wgpu::BindGroupLayout, label: &str, entry: &str| {
-            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some(label),
-                bind_group_layouts: &[Some(bgl)],
-                immediate_size: 0,
-            });
-            create_compute_pipeline(
-                device,
-                &wgpu::ComputePipelineDescriptor {
+        let log_prepass = if log_prepass_verified(&device.adapter_info()) {
+            let blur_entry = |binding: u32, ty: wgpu::BindingType| wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty,
+                count: None,
+            };
+            let float_texture = wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            };
+            let uniform = wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            };
+            let log_prepass_bgl =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Log Prepass BGL"),
+                    entries: &[
+                        blur_entry(0, float_texture),
+                        blur_entry(2, uniform),
+                        blur_entry(
+                            4,
+                            wgpu::BindingType::StorageTexture {
+                                access: wgpu::StorageTextureAccess::WriteOnly,
+                                format: wgpu::TextureFormat::R32Float,
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                            },
+                        ),
+                    ],
+                });
+            let h_blur_log_bgl =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Log H-Blur BGL"),
+                    entries: &[
+                        blur_entry(0, float_texture),
+                        blur_entry(
+                            1,
+                            wgpu::BindingType::StorageTexture {
+                                access: wgpu::StorageTextureAccess::WriteOnly,
+                                format: wgpu::TextureFormat::Rgba16Float,
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                            },
+                        ),
+                        blur_entry(2, uniform),
+                        blur_entry(3, float_texture),
+                    ],
+                });
+            let blur_layout_pipeline = |bgl: &wgpu::BindGroupLayout, label: &str, entry: &str| {
+                let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some(label),
-                    layout: Some(&layout),
-                    module: &blur_shader_module,
-                    entry_point: Some(entry),
-                    compilation_options: Default::default(),
-                    cache: None,
-                },
-                CompileWeight::Tiny,
-            )
-        };
-        let log_prepass = if device.adapter_info().backend == wgpu::Backend::Metal {
+                    bind_group_layouts: &[Some(bgl)],
+                    immediate_size: 0,
+                });
+                create_compute_pipeline(
+                    device,
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some(label),
+                        layout: Some(&layout),
+                        module: &blur_shader_module,
+                        entry_point: Some(entry),
+                        compilation_options: Default::default(),
+                        cache: None,
+                    },
+                    CompileWeight::Tiny,
+                )
+            };
             let prepass_pipeline =
                 blur_layout_pipeline(&log_prepass_bgl, "Log Prepass Pipeline", "log_luma_prepass")?;
             let blur_pipeline = blur_layout_pipeline(
@@ -12894,7 +12906,9 @@ impl GpuProcessor {
                     log_alpha && (index == 2 || index == 3 || (index == 1 && tonal_log))
                 };
                 let log_region = (1..4)
-                    .filter(|&index| blur_requirements[index] && carries_log(index))
+                    .filter(|&index| {
+                        self.log_prepass.is_some() && blur_requirements[index] && carries_log(index)
+                    })
                     .map(|index| {
                         let (radius, rows_above, blurred_rows) = blur_rows(index);
                         let y = input_y_start - rows_above;

@@ -1219,6 +1219,52 @@ fn invalid_shader_source_fails_processor_construction() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; the log-luminance prepass runs where it is verified"]
+fn log_prepass_runs_on_verified_adapters_only() {
+    let context = context();
+    let info = context.device.adapter_info();
+    let processor = GpuProcessor::new(context, 64, 64).unwrap();
+    assert_eq!(processor.log_prepass.is_some(), log_prepass_verified(&info));
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        assert!(processor.log_prepass.is_some(), "{}", info.name);
+    }
+}
+
+#[test]
+fn log_prepass_is_verified_for_apple_gpus_on_metal_only() {
+    let adapter = |backend, name: &str| wgpu::AdapterInfo {
+        name: name.into(),
+        vendor: 0,
+        device: 0,
+        device_type: wgpu::DeviceType::IntegratedGpu,
+        device_pci_bus_id: String::new(),
+        driver: String::new(),
+        driver_info: String::new(),
+        backend,
+        subgroup_min_size: 0,
+        subgroup_max_size: 0,
+        transient_saves_memory: Some(false),
+        limit_bucket: None,
+    };
+    assert!(log_prepass_verified(&adapter(
+        wgpu::Backend::Metal,
+        "Apple M5 Pro"
+    )));
+    assert!(!log_prepass_verified(&adapter(
+        wgpu::Backend::Metal,
+        "AMD Radeon Pro 5500M"
+    )));
+    assert!(!log_prepass_verified(&adapter(
+        wgpu::Backend::Metal,
+        "Intel(R) UHD Graphics 630"
+    )));
+    assert!(!log_prepass_verified(&adapter(
+        wgpu::Backend::Vulkan,
+        "NVIDIA GeForce RTX 3080"
+    )));
+}
+
+#[test]
 #[ignore = "requires a native GPU; a failed export variant must use the general pipeline"]
 fn failed_export_variant_uses_the_general_pipeline() {
     let context = context();
