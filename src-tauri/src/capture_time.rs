@@ -804,9 +804,11 @@ mod tests {
             crate::export_processing::pin_photos(std::slice::from_ref(&b_path), None, None, None)
                 .unwrap();
         assert!(pinned[0].capture.is_none());
+        // No correction: the export reads the file's own time.
+        assert_eq!(pinned[0].exif(&b), None);
         assert_eq!(
-            pinned[0].exif(&b).unwrap()["DateTimeOriginal"],
-            "2026-10-30 23:45:00"
+            pinned[0].capture_date(&b),
+            crate::exif_processing::capture_date_with(&b, &|| None)
         );
 
         // Its undo brings the correction back, there too.

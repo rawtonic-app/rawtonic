@@ -1400,7 +1400,8 @@ pub struct ExportOutput<'a> {
     pub path: &'a Path,
     /// Format when `path` has no extension.
     pub format: &'a str,
-    /// The source's cached EXIF map (see [`export_metadata_with`](crate::exif_processing::export_metadata_with)).
+    /// The user's changes to the source's EXIF: text edits and a corrected
+    /// capture time (see [`export_metadata_with`](crate::exif_processing::export_metadata_with)).
     pub exif_sidecar: &'a dyn Fn() -> Option<ExifMap>,
     pub catalog: &'a dyn Fn() -> Option<rawtonic_metadata::Metadata>,
     /// Runs Super Resolution when the settings ask for it; `None` where the

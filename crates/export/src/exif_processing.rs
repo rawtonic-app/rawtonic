@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufReader, Cursor};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -11,6 +11,7 @@ use exif::Exif;
 use jiff::Timestamp;
 use jiff::civil::DateTime;
 use jiff::tz::{AmbiguousOffset, Offset, TimeZone};
+use little_exif::endian::Endian;
 use little_exif::exif_tag::ExifTag;
 use little_exif::filetype::FileExtension;
 use little_exif::ifd::ExifTagGroup;
@@ -1152,6 +1153,16 @@ fn extract_metadata_with(
     Some(map)
 }
 
+/// The EXIF of the file at `path` (`read_exif`): mapped, so a TIFF-based
+/// RAW is read only where its EXIF lies, not into memory whole; read
+/// buffered when it cannot be mapped.
+pub fn read_exif_of_file(path: &Path) -> Option<Exif> {
+    match rawtonic_engine::file_io::read_file_mapped(path) {
+        Ok(file) => read_exif(&file),
+        Err(_) => read_exif(&fs::read(path).ok()?),
+    }
+}
+
 /// The capture date from the cached EXIF map, else the file's EXIF, else a
 /// RAW decoder's metadata.
 pub fn try_capture_date_with(
@@ -1165,17 +1176,12 @@ pub fn try_capture_date_with(
         return Some(creation_datetime_to_utc(dt));
     }
 
-    if let Ok(file) = std::fs::File::open(path) {
-        let mut bufreader = BufReader::new(&file);
-        let exifreader = exif::Reader::new();
-
-        if let Ok(exif_obj) = exifreader.read_from_container(&mut bufreader) {
-            for tag in [exif::Tag::DateTimeOriginal, exif::Tag::DateTime] {
-                if let Some(field) = exif_obj.get_field(tag, exif::In::PRIMARY)
-                    && let Some(dt) = parse_creation_field(field)
-                {
-                    return Some(dt);
-                }
+    if let Some(exif_obj) = read_exif_of_file(path) {
+        for tag in [exif::Tag::DateTimeOriginal, exif::Tag::DateTime] {
+            if let Some(field) = exif_obj.get_field(tag, exif::In::PRIMARY)
+                && let Some(dt) = parse_creation_field(field)
+            {
+                return Some(dt);
             }
         }
     }
@@ -1232,7 +1238,16 @@ pub fn copy_full_exif_from_source(
             continue;
         }
         for tag in ifd.get_tags() {
-            metadata.set_tag(tag.clone());
+            // Undefined bytes are copied as they are: a UTF-16 comment of
+            // a big-endian file is turned to the export's byte order.
+            if tag.as_u16() == 0x9286 && source_metadata.get_endian() == Endian::Big {
+                let bytes = tag.value_as_u8_vec(&Endian::Big);
+                metadata.set_tag(ExifTag::UserComment(user_comment_little_endian(
+                    &bytes, false,
+                )));
+            } else {
+                metadata.set_tag(tag.clone());
+            }
             copied_any = true;
         }
     }
@@ -1287,59 +1302,148 @@ pub fn apply_corrected_capture_time(metadata: &mut Metadata, map: &HashMap<Strin
     }
 }
 
-pub fn apply_sidecar_field_overrides(metadata: &mut Metadata, map: &HashMap<String, String>) {
-    let clean_s = |s: &String| s.replace('"', "").trim().to_string();
-    let is_user_edit = |s: &str| !s.is_empty() && s != "...";
+/// The EXIF text fields a user edits in the Metadata tool
+/// (`update_exif_fields`), kept in the photo's editor state.
+pub const EDITABLE_EXIF_TEXT: [&str; 4] =
+    ["Artist", "Copyright", "ImageDescription", "UserComment"];
 
-    match map.get("Artist").map(clean_s) {
-        Some(val) => {
-            if is_user_edit(&val) {
-                metadata.set_tag(ExifTag::Artist(val));
+/// What the user changed of a photo's EXIF: the text fields
+/// (`EDITABLE_EXIF_TEXT`) of `shown` (the map its editor state holds) whose
+/// text differs from `own` (the map read from the original now), an empty
+/// value for one removed, and a corrected capture time (`capture_edit`,
+/// marked `CAPTURE_CORRECTED`). Every other field, and a text field as the camera
+/// wrote it, an export takes from the original itself, so an editor state
+/// holding a copy of the read map (older builds, every edit) changes
+/// nothing (EXF1).
+pub fn exif_edits(
+    shown: &HashMap<String, String>,
+    own: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let clean = |s: &String| s.replace('"', "").trim().to_string();
+    let mut edits = EDITABLE_EXIF_TEXT
+        .iter()
+        .filter_map(|key| {
+            let shown = shown.get(*key).map(clean).filter(|s| !s.is_empty());
+            // Placeholders older readers showed for unreadable values: "...",
+            // and a UserComment's whole bytes as hex (its 8-byte character
+            // code alone is 16 digits), never shorter text a user typed.
+            let placeholder = |s: &str| {
+                s == "..."
+                    || (*key == "UserComment"
+                        && s.strip_prefix("0x").is_some_and(|hex| {
+                            hex.len() >= 16 && hex.chars().all(|c| c.is_ascii_hexdigit())
+                        }))
+            };
+            if shown.as_deref().is_some_and(placeholder) {
+                return None;
             }
-        }
-        None => {
-            metadata.remove_tag(ExifTag::Artist(String::new()));
-        }
+            let own = own.get(*key).map(clean).filter(|s| !s.is_empty());
+            (shown != own).then(|| (key.to_string(), shown.unwrap_or_default()))
+        })
+        .collect::<HashMap<_, _>>();
+    if let Some(fields) = capture_edit(shown, own) {
+        mark_corrected_capture(&mut edits, &fields);
     }
-    match map.get("Copyright").map(clean_s) {
-        Some(val) => {
-            if is_user_edit(&val) {
-                metadata.set_tag(ExifTag::Copyright(val));
-            }
-        }
-        None => {
-            metadata.remove_tag(ExifTag::Copyright(String::new()));
-        }
-    }
-    match map.get("ImageDescription").map(clean_s) {
-        Some(val) => {
-            if is_user_edit(&val) {
-                metadata.set_tag(ExifTag::ImageDescription(val));
-            }
-        }
-        None => {
-            metadata.remove_tag(ExifTag::ImageDescription(String::new()));
-        }
-    }
-    match map.get("UserComment").map(clean_s) {
-        Some(val) => {
-            if is_user_edit(&val) && !val.starts_with("0x") {
-                metadata.set_tag(ExifTag::UserComment(val.into_bytes()));
-            }
-        }
-        None => {
-            metadata.remove_tag(ExifTag::UserComment(Vec::new()));
+    edits
+}
+
+/// The capture time `shown` (an editor state's EXIF map, which Shift
+/// Capture Time rewrites) holds when it differs from `own` (the file's):
+/// a correction, as the exports of the app and the CLI embed it.
+pub fn capture_edit(
+    shown: &HashMap<String, String>,
+    own: &HashMap<String, String>,
+) -> Option<CaptureFields> {
+    let field = |map: &HashMap<String, String>, key: &str| {
+        map.get(key)
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    let date = |map: &HashMap<String, String>| {
+        field(map, "DateTimeOriginal").and_then(|v| parse_creation_datetime(&v))
+    };
+    let corrected = date(shown)?;
+    let same = date(own) == Some(corrected)
+        && ["SubSecTimeOriginal", "OffsetTimeOriginal"]
+            .iter()
+            .all(|key| field(shown, key) == field(own, key));
+    (!same).then(|| {
+        [
+            (
+                "DateTimeOriginal",
+                Some(corrected.strftime("%Y-%m-%d %H:%M:%S").to_string()),
+            ),
+            ("SubSecTimeOriginal", field(shown, "SubSecTimeOriginal")),
+            ("OffsetTimeOriginal", field(shown, "OffsetTimeOriginal")),
+        ]
+    })
+}
+
+/// Writes the user's EXIF text edits (`exif_edits`) over the original's:
+/// a field with text replaces it, an empty one removes it, a field not
+/// in `edits` stays as the original has it.
+pub fn apply_exif_edits(metadata: &mut Metadata, edits: &HashMap<String, String>) {
+    for key in EDITABLE_EXIF_TEXT {
+        let Some(value) = edits.get(key).map(|s| s.trim().to_string()) else {
+            continue;
+        };
+        let (set, empty) = match key {
+            "Artist" => (
+                ExifTag::Artist(value.clone()),
+                ExifTag::Artist(String::new()),
+            ),
+            "Copyright" => (
+                ExifTag::Copyright(value.clone()),
+                ExifTag::Copyright(String::new()),
+            ),
+            "ImageDescription" => (
+                ExifTag::ImageDescription(value.clone()),
+                ExifTag::ImageDescription(String::new()),
+            ),
+            _ => (
+                ExifTag::UserComment(user_comment_bytes(&value)),
+                ExifTag::UserComment(Vec::new()),
+            ),
+        };
+        if value.is_empty() {
+            metadata.remove_tag(empty);
+        } else {
+            metadata.set_tag(set);
         }
     }
 }
 
+/// An EXIF UserComment of `text` with its character code: ASCII, else
+/// UTF-16 (`UNICODE`) in the export's little-endian byte order.
+pub fn user_comment_bytes(text: &str) -> Vec<u8> {
+    if text.is_ascii() {
+        let mut bytes = b"ASCII\0\0\0".to_vec();
+        bytes.extend_from_slice(text.as_bytes());
+        bytes
+    } else {
+        let mut bytes = b"UNICODE\0".to_vec();
+        bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        bytes
+    }
+}
+
+/// A UserComment read from a file of the given byte order as the export's
+/// little-endian EXIF holds it: a UTF-16 (`UNICODE`) text's code units
+/// swapped from big-endian, anything else as it is.
+pub fn user_comment_little_endian(bytes: &[u8], little_endian: bool) -> Vec<u8> {
+    if little_endian || !bytes.starts_with(b"UNICODE") || bytes.len() < 8 {
+        return bytes.to_vec();
+    }
+    let (code, text) = bytes.split_at(8);
+    let mut out = code.to_vec();
+    let (pairs, rest) = text.as_chunks::<2>();
+    out.extend(pairs.iter().flat_map(|&[a, b]| [b, a]));
+    out.extend_from_slice(rest);
+    out
+}
+
 pub fn apply_gps_from_kamadak(metadata: &mut Metadata, original_path: &Path) {
-    let Ok(file) = std::fs::File::open(original_path) else {
-        return;
-    };
-    let mut bufreader = std::io::BufReader::new(&file);
-    let exifreader = exif::Reader::new();
-    let Ok(exif_obj) = exifreader.read_from_container(&mut bufreader) else {
+    let Some(exif_obj) = read_exif_of_file(original_path) else {
         return;
     };
 
@@ -1543,8 +1647,8 @@ impl ExportMetadata {
 
 /// The photo's metadata with the creator and copyright its exports write
 /// when metadata is stripped (and its provenance manifest's author): the
-/// catalog's, else the source's EXIF Artist and Copyright (the cached map,
-/// else the file itself).
+/// catalog's, else the source's EXIF Artist and Copyright as the user
+/// edited them (`exif_edits`), else as the file holds them.
 pub fn export_rights(
     source: &str,
     exif_sidecar: &dyn Fn() -> Option<HashMap<String, String>>,
@@ -1552,20 +1656,15 @@ pub fn export_rights(
 ) -> rawtonic_metadata::Metadata {
     let mut kept = catalog().unwrap_or_default();
     if kept.creator.trim().is_empty() || kept.copyright.trim().is_empty() {
-        let (artist, copyright) = if let Some(map) = exif_sidecar() {
-            let value = |key| {
-                map.get(key)
-                    .filter(|s| s.as_str() != "...")
-                    .map(|s| s.replace('"', "").trim().to_string())
-                    .unwrap_or_default()
-            };
-            (value("Artist"), value("Copyright"))
+        let edits = exif_sidecar().unwrap_or_default();
+        let edited = |key| edits.get(key).map(|s: &String| s.trim().to_string());
+        let (artist, copyright) = if let (Some(artist), Some(copyright)) =
+            (edited("Artist"), edited("Copyright"))
+        {
+            (artist, copyright)
         } else {
             let mut rights = (String::new(), String::new());
-            if let Ok(file) = std::fs::File::open(source)
-                && let Ok(exif) =
-                    exif::Reader::new().read_from_container(&mut std::io::BufReader::new(file))
-            {
+            if let Some(exif) = read_exif_of_file(Path::new(source)) {
                 let text = |tag| {
                     exif.get_field(tag, exif::In::PRIMARY)
                         .and_then(|f| match &f.value {
@@ -1595,13 +1694,17 @@ pub fn export_rights(
                     );
                 }
             }
-            rights
+            (
+                edited("Artist").unwrap_or(rights.0),
+                edited("Copyright").unwrap_or(rights.1),
+            )
         };
+        // A camera pads an unset field with spaces: none is kept.
         if kept.creator.trim().is_empty() {
-            kept.creator = artist;
+            kept.creator = artist.trim().to_string();
         }
         if kept.copyright.trim().is_empty() {
-            kept.copyright = copyright;
+            kept.copyright = copyright.trim().to_string();
         }
     }
     kept
@@ -1703,9 +1806,12 @@ fn stripped_export_metadata(
     })
 }
 
-/// The EXIF and XMP an export carries. `exif_sidecar` returns the source's
-/// cached EXIF map (the app's `.rrdata`/EXIF cache), `catalog` the session's
-/// metadata for the source. Stripped packets allow only creator, copyright,
+/// The EXIF and XMP an export carries. Its EXIF is read from the original
+/// itself (native values: rationals, the whole UserComment); `exif_sidecar`
+/// returns only what the user changed of it: the EXIF text edits
+/// (`exif_edits`) and a corrected capture time (`CAPTURE_CORRECTED`), never
+/// the map shown, which rounds and shortens values. `catalog` is the
+/// session's metadata for the source. Stripped packets allow only creator, copyright,
 /// usage terms and creator contacts only when `keep_creator_contact` is true.
 /// `color_space` describes the output pixels and replaces source EXIF colour tags.
 /// `generated` marks a photo with areas made by a generative model in its
@@ -1765,196 +1871,142 @@ pub fn export_metadata_with(
         && copy_full_exif_from_source(&mut metadata, original_path, strip_gps);
     let mut source_read_success = full_exif_copied;
 
-    if !source_read_success && let Some(map) = exif_sidecar() {
+    if !source_read_success && let Some(exif_obj) = read_exif_of_file(original_path) {
         source_read_success = true;
 
-        let clean_s = |s: &String| s.replace('"', "").trim().to_string();
-
-        let parse_ur64 = |s: &str| -> Option<uR64> {
-            let cleaned_string = s
-                .replace("f/", "")
-                .replace(" s", "")
-                .replace(" mm", "")
-                .replace("\"", "");
-
-            let val = cleaned_string.trim();
-
-            if val.contains('/') {
-                let parts: Vec<&str> = val.split('/').collect();
-                if parts.len() == 2
-                    && let (Ok(n), Ok(d)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>())
-                {
-                    return Some(uR64 {
-                        nominator: n,
-                        denominator: d,
-                    });
-                }
-            } else if let Ok(f) = val.parse::<f32>() {
-                return Some(uR64 {
-                    nominator: (f * 1000.0) as u32,
-                    denominator: 1000,
-                });
+        let get_string_val = |field: &exif::Field| -> String {
+            match &field.value {
+                exif::Value::Ascii(vec) => vec
+                    .iter()
+                    .map(|v| {
+                        String::from_utf8_lossy(v)
+                            .trim_matches(char::from(0))
+                            .to_string()
+                    })
+                    .collect::<Vec<String>>()
+                    .join(" "),
+                _ => field
+                    .display_value()
+                    .to_string()
+                    .replace("\"", "")
+                    .trim()
+                    .to_string(),
             }
-            None
         };
-        if let Some(val) = map.get("Make") {
-            metadata.set_tag(ExifTag::Make(clean_s(val)));
+
+        // A blank text field (spaces or zeros, as cameras leave an
+        // unset one) is not written.
+        let text = |tag| {
+            exif_obj
+                .get_field(tag, exif::In::PRIMARY)
+                .map(get_string_val)
+                .filter(|s| !s.trim().is_empty())
+        };
+        if let Some(text) = text(exif::Tag::Make) {
+            metadata.set_tag(ExifTag::Make(text));
         }
-        if let Some(val) = map.get("Model") {
-            metadata.set_tag(ExifTag::Model(clean_s(val)));
+        if let Some(text) = text(exif::Tag::Model) {
+            metadata.set_tag(ExifTag::Model(text));
         }
-        if let Some(val) = map.get("LensMake") {
-            metadata.set_tag(ExifTag::LensMake(clean_s(val)));
+        if let Some(text) = text(exif::Tag::LensMake) {
+            metadata.set_tag(ExifTag::LensMake(text));
         }
-        if let Some(val) = map.get("LensModel") {
-            metadata.set_tag(ExifTag::LensModel(clean_s(val)));
+        if let Some(text) = text(exif::Tag::LensModel) {
+            metadata.set_tag(ExifTag::LensModel(text));
         }
-        if let Some(val) = map.get("Artist") {
-            metadata.set_tag(ExifTag::Artist(clean_s(val)));
+        if let Some(text) = text(exif::Tag::Artist) {
+            metadata.set_tag(ExifTag::Artist(text));
         }
-        if let Some(val) = map.get("Copyright") {
-            metadata.set_tag(ExifTag::Copyright(clean_s(val)));
+        if let Some(text) = text(exif::Tag::Copyright) {
+            metadata.set_tag(ExifTag::Copyright(text));
         }
-        if let Some(val) = map.get("UserComment") {
-            metadata.set_tag(ExifTag::UserComment(clean_s(val).into_bytes()));
-        }
-        if let Some(val) = map.get("ImageDescription") {
-            metadata.set_tag(ExifTag::ImageDescription(clean_s(val)));
-        }
-        if let Some(val) = map.get("DateTimeOriginal") {
-            metadata.set_tag(ExifTag::DateTimeOriginal(exif_datetime(val)));
-        }
-        if let Some(val) = map.get("CreateDate") {
-            metadata.set_tag(ExifTag::CreateDate(exif_datetime(val)));
-        }
-        if let Some(val) = map.get("FNumber")
-            && let Some(ur) = parse_ur64(val)
+        if let Some(f) = exif_obj.get_field(exif::Tag::ImageDescription, exif::In::PRIMARY)
+            && let Some(text) = clean_ascii_value(&f.value)
         {
-            metadata.set_tag(ExifTag::FNumber(vec![ur]));
+            metadata.set_tag(ExifTag::ImageDescription(text));
         }
-        if let Some(val) = map.get("ExposureTime")
-            && let Some(ur) = parse_ur64(val)
+        // The whole comment with its character code, as the camera
+        // wrote it (UTF-16 turned to the export's byte order).
+        if let Some(f) = exif_obj.get_field(exif::Tag::UserComment, exif::In::PRIMARY)
+            && let exif::Value::Undefined(bytes, _) = &f.value
+            && user_comment_text(&f.value, exif_obj.little_endian()).is_some()
         {
-            metadata.set_tag(ExifTag::ExposureTime(vec![ur]));
+            metadata.set_tag(ExifTag::UserComment(user_comment_little_endian(
+                bytes,
+                exif_obj.little_endian(),
+            )));
         }
-        if let Some(val) = map.get("FocalLength")
-            && let Some(ur) = parse_ur64(val)
-        {
-            metadata.set_tag(ExifTag::FocalLength(vec![ur]));
+        if let Some(f) = exif_obj.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
+            metadata.set_tag(ExifTag::DateTimeOriginal(exif_datetime(&get_string_val(f))));
         }
-        if let Some(val) = map.get("FocalLengthIn35mmFilm") {
-            let cleaned = val.replace(" mm", "").replace("\"", "");
-            let trimmed = cleaned.trim();
-            if let Ok(f_val) = trimmed.parse::<f32>() {
-                metadata.set_tag(ExifTag::FocalLengthIn35mmFormat(vec![f_val.round() as u16]));
+        // Each time with its fraction and offset as the file holds it
+        // (frames of one second stay apart).
+        if let Some(f) = exif_obj.get_field(exif::Tag::DateTimeDigitized, exif::In::PRIMARY) {
+            metadata.set_tag(ExifTag::CreateDate(exif_datetime(&get_string_val(f))));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::DateTime, exif::In::PRIMARY) {
+            metadata.set_tag(ExifTag::ModifyDate(exif_datetime(&get_string_val(f))));
+        }
+        for (tag, set) in [
+            (
+                exif::Tag::SubSecTime,
+                ExifTag::SubSecTime as fn(String) -> ExifTag,
+            ),
+            (exif::Tag::SubSecTimeOriginal, ExifTag::SubSecTimeOriginal),
+            (exif::Tag::SubSecTimeDigitized, ExifTag::SubSecTimeDigitized),
+            (exif::Tag::OffsetTime, ExifTag::OffsetTime),
+            (exif::Tag::OffsetTimeOriginal, ExifTag::OffsetTimeOriginal),
+            (exif::Tag::OffsetTimeDigitized, ExifTag::OffsetTimeDigitized),
+        ] {
+            if let Some(value) = text(tag) {
+                metadata.set_tag(set(value.trim().to_string()));
             }
         }
-        if let Some(val) = map.get("ISOSpeed").or(map.get("PhotographicSensitivity"))
-            && let Ok(iso) = val.replace('"', "").trim().parse::<u16>()
+        if let Some(f) = exif_obj.get_field(exif::Tag::FNumber, exif::In::PRIMARY)
+            && let exif::Value::Rational(v) = &f.value
+            && !v.is_empty()
         {
-            metadata.set_tag(ExifTag::ISO(vec![iso]));
+            metadata.set_tag(ExifTag::FNumber(vec![to_ur64(&v[0])]));
         }
-    }
-
-    if !source_read_success && let Ok(file) = std::fs::File::open(original_path) {
-        let mut bufreader = std::io::BufReader::new(&file);
-        let exifreader = exif::Reader::new();
-
-        if let Ok(exif_obj) = exifreader.read_from_container(&mut bufreader) {
-            source_read_success = true;
-
-            let get_string_val = |field: &exif::Field| -> String {
-                match &field.value {
-                    exif::Value::Ascii(vec) => vec
-                        .iter()
-                        .map(|v| {
-                            String::from_utf8_lossy(v)
-                                .trim_matches(char::from(0))
-                                .to_string()
-                        })
-                        .collect::<Vec<String>>()
-                        .join(" "),
-                    _ => field
-                        .display_value()
-                        .to_string()
-                        .replace("\"", "")
-                        .trim()
-                        .to_string(),
+        if let Some(f) = exif_obj.get_field(exif::Tag::ExposureTime, exif::In::PRIMARY)
+            && let exif::Value::Rational(v) = &f.value
+            && !v.is_empty()
+        {
+            metadata.set_tag(ExifTag::ExposureTime(vec![to_ur64(&v[0])]));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::FocalLength, exif::In::PRIMARY)
+            && let exif::Value::Rational(v) = &f.value
+            && !v.is_empty()
+        {
+            metadata.set_tag(ExifTag::FocalLength(vec![to_ur64(&v[0])]));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::ExposureBiasValue, exif::In::PRIMARY) {
+            match &f.value {
+                exif::Value::SRational(v) if !v.is_empty() => {
+                    metadata.set_tag(ExifTag::ExposureCompensation(vec![to_ir64(&v[0])]));
                 }
-            };
-
-            if let Some(f) = exif_obj.get_field(exif::Tag::Make, exif::In::PRIMARY) {
-                metadata.set_tag(ExifTag::Make(get_string_val(f)));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::Model, exif::In::PRIMARY) {
-                metadata.set_tag(ExifTag::Model(get_string_val(f)));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::LensMake, exif::In::PRIMARY) {
-                metadata.set_tag(ExifTag::LensMake(get_string_val(f)));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::LensModel, exif::In::PRIMARY) {
-                metadata.set_tag(ExifTag::LensModel(get_string_val(f)));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::Artist, exif::In::PRIMARY) {
-                metadata.set_tag(ExifTag::Artist(get_string_val(f)));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::Copyright, exif::In::PRIMARY) {
-                metadata.set_tag(ExifTag::Copyright(get_string_val(f)));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY) {
-                metadata.set_tag(ExifTag::DateTimeOriginal(exif_datetime(&get_string_val(f))));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::DateTime, exif::In::PRIMARY) {
-                metadata.set_tag(ExifTag::CreateDate(exif_datetime(&get_string_val(f))));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::FNumber, exif::In::PRIMARY)
-                && let exif::Value::Rational(v) = &f.value
-                && !v.is_empty()
-            {
-                metadata.set_tag(ExifTag::FNumber(vec![to_ur64(&v[0])]));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::ExposureTime, exif::In::PRIMARY)
-                && let exif::Value::Rational(v) = &f.value
-                && !v.is_empty()
-            {
-                metadata.set_tag(ExifTag::ExposureTime(vec![to_ur64(&v[0])]));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::FocalLength, exif::In::PRIMARY)
-                && let exif::Value::Rational(v) = &f.value
-                && !v.is_empty()
-            {
-                metadata.set_tag(ExifTag::FocalLength(vec![to_ur64(&v[0])]));
-            }
-            if let Some(f) = exif_obj.get_field(exif::Tag::ExposureBiasValue, exif::In::PRIMARY) {
-                match &f.value {
-                    exif::Value::SRational(v) if !v.is_empty() => {
-                        metadata.set_tag(ExifTag::ExposureCompensation(vec![to_ir64(&v[0])]));
-                    }
-                    exif::Value::Rational(v) if !v.is_empty() => {
-                        metadata.set_tag(ExifTag::ExposureCompensation(vec![iR64 {
-                            nominator: v[0].num as i32,
-                            denominator: v[0].denom as i32,
-                        }]));
-                    }
-                    _ => {}
+                exif::Value::Rational(v) if !v.is_empty() => {
+                    metadata.set_tag(ExifTag::ExposureCompensation(vec![iR64 {
+                        nominator: v[0].num as i32,
+                        denominator: v[0].denom as i32,
+                    }]));
                 }
+                _ => {}
             }
-            if let Some(f) =
-                exif_obj.get_field(exif::Tag::PhotographicSensitivity, exif::In::PRIMARY)
-            {
-                if let Some(val) = f.value.get_uint(0) {
-                    metadata.set_tag(ExifTag::ISO(vec![val as u16]));
-                }
-            } else if let Some(f) = exif_obj.get_field(exif::Tag::ISOSpeed, exif::In::PRIMARY)
-                && let Some(val) = f.value.get_uint(0)
-            {
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::PhotographicSensitivity, exif::In::PRIMARY) {
+            if let Some(val) = f.value.get_uint(0) {
                 metadata.set_tag(ExifTag::ISO(vec![val as u16]));
             }
-            if let Some(f) = exif_obj.get_field(exif::Tag::FocalLengthIn35mmFilm, exif::In::PRIMARY)
-                && let Some(val) = f.value.get_uint(0)
-            {
-                metadata.set_tag(ExifTag::FocalLengthIn35mmFormat(vec![val as u16]));
-            }
+        } else if let Some(f) = exif_obj.get_field(exif::Tag::ISOSpeed, exif::In::PRIMARY)
+            && let Some(val) = f.value.get_uint(0)
+        {
+            metadata.set_tag(ExifTag::ISO(vec![val as u16]));
+        }
+        if let Some(f) = exif_obj.get_field(exif::Tag::FocalLengthIn35mmFilm, exif::In::PRIMARY)
+            && let Some(val) = f.value.get_uint(0)
+        {
+            metadata.set_tag(ExifTag::FocalLengthIn35mmFormat(vec![val as u16]));
         }
     }
 
@@ -1971,11 +2023,23 @@ pub fn export_metadata_with(
                 metadata.set_tag(ExifTag::Model(meta.model.clone()));
             }
             let exif = meta.exif;
-            if let Some(artist) = exif.artist {
+            if let Some(artist) = exif.artist.filter(|s| !s.trim().is_empty()) {
                 metadata.set_tag(ExifTag::Artist(artist));
             }
-            if let Some(copyright) = exif.copyright {
+            if let Some(copyright) = exif.copyright.filter(|s| !s.trim().is_empty()) {
                 metadata.set_tag(ExifTag::Copyright(copyright));
+            }
+            // The decoder gives only an ASCII-typed comment (a non-TIFF RAW's
+            // UNDEFINED one is not read, as for the shown map); it is written
+            // with the ASCII code that type implies.
+            if let Some(comment) = exif.user_comment
+                && !comment
+                    .trim_matches(|c: char| c == '\0' || c.is_whitespace())
+                    .is_empty()
+            {
+                metadata.set_tag(ExifTag::UserComment(user_comment_bytes(
+                    comment.trim_matches('\0'),
+                )));
             }
             if let Some(dt) = exif.date_time_original {
                 metadata.set_tag(ExifTag::DateTimeOriginal(exif_datetime(&dt)));
@@ -1983,10 +2047,10 @@ pub fn export_metadata_with(
             if let Some(dt) = exif.create_date {
                 metadata.set_tag(ExifTag::CreateDate(exif_datetime(&dt)));
             }
-            if let Some(lens_make) = exif.lens_make {
+            if let Some(lens_make) = exif.lens_make.filter(|s| !s.trim().is_empty()) {
                 metadata.set_tag(ExifTag::LensMake(lens_make));
             }
-            if let Some(lens_model) = exif.lens_model {
+            if let Some(lens_model) = exif.lens_model.filter(|s| !s.trim().is_empty()) {
                 metadata.set_tag(ExifTag::LensModel(lens_model));
             }
             if let Some(f) = exif.fnumber {
@@ -2041,11 +2105,9 @@ pub fn export_metadata_with(
         }
     }
 
-    if full_exif_copied && let Some(map) = exif_sidecar() {
-        apply_sidecar_field_overrides(&mut metadata, &map);
-    }
-    if let Some(map) = exif_sidecar() {
-        apply_corrected_capture_time(&mut metadata, &map);
+    if let Some(edits) = exif_sidecar() {
+        apply_exif_edits(&mut metadata, &edits);
+        apply_corrected_capture_time(&mut metadata, &edits);
     }
     // Session metadata (the Metadata tool) wins over the camera's and the
     // inherited sidecar's values, as in Lightroom: Creator → Artist,
@@ -2872,7 +2934,146 @@ mod tests {
     }
 
     #[test]
-    fn cr3_metadata_fallback_keeps_camera_lens_tags_in_the_export() {
+    fn exif_edits_are_the_text_fields_and_capture_time_the_user_changed() {
+        let map = |entries: &[(&str, &str)]| -> HashMap<String, String> {
+            entries
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let own = map(&[
+            ("Artist", "Camera Owner"),
+            ("UserComment", "camera"),
+            ("ExposureTime", "1/3 s"),
+            ("DateTimeOriginal", "2026-10-30 23:30:00"),
+        ]);
+        // A copy of the read map changes nothing, quotes or not.
+        let mut shown = own.clone();
+        shown.insert("Artist".into(), "\"Camera Owner\"".into());
+        assert!(super::exif_edits(&shown, &own).is_empty());
+        // An edit, a removal, a new field; other fields never count.
+        shown.remove("Artist");
+        shown.insert("Copyright".into(), "Me".into());
+        shown.insert("ExposureTime".into(), "1 s".into());
+        shown.insert("UserComment".into(), "0x41534349490000004869".into());
+        assert_eq!(
+            super::exif_edits(&shown, &own),
+            map(&[("Artist", ""), ("Copyright", "Me")]),
+            "a legacy hex dump of the comment is no edit"
+        );
+        // Text a user typed is an edit, also when it starts like a dump.
+        shown.insert("UserComment".into(), "0x2026".into());
+        assert_eq!(super::exif_edits(&shown, &own)["UserComment"], "0x2026");
+        shown.insert("ImageDescription".into(), "0x Studio".into());
+        assert_eq!(
+            super::exif_edits(&shown, &own)["ImageDescription"],
+            "0x Studio"
+        );
+        shown.insert("DateTimeOriginal".into(), "2026-10-31 00:30:00".into());
+        let edits = super::exif_edits(&shown, &own);
+        assert_eq!(edits["DateTimeOriginal"], "2026-10-31 00:30:00");
+        assert!(edits.contains_key(CAPTURE_CORRECTED));
+    }
+
+    #[test]
+    fn a_user_comment_carries_its_character_code_in_the_exports_byte_order() {
+        assert_eq!(super::user_comment_bytes("Hi"), b"ASCII\0\0\0Hi");
+        assert_eq!(super::user_comment_bytes("é"), b"UNICODE\0\xe9\0");
+        let big = b"UNICODE\0\0\xe9\0A";
+        assert_eq!(
+            super::user_comment_little_endian(big, false),
+            b"UNICODE\0\xe9\0A\0"
+        );
+        assert_eq!(super::user_comment_little_endian(big, true), big);
+        let ascii = b"ASCII\0\0\0Hi";
+        assert_eq!(super::user_comment_little_endian(ascii, false), ascii);
+    }
+
+    /// EXF1 (round 3): a Keep Metadata export of a TIFF-based RAW carries
+    /// each of its times with the fraction and offset the file holds, in
+    /// their own tags; a corrected capture time replaces only the original's.
+    #[test]
+    fn a_raw_export_keeps_each_capture_time_with_its_fraction_and_offset() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("camera.dng");
+        let mut file = Metadata::new();
+        file.set_tag(ExifTag::Make("Maker".into()));
+        file.set_tag(ExifTag::DateTimeOriginal("2026:10:30 23:30:00".into()));
+        file.set_tag(ExifTag::CreateDate("2026:10:30 23:30:01".into()));
+        file.set_tag(ExifTag::ModifyDate("2026:11:01 10:00:00".into()));
+        file.set_tag(ExifTag::SubSecTime("1".into()));
+        file.set_tag(ExifTag::SubSecTimeOriginal("05".into()));
+        file.set_tag(ExifTag::SubSecTimeDigitized("06".into()));
+        file.set_tag(ExifTag::OffsetTime("+01:00".into()));
+        file.set_tag(ExifTag::OffsetTimeOriginal("+02:00".into()));
+        file.set_tag(ExifTag::OffsetTimeDigitized("+03:00".into()));
+        std::fs::write(&source, file.encode().unwrap()).unwrap();
+        let path = source.to_str().unwrap();
+        let exported = |edits: Option<HashMap<String, String>>| {
+            let metadata = super::export_metadata_with(
+                path,
+                "jpg",
+                OutputColorSpace::Srgb,
+                true,
+                false,
+                false,
+                32,
+                24,
+                false,
+                &|| edits.clone(),
+                &|| None,
+            )
+            .unwrap();
+            let mut jpeg = small_jpeg();
+            embed_export_metadata(&mut jpeg, "jpg", &metadata).unwrap();
+            let read = jpeg_exif_tags(&jpeg);
+            [
+                exif::Tag::DateTimeOriginal,
+                exif::Tag::DateTimeDigitized,
+                exif::Tag::DateTime,
+                exif::Tag::SubSecTime,
+                exif::Tag::SubSecTimeOriginal,
+                exif::Tag::SubSecTimeDigitized,
+                exif::Tag::OffsetTime,
+                exif::Tag::OffsetTimeOriginal,
+                exif::Tag::OffsetTimeDigitized,
+            ]
+            .map(|tag| {
+                read.get_field(tag, exif::In::PRIMARY)
+                    .and_then(|f| clean_ascii_value(&f.value))
+            })
+        };
+        let own = [
+            "2026:10:30 23:30:00",
+            "2026:10:30 23:30:01",
+            "2026:11:01 10:00:00",
+            "1",
+            "05",
+            "06",
+            "+01:00",
+            "+02:00",
+            "+03:00",
+        ]
+        .map(|v| Some(v.to_string()));
+        assert_eq!(exported(None), own);
+        let mut corrected = HashMap::new();
+        mark_corrected_capture(
+            &mut corrected,
+            &[
+                ("DateTimeOriginal", Some("2026-10-31 00:30:00".into())),
+                ("SubSecTimeOriginal", Some("07".into())),
+                ("OffsetTimeOriginal", None),
+            ],
+        );
+        let mut expected = own.clone();
+        expected[0] = Some("2026:10:31 00:30:00".into());
+        expected[4] = Some("07".into());
+        expected[7] = None;
+        assert_eq!(exported(Some(corrected)), expected);
+    }
+
+    #[test]
+    fn maker_note_lens_candidates_stay_out_of_the_export() {
         use super::OutputColorSpace;
         use rawtonic_engine::lens_detect::LENS_CANDIDATES;
 
@@ -2912,18 +3113,13 @@ mod tests {
             &|| None,
         )
         .unwrap();
+        // The shown map is no source of the export's EXIF (EXF1): a lens
+        // the maker note names never becomes LensModel or LensMake.
         let mut jpeg = small_jpeg();
         embed_export_metadata(&mut jpeg, "jpg", &metadata).unwrap();
         let read = jpeg_exif_tags(&jpeg);
-        for (tag, value) in [
-            (exif::Tag::LensModel, b"24-70mm".as_slice()),
-            (exif::Tag::LensMake, b"Canon".as_slice()),
-        ] {
-            let field = read.get_field(tag, exif::In::PRIMARY).unwrap();
-            let exif::Value::Ascii(values) = &field.value else {
-                panic!("expected an ASCII lens tag");
-            };
-            assert_eq!(values, &[value.to_vec()]);
+        for tag in [exif::Tag::LensModel, exif::Tag::LensMake] {
+            assert!(read.get_field(tag, exif::In::PRIMARY).is_none(), "{tag}");
         }
     }
 

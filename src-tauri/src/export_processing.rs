@@ -539,19 +539,17 @@ pub struct PinnedPhoto {
     /// The library metadata its files embed (a virtual copy's own rating,
     /// label and keywords); None outside a session or catalog.
     pub metadata: Option<rawtonic_metadata::Metadata>,
-    /// The EXIF its editor state or EXIF cache holds (`read_rrexif_sidecar`):
-    /// what its files embed of it, and its capture date for names and file
-    /// times. None when none was read yet (a photo never decoded): the
-    /// export then reads it from the original itself (`exif`).
+    /// The EXIF map its editor state held (sidecar or library): where the
+    /// user's edits of the EXIF text fields live (`update_exif_of`). Its
+    /// exports embed only those edits (`exif_edits`) over the EXIF they read
+    /// from the original itself, so a cached or copied display map (rounded
+    /// values, a shortened comment) never reaches a file, and a warm and a
+    /// cold EXIF cache export the same bytes (EXF1). A job queued by an
+    /// earlier build holds the cached map here, which counts the same way.
     #[serde(default)]
     pub exif: Option<std::collections::BTreeMap<String, String>>,
-    /// Without `exif`: whether its export embeds the EXIF its decode reads
-    /// from the original. It does unless the library keeps the photo's
-    /// editor state beside a sidecar file, where the decode's map goes to
-    /// the file, which the library's state outranks (as on main).
-    #[serde(default)]
-    pub exif_from_original: bool,
-    /// The EXIF read from the original when it is embedded, once.
+    /// The original's EXIF as shown (`read_exif_data_from_bytes`), read once
+    /// to tell the user's edits in `exif` from the camera's values.
     #[serde(skip)]
     pub from_original: std::sync::OnceLock<Option<std::collections::HashMap<String, String>>>,
     /// The session or catalog that owns it (None: no library), under which
@@ -584,48 +582,37 @@ impl PinnedPhoto {
             || self.generated_source
     }
 
-    /// The EXIF of `source` as this snapshot has it, else as the original
-    /// file holds it (what its first decode caches), never as a sidecar or
-    /// library holds it by now.
+    /// What the user changed of `source`'s EXIF (`export_metadata_with`):
+    /// its EXIF text edits and its corrected capture time; None without.
     pub(crate) fn exif(&self, source: &Path) -> Option<std::collections::HashMap<String, String>> {
-        self.corrected(self.read_exif(source))
-    }
-
-    /// `map` with the corrected capture time (`capture`), marked for the
-    /// export (`CAPTURE_CORRECTED`). No map stays none: the export then
-    /// reads the camera's fields from the original, which a map of dates
-    /// alone would replace.
-    fn corrected(
-        &self,
-        map: Option<std::collections::HashMap<String, String>>,
-    ) -> Option<std::collections::HashMap<String, String>> {
-        let Some(time) = &self.capture else {
-            return map;
-        };
-        let mut map = map?;
-        exif_processing::mark_corrected_capture(&mut map, &time.exif_fields());
-        Some(map)
-    }
-
-    fn read_exif(&self, source: &Path) -> Option<std::collections::HashMap<String, String>> {
-        match &self.exif {
-            Some(exif) => Some(exif.clone().into_iter().collect()),
-            None if !self.exif_from_original => None,
-            None => self
-                .from_original
-                .get_or_init(|| {
-                    let path = source.to_string_lossy();
-                    let exif = match read_file_mapped(source) {
-                        Ok(bytes) => exif_processing::read_exif_data_from_bytes(&path, &bytes),
-                        Err(_) => exif_processing::read_exif_data_from_bytes(
-                            &path,
-                            &fs::read(source).ok()?,
-                        ),
-                    };
-                    (!exif.is_empty()).then_some(exif)
-                })
-                .clone(),
+        let mut edits = self.exif_edits(source);
+        if let Some(time) = &self.capture {
+            exif_processing::mark_corrected_capture(&mut edits, &time.exif_fields());
         }
+        (!edits.is_empty()).then_some(edits)
+    }
+
+    /// The EXIF text fields of the editor state's map that differ from the
+    /// original's (`exif_edits`). None without a map, or an original that
+    /// cannot be read (its export embeds no EXIF then).
+    fn exif_edits(&self, source: &Path) -> std::collections::HashMap<String, String> {
+        let Some(shown) = &self.exif else {
+            return Default::default();
+        };
+        let own = self.from_original.get_or_init(|| {
+            let path = source.to_string_lossy();
+            Some(match read_file_mapped(source) {
+                Ok(bytes) => exif_processing::read_exif_data_from_bytes(&path, &bytes),
+                Err(_) => {
+                    exif_processing::read_exif_data_from_bytes(&path, &fs::read(source).ok()?)
+                }
+            })
+        });
+        let Some(own) = own else {
+            return Default::default();
+        };
+        let shown: std::collections::HashMap<String, String> = shown.clone().into_iter().collect();
+        exif_processing::exif_edits(&shown, own)
     }
 
     /// The capture date of `source` (`exif`), for its files' times.
@@ -634,14 +621,14 @@ impl PinnedPhoto {
     }
 
     /// The capture date of `source` before it is decoded, for its names:
-    /// the snapshot's, else the file's own (`capture_date_with`).
+    /// the corrected one, else the file's own (`capture_date_with`).
     pub(crate) fn naming_date(&self, source: &Path) -> jiff::Timestamp {
         exif_processing::capture_date_with(source, &|| {
-            self.corrected(
-                self.exif
-                    .as_ref()
-                    .map(|exif| exif.clone().into_iter().collect()),
-            )
+            self.capture.as_ref().map(|time| {
+                let mut map = std::collections::HashMap::new();
+                exif_processing::mark_corrected_capture(&mut map, &time.exif_fields());
+                map
+            })
         })
     }
 }
@@ -703,18 +690,17 @@ pub(crate) fn pin_photos(
                     Some(adjustments) if is_open_edit(path, open_path) => adjustments.clone(),
                     _ => saved.adjustments,
                 };
-                let exif = exif_processing::read_rrexif_sidecar(&source);
+                // The EXIF edits live in the photograph's own editor state
+                // (a virtual copy's are its master's, `update_exif_of`).
                 let primary = exif_processing::get_primary_sidecar_path(&source);
-                let library_state = || {
-                    crate::session_bridge::read_editor_sidecar(&primary).is_some_and(|state| {
-                        serde_json::from_value::<crate::image_processing::ImageMetadata>(state)
-                            .is_ok()
-                    })
+                let exif = if primary == sidecar {
+                    saved.exif
+                } else {
+                    exif_processing::load_sidecar(&primary).exif
                 };
                 Ok(PinnedPhoto {
                     adjustments,
                     metadata,
-                    exif_from_original: exif.is_none() && !(primary.exists() && library_state()),
                     exif: exif.map(|exif| exif.into_iter().collect()),
                     owner: owner.clone(),
                     from_original: Default::default(),
@@ -2009,9 +1995,10 @@ pub(crate) fn known_libraries(
 /// What decides a photo's exports besides each recipe, for Replace if
 /// changed: the photo as queued (its recipe, library metadata, corrected
 /// capture time and the original's file), the preferences the render reads
-/// and the LUT file it reads besides the photo. Not the EXIF cache: it is
-/// the original's own EXIF (the file is in `sourceIdentity`), cached only
-/// after a first decode, which would count as a change.
+/// and the LUT file it reads besides the photo, and the user's EXIF edits
+/// its files embed (`exif_edits`, only when there are any, so a photo
+/// without one keeps its earlier key). Not the EXIF cache: it is the
+/// original's own EXIF (the file is in `sourceIdentity`).
 pub(crate) fn photo_inputs(
     pinned: &PinnedPhoto,
     settings: &crate::app_settings::AppSettings,
@@ -2051,6 +2038,15 @@ pub(crate) fn photo_inputs(
         ],
     });
     parts["adjustments"] = existing_files::adjustments_for_hash(&pinned.adjustments, source);
+    let edits = pinned.exif_edits(source);
+    if !edits.is_empty() {
+        parts["exifEdits"] = serde_json::to_value(
+            edits
+                .into_iter()
+                .collect::<std::collections::BTreeMap<_, _>>(),
+        )
+        .unwrap_or_default();
+    }
     if let Some(defaults) = defaults.filter(|defaults| !defaults.settings.is_empty()) {
         parts["developDefaults"] = Value::Object(defaults.settings);
     }

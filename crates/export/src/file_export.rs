@@ -79,52 +79,35 @@ pub struct FileExport<'a> {
 /// outside any session folder carries (a catalog keeps its photographs
 /// anywhere, so the CLI cannot find the catalog from the photograph).
 pub fn sidecar_capture(source: &Path) -> Option<crate::exif_processing::CaptureFields> {
-    use crate::exif_processing::parse_creation_datetime;
     let sidecar = crate::exif_processing::get_primary_sidecar_path(source);
     // Only its EXIF map is read: no library resources to resolve.
     let shown = crate::sidecars::read_sidecar_file(&sidecar, None).0.exif?;
     let bytes = fs::read(source).ok()?;
     let own = read_exif_data_from_bytes(&source.to_string_lossy(), &bytes);
-    let field = |map: &crate::export_processing::ExifMap, key: &str| {
-        map.get(key)
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-    };
-    let date = |map: &crate::export_processing::ExifMap| {
-        field(map, "DateTimeOriginal").and_then(|v| parse_creation_datetime(&v))
-    };
-    let corrected = date(&shown)?;
-    let same = date(&own) == Some(corrected)
-        && ["SubSecTimeOriginal", "OffsetTimeOriginal"]
-            .iter()
-            .all(|key| field(&shown, key) == field(&own, key));
-    (!same).then(|| {
-        [
-            (
-                "DateTimeOriginal",
-                Some(corrected.strftime("%Y-%m-%d %H:%M:%S").to_string()),
-            ),
-            ("SubSecTimeOriginal", field(&shown, "SubSecTimeOriginal")),
-            ("OffsetTimeOriginal", field(&shown, "OffsetTimeOriginal")),
-        ]
-    })
+    crate::exif_processing::capture_edit(&shown, &own)
 }
 
-/// The source's EXIF map as the app's export reads it: extracted from the
-/// file, with a corrected capture time marked on it. `None` without EXIF.
+/// What the user changed of the source's EXIF, as the app's export reads
+/// it: the text fields edited in the sidecar beside it (`exif_edits`
+/// against the file's own), with a corrected capture time marked on it.
+/// `None` without either; the export reads every other field from the file.
 fn source_exif(
     source: &Path,
     capture: Option<&crate::exif_processing::CaptureFields>,
 ) -> Option<crate::export_processing::ExifMap> {
-    let bytes = fs::read(source).ok()?;
-    let mut map = read_exif_data_from_bytes(&source.to_string_lossy(), &bytes);
-    if map.is_empty() {
-        return None;
-    }
+    let sidecar = crate::exif_processing::get_primary_sidecar_path(source);
+    let mut map = match crate::sidecars::read_sidecar_file(&sidecar, None).0.exif {
+        Some(shown) => {
+            let bytes = fs::read(source).ok()?;
+            let own = read_exif_data_from_bytes(&source.to_string_lossy(), &bytes);
+            crate::exif_processing::exif_edits(&shown, &own)
+        }
+        None => Default::default(),
+    };
     if let Some(fields) = capture {
         crate::exif_processing::mark_corrected_capture(&mut map, fields);
     }
-    Some(map)
+    (!map.is_empty()).then_some(map)
 }
 
 /// A source decoded and prepared for its render ([`FileExporter::develop`]).
@@ -353,8 +336,8 @@ impl FileExporter {
         if let Some(inputs) = &self.render_inputs {
             inputs.clear();
         }
-        // The app reads the EXIF map its loader cached for the source; it is
-        // extracted the same way here, once and before the develop: the
+        // The user's EXIF changes, as the app's export takes them; read
+        // once and before the develop (only with a sidecar map): the
         // extraction reads the whole source file (123 MB for an uncompressed
         // 60 MP RAW), which beside the render raised the export's peak
         // (notes: benchmark-results/mem14-2026-11-17).
@@ -423,8 +406,8 @@ mod tests {
         exif.set_tag(ExifTag::DateTimeOriginal("2026:10:30 23:30:00".into()));
         exif.set_tag(ExifTag::SubSecTimeOriginal("05".into()));
         exif.write_to_file(&source).unwrap();
-        let plain = source_exif(&source, None).unwrap();
-        assert!(!plain.contains_key(crate::exif_processing::CAPTURE_CORRECTED));
+        // Nothing changed: the export reads the file's own EXIF.
+        assert_eq!(source_exif(&source, None), None);
         let fields = [
             ("DateTimeOriginal", Some("2026-10-31 00:30:00".to_string())),
             ("SubSecTimeOriginal", Some("05".to_string())),
@@ -432,7 +415,7 @@ mod tests {
         ];
         let corrected = source_exif(&source, Some(&fields)).unwrap();
         assert_eq!(corrected["DateTimeOriginal"], "2026-10-31 00:30:00");
-        assert_eq!(corrected["Make"], "Maker");
+        assert!(!corrected.contains_key("Make"), "the file's own");
         assert!(corrected.contains_key(crate::exif_processing::CAPTURE_CORRECTED));
         assert!(!corrected.contains_key("OffsetTimeOriginal"));
         // Outside a session: the correction the app left beside the photo.

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Exports with Keep Metadata take the camera data from the original itself, whether or not Rawtonic has read the photo before: exposure times and apertures keep their exact values (a 2/5 s exposure was written as 1/3 s), a long comment in a JPEG or a TIFF-based RAW file (most cameras' RAWs) is kept whole with its character code, and a JPEG's own camera data stays as it is. Only what you changed in the Metadata tool (creator, copyright, description, comment) and a corrected capture time replace the camera's values. Before, a photo seen on this computer and the same photo on another one could export with different camera data. The command-line export also takes those changes from the `.rrdata` file beside the photo. (Technical: Keep Metadata exports now take EXIF values from the original; earlier exports could differ by computer, so re-exporting an existing edit changes its EXIF bytes — never its pixels — on purpose, without a recipe version key.)
 - In Develop, Undo now follows the order of your edits, ratings and file operations. If you rate a photo and then move it to Selects, the first Undo puts it back and the second restores its earlier rating. Redo reapplies the rating before moving the photo again.
 
 - Reading a photo's camera data no longer stores it in the `.rrdata` file beside the photo (it stays in Rawtonic's cache; that added about 3–12 KB to a rated photo's file), and selecting the open photo again or opening it after an undone Move no longer saves its unchanged edit into the `.rrdata` and `.xmp` files (about 23 KB).
