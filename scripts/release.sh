@@ -293,9 +293,10 @@ check_release_commit() {
 }
 
 # The docs branches (name and commit) and the check of them, into STATE/docs-branches.
+# Arguments: the branch names (none: discover every unmerged docs-* branch).
 docs_gate() {
   local names=() n line refs=()
-  for n in ${DOCS_BRANCHES[@]+"${DOCS_BRANCHES[@]}"}; do names+=(--name "$n"); done
+  for n in "$@"; do names+=(--name "$n"); done
   python3 "$SCRIPTS/docs_check.py" branches --website "$WEBSITE" ${names[@]+"${names[@]}"} > "$STATE/docs-branches.new" \
     || fail "the website's docs branches (above)"
   echo "docs branches carried by the release: $(awk '{printf "%s (%.9s) ", $1, $2}' "$STATE/docs-branches.new")"
@@ -317,7 +318,7 @@ st_docs() {
   need preflight bump
   website_clone
   git -C "$WEBSITE" fetch -q --prune origin || fail "fetch the website"
-  docs_gate
+  docs_gate ${DOCS_BRANCHES[@]+"${DOCS_BRANCHES[@]}"}
 }
 
 worktree_at() {  # DIR SHA
@@ -745,7 +746,7 @@ st_notes() {
 st_site() {
   need sums notes docs
   website_clone
-  git -C "$WEBSITE" fetch -q origin || fail "fetch the website"
+  git -C "$WEBSITE" fetch -q --prune origin || fail "fetch the website"
   if [ ! -d "$WEBWT" ]; then
     if git -C "$WEBSITE" rev-parse -q --verify "refs/heads/$WEB_BRANCH" >/dev/null; then
       git -C "$WEBSITE" worktree add "$WEBWT" "$WEB_BRANCH" || fail "worktree of $WEB_BRANCH (checked out elsewhere?)"
@@ -757,12 +758,15 @@ st_site() {
     fi
   fi
   [ "$(git -C "$WEBWT" branch --show-current)" = "$WEB_BRANCH" ] || fail "$WEBWT is not on $WEB_BRANCH"
-  # The docs the release carries: the commits stage docs checked. A docs branch
-  # changed since (a conflict resolved on it) is checked again first.
-  local before; before=$(cat "$STATE/docs-branches")
-  docs_gate
+  # The docs the release carries: the branches stage docs chose (to choose
+  # again: --only docs), at the commits it checked. A branch changed since (a
+  # conflict resolved on it) is checked again first.
+  local b before chosen=(); before=$(cat "$STATE/docs-branches")
+  while read -r b _; do [ -z "$b" ] || chosen+=("$b"); done < "$STATE/docs-branches"
+  [ ${#chosen[@]} -gt 0 ] || chosen=(none)
+  docs_gate "${chosen[@]}"
   [ "$before" = "$(cat "$STATE/docs-branches")" ] || echo "the docs branches changed since stage docs: checked again (above)"
-  local b c
+  local c
   while read -r b c; do
     [ -n "$b" ] || continue
     if git -C "$WEBWT" merge-base --is-ancestor "$c" HEAD; then echo "docs branch $b: already in $WEB_BRANCH"; continue; fi
