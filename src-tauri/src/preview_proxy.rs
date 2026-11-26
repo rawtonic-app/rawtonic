@@ -312,9 +312,13 @@ fn location_with(source: &Path, outside: Option<&Path>) -> Option<(PathBuf, Stri
 }
 
 /// The file stem of the previews of the photograph `source_label` names
-/// (its path in the session, or its absolute path outside sessions).
+/// (its path in the session, or its absolute path outside sessions). The
+/// label is first spelled with the platform's own separator, so one path
+/// written with `/` and with `\` (both separators on Windows) names the
+/// same previews; on macOS and Linux this changes nothing.
 fn file_stem_for(label: &str) -> String {
-    blake3::hash(label.as_bytes()).to_hex()[..32].to_string()
+    let spelled = Path::new(label).components().collect::<PathBuf>();
+    blake3::hash(spelled.as_os_str().as_encoded_bytes()).to_hex()[..32].to_string()
 }
 
 /// How a proxy header names `source`: its path inside its session (so a
@@ -2469,6 +2473,23 @@ pub(crate) fn clear_display_copy_marker_for_test(source: &Path) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// One photograph spelled with either separator has one set of
+    /// previews (on Windows `Capture/A.RAF` and `Capture\A.RAF` are the
+    /// same file; walking a folder spells it with `\`).
+    #[test]
+    fn previews_are_named_by_the_path_not_its_separator_spelling() {
+        let joined = Path::new("Capture").join("A.RAF");
+        assert_eq!(
+            file_stem_for("Capture/A.RAF"),
+            file_stem_for(&joined.to_string_lossy())
+        );
+        let root = std::env::temp_dir();
+        assert_eq!(
+            file_stem_for(&root.join("Shoot/A.RAF").to_string_lossy()),
+            file_stem_for(&root.join("Shoot").join("A.RAF").to_string_lossy())
+        );
+    }
 
     /// What a never-edited RAW's decode is made for.
     const NEW_EDIT: DecodeVariant = DecodeVariant {

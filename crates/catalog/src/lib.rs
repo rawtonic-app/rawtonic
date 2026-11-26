@@ -2103,6 +2103,15 @@ impl Library {
             .collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Whether the app moved the asset's file to the system Trash (Undo puts
+    /// it back): such a photograph has left the library's views, it is not
+    /// offline.
+    pub fn is_trashed(&self, id: &str) -> Result<bool, CatalogError> {
+        Ok(self
+            .conn
+            .query_row("SELECT trashed FROM assets WHERE id=?", [id], |r| r.get(0))?)
+    }
+
     /// The asset as an offline asset (whether or not its file is there now).
     pub fn offline_asset(&self, id: &str) -> Result<OfflineAsset, CatalogError> {
         Ok(self
@@ -2155,7 +2164,9 @@ impl Library {
 
     /// The photographs registered in `folder` (with `recursive`, also below
     /// it) whose file is not there now, so a folder listing keeps showing
-    /// them. Reads only (the missing flags follow at the next check).
+    /// them. Reads only (the missing flags follow at the next check). A
+    /// photograph the app moved to the Trash is not one of them: it left the
+    /// library (its record stays for Undo), it is not offline (TRS2).
     pub fn offline_in(
         &self,
         folder: &Path,
@@ -2171,6 +2182,7 @@ impl Library {
                     .replace('_', "\\_")
             )
         };
+        let visible = self.visible_assets_for_listing(Some(&folder));
         let candidates = if let Ok(relative) = folder.strip_prefix(&self.directory) {
             let prefix = if relative.as_os_str().is_empty() {
                 String::new()
@@ -2178,7 +2190,7 @@ impl Library {
                 format!("{}/", portable_relative(relative)?)
             };
             self.offline_rows(
-                "r.external=0 AND a.rel_path LIKE ? ESCAPE '\\'",
+                &format!("r.external=0 AND a.rel_path LIKE ? ESCAPE '\\' AND {visible}"),
                 &[&like(&prefix)],
             )?
         } else {
@@ -2187,7 +2199,7 @@ impl Library {
             // session-relative paths. Use their native descendant separator.
             let descendants = folder.join("").to_string_lossy().into_owned();
             self.offline_rows(
-                "r.external=1 AND (r.path=? OR r.path LIKE ? ESCAPE '\\')",
+                &format!("r.external=1 AND (r.path=? OR r.path LIKE ? ESCAPE '\\') AND {visible}"),
                 &[&path, &like(&descendants)],
             )?
         };
