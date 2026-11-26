@@ -3,7 +3,7 @@
 ## Unreleased
 
 - A photo you move to the Trash leaves the library at once: its folder no longer lists it as **Offline** (which looked like a disconnected drive and offered Locate), and the folder's photo and offline counts drop with it. Undo brings it back with its edits, rating and virtual copies. Photos whose files vanished outside Rawtonic are still listed as Offline.
-- Windows: renaming a folder now carries the previews of the photos in it along, so they still open offline afterwards (they were left behind when the same path was written once with `/` and once with `\`).
+- Windows: renaming a folder now carries the previews of the photos in it along, so they still open offline afterwards (they were left behind when the same path was written once with `/` and once with `\`). Previews that an earlier version made under a path written with `/` are rebuilt once, the next time the photo is online.
 
 - Windows: Move to Trash works on exFAT drives that have a Recycle Bin, and Undo puts the photos back (tested on an exFAT disk; FAT32 follows the same rule but was not tested). Before, the photo went to the drive's Recycle Bin, but Rawtonic said nothing was changed, kept the photo in the library without its file and could not undo it. If the Recycle Bin ever takes a file without Rawtonic being able to confirm which entry it is, the message now says where the file went instead of "Nothing was changed".
 
