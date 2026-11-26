@@ -3864,6 +3864,7 @@ const ImageCanvas = memo(
             rotateHover ? 'crop-rotate-cursor' : ''
           }`}
           ref={cropLayerRef}
+          data-crop-layer
           onPointerDownCapture={startCropRotation}
           onPointerMove={(e) => {
             if (e.buttons === 0) setRotateHover(Boolean(cropRotationCentre(e.clientX, e.clientY, e.target)));
