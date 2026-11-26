@@ -940,37 +940,37 @@ function candidate(direction: 'undo' | 'redo'): 'catalog' | 'edit' | 'file' | nu
   const state = useCatalogUndoStore.getState();
   if (state.busy) return null;
   const step = catalogStep(direction);
-  if (useUIStore.getState().activeView !== 'editor') {
-    const file = fileStep(direction);
-    const fileAvailable =
-      direction === 'undo'
-        ? !!file || (!!fileHandlers && !state.fileUndoEmpty)
-        : !!file || (!state.fileRedoBlocked && !!fileHandlers);
-    if (!step) return fileAvailable ? 'file' : null;
-    if (!fileAvailable) return 'catalog';
-    if (!file) return 'catalog'; // Native operations from before this window are older.
-    return direction === 'undo'
-      ? file.order > step.order
-        ? 'file'
-        : 'catalog'
-      : file.order < step.order
-        ? 'file'
-        : 'catalog';
+  const file = fileStep(direction);
+  const inDevelop = useUIStore.getState().activeView === 'editor';
+  const newerFirst = direction === 'undo';
+  const comesFirst = (order: number, otherOrder: number) => (newerFirst ? order > otherOrder : order < otherOrder);
+  let target: 'catalog' | 'edit' | 'file' | null = step ? 'catalog' : null;
+  let order = step?.order;
+  if (inDevelop) {
+    const e = useEditorStore.getState();
+    if (e.selectedImage?.isReady && e.historyPending && !newerFirst) return null;
+    const index = newerFirst ? e.historyIndex : e.historyIndex + 1;
+    const hasEdit = e.selectedImage?.isReady && (newerFirst ? e.historyPending || index > 0 : index < e.history.length);
+    if (hasEdit) {
+      const editOrder = e.historyPending ? Infinity : editUndoOrder(e.history, index);
+      // A linked batch step and its open-photo entry share an order.
+      if (order === undefined || !comesFirst(order, editOrder)) {
+        target = 'edit';
+        order = editOrder;
+      }
+    }
   }
-  const e = useEditorStore.getState();
-  if (e.selectedImage?.isReady && e.historyPending && direction === 'redo') return null;
-  const hasEdit =
-    e.selectedImage?.isReady &&
-    (direction === 'undo'
-      ? e.historyPending || e.historyIndex > 0
-      : !e.historyPending && e.historyIndex < e.history.length - 1);
-  if (!hasEdit) return step ? 'catalog' : null;
-  if (!step) return 'edit';
-  if (direction === 'undo' && e.historyPending) return 'edit';
-  const order = editUndoOrder(e.history, e.historyIndex + (direction === 'redo' ? 1 : 0));
-  return direction === 'undo' ? (step.order > order ? 'catalog' : 'edit') : step.order < order ? 'catalog' : 'edit';
+  if (file && (order === undefined || comesFirst(file.order, order))) return 'file';
+  // Library also reaches native history predating this window, after all
+  // tracked steps. That history has no position in Develop’s edit history.
+  if (!target && !inDevelop && fileHandlers && (newerFirst ? !state.fileUndoEmpty : !state.fileRedoBlocked))
+    return 'file';
+  return target;
 }
-export const catalogUndoAvailable = (direction: 'undo' | 'redo') => candidate(direction) === 'catalog';
+export const nonRecipeUndoAvailable = (direction: 'undo' | 'redo') => {
+  const target = candidate(direction);
+  return target === 'catalog' || target === 'file';
+};
 export const canUndo = () => candidate('undo') !== null;
 export const canRedo = () => candidate('redo') !== null;
 function batchLabel(label: BatchLabel | undefined) {
@@ -1186,9 +1186,10 @@ async function travel(direction: 'undo' | 'redo', fallback?: () => void | Promis
     return;
   }
   const inLibrary = useUIStore.getState().activeView !== 'editor';
-  const handler = inLibrary ? (fallback ?? fileHandlers?.[direction]) : undefined;
+  const handler = fallback ?? fileHandlers?.[direction];
   if (!target) {
     if (
+      inLibrary &&
       !useCatalogUndoStore.getState().busy &&
       !(direction === 'redo' && useCatalogUndoStore.getState().fileRedoBlocked)
     )

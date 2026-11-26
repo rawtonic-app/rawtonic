@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- In Develop, Undo now follows the order of your edits, ratings and file operations. If you rate a photo and then move it to Selects, the first Undo puts it back and the second restores its earlier rating. Redo reapplies the rating before moving the photo again.
+
 - Reading a photo's camera data no longer stores it in the `.rrdata` file beside the photo (it stays in Rawtonic's cache; that added about 3–12 KB to a rated photo's file), and selecting the open photo again or opening it after an undone Move no longer saves its unchanged edit into the `.rrdata` and `.xmp` files (about 23 KB).
 - Windows: undoing a Move to Trash now also removes the Recycle Bin's hidden information file of each restored photo. Before, one stayed behind for every photo put back, invisible in the Recycle Bin.
 
