@@ -172,20 +172,33 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
 
     rawtonic_runtime::spawn_render_thread("saved-thumbnail", move || {
         let mut _frame = frame;
-        // Not beside a mask run asked for short of memory (MEM20): a
-        // Library thumbnail can wait, the photographer's mask and memory
-        // cannot. Not counted as the photo's frame meanwhile (a run asked
-        // for next waits for the frames, not for this wait).
-        if _frame.is_some() {
-            _frame = None;
-            let waited = crate::ai_ahead::wait_for_asked_runs(crate::ai_ahead::THUMBNAIL_WAIT);
-            if !waited.is_zero() {
+        // Not beside a mask run asked for short of memory (MEM20), whichever
+        // photo is open by now: a Library thumbnail can wait, the
+        // photographer's mask and memory cannot. Not counted as the open
+        // photo's frame meanwhile (a run asked for next waits for the
+        // frames, not for this wait). One waits per photo (review r3).
+        let mut _turn = None;
+        if crate::ai_ahead::asked_runs_short() {
+            let was_frame = _frame.take().is_some();
+            let Some(waiting) = crate::ai_ahead::WaitingThumbnail::join(&path_clone) else {
                 log::info!(
-                    "Saved thumbnail of {path_clone} waited {} ms for a mask run asked for short of memory",
-                    waited.as_millis()
+                    "Saved thumbnail of {path_clone} left to the one waiting for a mask run asked for short of memory"
                 );
+                increment_thumbnail_progress(
+                    &app_handle_clone.state::<ThumbnailState>(),
+                    &app_handle_clone,
+                );
+                return;
+            };
+            let (waited, turn) = waiting.wait();
+            _turn = Some(turn);
+            log::info!(
+                "Saved thumbnail of {path_clone} waited {} ms for a mask run asked for short of memory",
+                waited.as_millis()
+            );
+            if was_frame {
+                _frame = Some(crate::multi_view_prefetch::PreviewFrame::start(false));
             }
-            _frame = Some(crate::multi_view_prefetch::PreviewFrame::start(false));
         }
         let settings = crate::state::settings::current(&app_handle_clone);
 

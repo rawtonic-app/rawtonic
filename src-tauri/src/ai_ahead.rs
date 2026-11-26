@@ -458,10 +458,61 @@ impl Drop for AskedRunShort {
     }
 }
 
-/// How long the open photo's saved thumbnail waits at most for runs asked
-/// for short of memory (a Subject run on the CPU takes about 16 s on a
-/// Radeon 680M laptop).
+/// How long an edit's saved thumbnail waits at most for runs asked for
+/// short of memory (a Subject run on the CPU takes about 16 s on a Radeon
+/// 680M laptop); then it renders beside them.
 pub const THUMBNAIL_WAIT: Duration = Duration::from_secs(60);
+
+/// Whether a run asked for short of memory runs (`AskedRunShort`).
+pub fn asked_runs_short() -> bool {
+    ASKED_RUNS_SHORT.load(Ordering::SeqCst) > 0
+}
+
+/// The photos whose saved thumbnail waits for such a run (`WaitingThumbnail`).
+static THUMBNAILS_WAITING: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+/// Thumbnails that waited render one at a time once the run ended.
+static WAITED_RENDER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// An edit's saved thumbnail of `path` that waits for a run asked for short
+/// of memory while this lives. One per photo (review r3): the edits saved
+/// meanwhile are in the photo's recipe, which the waiting one renders, so a
+/// later save's thumbnail is left to it instead of a second full-resolution
+/// render once the run ends.
+#[must_use = "the thumbnail counts as waiting while this lives"]
+pub struct WaitingThumbnail(String);
+
+impl WaitingThumbnail {
+    /// None: a thumbnail of `path` waits already (it renders this edit).
+    pub fn join(path: &str) -> Option<Self> {
+        let mut waiting = THUMBNAILS_WAITING.lock().unwrap_or_else(|e| e.into_inner());
+        if waiting.iter().any(|p| p == path) {
+            return None;
+        }
+        waiting.push(path.to_string());
+        Some(WaitingThumbnail(path.to_string()))
+    }
+
+    /// Waits up to `THUMBNAIL_WAIT` for the runs (`wait_for_asked_runs`),
+    /// then returns how long and the turn to render in (one waited thumbnail
+    /// at a time); the photo no longer counts as waiting.
+    pub fn wait(self) -> (Duration, std::sync::MutexGuard<'static, ()>) {
+        let waited = wait_for_asked_runs(THUMBNAIL_WAIT);
+        drop(self);
+        (
+            waited,
+            WAITED_RENDER.lock().unwrap_or_else(|e| e.into_inner()),
+        )
+    }
+}
+
+impl Drop for WaitingThumbnail {
+    fn drop(&mut self) {
+        THUMBNAILS_WAITING
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|p| *p != self.0);
+    }
+}
 
 /// Blocks while a run asked for short of memory runs (`AskedRunShort`), up
 /// to `max`; returns how long it waited (zero: none ran).
@@ -724,6 +775,19 @@ mod tests {
         let waited = thumbnail.join().unwrap();
         assert!(waited >= Duration::from_millis(400));
         assert!(waited < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn one_thumbnail_per_photo_waits_for_the_run() {
+        // Review r3: edits saved during the run leave their thumbnail to the
+        // photo's waiting one (it renders the latest recipe); another photo
+        // (stepped to meanwhile) waits on its own.
+        let first = WaitingThumbnail::join("mem20-a.NEF").expect("first waits");
+        assert!(WaitingThumbnail::join("mem20-a.NEF").is_none());
+        let other = WaitingThumbnail::join("mem20-b.NEF").expect("another photo waits too");
+        drop(first);
+        assert!(WaitingThumbnail::join("mem20-a.NEF").is_some());
+        drop(other);
     }
 
     #[tokio::test]
