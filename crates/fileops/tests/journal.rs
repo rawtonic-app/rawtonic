@@ -232,6 +232,70 @@ fn system_trash_round_trip_records_the_item() {
     assert_eq!(fs::read_to_string(root.join("a.RAF")).unwrap(), "a");
 }
 
+/// WQA7b (Trash on an exFAT volume): Windows recycled the file, then the
+/// adapter's check of the recycled entry failed. The app said "Nothing was
+/// changed" while the photo's file was gone. The message must name what
+/// happened and where to find it.
+#[test]
+fn a_trash_that_takes_the_file_but_reports_a_failure_never_says_nothing_changed() {
+    struct UnconfirmedTrash(FolderTrash);
+    impl SystemTrash for UnconfirmedTrash {
+        fn trash(&self, path: &Path) -> anyhow::Result<String> {
+            let item = self.0.trash(path)?;
+            anyhow::bail!("Recycled into {item}, but its identity was not proven")
+        }
+        fn restore(&self, item: &str, original: &Path) -> anyhow::Result<()> {
+            self.0.restore(item, original)
+        }
+        fn contains(&self, item: &str) -> bool {
+            self.0.contains(item)
+        }
+    }
+    let (_tmp, root, journal) = setup();
+    let trash = UnconfirmedTrash(FolderTrash::new(&root.join("system-trash")));
+    write(&root.join("a.SRW"), "a");
+    let error = journal
+        .execute(
+            "trash",
+            "Trash",
+            vec![Step::system_trash(root.join("a.SRW"))],
+            &trash,
+        )
+        .unwrap_err();
+    let error = format!("{error:#}");
+    assert!(!error.contains("Nothing was changed"), "{error}");
+    assert!(error.starts_with("Not everything was put back"), "{error}");
+    assert!(error.contains("a.SRW went to the Trash"), "{error}");
+    assert!(
+        error.contains("system-trash"),
+        "names where it went: {error}"
+    );
+    assert!(error.contains("put it back from there"), "{error}");
+    // The file is untouched in the Trash.
+    assert_eq!(
+        fs::read_to_string(root.join("system-trash").join("0")).unwrap(),
+        "a"
+    );
+
+    // A refusal that left the file in place still changes nothing.
+    let refusing = FolderTrash {
+        fail_after: Some(0),
+        ..FolderTrash::new(&root.join("other-trash"))
+    };
+    write(&root.join("b.SRW"), "b");
+    let error = journal
+        .execute(
+            "trash",
+            "Trash",
+            vec![Step::system_trash(root.join("b.SRW"))],
+            &refusing,
+        )
+        .unwrap_err();
+    let error = format!("{error:#}");
+    assert!(error.starts_with("Nothing was changed"), "{error}");
+    assert_eq!(fs::read_to_string(root.join("b.SRW")).unwrap(), "b");
+}
+
 #[test]
 fn undo_is_refused_when_something_moved_on_and_changes_nothing() {
     let (_tmp, root, journal) = setup();

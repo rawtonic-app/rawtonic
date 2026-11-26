@@ -70,7 +70,9 @@ impl SystemTrash for PlatformTrash {
     }
 }
 
-// Pure, so its tests run on every platform; only Windows restores use it.
+// Pure, so their tests run on every platform; only Windows uses them.
+#[cfg_attr(not(windows), allow(dead_code))]
+mod entry_proof;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod recycle_info;
 #[cfg(windows)]

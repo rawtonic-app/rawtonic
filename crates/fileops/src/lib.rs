@@ -404,6 +404,17 @@ impl std::fmt::Display for UnavailableTrashItem {
 }
 impl std::error::Error for UnavailableTrashItem {}
 
+/// A Trash step whose entry left its place although the system Trash
+/// reported a failure: the operation cannot say that nothing changed.
+#[derive(Debug)]
+struct LeftInTrash;
+impl std::fmt::Display for LeftInTrash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("The item left its folder for the system Trash")
+    }
+}
+impl std::error::Error for LeftInTrash {}
+
 /// A trash that refuses: for callers that only rename.
 pub struct NoSystemTrash;
 
@@ -507,9 +518,14 @@ impl Journal {
                 .as_deref()
                 .and_then(|n| n.split_once("; could not reverse every step: "))
                 .map(|(_, kept)| format!("Not everything was put back: {kept}"));
-            return Err(error
-                .context(kept.unwrap_or_else(|| "Nothing was changed".into()))
-                .into());
+            let headline = kept.unwrap_or_else(|| {
+                if error.chain().any(|cause| cause.is::<LeftInTrash>()) {
+                    "Not everything was put back".into()
+                } else {
+                    "Nothing was changed".into()
+                }
+            });
+            return Err(error.context(headline).into());
         }
         if payload.has_copies() {
             self.store_clearing_redo(&id, State::Finishing, &payload)?;
@@ -2068,13 +2084,20 @@ fn apply(step: &mut Step, trash: &dyn SystemTrash, note: NoteClaim) -> Result<()
     match &mut step.to {
         Target::Path { path } => rename_noting(&step.from, path, note)
             .with_context(|| format!("Cannot move {} to {}", step.from.display(), path.display())),
-        Target::SystemTrash { item } => {
-            *item =
-                Some(trash.trash(&step.from).with_context(|| {
-                    format!("Cannot move {} to the Trash", step.from.display())
-                })?);
-            Ok(())
-        }
+        Target::SystemTrash { item } => match trash.trash(&step.from) {
+            Ok(trashed) => {
+                *item = Some(trashed);
+                Ok(())
+            }
+            // The Trash took it but could not prove where: never claim
+            // that nothing changed while the entry has left its folder.
+            Err(e) if !exists(&step.from) => Err(anyhow::Error::new(LeftInTrash).context(format!(
+                "{} went to the Trash, which could not confirm it ({e:#}); \
+                     put it back from there to undo",
+                step.from.display()
+            ))),
+            Err(e) => Err(e.context(format!("Cannot move {} to the Trash", step.from.display()))),
+        },
         Target::OtherVolume { .. } => publish(step, Direction::Forward),
     }
 }
