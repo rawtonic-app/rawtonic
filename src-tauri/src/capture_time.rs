@@ -723,16 +723,20 @@ mod tests {
         let undone = apply(&library, &applied.undo).unwrap();
         assert!(undone.conflicts.is_empty());
         assert_eq!(lib.capture_override(&ids[1]).unwrap(), None);
+        // The sidecar keeps no capture time then (SCW1): the photograph
+        // shows the file's own, as it reads it.
         let shown = crate::exif_processing::read_rrexif_sidecar(&b).unwrap();
-        assert_eq!(shown["DateTimeOriginal"], "2026-10-30 23:45:00");
+        assert_eq!(shown["DateTimeOriginal"], "2026:10:30 23:45:00");
         assert_eq!(shown["SubSecTimeOriginal"], "05");
+        let written = std::fs::read_to_string(b.with_file_name("B.jpg.rrdata")).unwrap();
+        assert!(!written.contains("DateTimeOriginal"), "{written}");
         assert_eq!(stated(&b), None, "the XMP dates written are removed");
 
         // A decode cached while it was corrected shows the camera's time again.
         let mut cached = decoded.clone();
         cached.insert("DateTimeOriginal".into(), "2026-10-31 00:45:00".into());
         let shown = crate::session_bridge::with_capture_override(&b, cached);
-        assert_eq!(shown["DateTimeOriginal"], "2026-10-30 23:45:00");
+        assert_eq!(shown["DateTimeOriginal"], "2026:10:30 23:45:00");
         assert_eq!(shown["SubSecTimeOriginal"], "05");
         assert_eq!(shown["OffsetTimeOriginal"], "+02:00");
 
@@ -797,7 +801,8 @@ mod tests {
         .unwrap();
         assert_eq!(report.read, std::slice::from_ref(&b_path));
         assert_eq!(lib.capture_override(&id).unwrap(), None);
-        assert_eq!(shown()["DateTimeOriginal"], "2026-10-30 23:45:00");
+        // The file's own time, as it reads it (the sidecar keeps none, SCW1).
+        assert_eq!(shown()["DateTimeOriginal"], "2026:10:30 23:45:00");
         assert_eq!(shown()["SubSecTimeOriginal"], "05");
         assert_eq!(shown()["OffsetTimeOriginal"], "+02:00");
         let pinned =

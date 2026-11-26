@@ -3324,7 +3324,9 @@ mod tests {
         assert_eq!(written["adjustments"], Value::Null);
 
         // A field of another type (an EXIF number, a keyword that is no
-        // string): a rating change keeps the recipe and the keywords.
+        // string): a rating change keeps the recipe and the keywords; its
+        // copy of the camera's EXIF (no user override) goes with the write
+        // (SCW1).
         let (path, sidecar) = photo(
             "mistyped.jpg",
             serde_json::json!({
@@ -3337,7 +3339,7 @@ mod tests {
         assert_eq!(written["rating"], 2);
         assert_eq!(written["tags"], serde_json::json!(["user:a"]));
         assert_eq!(written["adjustments"], serde_json::json!({"exposure": 1.5}));
-        assert_eq!(written["exif"], serde_json::json!({"Make": "Maker"}));
+        assert_eq!(written["exif"], Value::Null);
 
         // A batch recipe edit (paste, preset, Auto: `edit_sidecars`) keeps
         // rating and keywords.
