@@ -115,6 +115,28 @@ fn a_relink_drops_a_kind_read_from_another_file_than_the_registered_one() {
 }
 
 #[test]
+fn a_rename_keeps_the_kind_of_the_file_it_carries() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids, paths) = session(d.path(), &["A.DNG"]);
+    // Read after another program changed it in place, before the library
+    // registered the change.
+    fs::write(&paths[0], b"metadata saved by another program").unwrap();
+    let read = fingerprint(&paths[0]).unwrap();
+    assert!(
+        lib.record_sensor_kind(&ids[0], SensorKind::XTrans, &read)
+            .unwrap()
+    );
+    let renamed = paths[0].with_file_name("Renamed.DNG");
+    fs::rename(&paths[0], &renamed).unwrap();
+    assert_eq!(lib.relocate(&paths[0], &renamed).unwrap(), 1);
+    assert_eq!(
+        lib.asset(&ids[0]).unwrap().path.file_name().unwrap(),
+        "Renamed.DNG"
+    );
+    assert_eq!(lib.sensor_kind(&ids[0]).unwrap(), Some(SensorKind::XTrans));
+}
+
+#[test]
 fn a_new_registered_file_drops_the_kind() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids, paths) = session(d.path(), &["A.RAF", "B.RAF"]);

@@ -8,7 +8,7 @@
 //! recorded read forgets it. Renders and exports never use the stored kind;
 //! they read the sensor from the file.
 use crate::{CatalogError, Library};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 /// A sensor layout read from the file (never "unknown": that is not stored).
@@ -83,4 +83,21 @@ impl Library {
     pub fn sensor_kind(&self, id: &str) -> Result<Option<SensorKind>, CatalogError> {
         Ok(self.sensor_read(id)?.map(|(kind, _)| kind))
     }
+}
+
+/// After `ids` were relinked to files found by their registered fingerprint:
+/// drops their layouts read from another file (one that had taken their
+/// place), which the files now linked are not.
+pub(crate) fn forget_reads_of_other_files(
+    tx: &Connection,
+    ids: impl IntoIterator<Item = impl AsRef<str>>,
+) -> rusqlite::Result<()> {
+    let mut forget = tx.prepare(
+        "DELETE FROM sensor_kinds WHERE asset_id=?1
+         AND fingerprint IS NOT (SELECT fingerprint FROM assets WHERE id=?1)",
+    )?;
+    for id in ids {
+        forget.execute([id.as_ref()])?;
+    }
+    Ok(())
 }

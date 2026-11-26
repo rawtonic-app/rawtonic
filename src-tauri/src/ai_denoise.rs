@@ -475,6 +475,7 @@ fn read_sensor_kind(
 /// same file (the read failed this time) and forgets one of another file.
 /// Writes nothing when nothing changes (a photo opened again) or when a
 /// later read of the file was made meanwhile (its own write decides).
+/// Runs in the background, after the answer went to Develop.
 fn remember_sensor_kind(
     library: &Path,
     source: &Path,
@@ -503,13 +504,10 @@ fn remember_sensor_kind(
     };
     // Whether no later read of the file was made meanwhile.
     let newest = || lock_recover(&NEWEST_SENSOR_READS).get(source) == Some(&read.ticket);
-    let lib = rawtonic_catalog::Library::open(library).map_err(|e| e.to_string())?;
-    if unchanged(&lib)?.is_none() {
-        return Ok(());
-    }
-    drop(lib);
+    // The whole decision under the write lock, so no later read can pass
+    // between this read's check and its write (the photo's answer never
+    // waits for this).
     crate::session_bridge::with_library_blocking(library, |lib| {
-        // Under the write lock: a later read's write cannot pass this one.
         if !newest() {
             return Ok(());
         }
