@@ -1295,6 +1295,20 @@ async fn auto_mask(
     });
     let is_raw = loaded.is_raw;
     let run_options = options.clone();
+    // A run the photographer waits for, short of memory: the open photo's
+    // saved thumbnail waits for it (MEM20 review r2).
+    let _short = (!ahead)
+        .then(|| {
+            crate::ai_ahead::AskedRunShort::start_if_short(
+                crate::memory_pressure::work_headroom(),
+                crate::ai_ahead::estimated_peak(
+                    kind.ahead_job(),
+                    rawtonic_onnx::models_run_on_cpu_only(),
+                    true,
+                ),
+            )
+        })
+        .flatten();
     let result = tokio::task::spawn_blocking(move || {
         let run = std::time::Instant::now();
         let qos = crate::ai_processing::thread_qos();

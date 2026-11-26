@@ -171,7 +171,22 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     add_to_thumbnail_queue(&app_handle.state::<ThumbnailState>(), 1, &app_handle);
 
     rawtonic_runtime::spawn_render_thread("saved-thumbnail", move || {
-        let _frame = frame;
+        let mut _frame = frame;
+        // Not beside a mask run asked for short of memory (MEM20): a
+        // Library thumbnail can wait, the photographer's mask and memory
+        // cannot. Not counted as the photo's frame meanwhile (a run asked
+        // for next waits for the frames, not for this wait).
+        if _frame.is_some() {
+            _frame = None;
+            let waited = crate::ai_ahead::wait_for_asked_runs(crate::ai_ahead::THUMBNAIL_WAIT);
+            if !waited.is_zero() {
+                log::info!(
+                    "Saved thumbnail of {path_clone} waited {} ms for a mask run asked for short of memory",
+                    waited.as_millis()
+                );
+            }
+            _frame = Some(crate::multi_view_prefetch::PreviewFrame::start(false));
+        }
         let settings = crate::state::settings::current(&app_handle_clone);
 
         let thumb_cache_dir = match resolve_thumbnail_cache_dir(&app_handle_clone) {

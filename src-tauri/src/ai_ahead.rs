@@ -388,15 +388,21 @@ pub fn asked_run_waits(frames_settled: bool, room: Option<u64>, need: u64) -> bo
 pub async fn wait_for_photo_frames(job: AheadJob, need: u64, cancelled: impl Fn() -> bool) {
     let start = Instant::now();
     let mut waited = false;
-    loop {
+    let why = loop {
         // Quiet since the request too: the frame its click asked for may not
         // have reached the preview worker yet, and the edit's save (300 ms
         // after it) has not started its thumbnail (MEM20 review r1).
         let settled =
             crate::multi_view_prefetch::primary_settled(QUIET) && start.elapsed() >= QUIET;
         let room = crate::memory_pressure::work_headroom();
-        if cancelled() || !asked_run_waits(settled, room, need) {
-            break;
+        if cancelled() {
+            break "cancelled";
+        }
+        if settled {
+            break "after the photo's frames";
+        }
+        if !asked_run_waits(settled, room, need) {
+            break "with memory for it";
         }
         if !waited {
             waited = true;
@@ -409,18 +415,62 @@ pub async fn wait_for_photo_frames(job: AheadJob, need: u64, cancelled: impl Fn(
             );
         }
         if start.elapsed() >= FRAMES_WAIT {
-            break;
+            break "beside frames still under way";
         }
         tokio::time::sleep(FRAMES_POLL).await;
-    }
+    };
     if waited {
         log::info!(
-            "AI {} mask: asked for, started after the photo's frames, {} ms; {}",
+            "AI {} mask: asked for, wait ended {why}, {} ms; {}",
             job.name(),
             start.elapsed().as_millis(),
             memory_line()
         );
     }
+}
+
+/// Runs the photographer asked for that started short of memory
+/// (`AskedRunShort`).
+static ASKED_RUNS_SHORT: AtomicUsize = AtomicUsize::new(0);
+
+/// A run the photographer asked for that started where the memory free for
+/// work that may wait did not cover it (`work_headroom` below its `need`)
+/// runs while this lives: the open photo's saved thumbnail waits for it
+/// (`wait_for_asked_runs`). An edit's save can come after the frames wait
+/// ended (queued behind other photo writes in the webview, review r2), and
+/// its full-resolution render beside the network is what MEM20 keeps apart.
+#[must_use = "the run counts while this lives"]
+pub struct AskedRunShort(());
+
+impl AskedRunShort {
+    /// Counts the run when `room` (None: not readable) is below `need`.
+    pub fn start_if_short(room: Option<u64>, need: u64) -> Option<Self> {
+        room.is_some_and(|room| room < need).then(|| {
+            ASKED_RUNS_SHORT.fetch_add(1, Ordering::SeqCst);
+            AskedRunShort(())
+        })
+    }
+}
+
+impl Drop for AskedRunShort {
+    fn drop(&mut self) {
+        ASKED_RUNS_SHORT.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// How long the open photo's saved thumbnail waits at most for runs asked
+/// for short of memory (a Subject run on the CPU takes about 16 s on a
+/// Radeon 680M laptop).
+pub const THUMBNAIL_WAIT: Duration = Duration::from_secs(60);
+
+/// Blocks while a run asked for short of memory runs (`AskedRunShort`), up
+/// to `max`; returns how long it waited (zero: none ran).
+pub fn wait_for_asked_runs(max: Duration) -> Duration {
+    let start = Instant::now();
+    while ASKED_RUNS_SHORT.load(Ordering::SeqCst) > 0 && start.elapsed() < max {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    start.elapsed()
 }
 
 fn describe(verdict: Verdict) -> String {
@@ -657,6 +707,23 @@ mod tests {
         wait_for_photo_frames(AheadJob::Subject, u64::MAX, || false).await;
         assert!(start.elapsed() >= QUIET);
         assert!(start.elapsed() <= FRAMES_WAIT + Duration::from_secs(1));
+    }
+
+    #[test]
+    fn a_thumbnail_saved_during_a_run_asked_for_short_of_memory_waits_for_it() {
+        // Review r2: the edit's save comes after the frames wait ended
+        // (queued behind rating writes); its thumbnail must not render
+        // beside the network.
+        assert!(AskedRunShort::start_if_short(Some(9 * GB), 3700 * MB).is_none());
+        assert!(AskedRunShort::start_if_short(None, 3700 * MB).is_none());
+        let run = AskedRunShort::start_if_short(Some(1400 * MB), 3700 * MB).expect("short");
+        let thumbnail = std::thread::spawn(|| wait_for_asked_runs(Duration::from_secs(10)));
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(!thumbnail.is_finished(), "waits while the run runs");
+        drop(run);
+        let waited = thumbnail.join().unwrap();
+        assert!(waited >= Duration::from_millis(400));
+        assert!(waited < Duration::from_secs(10));
     }
 
     #[tokio::test]

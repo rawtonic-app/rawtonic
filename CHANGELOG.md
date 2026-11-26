@@ -8,7 +8,7 @@
 - Reading a photo's camera data no longer stores it in the `.rrdata` file beside the photo (it stays in Rawtonic's cache; that added about 3–12 KB to a rated photo's file), and selecting the open photo again or opening it after an undone Move no longer saves its unchanged edit into the `.rrdata` and `.xmp` files (about 23 KB).
 - Windows: undoing a Move to Trash now also removes the Recycle Bin's hidden information file of each restored photo. Before, one stayed behind for every photo put back, invisible in the Recycle Bin.
 
-- On computers with less memory free, a click on a Subject selection after Develop loaded the Subject model ahead waits for the new layer's full-resolution preview and its thumbnail before it computes the mask, as long as there is not enough memory for both. It waits at most 5 s, then starts anyway. On a 14 GB laptop the two together had taken Rawtonic to about 10 GB and the system almost out of memory.
+- On computers with less memory free, a click on a Subject selection after Develop loaded the Subject model ahead waits for the new layer's full-resolution preview before it computes the mask, as long as there is not enough memory for both (at most 5 s, then it starts anyway), and the edit's Library thumbnail is made after the mask. On a 14 GB laptop the two together had taken Rawtonic to about 10 GB and the system almost out of memory.
 
 - On computers with less memory free, Develop now loads the Subject model ahead when there is memory for the model but not yet for computing the mask. A click on a Subject selection made after that load no longer waits for the model (a click during the load still waits for its end). The loaded model is released again when the system runs short of memory. The masks are unchanged.
 
