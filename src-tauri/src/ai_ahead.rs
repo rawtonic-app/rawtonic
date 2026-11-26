@@ -36,8 +36,11 @@
 //! turn (`running`): the multi view's and the step prefetch's, which were
 //! counted in neither the job's verdict nor its estimate. A request the photographer makes (opening the masking tools,
 //! a click on Subject) never waits here: it starts at once, and a job made
-//! ahead that waits here starts with it (`ask_now`). Nothing changes in how a
-//! mask is computed, only when.
+//! ahead that waits here starts with it (`ask_now`), and then runs as the
+//! request (`AheadRun::asked`). With its model loaded, such a run waits only
+//! for the open photo's frames its click started, and only where the memory
+//! does not cover it beside them (`wait_for_photo_frames`, MEM20). Nothing
+//! changes in how a mask is computed, only when.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -239,7 +242,9 @@ pub fn running() -> bool {
 /// A job made ahead runs while this lives (`admit`).
 #[must_use = "the job counts as running while this lives"]
 #[derive(Debug)]
-pub struct AheadRun(());
+pub struct AheadRun {
+    asked: bool,
+}
 
 impl AheadRun {
     /// Starts a job: `asked` at once, else only while no other job made
@@ -249,12 +254,18 @@ impl AheadRun {
     fn start(asked: bool) -> Option<Self> {
         if asked {
             RUNNING.fetch_add(1, Ordering::SeqCst);
-            return Some(AheadRun(()));
+            return Some(AheadRun { asked });
         }
         RUNNING
             .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
             .ok()
-            .map(|_| AheadRun(()))
+            .map(|_| AheadRun { asked })
+    }
+
+    /// Whether it started because the photographer asked for it (`ask_now`):
+    /// they wait for it now, so it runs as their click would (G74/MEM20).
+    pub fn asked(&self) -> bool {
+        self.asked
     }
 }
 
@@ -344,6 +355,65 @@ pub async fn admit(
             return Err(NotStarted::TimedOut(now));
         }
         tokio::time::sleep(POLL).await;
+    }
+}
+
+/// How long a run the photographer asked for waits at most for the open
+/// photo's frames (`wait_for_photo_frames`).
+pub const FRAMES_WAIT: Duration = Duration::from_secs(5);
+/// How often it looks again meanwhile.
+const FRAMES_POLL: Duration = Duration::from_millis(50);
+
+/// Whether a run the photographer asked for (peak `need`) waits for the open
+/// photo's frames: while they are under way (`frames_settled` false: its
+/// decode, a frame, the saved thumbnail of an edit,
+/// `multi_view_prefetch::primary_settled`) and the memory free for work that
+/// may wait (`room`, None: not readable) does not cover the run beside them.
+/// Once they settled it starts whatever the memory (it is asked for).
+pub fn asked_run_waits(frames_settled: bool, room: Option<u64>, need: u64) -> bool {
+    !frames_settled && room.is_some_and(|room| room < need)
+}
+
+/// A run the photographer asked for, with its model loaded, waits here up to
+/// `FRAMES_WAIT` while `asked_run_waits` says so, and logs how long. G74/MEM20:
+/// with the Subject model preloaded (MEM19) a click on New subject layer ran
+/// the network (2.2–2.5 GB on the CPU) at once, beside the new layer's
+/// full-resolution frame and its saved thumbnail, and a 14 GB Radeon 680M
+/// laptop went from 4.2 to 10.2 GB private within 4 s (WMEM19, two of three
+/// clicks stopped at 1.1–1.3 GB available); while the model loaded (WMEM18,
+/// 9.9 s) that work had ended before the run, at 6.2 GB. `cancelled` ends
+/// the wait.
+pub async fn wait_for_photo_frames(job: AheadJob, need: u64, cancelled: impl Fn() -> bool) {
+    let start = Instant::now();
+    let mut waited = false;
+    loop {
+        let settled = crate::multi_view_prefetch::primary_settled(QUIET);
+        let room = crate::memory_pressure::work_headroom();
+        if cancelled() || !asked_run_waits(settled, room, need) {
+            break;
+        }
+        if !waited {
+            waited = true;
+            log::info!(
+                "AI {} mask: asked for, waits for the photo's frames ({} MB free for it of {} MB needed); {}",
+                job.name(),
+                room.unwrap_or(0) / MB,
+                need / MB,
+                memory_line()
+            );
+        }
+        if start.elapsed() >= FRAMES_WAIT {
+            break;
+        }
+        tokio::time::sleep(FRAMES_POLL).await;
+    }
+    if waited {
+        log::info!(
+            "AI {} mask: asked for, started after the photo's frames, {} ms; {}",
+            job.name(),
+            start.elapsed().as_millis(),
+            memory_line()
+        );
     }
 }
 
@@ -517,6 +587,7 @@ mod tests {
         if crate::memory_pressure::work_headroom().is_some() {
             assert!(polls.load(Ordering::SeqCst) >= 2);
         }
+        assert!(!run.asked());
         drop(run);
     }
 
@@ -542,6 +613,7 @@ mod tests {
         asking.await.unwrap();
         let run = result.expect("started");
         assert!(running(), "the background decodes wait for it");
+        assert!(run.asked(), "it runs as the photographer's request (MEM20)");
         drop(run);
     }
 
@@ -552,6 +624,27 @@ mod tests {
         ask_now(Some("subject-precompute-early".into()));
         let arrived = asked_count();
         assert!(asked_since(arrived, Some("subject-precompute-early")));
+    }
+
+    #[test]
+    fn a_run_asked_for_waits_only_for_the_photos_frames_and_only_short_of_memory() {
+        let need = estimated_peak(AheadJob::Subject, true, true);
+        // WMEM19 click: 1.4 GB free beside the new layer's frame: waits.
+        assert!(asked_run_waits(false, Some(1400 * MB), need));
+        // The frames settled: starts, however little memory (asked for).
+        assert!(!asked_run_waits(true, Some(0), need));
+        // Memory for it beside the frames (a Mac with 9 GB free): at once.
+        assert!(!asked_run_waits(false, Some(9 * GB), need));
+        // Memory not readable: at once, as the jobs made ahead.
+        assert!(!asked_run_waits(false, None, need));
+    }
+
+    #[tokio::test]
+    async fn a_wait_for_the_frames_ends_when_cancelled() {
+        // Never room (u64::MAX needed); cancelled: back at once.
+        let start = Instant::now();
+        wait_for_photo_frames(AheadJob::Subject, u64::MAX, || true).await;
+        assert!(start.elapsed() < FRAMES_WAIT);
     }
 
     #[tokio::test]

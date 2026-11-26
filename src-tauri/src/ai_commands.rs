@@ -1042,6 +1042,14 @@ impl AutoMask {
         }
     }
 
+    /// Its job when made ahead (`ai_ahead`).
+    fn ahead_job(self) -> crate::ai_ahead::AheadJob {
+        match self {
+            Self::Subject => crate::ai_ahead::AheadJob::Subject,
+            Self::Sky => crate::ai_ahead::AheadJob::Sky,
+        }
+    }
+
     /// Serialises this kind's runs (`AiState::subject_lock`/`sky_lock`).
     fn lock(self, ai_state: &AiState) -> &tokio::sync::Mutex<()> {
         match self {
@@ -1139,6 +1147,7 @@ async fn network(
 /// requests. `download`: the model may be downloaded (a click); otherwise
 /// only an installed model is used (`Ok(None)` without one: background
 /// requests, a camera TIFF's migrated selection computed again on opening).
+/// `ahead`: a run made ahead that nobody waits for (`run_made_ahead`).
 /// Cancelling `cancel` stops a run of ONNX Runtime at once.
 #[allow(clippy::too_many_arguments)]
 async fn auto_mask(
@@ -1150,6 +1159,7 @@ async fn auto_mask(
     subject_version: u32,
     asked: Option<&str>,
     download: bool,
+    ahead: bool,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, CommandError> {
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
@@ -1173,17 +1183,36 @@ async fn auto_mask(
     if cancelled() {
         return Err(task_cancelled());
     }
+    // A run the photographer waits for with its model loaded (preloaded,
+    // MEM19) starts at once, beside the full-resolution work their click
+    // itself started (the new layer's frame, its saved thumbnail): where
+    // the memory does not cover the run, it waits for that work first
+    // (`ai_ahead::wait_for_photo_frames`, MEM20). Before its turn, which a
+    // compile the frame may need would wait for. A model that loads first
+    // takes longer than that work.
+    if !ahead && model_loaded(ai_state, kind) {
+        let need = crate::ai_ahead::estimated_peak(
+            kind.ahead_job(),
+            rawtonic_onnx::models_run_on_cpu_only(),
+            true,
+        );
+        crate::ai_ahead::wait_for_photo_frames(kind.ahead_job(), need, cancelled).await;
+        if cancelled() {
+            return Err(task_cancelled());
+        }
+    }
     // Not beside an idle shader compile or an export where they take turns
     // (model load included); a cached mask above needs none. The wait is
     // without this kind's lock: a click must not queue behind a run made
     // ahead that waits for a compile (the click stops that compile).
     // Asked for is a request for the open photo (`asked`), whether or not
-    // it may download (a pasted mask uses only an installed model); only
+    // it may download (a pasted mask uses only an installed model), or a
+    // run made ahead the photographer asked for meanwhile; only the other
     // background requests are runs made ahead, which a compile a frame
     // waits for does not wait for (`memory_turns`, DVL5 review r1).
     let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
         drop(_run);
-        let turn = crate::ai_lifecycle::turn(asked.is_some()).await;
+        let turn = crate::ai_lifecycle::turn(!ahead).await;
         _run = kind.lock(ai_state).lock().await;
         if let Some(mask) = cached_mask(ai_state, kind, &key) {
             return Ok(Some(mask));
@@ -1237,10 +1266,11 @@ async fn auto_mask(
     let (width, height) = (warped_image.width(), warped_image.height());
     // A background run on the CPU peaks 2.2-2.5 GB above the model: what
     // rebuilds on demand goes first (AIMEM: 5699 -> 5580 MB on a Mac mini).
-    // A click's run keeps the caches the next edit uses; so does this one for
-    // the warped image: the run holds it anyway, so releasing the cache's
-    // reference saves nothing, and the next mask (Sky, SAM) rebuilds it.
-    if !download && rawtonic_onnx::models_run_on_cpu_only() {
+    // A click's run keeps the caches the next edit uses
+    // (`releases_caches_before_run`); so does this one for the warped image:
+    // the run holds it anyway, so releasing the cache's reference saves
+    // nothing, and the next mask (Sky, SAM) rebuilds it.
+    if releases_caches_before_run(ahead, rawtonic_onnx::models_run_on_cpu_only()) {
         crate::memory_pressure::release_rebuildable_memory_keeping(app_handle, true);
     }
     // Only an ONNX Runtime run can be stopped; Core ML needs no ONNX Runtime
@@ -1479,6 +1509,7 @@ async fn subject_mask(
         version,
         Some(asked),
         download,
+        false,
         cancel,
     )
     .await
@@ -1502,6 +1533,7 @@ async fn sky_mask(
         1,
         Some(asked),
         download,
+        false,
         cancel,
     )
     .await
@@ -1624,11 +1656,10 @@ async fn precompute(
     // peak (`ai_ahead`); a mask computed already needs neither. Opening the
     // masking tools (`asked`) starts it at once.
     let mut _ahead = None;
+    // Nobody waits for it, unless the photographer asked for it.
+    let mut ahead = !asked;
     if !asked && !auto_mask_cached(&state, &ai_state, kind, &js_adjustments, version) {
-        let job = match kind {
-            AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
-            AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
-        };
+        let job = kind.ahead_job();
         // Read at each poll: a model loaded ahead meanwhile
         // (`preload_ai_mask_models`) leaves only the run's peak (MEM19).
         let need = || {
@@ -1647,7 +1678,10 @@ async fn precompute(
         })
         .await;
         match admitted {
-            Ok(run) => _ahead = Some(run),
+            Ok(run) => {
+                ahead = run_made_ahead(&run);
+                _ahead = Some(run);
+            }
             Err(why) => {
                 log::info!("AI {} mask: not computed ahead, {why:?}", kind.name());
                 return Ok(match why {
@@ -1667,6 +1701,7 @@ async fn precompute(
         version,
         None,
         false,
+        ahead,
         cancel,
     )
     .await
@@ -1693,6 +1728,27 @@ async fn precompute(
             Err(e.into())
         }
     }
+}
+
+/// Whether a run made ahead (`precompute`) admitted as `run` is still one
+/// nobody waits for: not when it started because the photographer asked for
+/// it (opened the masking tools or clicked a mask while it was held). It then
+/// runs as their click would (`auto_mask`'s `ahead`: its turn, the editor's
+/// caches kept). G74/MEM20: the held Subject run started on a click and,
+/// as a run made ahead on the CPU, dropped the editor's full-resolution
+/// transform; the click's new layer then warped it again beside the network
+/// (2.5 s), and a 14 GB Radeon 680M laptop went from 4.2 to 10.2 GB private.
+fn run_made_ahead(run: &crate::ai_ahead::AheadRun) -> bool {
+    !run.asked()
+}
+
+/// Whether a mask run drops the caches that rebuild on demand first: a run
+/// made ahead (`ahead`) on the CPU (`on_cpu`), where its working memory
+/// adds to the app's. Not a run the photographer waits for: the editor is in
+/// use then (the click's layer renders at once) and rebuilds those caches
+/// beside the run, a full-resolution warp more instead of less (MEM20).
+fn releases_caches_before_run(ahead: bool, on_cpu: bool) -> bool {
+    ahead && on_cpu
 }
 
 /// Subject/Background ahead of the click (`precompute`): asked for when the
@@ -1812,10 +1868,7 @@ pub async fn preload_ai_mask_models(
         // comes (14 GB beside large RAWs) a click after the load finds the
         // model loaded and pays only the run (WMEM18 on a Radeon 680M
         // laptop: 26.3 s for the click, 9.9 s of it the model's load).
-        let job = match kind {
-            AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
-            AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
-        };
+        let job = kind.ahead_job();
         let need = crate::ai_ahead::estimated_load_peak(job);
         let admitted = crate::ai_ahead::admit(
             job,
@@ -1932,10 +1985,7 @@ pub async fn warm_up_ai_mask_models(
         }
         // As the masks made ahead (`ai_ahead`): after the decodes, with
         // memory for the model and its run.
-        let job = match kind {
-            AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
-            AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
-        };
+        let job = kind.ahead_job();
         let need = crate::ai_ahead::estimated_peak(
             job,
             rawtonic_onnx::models_run_on_cpu_only(),
@@ -2312,6 +2362,51 @@ mod tests {
             Some("the photo has changed")
         );
         assert_eq!(super::ahead_photo_skip(Some("a"), "a"), None);
+    }
+
+    #[tokio::test]
+    async fn a_held_run_the_photographer_asks_for_runs_as_their_click() {
+        // G74/MEM20: the Subject run made ahead is held (no memory for it),
+        // the photographer clicks: it starts, and as their run, so it keeps
+        // the editor's caches the click's layer renders from.
+        let asked_at = crate::ai_ahead::asked_count();
+        let asking = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            crate::ai_ahead::ask_now(None);
+        });
+        let run = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            crate::ai_ahead::admit(
+                crate::ai_ahead::AheadJob::Subject,
+                || crate::ai_ahead::asked_since(asked_at, None),
+                || u64::MAX,
+                || None,
+            ),
+        )
+        .await
+        .expect("started before the timeout")
+        .expect("started");
+        asking.await.unwrap();
+        let ahead = super::run_made_ahead(&run);
+        assert!(!ahead);
+        assert!(!super::releases_caches_before_run(ahead, true));
+    }
+
+    #[tokio::test]
+    async fn a_run_started_on_its_own_stays_made_ahead() {
+        // Up to 10 s: another test's run may hold the way (one at a time).
+        let run = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            crate::ai_ahead::admit(crate::ai_ahead::AheadJob::Subject, || false, || 0, || None),
+        )
+        .await
+        .expect("started before the timeout")
+        .expect("started");
+        let ahead = super::run_made_ahead(&run);
+        assert!(ahead);
+        // Only on the CPU, where the run's memory adds to the app's.
+        assert!(super::releases_caches_before_run(ahead, true));
+        assert!(!super::releases_caches_before_run(ahead, false));
     }
 
     use super::{AutoMask, WarmUp, preload_kinds, warm_up_model};
