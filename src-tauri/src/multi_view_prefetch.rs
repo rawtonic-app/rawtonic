@@ -498,11 +498,14 @@ pub(crate) fn held_or_pending_decode(
 /// Before each band of a 1:1 preview being written: waits while zoomed
 /// regions are developed, the primary is decoded or developed, or Edit all
 /// selected follows an edit, and for [`QUIET`] after an edit (they need the
-/// cores; the write goes on after). Critically short of memory meanwhile
-/// (a long drag), it lets the decodes held go and finishes.
+/// cores; the write goes on after), and while a request of the
+/// photographer runs or waits in the memory budget (an AI mask: the write's
+/// bands and output buffer are not reserved there, so they do not grow
+/// beside it; G74/BRK1). Critically short of memory meanwhile (a long
+/// drag), it lets the decodes held go and finishes.
 fn yield_to_editing() {
     wait_for_editing(
-        || busy() || since_activity() < QUIET,
+        || busy() || since_activity() < QUIET || crate::memory_broker::BROKER.asked_active(),
         || crate::memory_pressure::level_now() == Some(crate::memory_pressure::Level::Critical),
         let_held_go_for_memory,
     );

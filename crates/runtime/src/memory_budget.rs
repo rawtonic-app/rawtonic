@@ -82,11 +82,14 @@ pub const ASKED_WAITS_FOR_VISIBLE: Duration = Duration::from_secs(5);
 /// a click, and the photo's first frames are under way then.
 pub const PENDING_WAITS_FOR_VISIBLE: Duration = Duration::from_secs(15);
 
-/// How long a P0/P1 request waits at most for speculative work it cancelled
-/// to stop: an ONNX Runtime run stops at once (`RunOptions::terminate`), a
-/// decode at its next cancel check; a model load cannot be stopped, and
-/// after this its reservation still counts in the plan.
-pub const CANCEL_WAIT: Duration = Duration::from_secs(2);
+/// How long a P0/P1 request whose plan does not fit beside speculative work
+/// it cancelled waits at most for that work to stop: an ONNX Runtime run
+/// stops at once (`RunOptions::terminate`), a decode at its next cancel
+/// check, a model load only when it ends — Subject's CPU session from the
+/// saved optimized graph 4.5–7.3 s, 14.6 s once on a 14 GB laptop
+/// (WMEM21). Its reservation counts meanwhile; after this the request runs
+/// with what fits (never refused).
+pub const CANCEL_WAIT: Duration = Duration::from_secs(20);
 
 /// Priority classes, highest first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

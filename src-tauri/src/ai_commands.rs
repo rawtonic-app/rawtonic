@@ -954,8 +954,10 @@ pub async fn precompute_ai_subject_mask(
     let cancelled = || _guard.as_ref().is_some_and(|g| g.token.is_cancelled());
     // The models' load takes a turn as their run does (`sam_load_turn`).
     let mut load_turn = None;
-    // An encoding made ahead's reservation in the memory budget.
+    // An encoding made ahead's reservation in the memory budget, or one of
+    // the photographer's (the masking tools), taken before the models load.
     let mut _ahead = None;
+    let mut _asked = None;
     // `background`: asked for by opening a photo, not by the user: only
     // with a model that is already installed (no download), and while the
     // system is not short of memory (as `precompute`).
@@ -997,6 +999,18 @@ pub async fn precompute_ai_subject_mask(
                 }
             }
         }
+        // Asked for by the masking tools: a request of the photographer,
+        // reserved before the encoder's models load.
+        if _ahead.is_none() {
+            _asked = admit_object_encoding(
+                &state,
+                &ai_state,
+                &js_adjustments,
+                "AI object encoding for the masking tools",
+                &cancelled,
+            )
+            .await?;
+        }
         load_turn = sam_load_turn(&ai_state, false).await;
         crate::ai_processing::preload_sam_models(&app_handle, &ai_state)
             .await
@@ -1012,21 +1026,19 @@ pub async fn precompute_ai_subject_mask(
         load_turn = sam_load_turn(&ai_state, true).await;
     }
     let _load_turn = load_turn;
-    // Asked for by the masking tools (or promoted while it waited): a
-    // request of the photographer in the memory budget, unless an encoding
-    // made ahead holds its reservation already or the encoding is cached.
-    let _asked = if _ahead.is_none() {
-        admit_object_encoding(
+    // Not made ahead (the masking tools without `background`): a request of
+    // the photographer in the memory budget before the encoder loads,
+    // unless one is held already or the encoding is cached.
+    if _ahead.is_none() && _asked.is_none() {
+        _asked = admit_object_encoding(
             &state,
             &ai_state,
             &js_adjustments,
             "AI object encoding for the masking tools",
             &cancelled,
         )
-        .await?
-    } else {
-        None
-    };
+        .await?;
+    }
     // An encoding ahead of a photo opened downloads nothing, not even the
     // encoder's Core ML program prepared beside the loaded models.
     // Nor does one asked for by the masking tools (an existing object
