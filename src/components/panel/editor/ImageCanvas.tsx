@@ -1819,6 +1819,7 @@ const ImageCanvas = memo(
     const whiteBalancePicker = useEditorStore((state) => state.isWbPickerActive && state.colorPickerTarget === null);
     // isWbPickerActive also covers the colour editor's picker (Editor.tsx).
     const pickerActive = isWbPickerActive || isLumaPickerActive || (!!tatTarget && isLevelsPicker(tatTarget));
+    const pickerLoupe = pickerActive && (!whiteBalancePicker || appSettings?.showWbLoupe !== false);
     const pointerReadout = appSettings?.pointerReadout ?? false;
     const readoutUnit = appSettings?.pointerReadoutUnit === 'percent' ? 'percent' : 'rgb255';
     // Without the native display (Linux), the browser-rendered preview the
@@ -1831,7 +1832,7 @@ const ImageCanvas = memo(
       !isCropping &&
       !showOriginal &&
       !splitView &&
-      (pickerActive || pointerReadout);
+      (pickerLoupe || pointerReadout);
     usePointerSampling(
       canvasRootRef,
       imageRectRef,
@@ -1839,7 +1840,7 @@ const ImageCanvas = memo(
       sampling,
       browserPreview,
       browserRegion,
-      whiteBalancePicker
+      whiteBalancePicker && pickerLoupe
         ? (normalizedX, normalizedY, browserMean) =>
             whiteBalanceForCurrentPreview({
               image: selectedImage,
@@ -3498,7 +3499,7 @@ const ImageCanvas = memo(
             ))}
           </div>
         )}
-        {sampling && pickerActive && (
+        {sampling && pickerLoupe && (
           <PickerLoupe
             unit={whiteBalancePicker ? 'percent' : readoutUnit}
             anchorRef={canvasRootRef}

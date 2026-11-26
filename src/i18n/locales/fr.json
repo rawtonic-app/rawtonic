@@ -1068,7 +1068,8 @@
       }
     },
     "pickerLoupe": {
-      "label": "Loupe de la pipette"
+      "label": "Loupe de la pipette",
+      "show": "Afficher la loupe"
     }
   },
   "errors": {

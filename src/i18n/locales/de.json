@@ -1018,7 +1018,8 @@
       }
     },
     "pickerLoupe": {
-      "label": "Pipettenlupe"
+      "label": "Pipettenlupe",
+      "show": "Lupe anzeigen"
     }
   },
   "errors": {

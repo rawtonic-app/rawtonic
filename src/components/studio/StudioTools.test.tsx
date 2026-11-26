@@ -208,6 +208,36 @@ describe('cursor tool bar', () => {
     expect(pressed('White balance picker')).toBe('true');
   });
 
+  it('offers the loupe option while the white balance picker is active', () => {
+    const previous = useSettingsStore.getState();
+    const save = vi.fn(async (appSettings: NonNullable<typeof previous.appSettings>) =>
+      useSettingsStore.setState({ appSettings })
+    );
+    useSettingsStore.setState({
+      appSettings: {} as NonNullable<typeof previous.appSettings>,
+      handleSettingsChange: save
+    });
+    try {
+      render(<StudioToolBar />);
+      expect(screen.queryByRole('checkbox', { name: 'Show Loupe' })).toBeNull();
+      const picker = screen.getByRole('button', { name: 'White balance picker' });
+      fireEvent.click(picker);
+      const checkbox = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Show Loupe' });
+      expect(checkbox.checked).toBe(true);
+      fireEvent.click(checkbox);
+      expect(save).toHaveBeenCalledWith({ showWbLoupe: false });
+      expect(checkbox.checked).toBe(false);
+      expect(editor().isWbPickerActive).toBe(true);
+      fireEvent.click(picker);
+      expect(screen.queryByRole('checkbox', { name: 'Show Loupe' })).toBeNull();
+      fireEvent.click(picker);
+      expect(screen.getByRole<HTMLInputElement>('checkbox', { name: 'Show Loupe' }).checked).toBe(false);
+    } finally {
+      cleanup();
+      useSettingsStore.setState(previous);
+    }
+  });
+
   it('does nothing before the photograph is ready', () => {
     useEditorStore.setState((s) => ({
       selectedImage: { ...s.selectedImage!, isReady: false }

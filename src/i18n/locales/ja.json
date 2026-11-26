@@ -1003,7 +1003,8 @@
       }
     },
     "pickerLoupe": {
-      "label": "スポイトルーペ"
+      "label": "スポイトルーペ",
+      "show": "ルーペを表示"
     }
   },
   "errors": {

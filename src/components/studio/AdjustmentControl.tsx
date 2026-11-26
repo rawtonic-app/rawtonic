@@ -393,8 +393,15 @@ export default memo(function AdjustmentControl({
             slowsDrag(e.altKey) ? step / 10 : step
           );
         }}
-        onPointerUp={end}
+        onPointerUp={() => {
+          if (!scrub.current) return;
+          end();
+          trackRef.current?.blur();
+        }}
         onPointerCancel={end}
+        // Scrubbing owns the label gesture. Its synthetic click on the track
+        // could otherwise give keyboard focus back after pointer-up.
+        onClick={(e) => e.preventDefault()}
         onDoubleClick={reset}
       >
         {label}
@@ -418,7 +425,7 @@ export default memo(function AdjustmentControl({
             // no longer moves it to the pointer (a click changed the value by
             // up to half a thumb), and the drag can slow down.
             e.preventDefault();
-            // preventDefault also stops the native focus move: keys go here next.
+            // Commit an edited number field before the drag reads pending.current.
             e.currentTarget.focus();
             e.currentTarget.setPointerCapture(e.pointerId);
             const left = (box.left || 0) + THUMB / 2;
@@ -470,7 +477,11 @@ export default memo(function AdjustmentControl({
           drag.x = e.clientX;
           update(fromTrack(drag.value), factor < 1 ? step / 10 : step);
         }}
-        onPointerUp={trackEnd}
+        onPointerUp={(e) => {
+          const dragged = fine.current && trackMoved.current;
+          trackEnd();
+          if (dragged) e.currentTarget.blur();
+        }}
         onPointerCancel={end}
         onBlur={() => {
           settleClick.current();

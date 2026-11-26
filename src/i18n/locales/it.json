@@ -1068,7 +1068,8 @@
       }
     },
     "pickerLoupe": {
-      "label": "Lente del contagocce"
+      "label": "Lente del contagocce",
+      "show": "Mostra lente"
     }
   },
   "errors": {
