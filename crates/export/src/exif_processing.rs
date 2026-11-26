@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufReader, Cursor};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -1153,6 +1153,16 @@ fn extract_metadata_with(
     Some(map)
 }
 
+/// The EXIF of the file at `path` (`read_exif`): mapped, so a TIFF-based
+/// RAW is read only where its EXIF lies, not into memory whole; read
+/// buffered when it cannot be mapped.
+pub fn read_exif_of_file(path: &Path) -> Option<Exif> {
+    match rawtonic_engine::file_io::read_file_mapped(path) {
+        Ok(file) => read_exif(&file),
+        Err(_) => read_exif(&fs::read(path).ok()?),
+    }
+}
+
 /// The capture date from the cached EXIF map, else the file's EXIF, else a
 /// RAW decoder's metadata.
 pub fn try_capture_date_with(
@@ -1166,17 +1176,12 @@ pub fn try_capture_date_with(
         return Some(creation_datetime_to_utc(dt));
     }
 
-    if let Ok(file) = std::fs::File::open(path) {
-        let mut bufreader = BufReader::new(&file);
-        let exifreader = exif::Reader::new();
-
-        if let Ok(exif_obj) = exifreader.read_from_container(&mut bufreader) {
-            for tag in [exif::Tag::DateTimeOriginal, exif::Tag::DateTime] {
-                if let Some(field) = exif_obj.get_field(tag, exif::In::PRIMARY)
-                    && let Some(dt) = parse_creation_field(field)
-                {
-                    return Some(dt);
-                }
+    if let Some(exif_obj) = read_exif_of_file(path) {
+        for tag in [exif::Tag::DateTimeOriginal, exif::Tag::DateTime] {
+            if let Some(field) = exif_obj.get_field(tag, exif::In::PRIMARY)
+                && let Some(dt) = parse_creation_field(field)
+            {
+                return Some(dt);
             }
         }
     }
@@ -1319,11 +1324,15 @@ pub fn exif_edits(
         .iter()
         .filter_map(|key| {
             let shown = shown.get(*key).map(clean).filter(|s| !s.is_empty());
-            // Placeholders older readers showed for unreadable values.
-            if shown
-                .as_deref()
-                .is_some_and(|s| s == "..." || s.starts_with("0x"))
-            {
+            // Placeholders older readers showed for unreadable values
+            // ("...", a hex dump), never text a user typed.
+            let placeholder = |s: &str| {
+                s == "..."
+                    || s.strip_prefix("0x").is_some_and(|hex| {
+                        !hex.is_empty() && hex.chars().all(|c| c.is_ascii_hexdigit())
+                    })
+            };
+            if shown.as_deref().is_some_and(placeholder) {
                 return None;
             }
             let own = own.get(*key).map(clean).filter(|s| !s.is_empty());
@@ -1432,12 +1441,7 @@ pub fn user_comment_little_endian(bytes: &[u8], little_endian: bool) -> Vec<u8> 
 }
 
 pub fn apply_gps_from_kamadak(metadata: &mut Metadata, original_path: &Path) {
-    let Ok(file) = std::fs::File::open(original_path) else {
-        return;
-    };
-    let mut bufreader = std::io::BufReader::new(&file);
-    let exifreader = exif::Reader::new();
-    let Ok(exif_obj) = exifreader.read_from_container(&mut bufreader) else {
+    let Some(exif_obj) = read_exif_of_file(original_path) else {
         return;
     };
 
@@ -1658,10 +1662,7 @@ pub fn export_rights(
             (artist, copyright)
         } else {
             let mut rights = (String::new(), String::new());
-            if let Ok(file) = std::fs::File::open(source)
-                && let Ok(exif) =
-                    exif::Reader::new().read_from_container(&mut std::io::BufReader::new(file))
-            {
+            if let Some(exif) = read_exif_of_file(Path::new(source)) {
                 let text = |tag| {
                     exif.get_field(tag, exif::In::PRIMARY)
                         .and_then(|f| match &f.value {
@@ -1868,12 +1869,7 @@ pub fn export_metadata_with(
         && copy_full_exif_from_source(&mut metadata, original_path, strip_gps);
     let mut source_read_success = full_exif_copied;
 
-    // Mapped, so a TIFF-based RAW is read only where its EXIF lies
-    // (`read_exif`), not into memory whole.
-    if !source_read_success
-        && let Ok(file) = rawtonic_engine::file_io::read_file_mapped(original_path)
-        && let Some(exif_obj) = read_exif(&file)
-    {
+    if !source_read_success && let Some(exif_obj) = read_exif_of_file(original_path) {
         source_read_success = true;
 
         let get_string_val = |field: &exif::Field| -> String {
@@ -2011,6 +2007,9 @@ pub fn export_metadata_with(
             if let Some(copyright) = exif.copyright.filter(|s| !s.trim().is_empty()) {
                 metadata.set_tag(ExifTag::Copyright(copyright));
             }
+            // The decoder gives only an ASCII-typed comment (a non-TIFF RAW's
+            // UNDEFINED one is not read, as for the shown map); it is written
+            // with the ASCII code that type implies.
             if let Some(comment) = exif.user_comment
                 && !comment
                     .trim_matches(|c: char| c == '\0' || c.is_whitespace())
@@ -2943,6 +2942,12 @@ mod tests {
                 ("Artist", ""),
                 ("Copyright", "Me")
             ])
+        );
+        // Text a user typed is an edit, also when it starts like a dump.
+        shown.insert("ImageDescription".into(), "0x Studio".into());
+        assert_eq!(
+            super::exif_edits(&shown, &own)["ImageDescription"],
+            "0x Studio"
         );
         shown.insert("DateTimeOriginal".into(), "2026-10-31 00:30:00".into());
         let edits = super::exif_edits(&shown, &own);
