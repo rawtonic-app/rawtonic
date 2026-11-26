@@ -592,9 +592,22 @@
   flex-direction: column;
 }
 .session-ingest-form {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.session-dialog form.session-ingest-form {
+  padding: 0;
+}
+/* The thumbnails fill the dialog and scroll by themselves; the settings sit in
+   a fixed-width side column that scrolls on its own (Lightroom, Capture One). */
+.session-ingest-body {
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) clamp(320px, 32%, 420px);
 }
 .session-ingest-form h3 {
   margin: 0 0 14px;
@@ -602,20 +615,71 @@
   font-weight: 600;
 }
 .session-ingest-source {
-  grid-column: 1 / -1;
-  grid-row: 1;
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 20px 18px 28px;
 }
-.session-ingest-naming {
-  grid-column: 2;
-  grid-row: 2;
-  padding-left: 24px;
+.session-ingest-source > .session-ingest-preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.session-ingest-source > .session-ingest-empty {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 140px;
+}
+.session-ingest-source .session-ingest-grid {
+  height: auto;
+  min-height: 0;
+}
+.session-ingest-settings {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 6px 24px 18px 20px;
   border-left: 1px solid var(--app-border-color);
+}
+.session-ingest-section {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--app-border-color);
   min-width: 0;
 }
-.session-ingest-backup {
-  grid-column: 1;
-  grid-row: 2;
+.session-ingest-section > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+.session-ingest-section > summary::-webkit-details-marker {
+  display: none;
+}
+.session-ingest-section > summary::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 4px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  color: var(--app-text-secondary);
+  transition: transform 120ms ease;
+}
+.session-ingest-section[open] > summary::before {
+  transform: rotate(90deg);
+}
+.session-ingest-section > summary h3 {
+  margin: 0 !important;
+}
+.session-ingest-section[open] > summary {
+  margin-bottom: 12px;
+}
+.session-ingest-backup[open] {
   display: grid;
   align-content: start;
   gap: 4px;
@@ -623,10 +687,10 @@
 .session-ingest-backup h3 + .session-field {
   margin-top: 0;
 }
+.session-ingest-settings > .session-copy-note {
+  margin-top: 14px;
+}
 .session-ingest-metadata {
-  grid-column: 1 / -1;
-  border-top: 1px solid var(--app-border-color);
-  padding-top: 20px;
   min-width: 0;
 }
 .session-ingest-metadata > .session-field {
@@ -854,9 +918,8 @@
   font-size: 13px;
   box-shadow: 0 8px 30px #0008;
 }
-.session-ingest-form > :is(.session-copy-note, .session-error, .session-dialog-footer) {
-  grid-column: 1 / -1;
-  margin: 0;
+.session-ingest-settings > .session-error {
+  margin: 12px 0 0;
 }
 .session-ingest-files {
   display: grid;
@@ -879,28 +942,40 @@
 .session-ingest-target span {
   color: var(--app-text-secondary);
 }
-/* Import stays in reach while the form scrolls (Lightroom and Capture One keep it in their bottom bar). */
-.session-ingest-form .session-dialog-footer {
-  position: sticky;
-  bottom: -24px;
-  z-index: 2;
-  margin-bottom: -24px;
-  padding: 16px 0 24px;
-  background: var(--app-bg-secondary, #242628);
+/* The import button stays in reach in the dialog's own bottom bar, with the
+   note beside it inside the dialog. */
+.session-ingest-form > .session-dialog-footer {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 14px 28px;
   border-top: 1px solid var(--app-border-color);
+  background: var(--app-bg-secondary, #242628);
+}
+.session-ingest-form > .session-dialog-footer > span {
+  min-width: 0;
 }
 .session-dialog form > .naming-editor {
   margin-bottom: 24px;
 }
-@media (max-width: 650px) {
-  .session-ingest-form {
+/* A narrow dialog stacks the thumbnails over the settings and scrolls as one. */
+@container (max-width: 760px) {
+  .session-ingest-body {
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
   }
-  .session-ingest-naming {
-    padding: 20px 0 0;
+  .session-ingest-source {
+    flex: 0 0 auto;
+    padding: 18px 20px;
+  }
+  .session-ingest-source .session-ingest-grid {
+    height: min(300px, 40vh);
+  }
+  .session-ingest-settings {
+    overflow: visible;
     border-left: 0;
     border-top: 1px solid var(--app-border-color);
+    padding: 6px 20px 18px;
   }
 }
 .session-ingest-path {
@@ -1559,4 +1634,8 @@
 }
 .session-ingest-loupe-image img.session-ingest-loupe-region {
   image-rendering: pixelated;
+}
+/* One field per row in the import dialog's settings column. */
+.session-ingest-settings .ingest-metadata-fields {
+  grid-template-columns: minmax(0, 1fr);
 }

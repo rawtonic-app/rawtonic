@@ -1,7 +1,7 @@
 import '../../i18n';
 import i18n from 'i18next';
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import StudioExport, { describeExportJob } from './StudioExport';
 import { useEditorStore } from '../../store/useEditorStore';
@@ -468,6 +468,26 @@ it('does not capitalise or correct a typed subfolder name', () => {
   expect(subfolder.getAttribute('autocapitalize')).toBe('off');
   expect(subfolder.getAttribute('autocorrect')).toBe('off');
   expect(subfolder.getAttribute('spellcheck')).toBe('false');
+});
+
+it('takes a typed subfolder name after a click into the empty subfolder field, and its tokens', async () => {
+  render(<StudioExport />);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Export destination' }), {
+    target: { value: 'original' }
+  });
+  const code = screen.getByLabelText('Put in subfolder') as HTMLInputElement;
+  expect(code.value).toBe('');
+  const editor = code.closest('.naming-editor') as HTMLElement;
+  const field = within(editor).getByRole('group', { name: 'Naming blocks' });
+  fireEvent.mouseDown(field);
+  const text = within(field).getByRole('textbox') as HTMLInputElement;
+  await waitFor(() => expect(document.activeElement).toBe(text));
+  fireEvent.change(text, { target: { value: 'Client/' } });
+  expect(code.value).toBe('Client/');
+  // The same token list as the file name: the job name as a folder.
+  fireEvent.click(within(editor).getByRole('button', { name: 'Add a naming token' }));
+  fireEvent.keyDown(within(editor).getByRole('button', { name: 'File format' }), { key: 'Enter' });
+  expect(code.value).toBe('Client/{format}');
 });
 
 it('shows a subfolder name of spaces only as no subfolder, without a slash', () => {

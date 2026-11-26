@@ -1,6 +1,6 @@
 import '../../i18n';
 import { useState } from 'react';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import NamingEditor from './NamingEditor';
 import type { NamingKind, NamingMode } from '../../utils/namingTemplates';
@@ -51,20 +51,58 @@ it('shows tokens as chips with editable free text between them', () => {
   expect(screen.getByText('Shoot_2026-10-11 · 001.x.jpg')).toBeTruthy();
 });
 
+const openTokens = () => fireEvent.click(screen.getByRole('button', { name: 'Add a naming token' }));
+
 it('adds a token by double-click or Enter at the text cursor, not by a single click', () => {
   render(<Editor initial="ab" />);
-  fireEvent.click(screen.getByText('Edit naming format…'));
   const text = texts()[0];
   fireEvent.focus(text);
   text.setSelectionRange(1, 1);
   fireEvent.select(text);
+  openTokens();
   const year = screen.getByRole('button', { name: 'Year' });
   fireEvent.click(year);
   expect(current).toBe('ab');
   fireEvent.doubleClick(year);
   expect(current).toBe('a{yyyy}b');
+  // The list stays open and the next token follows the one just added.
   fireEvent.keyDown(screen.getByRole('button', { name: 'Lens' }), { key: 'Enter' });
-  expect(current).toContain('{lens}');
+  expect(current).toBe('a{yyyy}{lens}b');
+});
+
+it('finds tokens by name in the token list; Enter adds the first match, Escape closes it', () => {
+  render(<Editor initial="" />);
+  openTokens();
+  const search = screen.getByRole('searchbox', { name: 'Search tokens' });
+  fireEvent.change(search, { target: { value: 'iso' } });
+  const list = screen.getByRole('dialog', { name: 'Add a naming token' });
+  expect(
+    within(list)
+      .getAllByRole('button')
+      .map((b) => b.getAttribute('aria-label'))
+  ).toEqual(['ISO']);
+  fireEvent.keyDown(search, { key: 'Enter' });
+  expect(current).toBe('{iso}');
+  fireEvent.change(search, { target: { value: 'zzz' } });
+  expect(within(list).getByText('No matching tokens')).toBeTruthy();
+  fireEvent.keyDown(search, { key: 'Escape' });
+  expect(screen.queryByRole('dialog', { name: 'Add a naming token' })).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add a naming token' }));
+});
+
+it('moves through the token list with the arrow keys', () => {
+  render(<Editor initial="" mode="ingest" />);
+  openTokens();
+  const search = screen.getByRole('searchbox', { name: 'Search tokens' });
+  fireEvent.keyDown(search, { key: 'ArrowDown' });
+  const first = document.activeElement as HTMLElement;
+  expect(first.classList.contains('naming-token-item')).toBe(true);
+  fireEvent.keyDown(first, { key: 'ArrowDown' });
+  expect(document.activeElement).not.toBe(first);
+  fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowUp' });
+  expect(document.activeElement).toBe(first);
+  fireEvent.keyDown(first, { key: 'ArrowUp' });
+  expect(document.activeElement).toBe(search);
 });
 
 it('removes and moves chips from the keyboard', () => {
@@ -110,8 +148,8 @@ it("shows the backend's name for the selected photo when it has one", () => {
 
 it('saves, renames and deletes presets, shared by import, rename and export', () => {
   const view = render(<Editor />);
-  fireEvent.click(screen.getByText('Edit naming format…'));
   fireEvent.change(screen.getByLabelText('Filename template'), { target: { value: 'Web_{orig_base}' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save as preset…' }));
   fireEvent.change(screen.getByLabelText('Preset name'), { target: { value: 'Website' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save preset' }));
   view.unmount();
@@ -119,6 +157,7 @@ it('saves, renames and deletes presets, shared by import, rename and export', ()
   const rename = render(<Editor mode="rename" />);
   fireEvent.change(screen.getByLabelText('Naming preset'), { target: { value: 'saved:0' } });
   expect(current).toBe('Web_{orig_base}');
+  fireEvent.click(screen.getByRole('button', { name: 'Save as preset…' }));
   fireEvent.change(screen.getByLabelText('Preset name'), { target: { value: 'Web delivery' } });
   fireEvent.click(screen.getByRole('button', { name: 'Rename preset' }));
   expect(screen.getByRole('option', { name: 'Web delivery' })).toBeTruthy();
@@ -150,7 +189,7 @@ it('edits a folder template with folder levels and no presets', () => {
   render(<Editor kind="folder" initial="{job}/{date}/{format}" />);
   expect(screen.queryByLabelText('Naming preset')).toBeNull();
   expect(screen.getByText('Acme/2026-10-11/JPEG')).toBeTruthy();
-  fireEvent.click(screen.getByText('Folder tokens…'));
+  openTokens();
   fireEvent.doubleClick(screen.getByRole('button', { name: 'Folder level (/)' }));
   expect(current).toBe('{job}/{date}/{format}/');
 });
@@ -164,4 +203,61 @@ it('keeps the separator before the counter when custom text replaces the project
   // the user can still remove it
   fireEvent.change(texts()[0], { target: { value: 'Wedding' } });
   expect(current).toBe('Wedding{seq:4}');
+});
+
+it('types into an empty field after a click on it, for file names and subfolders', async () => {
+  for (const kind of ['file', 'folder'] as const) {
+    const view = render(<Editor initial="" kind={kind} />);
+    fireEvent.mouseDown(field());
+    await waitFor(() => expect(document.activeElement).toBe(texts()[0]));
+    fireEvent.change(texts()[0], { target: { value: 'Client' } });
+    expect(current).toBe('Client');
+    view.unmount();
+  }
+});
+
+it('types after a field holding only a token, where a click lands at its end', async () => {
+  render(<Editor initial="{orig_base}" />);
+  fireEvent.mouseDown(field());
+  const last = texts()[texts().length - 1];
+  await waitFor(() => expect(document.activeElement).toBe(last));
+  fireEvent.change(last, { target: { value: '_web' } });
+  expect(current).toBe('{orig_base}_web');
+});
+
+it('switches a chosen template to Custom format when its content is edited', () => {
+  render(<Editor initial="" />);
+  const preset = screen.getByLabelText('Naming preset') as HTMLSelectElement;
+  fireEvent.change(preset, { target: { value: 'builtin:0' } });
+  expect(current).toBe('{orig_base}');
+  expect(preset.value).toBe('builtin:0');
+  fireEvent.change(texts()[1], { target: { value: '_edit' } });
+  expect(current).toBe('{orig_base}_edit');
+  expect(preset.value).toBe('');
+  expect(preset.selectedOptions[0].textContent).toBe('Custom format');
+});
+
+it('drops a token dragged from the token list into the field where it is let go', () => {
+  // dnd-kit measures elements: each free text slot of the field gets its own
+  // 100 px column, everything else sits far below.
+  const rect = Element.prototype.getBoundingClientRect;
+  Element.prototype.getBoundingClientRect = function (this: Element) {
+    const slot = this.getAttribute('data-drop-index');
+    const left = slot === null ? 0 : Number(slot) * 100;
+    const top = slot === null ? 500 : 0;
+    return { left, top, right: left + 90, bottom: top + 30, width: 90, height: 30, x: left, y: top, toJSON() {} };
+  };
+  try {
+    render(<Editor initial="a{yyyy}b" />);
+    openTokens();
+    const iso = screen.getByRole('button', { name: 'ISO' });
+    fireEvent.pointerDown(iso, { button: 0, isPrimary: true, clientX: 10, clientY: 510 });
+    fireEvent.pointerMove(document, { clientX: 10, clientY: 400 });
+    fireEvent.pointerMove(document, { clientX: 150, clientY: 10 });
+    fireEvent.pointerUp(document, { clientX: 150, clientY: 10 });
+    // Slot 1 is the text after the year: the token lands at its end.
+    expect(current).toBe('a{yyyy}b{iso}');
+  } finally {
+    Element.prototype.getBoundingClientRect = rect;
+  }
 });

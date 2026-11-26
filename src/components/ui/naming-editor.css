@@ -262,3 +262,114 @@
   gap: 4px;
   margin-top: 10px;
 }
+
+/* The last free text fills the rest of the field: a click anywhere in it
+   types there, also in an empty field or one holding only tokens. */
+.naming-field .naming-drop-slot.is-last {
+  flex: 1 1 40px;
+  min-width: 40px;
+}
+.naming-editor .naming-field .naming-drop-slot.is-last input.naming-text {
+  flex: 1 1 auto;
+  width: 100%;
+}
+.naming-preset-row,
+.naming-field-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+.naming-preset-row select {
+  flex: 1 1 auto;
+}
+.naming-field-row .naming-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.naming-editor .naming-icon-button {
+  flex: 0 0 auto;
+  width: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.naming-picker {
+  position: relative;
+  flex: 0 0 auto;
+}
+.naming-editor .naming-add-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  white-space: nowrap;
+}
+.naming-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  gap: 6px;
+  width: 290px;
+  max-height: min(380px, 60vh);
+  padding: 8px;
+  border: 1px solid var(--naming-line);
+  border-radius: 6px;
+  background: var(--app-bg-secondary, #242628);
+  box-shadow: 0 12px 40px #0009;
+}
+.naming-popover-hint {
+  margin: 0;
+  color: var(--app-text-secondary, #b8bec6);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.naming-popover-list {
+  overflow-y: auto;
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+}
+.naming-popover-empty {
+  color: var(--app-text-secondary, #b8bec6);
+  padding: 6px 2px;
+}
+.naming-popover .naming-group {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+}
+.naming-group-title {
+  font-size: 11px;
+  color: var(--app-text-secondary, #b8bec6);
+  padding: 2px 4px;
+}
+.naming-editor .naming-popover .naming-token-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 26px;
+  padding: 3px 6px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+.naming-editor .naming-popover .naming-token-item:hover,
+.naming-editor .naming-popover .naming-token-item:focus-visible {
+  background: var(--app-bg-tertiary, #3b3e43);
+  outline-offset: -2px;
+}
+.naming-token-item code {
+  color: var(--app-text-secondary, #b8bec6);
+  font-size: 10px;
+}
+.naming-editor .naming-save {
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--naming-line);
+  border-radius: 4px;
+}

@@ -230,6 +230,33 @@ describe('Dropping photographs onto the window', () => {
     expect(invoke).not.toHaveBeenCalledWith('session_album_add', expect.anything());
   });
 
+  it('lays the dialog out as a scrolling grid beside a settings column, with the note in its own footer', async () => {
+    await open();
+    drop(['/Volumes/CARD/DCIM']);
+    await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(3));
+    const dialog = document.querySelector('dialog.session-ingest-dialog')!;
+    const form = dialog.querySelector('form.session-ingest-form')!;
+    const body = form.querySelector(':scope > .session-ingest-body')!;
+    const settings = screen.getByRole('group', { name: 'Import settings' });
+    // Thumbnails and settings side by side; destination, naming and
+    // metadata are collapsible sections of the settings column.
+    expect(body.querySelector(':scope > .session-ingest-source .session-ingest-grid')).toBeTruthy();
+    expect(settings.parentElement).toBe(body);
+    expect(
+      Array.from(settings.querySelectorAll(':scope > details.session-ingest-section')).map(
+        (section) => section.querySelector('summary')!.textContent
+      )
+    ).toEqual(['Import destination', 'File naming', 'Metadata']);
+    // The note and the import button: the form's last row, inside the
+    // dialog, not in a scrolling area that could carry it over the dialog.
+    const note = screen.getByText('You can keep editing during the import.');
+    const footer = note.closest('.session-dialog-footer')!;
+    expect(footer.parentElement).toBe(form);
+    expect(form.lastElementChild).toBe(footer);
+    expect(footer.contains(screen.getByRole('button', { name: 'Copy 2 photos' }))).toBe(true);
+    expect(settings.contains(footer)).toBe(false);
+  });
+
   it('shows a photograph large inside the dialog; Escape returns to the grid and keeps the dialog open', async () => {
     const user = userEvent.setup();
     await open();
