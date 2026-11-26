@@ -135,6 +135,16 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     camera_crop_known: Option<bool>,
     app_handle: AppHandle,
 ) -> Result<EditorSave, String> {
+    // The open photo's thumbnail renders it at full resolution: work of the
+    // open photo, as its frames, from the save on (the multi view's
+    // background decodes and AI runs wait for it where memory is short,
+    // G74/MEM20).
+    let open_photo = |path: &str| {
+        crate::state::lock::lock_recover(&app_handle.state::<AppState>().source.original_image)
+            .as_ref()
+            .is_some_and(|loaded| loaded.path == path)
+    };
+    let frame = open_photo(&path).then(|| crate::multi_view_prefetch::PreviewFrame::start(false));
     let saved = save_metadata_blocking(&path, adjustments, camera_crop_known, &app_handle)?;
     let state = app_handle.state::<AppState>();
 
@@ -161,12 +171,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     add_to_thumbnail_queue(&app_handle.state::<ThumbnailState>(), 1, &app_handle);
 
     rawtonic_runtime::spawn_render_thread("saved-thumbnail", move || {
-        // The open photo's thumbnail renders it at full resolution: work of
-        // the open photo, as its frames (the multi view's background decodes
-        // and AI runs wait for it where memory is short, G74/MEM20).
-        let _frame = preloaded_image_option
-            .is_some()
-            .then(|| crate::multi_view_prefetch::PreviewFrame::start(false));
+        let _frame = frame;
         let settings = crate::state::settings::current(&app_handle_clone);
 
         let thumb_cache_dir = match resolve_thumbnail_cache_dir(&app_handle_clone) {

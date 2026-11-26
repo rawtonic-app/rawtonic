@@ -365,11 +365,13 @@ pub const FRAMES_WAIT: Duration = Duration::from_secs(5);
 const FRAMES_POLL: Duration = Duration::from_millis(50);
 
 /// Whether a run the photographer asked for (peak `need`) waits for the open
-/// photo's frames: while they are under way (`frames_settled` false: its
+/// photo's frames: while they are under way or ended less than `QUIET` ago,
+/// or the request came less than `QUIET` ago (`frames_settled` false: its
 /// decode, a frame, the saved thumbnail of an edit,
-/// `multi_view_prefetch::primary_settled`) and the memory free for work that
+/// `multi_view_prefetch::primary_settled`), and the memory free for work that
 /// may wait (`room`, None: not readable) does not cover the run beside them.
-/// Once they settled it starts whatever the memory (it is asked for).
+/// Once they settled, or the memory covers it, it starts (it is asked for);
+/// after `FRAMES_WAIT` it starts beside frames still under way.
 pub fn asked_run_waits(frames_settled: bool, room: Option<u64>, need: u64) -> bool {
     !frames_settled && room.is_some_and(|room| room < need)
 }
@@ -387,7 +389,11 @@ pub async fn wait_for_photo_frames(job: AheadJob, need: u64, cancelled: impl Fn(
     let start = Instant::now();
     let mut waited = false;
     loop {
-        let settled = crate::multi_view_prefetch::primary_settled(QUIET);
+        // Quiet since the request too: the frame its click asked for may not
+        // have reached the preview worker yet, and the edit's save (300 ms
+        // after it) has not started its thumbnail (MEM20 review r1).
+        let settled =
+            crate::multi_view_prefetch::primary_settled(QUIET) && start.elapsed() >= QUIET;
         let room = crate::memory_pressure::work_headroom();
         if cancelled() || !asked_run_waits(settled, room, need) {
             break;
@@ -637,6 +643,20 @@ mod tests {
         assert!(!asked_run_waits(false, Some(9 * GB), need));
         // Memory not readable: at once, as the jobs made ahead.
         assert!(!asked_run_waits(false, None, need));
+    }
+
+    #[tokio::test]
+    async fn a_run_asked_for_short_of_memory_waits_for_the_frame_its_click_asked_for() {
+        // Frames settled long ago, never room (u64::MAX needed): it still
+        // waits `QUIET` from the request, for the frame and the save its
+        // click started (review r1), then starts.
+        if crate::memory_pressure::work_headroom().is_none() {
+            return;
+        }
+        let start = Instant::now();
+        wait_for_photo_frames(AheadJob::Subject, u64::MAX, || false).await;
+        assert!(start.elapsed() >= QUIET);
+        assert!(start.elapsed() <= FRAMES_WAIT + Duration::from_secs(1));
     }
 
     #[tokio::test]

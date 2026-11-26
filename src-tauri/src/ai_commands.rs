@@ -1147,7 +1147,9 @@ async fn network(
 /// requests. `download`: the model may be downloaded (a click); otherwise
 /// only an installed model is used (`Ok(None)` without one: background
 /// requests, a camera TIFF's migrated selection computed again on opening).
-/// `ahead`: a run made ahead that nobody waits for (`run_made_ahead`).
+/// `ahead`: a run made ahead that nobody waits for (`run_made_ahead`); one
+/// the photographer asked for keeps the editor's caches and waits for the
+/// photo's frames where memory is short, its turn follows `asked`.
 /// Cancelling `cancel` stops a run of ONNX Runtime at once.
 #[allow(clippy::too_many_arguments)]
 async fn auto_mask(
@@ -1206,13 +1208,15 @@ async fn auto_mask(
     // without this kind's lock: a click must not queue behind a run made
     // ahead that waits for a compile (the click stops that compile).
     // Asked for is a request for the open photo (`asked`), whether or not
-    // it may download (a pasted mask uses only an installed model), or a
-    // run made ahead the photographer asked for meanwhile; only the other
+    // it may download (a pasted mask uses only an installed model); only
     // background requests are runs made ahead, which a compile a frame
-    // waits for does not wait for (`memory_turns`, DVL5 review r1).
+    // waits for does not wait for (`memory_turns`, DVL5 review r1). Also a
+    // run made ahead started by opening the masking tools (not `ahead`):
+    // that is no mask request, and an edit's compile must not wait for it
+    // (MEM20 review r1).
     let _turn = if rawtonic_gpu::memory_turns::takes_turns() {
         drop(_run);
-        let turn = crate::ai_lifecycle::turn(!ahead).await;
+        let turn = crate::ai_lifecycle::turn(asked.is_some()).await;
         _run = kind.lock(ai_state).lock().await;
         if let Some(mask) = cached_mask(ai_state, kind, &key) {
             return Ok(Some(mask));
@@ -1733,8 +1737,8 @@ async fn precompute(
 /// Whether a run made ahead (`precompute`) admitted as `run` is still one
 /// nobody waits for: not when it started because the photographer asked for
 /// it (opened the masking tools or clicked a mask while it was held). It then
-/// runs as their click would (`auto_mask`'s `ahead`: its turn, the editor's
-/// caches kept). G74/MEM20: the held Subject run started on a click and,
+/// keeps the editor's caches and waits for the photo's frames as their click
+/// would (`auto_mask`'s `ahead`). G74/MEM20: the held Subject run started on a click and,
 /// as a run made ahead on the CPU, dropped the editor's full-resolution
 /// transform; the click's new layer then warped it again beside the network
 /// (2.5 s), and a 14 GB Radeon 680M laptop went from 4.2 to 10.2 GB private.
