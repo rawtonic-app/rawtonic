@@ -44,6 +44,7 @@ weights tensor by tensor.
 |---|---|---|---|---|
 | `sam_vit_b_01ec64_encoder.onnx`, `…_decoder.onnx` | Subject mask (point/box) | Inherited files: dynamically quantised exports of unknown origin. Their embeddings match Rawtonic's export of Meta's checkpoint (cosine 0.9995), so they derive from it. Replaced by Rawtonic's own export of Meta's `sam_vit_b_01ec64.pth` (`scripts/models/export_sam.py`). | Apache-2.0 (Meta) | Replaced by SAM 2.1 Hiera-T 2026-10-09 (the release assets stay for older builds) |
 | `sam2.1_tiny_encoder.onnx`, `sam2.1_tiny_decoder.onnx` | Object/click and box masks, Quick Erase | Rawtonic's export of Meta's SAM 2.1 Hiera-T checkpoint (`sam2.1_hiera_tiny.pt` from dl.fbaipublicfiles.com/segment_anything_2/092824, SHA-256 7402e0d8…; README of facebookresearch/sam2 at 2b90b9f: "The SAM 2 model checkpoints … are licensed under Apache 2.0") by `scripts/models/export_sam2.py`; fp16 storage, reproducible (same SHA-256 in three exports). | Apache-2.0 (Meta) | Built 2026-10-09, in the pack |
+| `sam2_tiny_encoder_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Object/click and box masks on macOS (image encoder, fast path) | The same SAM 2.1 Hiera-T checkpoint converted from PyTorch with coremltools 9.0 by `scripts/models/convert_sam2_coreml.py`. Changes against Meta's model: the weights rounded to fp16 as the ONNX file stores them, and Hiera's position embedding (bicubically interpolated to the input's tokens on every run) computed once and kept as a constant; input the photo's 0–255 values as float32 (Core ML has no uint8 input). ML program, fp32 compute, 128 MB; reproducible (same SHA-256 in two conversions). On 32 RAW photos (4 clicks and 2 boxes each, through the app's decoder and edge refinement) 186 of 192 masks agree at their 50 % threshold on every pixel with the ONNX encoder's on ONNX Runtime's CPU, the lowest IoU there is 0.99995 and the other six differ on at most 0.002 % of the pixels; about 0.07 s on the GPU of an M5 Pro against 0.68 s on the CPU (`benchmark-results/aip2-2026-11-26` in the notes). Its first run in an app builds Metal's GPU kernels (11 s on an M5 Pro under load; 0.3 s in later launches), so clicks use the ONNX encoder until then: at the first object mask the app fetches the files and runs the program once in the background (utility QoS), then switches the loaded models to it; later launches load it at once. If Core ML fails, the app keeps the ONNX encoder. | Apache-2.0 (Meta) | Built 2026-11-26, in the pack from pack-2026-11-26 |
 | `birefnet_subject.onnx` | Subject and background masks | Rawtonic's export of BiRefNet's general checkpoint (Peng Zheng et al., `ZhengPeng7/BiRefNet`, revision e2bf8e4; model card `license: mit`, GitHub repository MIT) by `scripts/models/export_birefnet.py`; deformable convolutions as GridSample + matmul (ONNX Runtime has no DeformConv kernel), fp16 storage (470 MB; IoU ≥ 0.9998 to fp32 on 30 DUTS-TE images); reproducible (same SHA-256 in two exports). Trained on DIS5K (non-commercial research terms), DUTS, HRSOD, UHRSD, HRS10K, P3M-10k and others: residual risk under Training data. | MIT | In the pack since 2026-10-09 |
 | `birefnet_fp16_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Subject and background masks on macOS (fast path) | The same BiRefNet checkpoint and revision converted from PyTorch with coremltools 9.0 by `scripts/models/convert_birefnet_coreml.py` (deformable convolutions decomposed as for ONNX; ML program, fp16, 464 MB; reproducible: same SHA-256 in every conversion, on any day). Masks score as the fp32 program's against subject references (Subject on Core ML in fp16 below). Without these files, or if Core ML fails, the app uses `birefnet_subject.onnx`. | MIT | Built 2026-10-11, in the pack |
 | `birefnet_coreml_*` (Core ML package, fp32) | Subject and background masks on macOS, builds from 2026-10-10 to 2026-10-11 | As above in fp32 (927 MB; `--precision fp32` reproduces the pack's files). | MIT | In the pack; replaced by the fp16 program 2026-10-11 (the release assets stay for older builds) |
@@ -794,6 +795,18 @@ enabled: a launch would cost 5 s (28 s the first time) and 466 MB to save
 saving pays only after about a dozen new photos. If it is revisited: load in the background beside the CPU
 session, key the cache directory by the model's SHA-256 (ONNX Runtime's own
 key is derived from the model path and graph, not the weights).
+
+Since 2026-11-26 the app runs the encoder on macOS as a Core ML program of
+its own (`sam2_tiny_encoder_coreml_*`, `convert_sam2_coreml.py`), not
+through ONNX Runtime's provider: the whole graph is one program, loads in
+about 0.4 s (Core ML compiles it once into a `.mlmodelc`) and encodes in
+about 0.07 s (M5 Pro, CPU and GPU), against 0.11–0.34 s and a 30–70 s
+session compile for the provider (MLProgram, measured again with ONNX
+Runtime 1.23.2: 455 of 515 nodes in 19 partitions; the NeuralNetwork format
+took 5–12 s per encode). fp16 compute encodes in 0.03 s but its masks are
+further from the CPU's (lowest IoU 0.997 on 3 photos); fp32 keeps them
+within IoU 0.99995 of the CPU's at the 50 % threshold (186 of 192 agreeing on every pixel there, 32 RAWs). Peak footprint of an encoding process:
+0.94 GB on Core ML against 2.4 GB on ONNX Runtime's CPU.
 fp16 storage against the
 fp32 export (100 images): mean IoU equal to ±0.0005 in every mode.
 
@@ -915,7 +928,7 @@ other load). Two builds produced the same encoder bytes.
 
 ## Hosting
 
-The pack is the release `pack-2026-11-25d` of
+The pack is the release `pack-2026-11-26` of
 [github.com/rawtonic-app/models](https://github.com/rawtonic-app/models)
 (README, `models.json`, `licenses/`), public together with Rawtonic. The app
 downloads `MODEL_PACK_URL/<file>`
@@ -1016,7 +1029,15 @@ assets (92 files, `models.json`, seven license texts) were verified against
 GitHub's SHA-256 digests before the draft was published.
 [Model repository PR #14](https://github.com/rawtonic-app/models/pull/14)
 records the published manifest.
-The app, `src-tauri/build.rs` and `install_models.sh` point to pack-2026-11-25d.
+The [pack-2026-11-26 release](https://github.com/rawtonic-app/models/releases/tag/pack-2026-11-26)
+was built with `build_model_pack.py --previous` (pack-2026-11-25d) and adds
+only the SAM 2.1 encoder's Core ML program (`sam2_tiny_encoder_coreml_*`,
+Apache-2.0, task AIP2). All 99 prior assets are byte-identical and keep
+their manifest entries; all 103 uploaded assets were verified against
+GitHub's SHA-256 digests before the draft was published.
+[Model repository PR #15](https://github.com/rawtonic-app/models/pull/15)
+records the published manifest.
+The app, `src-tauri/build.rs` and `install_models.sh` point to pack-2026-11-26.
 
 On an Apple M5 Pro laptop (24 GiB RAM, macOS 27.0.1), forced CPU inference
 on the same 117 tiles of a 6000×4000 float32 image took 460.896 → 145.915 s
@@ -1033,7 +1054,7 @@ A new pack is a new release (new tag): build it with
 commit. `build_model_pack.py --previous DIR` carries an earlier pack's
 files (downloaded with `gh release download`) over unchanged, checked
 against its `models.json`, and builds only what it lacks; that keeps the
-files older builds load. `pack-2026-11-25d` adds AI Denoise's X-Trans network to `pack-2026-11-25c`, preserving every existing asset. `pack-2026-11-25c` adds Super Resolution's Fast Core ML program to `pack-2026-11-25b`, preserving every existing asset. `pack-2026-11-25b` adds AI Denoise's Fast network to `pack-2026-11-25`. `pack-2026-11-25` adds Super Resolution's single-pass CPU conversion to `pack-2026-11-21b`, preserving every existing asset. `pack-2026-11-21b` adds the eye and teeth parser to `pack-2026-11-21`, preserving every existing asset. `pack-2026-11-21` adds the landscape-parts model to `pack-2026-11-20`, preserving every existing asset. `pack-2026-11-20` adds the fp16 Super Resolution conversion for GPU providers to `pack-2026-11-19`, preserving every existing asset. `pack-2026-11-19` adds Rawtonic's own ONNX Runtime 1.30.0 libraries without telemetry to `pack-2026-11-12`, preserving every existing asset. `pack-2026-11-12` adds the sequential CPU Super Resolution conversion to `pack-2026-11-09`, preserving every existing asset. `pack-2026-11-09` is `pack-2026-11-07` plus the Super Resolution
+files older builds load. `pack-2026-11-26` adds the SAM 2.1 encoder's Core ML program (`sam2_tiny_encoder_coreml_*`) to `pack-2026-11-25d`, preserving every existing asset. `pack-2026-11-25d` adds AI Denoise's X-Trans network to `pack-2026-11-25c`, preserving every existing asset. `pack-2026-11-25c` adds Super Resolution's Fast Core ML program to `pack-2026-11-25b`, preserving every existing asset. `pack-2026-11-25b` adds AI Denoise's Fast network to `pack-2026-11-25`. `pack-2026-11-25` adds Super Resolution's single-pass CPU conversion to `pack-2026-11-21b`, preserving every existing asset. `pack-2026-11-21b` adds the eye and teeth parser to `pack-2026-11-21`, preserving every existing asset. `pack-2026-11-21` adds the landscape-parts model to `pack-2026-11-20`, preserving every existing asset. `pack-2026-11-20` adds the fp16 Super Resolution conversion for GPU providers to `pack-2026-11-19`, preserving every existing asset. `pack-2026-11-19` adds Rawtonic's own ONNX Runtime 1.30.0 libraries without telemetry to `pack-2026-11-12`, preserving every existing asset. `pack-2026-11-12` adds the sequential CPU Super Resolution conversion to `pack-2026-11-09`, preserving every existing asset. `pack-2026-11-09` is `pack-2026-11-07` plus the Super Resolution
 model (ONNX and Core ML, with its CC BY 4.0 license text as an asset; built that way). `pack-2026-11-07` is `pack-2026-10-27b` plus ONNX Runtime 1.30.0
 for Apple silicon (built that way). `pack-2026-10-27b` is `pack-2026-10-27` plus
 Moebius and the SDXL VAE fp16-fix as ONNX models for Windows and Linux

@@ -5,7 +5,7 @@ import type { AppSettings } from '../ui/AppProperties';
 import { useIngestDialogSize } from './useIngestDialogSize';
 
 import { describe, expect, it } from 'vitest';
-import { clampIngestSize } from './useIngestDialogSize';
+import { EXPORT_DIALOG_LIMITS, clampIngestSize, useDialogSize } from './useIngestDialogSize';
 
 describe('import dialog dimensions', () => {
   it('defaults to ninety percent up to 1600 by 1000', () => {
@@ -86,6 +86,34 @@ it('resizes symmetrically, clamps and saves once on release', () => {
   expect(save).not.toHaveBeenCalled();
   act(() => element.dispatchEvent(new Event('pointerup')));
   expect(save).toHaveBeenCalledOnce();
+  hook.unmount();
+  useSettingsStore.setState(original);
+});
+
+it('sizes the export dialog on its own key: 860 by 790 at first, then as resized or maximized', () => {
+  const original = useSettingsStore.getState();
+  const save = vi.fn(async (appSettings: AppSettings) => {
+    useSettingsStore.setState({ appSettings });
+  });
+  useSettingsStore.setState({
+    appSettings: { ingestDialogSize: { width: 800, height: 550, maximized: true } } as AppSettings,
+    handleSettingsChange: save
+  });
+  expect(clampIngestSize(undefined, { width: 2000, height: 1400 }, EXPORT_DIALOG_LIMITS)).toEqual({
+    width: 860,
+    height: 790,
+    maximized: false
+  });
+  const hook = renderHook(() => useDialogSize('exportDialogSize', EXPORT_DIALOG_LIMITS));
+  // The import dialog's maximized state is not the export dialog's.
+  expect(hook.result.current.size.maximized).toBe(false);
+  act(() => hook.result.current.toggle());
+  expect(useSettingsStore.getState().appSettings?.exportDialogSize?.maximized).toBe(true);
+  expect(useSettingsStore.getState().appSettings?.ingestDialogSize).toEqual({
+    width: 800,
+    height: 550,
+    maximized: true
+  });
   hook.unmount();
   useSettingsStore.setState(original);
 });

@@ -54,13 +54,26 @@ export function NamingDragButton({
 
 /** Free text `index` of the format field: a dropped token lands at its end
  * (before token `index`). */
-export function NamingDropSlot({ index, children }: { index: number; children?: ReactNode }) {
+export function NamingDropSlot({
+  index,
+  last = false,
+  children
+}: {
+  index: number;
+  /** The last free text: it fills the rest of the field. */
+  last?: boolean;
+  children?: ReactNode;
+}) {
   const { setNodeRef, isOver } = useDroppable({
     id: `slot-${index}`,
     data: { index }
   });
   return (
-    <span ref={setNodeRef} className={`naming-drop-slot${isOver ? ' is-over' : ''}`} data-drop-index={index}>
+    <span
+      ref={setNodeRef}
+      className={`naming-drop-slot${isOver ? ' is-over' : ''}${last ? ' is-last' : ''}`}
+      data-drop-index={index}
+    >
       {children}
     </span>
   );

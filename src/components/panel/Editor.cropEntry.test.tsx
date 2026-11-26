@@ -8,14 +8,20 @@ import { useUIStore } from '../../store/useUIStore';
 import { Panel } from '../ui/AppProperties';
 import { INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
 import type { Crop, PercentCrop } from 'react-image-crop';
+import type { CropSelection } from './editor/cropSelection';
 
 // The canvas is replaced; the test plays ReactCrop, which reports the crop
 // it is first given as complete (componentDidUpdate).
-type CanvasProps = { crop: PercentCrop | null; handleCropComplete(c: Crop, pc: PercentCrop): void };
-const canvas = vi.hoisted(() => ({ props: null as null | CanvasProps }));
+type CanvasProps = {
+  cropSelection: CropSelection;
+  handleCropComplete(c: Crop, pc: PercentCrop): void;
+  setCrop(c: Crop, pc: PercentCrop): void;
+};
+const canvas = vi.hoisted(() => ({ props: null as null | CanvasProps, renders: 0 }));
 vi.mock('./editor/ImageCanvas', () => ({
   default: (props: CanvasProps) => {
     canvas.props = props;
+    canvas.renders++;
     return null;
   }
 }));
@@ -64,7 +70,7 @@ it('opening the Crop tab on an uncropped photo is no edit (UXR4M-18)', () => {
   render(<Editor onContextMenu={() => {}} transformWrapperRef={createRef<TransformWrapperHandle>()} />);
   act(() => useUIStore.setState({ activePanel: Panel.Crop }));
   // The whole frame is shown, and ReactCrop reports it as complete.
-  const shown = canvas.props!.crop!;
+  const shown = canvas.props!.cropSelection.getState().crop as PercentCrop;
   expect([shown.x, shown.y, shown.width, shown.height]).toEqual([0, 0, 100, 100]);
   act(() => canvas.props!.handleCropComplete({ unit: 'px', x: 0, y: 0, width: 400, height: 300 }, shown));
   act(() => useUIStore.setState({ activePanel: Panel.Adjustments }));
@@ -89,4 +95,17 @@ it('a frame moved in the Crop tab is an edit', () => {
   const moved: PercentCrop = { unit: '%', x: 10, y: 10, width: 80, height: 80 };
   act(() => canvas.props!.handleCropComplete({ unit: 'px', x: 40, y: 30, width: 320, height: 240 }, moved));
   expect(useEditorStore.getState().adjustments.crop).toMatchObject({ x: 400, y: 300, width: 3200, height: 2400 });
+});
+
+it('a drag step moves the frame without rendering the editor again (CRP1)', () => {
+  render(<Editor onContextMenu={() => {}} transformWrapperRef={createRef<TransformWrapperHandle>()} />);
+  act(() => useUIStore.setState({ activePanel: Panel.Crop }));
+  const renders = canvas.renders;
+  const step: PercentCrop = { unit: '%', x: 5, y: 5, width: 60, height: 60 };
+  act(() => canvas.props!.setCrop({ unit: 'px', x: 20, y: 15, width: 240, height: 180 }, step));
+  // The frame the crop tool shows follows the step; the recipe waits for
+  // the release, and neither the editor nor the canvas rendered for it.
+  expect(canvas.props!.cropSelection.getState().crop).toEqual(step);
+  expect(useEditorStore.getState().adjustments.crop).toBeNull();
+  expect(canvas.renders).toBe(renders);
 });

@@ -736,6 +736,10 @@ pub struct AppSettings {
     #[serde(default)]
     /// Import window dimensions in CSS px; absent defaults to 90%, capped at 1600 × 1000.
     pub ingest_dialog_size: Option<IngestDialogSize>,
+    /// Export window dimensions in CSS px, as the import window's; absent
+    /// opens it at 860 × 790 (capped at 90% of the window).
+    #[serde(default)]
+    pub export_dialog_size: Option<IngestDialogSize>,
     /// Mask overlay opacity in percent, 0–100 (default 50, as in Capture One).
     #[serde(default)]
     pub mask_opacity: Option<u32>,
@@ -982,6 +986,7 @@ impl Default for AppSettings {
             ui_scale: None,
             interface_shade: None,
             ingest_dialog_size: None,
+            export_dialog_size: None,
             mask_opacity: None,
             radial_draw_inside: None,
             crop_grid: None,
@@ -1920,14 +1925,22 @@ mod tests {
     #[test]
     fn ingest_dialog_dimensions_survive_settings_round_trip() {
         let settings: AppSettings = serde_json::from_value(serde_json::json!({
-            "ingestDialogSize": {"width": 1200, "height": 800, "maximized": true}
+            "ingestDialogSize": {"width": 1200, "height": 800, "maximized": true},
+            "exportDialogSize": {"width": 1000, "height": 700, "maximized": false}
         }))
         .unwrap();
+        assert!(settings.unknown.is_empty());
         let saved = serde_json::to_value(settings).unwrap();
         assert_eq!(
             saved["ingestDialogSize"],
             serde_json::json!({
                 "width": 1200.0, "height": 800.0, "maximized": true
+            })
+        );
+        assert_eq!(
+            saved["exportDialogSize"],
+            serde_json::json!({
+                "width": 1000.0, "height": 700.0, "maximized": false
             })
         );
     }

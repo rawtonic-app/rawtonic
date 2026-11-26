@@ -350,10 +350,9 @@ pub fn display_rgb8(image: DynamicImage, linear: bool) -> image::RgbImage {
         };
         (e * 255.0).round() as u8
     };
-    image::RgbImage::from_fn(float.width(), float.height(), |x, y| {
-        let p = float.get_pixel(x, y);
-        image::Rgb([encode(p[0]), encode(p[1]), encode(p[2])])
-    })
+    // Per value, in parallel (the same values as pixel by pixel).
+    let data: Vec<u8> = float.as_raw().par_iter().map(|&v| encode(v)).collect();
+    image::RgbImage::from_raw(float.width(), float.height(), data).unwrap()
 }
 
 /// Runs a model with one float input and returns its first output, which
@@ -1057,4 +1056,80 @@ pub fn mask_data_url(image: &GrayImage) -> Result<String, String> {
         .map_err(|e| e.to_string())?;
     let base64_str = general_purpose::STANDARD.encode(buf.get_ref());
     Ok(format!("data:image/png;base64,{}", base64_str))
+}
+
+#[cfg(test)]
+mod tests {
+    use image::{DynamicImage, GrayImage, Rgb32FImage, RgbImage, imageops::FilterType};
+
+    /// A float photo whose values also leave 0..1 (a RAW decode's highlights).
+    fn photo(w: u32, h: u32) -> DynamicImage {
+        let mut seed = 0x9e37_79b9_u32;
+        let mut next = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed as f32 / u32::MAX as f32 * 1.2 - 0.1
+        };
+        DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(w, h, |_, _| {
+            image::Rgb([next(), next(), next()])
+        }))
+    }
+
+    /// The sRGB encoding of a linear decode, value by value as pixel by
+    /// pixel before it ran in parallel.
+    #[test]
+    fn display_encoding_is_the_per_pixel_one() {
+        let float = photo(301, 207);
+        let encode = |v: f32| {
+            let x = v.clamp(0.0, 1.0);
+            let e = if x <= 0.003_130_8 {
+                12.92 * x
+            } else {
+                1.055 * x.powf(1.0 / 2.4) - 0.055
+            };
+            (e * 255.0).round() as u8
+        };
+        let rgb = float.to_rgb32f();
+        let expected = RgbImage::from_fn(301, 207, |x, y| {
+            let p = rgb.get_pixel(x, y);
+            image::Rgb([encode(p[0]), encode(p[1]), encode(p[2])])
+        });
+        assert_eq!(super::display_rgb8(float, true), expected);
+    }
+
+    /// The parallel resizes give the image crate's values exactly, down
+    /// (photo to network input) and up (mask to photo).
+    #[test]
+    fn the_parallel_triangle_resizes_equal_the_image_crates() {
+        let float = photo(1501, 997);
+        for (w, h) in [(1024, 1024), (512, 341), (2000, 1400)] {
+            let ours = super::resize_exact_triangle(&float, w, h);
+            let theirs = float.resize_exact(w, h, FilterType::Triangle);
+            assert_eq!(
+                ours.as_rgb32f().unwrap().as_raw(),
+                theirs.as_rgb32f().unwrap().as_raw(),
+                "{w}x{h}"
+            );
+        }
+        let bytes = DynamicImage::ImageRgb8(RgbImage::from_fn(733, 455, |x, y| {
+            image::Rgb([
+                (x * 7 % 256) as u8,
+                (y * 13 % 256) as u8,
+                ((x + y) % 256) as u8,
+            ])
+        }));
+        let ours = super::resize_exact_triangle(&bytes, 300, 300);
+        let theirs = bytes.resize_exact(300, 300, FilterType::Triangle);
+        assert_eq!(
+            ours.as_rgb8().unwrap().as_raw(),
+            theirs.as_rgb8().unwrap().as_raw()
+        );
+        let mask = GrayImage::from_fn(257, 171, |x, y| image::Luma([((x * y) % 256) as u8]));
+        for (w, h) in [(1500, 1000), (100, 66)] {
+            let ours = super::resize_gray_triangle(&mask, w, h);
+            let theirs = image::imageops::resize(&mask, w, h, FilterType::Triangle);
+            assert_eq!(ours.as_raw(), theirs.as_raw(), "{w}x{h}");
+        }
+    }
 }

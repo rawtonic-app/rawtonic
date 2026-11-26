@@ -1,0 +1,16 @@
+{
+  "_comment": "Stage docs of scripts/release.sh (docs_check.py): what else, beside a change inside the tool's <ToolGroup> block in src/components/studio/, counts as a change of a tool whose page is on rawtonic.cc/docs. Keys are the pages' front matter `tool` keys (the website README, Documentation). paths: app files (fnmatch, * spans folders; test files never count); terms: words of a CHANGELOG bullet of the release (whole words, case as written). Add an entry with each new docs page.",
+  "tools": {
+    "exposure": {
+      "terms": ["Exposure", "Contrast", "Highlights", "Shadows", "Whites", "Blacks", "Auto tone"]
+    },
+    "noiseReduction.aiDenoise": {
+      "paths": ["crates/denoise/src/*"],
+      "terms": ["AI Denoise", "Noise reduction"]
+    },
+    "export": {
+      "paths": ["crates/export/src/*", "src/components/studio/StudioExport*.tsx"],
+      "terms": ["Export", "Exports", "Export dialog", "Super Resolution", "Save As"]
+    }
+  }
+}

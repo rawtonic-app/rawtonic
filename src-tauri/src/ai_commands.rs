@@ -849,17 +849,40 @@ async fn sam_embeddings(
             let _ = options.terminate();
         })
     });
-    let models = models.clone();
-    let image = warped_image.clone();
-    let run_options = options.clone();
-    let result = tokio::task::spawn_blocking(move || {
-        generate_image_embeddings(
-            image.as_ref(),
-            &models.encoder,
-            source_is_raw,
-            Some(&run_options),
-        )
-    })
+    let encode = |models: Arc<SamModels>| {
+        let image = warped_image.clone();
+        let run_options = options.clone();
+        async move {
+            tokio::task::spawn_blocking(move || {
+                generate_image_embeddings(
+                    image.as_ref(),
+                    &models.encoder,
+                    source_is_raw,
+                    Some(&run_options),
+                )
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())
+        }
+    };
+    // A failed run of the Core ML program repeats on the ONNX encoder,
+    // which then serves this process (an encoding ahead downloads nothing).
+    let fallback = |failed: Arc<SamModels>| {
+        let app = app_handle.clone();
+        async move {
+            let ai_state = app.state::<AiState>();
+            crate::ai_processing::sam_models_on_onnx(&app, &ai_state, &failed, !ahead, generation)
+                .await
+                .map_err(|e| e.to_string())
+        }
+    };
+    let result = crate::ai_processing::retry_on_onnx(
+        models.clone(),
+        |models| models.encoder.on_core_ml(),
+        encode,
+        fallback,
+    )
     .await;
     if let Some(watcher) = watcher {
         watcher.abort();
@@ -867,9 +890,7 @@ async fn sam_embeddings(
     if cancel.is_some_and(|t| t.is_cancelled()) {
         return Err(task_cancelled());
     }
-    let mut embeddings = result
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+    let mut embeddings = result?;
     embeddings.path_hash = path_hash;
     // An encoding whose request overlapped an unload is used once, not kept.
     let mut ai = lock_recover(&ai_state.models);
@@ -947,17 +968,12 @@ pub async fn precompute_ai_subject_mask(
                 loaded,
             );
             let asked = || crate::ai_ahead::asked_since(asked_at, task_id.as_deref());
-            let admitted = crate::ai_ahead::admit(
-                job,
-                asked,
-                || need,
-                || {
-                    if cancelled() {
-                        return Some("the task was cancelled");
-                    }
-                    ahead_photo_skip(current_photo(&state.source).as_deref(), &path)
-                },
-            )
+            let admitted = crate::ai_ahead::admit(job, asked, need, || {
+                if cancelled() {
+                    return Some("the task was cancelled");
+                }
+                ahead_photo_skip(current_photo(&state.source).as_deref(), &path)
+            })
             .await;
             match admitted {
                 Ok(run) => _ahead = Some(run),
@@ -982,9 +998,15 @@ pub async fn precompute_ai_subject_mask(
         load_turn = sam_load_turn(&ai_state, true).await;
     }
     let _load_turn = load_turn;
-    let models = get_or_init_sam_models(&app_handle, &ai_state)
-        .await
-        .map_err(CommandError::from)?;
+    // An encoding ahead of a photo opened downloads nothing, not even the
+    // encoder's Core ML program prepared beside the loaded models.
+    // Nor does one asked for by the masking tools (an existing object
+    // selection shown): the Core ML program's files are fetched only for a
+    // click or box (`generate_ai_subject_mask`).
+    let models =
+        crate::ai_processing::sam_models(&app_handle, &ai_state, background != Some(true), false)
+            .await
+            .map_err(CommandError::from)?;
     // A request for a photo that is no longer open is dropped.
     let current = crate::image_loader::original_image(&state.source)
         .await
@@ -1629,15 +1651,11 @@ async fn precompute(
             AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
             AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
         };
-        // Read at each poll: a model loaded ahead meanwhile
-        // (`preload_ai_mask_models`) leaves only the run's peak (MEM19).
-        let need = || {
-            crate::ai_ahead::estimated_peak(
-                job,
-                rawtonic_onnx::models_run_on_cpu_only(),
-                model_loaded(&ai_state, kind),
-            )
-        };
+        let need = crate::ai_ahead::estimated_peak(
+            job,
+            rawtonic_onnx::models_run_on_cpu_only(),
+            model_loaded(&ai_state, kind),
+        );
         let asked = || crate::ai_ahead::asked_since(asked_at, task_id.as_deref());
         let admitted = crate::ai_ahead::admit(job, asked, need, || {
             if cancel.is_some_and(|t| t.is_cancelled()) {
@@ -1805,22 +1823,18 @@ pub async fn preload_ai_mask_models(
         if model_loaded(&ai_state, kind) {
             continue;
         }
-        // A model is loaded ahead for the run after it (`precompute`) or a
-        // click: not beside the full-resolution decodes, and only with
-        // memory for the load (`ai_ahead`). Only the load: the run made
-        // ahead waits for memory for its own peak, and where that never
-        // comes (14 GB beside large RAWs) a click after the load finds the
-        // model loaded and pays only the run (WMEM18 on a Radeon 680M
-        // laptop: 26.3 s for the click, 9.9 s of it the model's load).
+        // A model is loaded ahead for the run after it (`precompute`): not
+        // beside the full-resolution decodes, and only with memory for both
+        // (`ai_ahead`).
         let job = match kind {
             AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
             AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
         };
-        let need = crate::ai_ahead::estimated_load_peak(job);
+        let need = crate::ai_ahead::estimated_peak(job, on_cpu, false);
         let admitted = crate::ai_ahead::admit(
             job,
             || false,
-            || need,
+            need,
             || {
                 if ai_state.lifecycle.generation() != generation {
                     return Some("the models were unloaded");
@@ -1873,9 +1887,8 @@ pub async fn preload_ai_mask_models(
         }
         if loaded.is_some() {
             log::info!(
-                "AI {name} mask: model ready ahead after {} ms; {}",
-                start.elapsed().as_millis(),
-                crate::ai_ahead::memory_line()
+                "AI {name} mask: model ready ahead after {} ms",
+                start.elapsed().as_millis()
             );
         }
     }
@@ -1941,7 +1954,7 @@ pub async fn warm_up_ai_mask_models(
             rawtonic_onnx::models_run_on_cpu_only(),
             model_loaded(&ai_state, kind),
         );
-        let _ahead = match crate::ai_ahead::admit(job, || false, || need, &stop).await {
+        let _ahead = match crate::ai_ahead::admit(job, || false, need, &stop).await {
             Ok(run) => run,
             Err(why) => {
                 log::info!(

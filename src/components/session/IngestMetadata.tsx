@@ -43,15 +43,19 @@ export default function IngestMetadata({
   value,
   onChange,
   adding = false,
+  collapsible = false,
   onSavingChange
 }: {
   adding?: boolean;
+  /** A collapsible section of the import dialog's settings column. */
+  collapsible?: boolean;
   value: ImportMetadata | null;
   onChange: (value: ImportMetadata | null) => void;
   onSavingChange?: (saving: boolean) => void;
 }) {
   const { t } = useTranslation();
   const prefix = useId();
+  const Section = collapsible ? 'details' : 'section';
   const settings = useSettingsStore((s) => s.appSettings);
   const presets = settings?.importMetadataPresets ?? [];
   // A value given from outside (a hot folder's saved preset) keeps the
@@ -138,8 +142,18 @@ export default function IngestMetadata({
     );
   };
   return (
-    <section className="session-ingest-metadata" aria-labelledby={`${prefix}-title`}>
-      <h3 id={`${prefix}-title`}>{t('session.ingest.metadata.title')}</h3>
+    <Section
+      className={`session-ingest-metadata${collapsible ? ' session-ingest-section' : ''}`}
+      aria-labelledby={`${prefix}-title`}
+      open
+    >
+      {collapsible ? (
+        <summary>
+          <h3 id={`${prefix}-title`}>{t('session.ingest.metadata.title')}</h3>
+        </summary>
+      ) : (
+        <h3 id={`${prefix}-title`}>{t('session.ingest.metadata.title')}</h3>
+      )}
       <label className="session-field">
         <span>{t('session.ingest.metadata.preset')}</span>
         <select value={selected} onChange={(e) => select(e.target.value)} disabled={saving}>
@@ -235,6 +249,6 @@ export default function IngestMetadata({
           )}
         </>
       )}
-    </section>
+    </Section>
   );
 }

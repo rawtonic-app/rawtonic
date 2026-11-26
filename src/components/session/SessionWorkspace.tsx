@@ -1697,6 +1697,9 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
         // keys (arrows, Enter, Space; Escape leaves the large view, not the
         // dialog). Global shortcuts ignore keys while a dialog is open.
         if (target?.closest?.('.session-ingest-preview')) return;
+        // A popup inside the dialog (the naming editor's token list or
+        // preset name) closes itself on Escape and keeps the dialog open.
+        if (target?.closest?.('[data-escape-local]')) return;
         if (e.key === 'Escape') {
           e.stopImmediatePropagation();
           e.preventDefault();
@@ -2937,219 +2940,243 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
           </form>
         ) : (
           <form className="session-ingest-form" onSubmit={(e) => void ingest(e)}>
-            <section className="session-ingest-source">
-              <div className="session-ingest-source-head">
-                <h3>{t('naming.source')}</h3>
-                <button type="button" className="session-action" onClick={() => void chooseSources(false)}>
-                  <FolderOpen size={15} />
-                  {t('session.ingest.addFiles')}
-                </button>
-                <button type="button" className="session-action" onClick={() => void chooseSources(true)}>
-                  <FolderAdd size={15} />
-                  {t('session.ingest.addFolder')}
-                </button>
-                {cards.length > 0 && (
-                  <div className="session-ingest-cards" role="group" aria-label={t('session.ingest.cards')}>
-                    {cards.map((card) => (
-                      <button
-                        key={card.mountPoint}
-                        type="button"
-                        className={`session-action${sourceCard?.mountPoint === card.mountPoint ? ' is-active' : ''}`}
-                        aria-pressed={sourceCard?.mountPoint === card.mountPoint}
-                        title={t('session.ingest.cardHint', { path: card.mountPoint })}
-                        onClick={() => void addSources([card.mountPoint], true)}
-                      >
-                        <MemoryStick size={15} />
-                        {card.name}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {sources.length ? (
-                <IngestPreviewGrid
-                  files={sources}
-                  selected={chosen}
-                  onSelectedChange={setChosen}
-                  ratings={ratings}
-                  onRatingsChange={setRatings}
-                />
-              ) : (
-                <div className="session-ingest-empty">
-                  {scanning ? (
-                    <>
-                      <LoaderCircle size={16} className="animate-spin" />
-                      {t('session.ingest.scanning')}
-                    </>
-                  ) : (
-                    t('session.ingest.dropHint')
+            {/* Lightroom's and Capture One's import layout: the thumbnails take
+                the window and scroll by themselves; the settings stay in
+                reach in a side column of collapsible sections. */}
+            <div className="session-ingest-body">
+              <section className="session-ingest-source">
+                <div className="session-ingest-source-head">
+                  <h3>{t('naming.source')}</h3>
+                  <button type="button" className="session-action" onClick={() => void chooseSources(false)}>
+                    <FolderOpen size={15} />
+                    {t('session.ingest.addFiles')}
+                  </button>
+                  <button type="button" className="session-action" onClick={() => void chooseSources(true)}>
+                    <FolderAdd size={15} />
+                    {t('session.ingest.addFolder')}
+                  </button>
+                  {cards.length > 0 && (
+                    <div className="session-ingest-cards" role="group" aria-label={t('session.ingest.cards')}>
+                      {cards.map((card) => (
+                        <button
+                          key={card.mountPoint}
+                          type="button"
+                          className={`session-action${sourceCard?.mountPoint === card.mountPoint ? ' is-active' : ''}`}
+                          aria-pressed={sourceCard?.mountPoint === card.mountPoint}
+                          title={t('session.ingest.cardHint', { path: card.mountPoint })}
+                          onClick={() => void addSources([card.mountPoint], true)}
+                        >
+                          <MemoryStick size={15} />
+                          {card.name}
+                        </button>
+                      ))}
+                    </div>
                   )}
                 </div>
-              )}
-            </section>
-            <section className="session-ingest-backup">
-              <h3>{t('naming.destination')}</h3>
-              {modeChoice.showSwitch && (
-                <div className="session-ingest-mode" role="radiogroup" aria-label={t('session.ingest.modeLabel')}>
-                  <label>
-                    <input
-                      type="radio"
-                      name="ingest-mode"
-                      checked={ingestMode === 'copy'}
-                      onChange={() => setMode('copy')}
-                    />
-                    <span>{t('session.ingest.modeCopy', { destination: destinationLabel })}</span>
-                  </label>
-                  <label
-                    className={modeChoice.canAdd ? undefined : 'is-disabled'}
-                    title={modeChoice.canAdd ? undefined : t('session.ingest.addFromCard')}
-                  >
-                    <input
-                      type="radio"
-                      name="ingest-mode"
-                      checked={ingestMode === 'add'}
-                      disabled={!modeChoice.canAdd}
-                      onChange={() => setMode('add')}
-                    />
-                    <span>{t('session.ingest.modeAdd')}</span>
-                  </label>
-                  {!modeChoice.canAdd && <small>{t('session.ingest.addFromCard')}</small>}
-                </div>
-              )}
-              {ingestMode === 'copy' ? (
-                <>
-                  <div className="session-ingest-target">
-                    <strong>{destinationLabel}</strong>
-                    <code className="session-ingest-path" title={destinationPath}>
-                      {destinationPath}
-                    </code>
-                    {session?.manifest.mode === 'catalog' && !target.folder && (
-                      <small>{t('session.ingest.dateFolders')}</small>
+                {sources.length ? (
+                  <IngestPreviewGrid
+                    files={sources}
+                    selected={chosen}
+                    onSelectedChange={setChosen}
+                    ratings={ratings}
+                    onRatingsChange={setRatings}
+                  />
+                ) : (
+                  <div className="session-ingest-empty">
+                    {scanning ? (
+                      <>
+                        <LoaderCircle size={16} className="animate-spin" />
+                        {t('session.ingest.scanning')}
+                      </>
+                    ) : (
+                      t('session.ingest.dropHint')
                     )}
-                    {destinationVolume && (
-                      <small className="session-ingest-volume">
-                        <HardDrive size={12} />
-                        {t('session.ingest.onVolume', { name: destinationVolume })}
-                      </small>
-                    )}
-                    {target.folder && (
-                      <button
-                        type="button"
-                        className="session-link-button"
-                        onClick={() => setTarget({ ...target, folder: null })}
+                  </div>
+                )}
+              </section>
+              <div className="session-ingest-settings" role="group" aria-label={t('session.ingest.settings')}>
+                <details className="session-ingest-backup session-ingest-section" open>
+                  <summary>
+                    <h3>{t('naming.destination')}</h3>
+                  </summary>
+                  {modeChoice.showSwitch && (
+                    <div className="session-ingest-mode" role="radiogroup" aria-label={t('session.ingest.modeLabel')}>
+                      <label>
+                        <input
+                          type="radio"
+                          name="ingest-mode"
+                          checked={ingestMode === 'copy'}
+                          onChange={() => setMode('copy')}
+                        />
+                        <span>{t('session.ingest.modeCopy', { destination: destinationLabel })}</span>
+                      </label>
+                      <label
+                        className={modeChoice.canAdd ? undefined : 'is-disabled'}
+                        title={modeChoice.canAdd ? undefined : t('session.ingest.addFromCard')}
                       >
-                        {t('session.ingest.useCapture', {
-                          folder: session ? sessionFolderPath(session, 'capture').split(/[\\/]/).pop() : 'Capture'
-                        })}
-                      </button>
-                    )}
-                    {target.album && (
+                        <input
+                          type="radio"
+                          name="ingest-mode"
+                          checked={ingestMode === 'add'}
+                          disabled={!modeChoice.canAdd}
+                          onChange={() => setMode('add')}
+                        />
+                        <span>{t('session.ingest.modeAdd')}</span>
+                      </label>
+                      {!modeChoice.canAdd && <small>{t('session.ingest.addFromCard')}</small>}
+                    </div>
+                  )}
+                  {ingestMode === 'copy' ? (
+                    <>
+                      <div className="session-ingest-target">
+                        <strong>{destinationLabel}</strong>
+                        <code className="session-ingest-path" title={destinationPath}>
+                          {destinationPath}
+                        </code>
+                        {session?.manifest.mode === 'catalog' && !target.folder && (
+                          <small>{t('session.ingest.dateFolders')}</small>
+                        )}
+                        {destinationVolume && (
+                          <small className="session-ingest-volume">
+                            <HardDrive size={12} />
+                            {t('session.ingest.onVolume', { name: destinationVolume })}
+                          </small>
+                        )}
+                        {target.folder && (
+                          <button
+                            type="button"
+                            className="session-link-button"
+                            onClick={() => setTarget({ ...target, folder: null })}
+                          >
+                            {t('session.ingest.useCapture', {
+                              folder: session ? sessionFolderPath(session, 'capture').split(/[\\/]/).pop() : 'Capture'
+                            })}
+                          </button>
+                        )}
+                        {target.album && (
+                          <label className="session-ingest-album">
+                            <input
+                              type="checkbox"
+                              checked={addToAlbum}
+                              onChange={(e) => setAddToAlbum(e.target.checked)}
+                            />
+                            {t('session.ingest.addToAlbum', { name: target.album.name })}
+                          </label>
+                        )}
+                      </div>
+                      <label className="session-field">
+                        <span>
+                          {t('session.ingest.secondCopy')}{' '}
+                          <span className="session-optional">{t('session.ingest.optional')}</span>
+                        </span>
+                        <div className="session-backup">
+                          <button
+                            type="button"
+                            className="session-path"
+                            onClick={() =>
+                              void chooseFolder(setBackup, t('session.ingest.chooseSecondCopyTitle'), 'backup')
+                            }
+                          >
+                            <FolderOpen size={17} />
+                            <span>{backup || t('session.ingest.chooseBackup')}</span>
+                          </button>
+                          {backup && (
+                            <button
+                              type="button"
+                              className="session-icon-button"
+                              aria-label={t('session.ingest.removeBackup')}
+                              onClick={() => setBackup(null)}
+                            >
+                              <X size={16} />
+                            </button>
+                          )}
+                        </div>
+                      </label>
+                    </>
+                  ) : (
+                    target.album && (
                       <label className="session-ingest-album">
                         <input type="checkbox" checked={addToAlbum} onChange={(e) => setAddToAlbum(e.target.checked)} />
                         {t('session.ingest.addToAlbum', { name: target.album.name })}
                       </label>
-                    )}
-                  </div>
-                  <label className="session-field">
-                    <span>
-                      {t('session.ingest.secondCopy')}{' '}
-                      <span className="session-optional">{t('session.ingest.optional')}</span>
-                    </span>
-                    <div className="session-backup">
-                      <button
-                        type="button"
-                        className="session-path"
-                        onClick={() =>
-                          void chooseFolder(setBackup, t('session.ingest.chooseSecondCopyTitle'), 'backup')
-                        }
-                      >
-                        <FolderOpen size={17} />
-                        <span>{backup || t('session.ingest.chooseBackup')}</span>
-                      </button>
-                      {backup && (
-                        <button
-                          type="button"
-                          className="session-icon-button"
-                          aria-label={t('session.ingest.removeBackup')}
-                          onClick={() => setBackup(null)}
-                        >
-                          <X size={16} />
-                        </button>
-                      )}
-                    </div>
-                  </label>
-                </>
-              ) : (
-                target.album && (
-                  <label className="session-ingest-album">
-                    <input type="checkbox" checked={addToAlbum} onChange={(e) => setAddToAlbum(e.target.checked)} />
-                    {t('session.ingest.addToAlbum', { name: target.album.name })}
-                  </label>
-                )
-              )}
-              {pairsChosen && (
-                <label className="session-ingest-album">
-                  <input type="checkbox" checked={separateJpeg} onChange={(e) => setSeparateJpeg(e.target.checked)} />
-                  {t('session.ingest.separateJpeg')}
-                </label>
-              )}
-              {sourceCard && ingestMode === 'copy' && (
-                <label className="session-ingest-album" title={t('session.ingest.ejectAfterHint')}>
-                  <input
-                    type="checkbox"
-                    checked={ejectAfter}
-                    onChange={(e) => {
-                      setEjectAfter(e.target.checked);
-                      try {
-                        window.localStorage?.setItem(EJECT_AFTER_KEY, e.target.checked ? '1' : '0');
-                      } catch {
-                        // Not kept; it still applies to this import.
-                      }
-                    }}
-                  />
-                  {t('session.ingest.ejectAfter', { name: sourceCard.name })}
-                </label>
-              )}
-            </section>
-            {ingestMode === 'copy' && (
-              <section className="session-ingest-naming">
-                <h3>{t('naming.title')}</h3>
-                <NamingEditor
-                  mode="ingest"
-                  value={template}
-                  onChange={setTemplate}
-                  label={t('session.fields.filenameTemplate')}
-                  original={sources.find((file) => chosen.has(file.path))?.path ?? sources[0]?.path}
-                  job={session?.manifest.name}
-                  total={chosen.size}
-                  sequenceStart={sequenceStart}
-                  onSequenceStartChange={setSequenceStart}
-                  preview={namePreview?.key === previewKey ? namePreview.result : null}
-                />
-              </section>
-            )}
-            <IngestMetadata adding={ingestMode === 'add'} value={importMetadata} onChange={setImportMetadata} />
-            <div className="session-copy-note">
-              <Check size={16} />
-              <span>
-                {ingestMode === 'add' ? (
-                  t('session.ingest.addNote')
-                ) : (
-                  <Trans
-                    i18nKey="session.ingest.copyNote"
-                    values={{
-                      target: destinationLabel
-                    }}
-                    components={{ strong: <strong /> }}
-                  />
+                    )
+                  )}
+                  {pairsChosen && (
+                    <label className="session-ingest-album">
+                      <input
+                        type="checkbox"
+                        checked={separateJpeg}
+                        onChange={(e) => setSeparateJpeg(e.target.checked)}
+                      />
+                      {t('session.ingest.separateJpeg')}
+                    </label>
+                  )}
+                  {sourceCard && ingestMode === 'copy' && (
+                    <label className="session-ingest-album" title={t('session.ingest.ejectAfterHint')}>
+                      <input
+                        type="checkbox"
+                        checked={ejectAfter}
+                        onChange={(e) => {
+                          setEjectAfter(e.target.checked);
+                          try {
+                            window.localStorage?.setItem(EJECT_AFTER_KEY, e.target.checked ? '1' : '0');
+                          } catch {
+                            // Not kept; it still applies to this import.
+                          }
+                        }}
+                      />
+                      {t('session.ingest.ejectAfter', { name: sourceCard.name })}
+                    </label>
+                  )}
+                </details>
+                {ingestMode === 'copy' && (
+                  <details className="session-ingest-naming session-ingest-section" open>
+                    <summary>
+                      <h3>{t('naming.title')}</h3>
+                    </summary>
+                    <NamingEditor
+                      mode="ingest"
+                      value={template}
+                      onChange={setTemplate}
+                      label={t('session.fields.filenameTemplate')}
+                      original={sources.find((file) => chosen.has(file.path))?.path ?? sources[0]?.path}
+                      job={session?.manifest.name}
+                      total={chosen.size}
+                      sequenceStart={sequenceStart}
+                      onSequenceStartChange={setSequenceStart}
+                      preview={namePreview?.key === previewKey ? namePreview.result : null}
+                    />
+                  </details>
                 )}
-              </span>
+                <IngestMetadata
+                  collapsible
+                  adding={ingestMode === 'add'}
+                  value={importMetadata}
+                  onChange={setImportMetadata}
+                />
+                <div className="session-copy-note">
+                  <Check size={16} />
+                  <span>
+                    {ingestMode === 'add' ? (
+                      t('session.ingest.addNote')
+                    ) : (
+                      <Trans
+                        i18nKey="session.ingest.copyNote"
+                        values={{
+                          target: destinationLabel
+                        }}
+                        components={{ strong: <strong /> }}
+                      />
+                    )}
+                  </span>
+                </div>
+                {error && (
+                  <p className="session-error" role="alert">
+                    {error}
+                  </p>
+                )}
+              </div>
             </div>
-            {error && (
-              <p className="session-error" role="alert">
-                {error}
-              </p>
-            )}
             <div className="session-dialog-footer">
               <span>{t('session.ingest.keepEditing')}</span>
               <button
