@@ -560,9 +560,8 @@ fn step_wait(since_interaction: Duration, since_primary_work: Duration) -> Durat
         .max(SETTLE.saturating_sub(since_primary_work))
 }
 
-/// The preview worker develops a frame of the primary (or an edit's saved
-/// thumbnail renders it) while the guard lives: nothing starts and a 1:1
-/// preview being written waits. An
+/// The preview worker develops a frame of the primary while the guard
+/// lives: nothing starts and a 1:1 preview being written waits. An
 /// interactive frame (a slider or brush drag) also cancels the decode under
 /// way and holds the next step back for [`QUIET`] after it.
 pub(crate) struct PreviewFrame {
