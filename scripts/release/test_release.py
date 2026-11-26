@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Tests of the release helpers: version bump, release notes, the GUI smoke's frame check,
-the in-app update manifest, the website's release facts and publish checks."""
+the in-app update manifest, the website's release facts and publish checks, the docs check."""
+import contextlib
+import io
 import json
+import os
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bump  # noqa: E402
+import docs_check  # noqa: E402
 import gui_smoke  # noqa: E402
 import notes  # noqa: E402
 import updater_manifest  # noqa: E402
@@ -424,6 +429,137 @@ class Website(unittest.TestCase):
         self.assertEqual(website.manifest_problems(json.dumps({"version": A18, "platforms": {"x": {}}}), A18), [])
         self.assertTrue(website.manifest_problems(json.dumps({"version": "0.1.0-alpha.17", "platforms": {"x": {}}}), A18))
         self.assertTrue(website.manifest_problems("<html>Not Found</html>", A18))
+
+
+DEVELOP_TSX = """export function Develop() {
+  return (
+    <>
+      <ToolGroup
+        key="exposure"
+        title="Exposure"
+        label={t('x')}
+      >
+        <Slider name="exposure" />
+      </ToolGroup>
+      <ToolGroup title="Lens correction" label={t('y')}>
+        <ToolGroup key="inner" title="Inner">
+          <Slider name="distortion" />
+        </ToolGroup>
+        <Slider name="vignetting" />
+      </ToolGroup>
+      <ToolGroup key="grain" title="Grain">
+        <Slider name="grain" />
+      </ToolGroup>
+    </>
+  );
+}
+"""
+
+
+def page(tool, lang, text="Text."):
+    return (f'<!--page {{"path": "/{"de/" if lang == "de" else ""}docs/p/", "title": "P", "description": "D", '
+            f'"docs": {{"section": "basics", "order": 1, "tool": "{tool}", "nav": "P"}}}} -->\n<p>{text}</p>\n')
+
+
+class DocsCheck(unittest.TestCase):
+    def test_tool_groups_nested_and_by_title(self):
+        groups = docs_check.tool_groups(DEVELOP_TSX)
+        self.assertEqual({g[2] for g in groups}, {"exposure", "lensCorrection", "inner", "grain"})
+        at = lambda n: max((g for g in groups if g[0] <= n <= g[1]), key=lambda g: g[0])[2]  # noqa: E731
+        lines = DEVELOP_TSX.split("\n")
+        self.assertEqual(at(lines.index('        <Slider name="exposure" />') + 1), "exposure")
+        self.assertEqual(at(lines.index('          <Slider name="distortion" />') + 1), "inner")
+        self.assertEqual(at(lines.index('        <Slider name="vignetting" />') + 1), "lensCorrection")
+
+    def test_changed_lines_and_terms(self):
+        diff = "+++ b/a.tsx\n@@ -3,0 +4,2 @@\n+x\n+y\n@@ -9 +10 @@\n-z\n+w\n@@ -20,2 +21,0 @@\n-gone\n"
+        self.assertEqual(docs_check.changed_lines(diff), {"a.tsx": [4, 5, 10, 21]})
+        section = "\n- **Exports** are faster.\n- The Export dialog\n  remembers.\n- AI Denoise is quicker.\n- Highly shadowed.\n"
+        self.assertEqual(len(docs_check.term_hits(section, ["Export"])), 1)
+        self.assertEqual(docs_check.term_hits(section, ["AI Denoise"]), ["- AI Denoise is quicker."])
+        self.assertEqual(docs_check.term_hits(section, ["Shadows"]), [])
+        log = "# Changelog\n\n## Unreleased\n\n- new\n\n## 1.1.0 — 2026-01-02\n\n- this\n\n## 1.0.0 — 2026-01-01\n\n- old\n"
+        self.assertEqual(docs_check.bullets(docs_check.changelog_section(log, "1.1.0")), ["- this"])
+        self.assertEqual(docs_check.bullets(docs_check.changelog_section(log, "1.2.0")), ["- new"])
+
+    def repos(self, d):
+        """An app repo (tag v1.0.0, then a change in the exposure group and a CHANGELOG
+        bullet naming AI Denoise) and a website repo (pages for exposure and
+        noiseReduction.aiDenoise before the 1.0.0 release, a docs branch after it)."""
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
+
+        def run(repo, *args):
+            subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, env=env)
+
+        def write(repo, files, msg):
+            for name, text in files.items():
+                Path(repo, name).parent.mkdir(parents=True, exist_ok=True)
+                Path(repo, name).write_text(text)
+            run(repo, "add", "-A")
+            run(repo, "commit", "-q", "-m", msg)
+
+        app, site = Path(d, "app"), Path(d, "site")
+        for r in (app, site):
+            r.mkdir()
+            run(r, "init", "-q", "-b", "main")
+        write(app, {"src/components/studio/StudioDevelop.tsx": DEVELOP_TSX, "CHANGELOG.md": "## 1.0.0 — 2026-01-01\n\n- old\n"}, "one")
+        run(app, "tag", "v1.0.0")
+        write(app, {"src/components/studio/StudioDevelop.tsx": DEVELOP_TSX.replace('name="exposure"', 'name="exposure2"'),
+                    "CHANGELOG.md": "## 1.1.0 — 2026-01-02\n\n- AI Denoise is faster.\n\n## 1.0.0 — 2026-01-01\n\n- old\n"}, "two")
+        write(site, {"pages/docs/basic-tone.html": page("exposure", "en"), "pages/de/docs/basic-tone.html": page("exposure", "de"),
+                     "pages/docs/ai-denoise.html": page("noiseReduction.aiDenoise", "en"),
+                     "pages/de/docs/ai-denoise.html": page("noiseReduction.aiDenoise", "de")}, "pages")
+        write(site, {"release.json": "{}"}, "Merge release-1.0.0: 1.0.0")
+        run(site, "switch", "-q", "-c", "docs-2")
+        return app, site, run, write
+
+    def check(self, app, site, *extra):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = docs_check.main(["--app", str(app), "--prev-tag", "v1.0.0", "--head", "HEAD", "--version", "1.1.0",
+                                  "--website", str(site), "--site-ref", "docs-2", "--site-ref", "main", *extra])
+        return rc, out.getvalue()
+
+    def test_changed_tools_need_their_pages_updated_in_both_languages(self):
+        with tempfile.TemporaryDirectory() as d:
+            app, site, run, write = self.repos(d)
+            rc, out = self.check(app, site)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("exposure: NOT updated: en pages/docs/basic-tone.html, de pages/de/docs/basic-tone.html", out)
+            self.assertIn("noiseReduction.aiDenoise: NOT updated", out)
+            self.assertIn("CHANGELOG: AI Denoise is faster.", out)
+            self.assertNotIn("grain", out)
+            write(site, {"pages/docs/basic-tone.html": page("exposure", "en", "New."),
+                         "pages/docs/ai-denoise.html": page("noiseReduction.aiDenoise", "en", "New."),
+                         "pages/de/docs/ai-denoise.html": page("noiseReduction.aiDenoise", "de", "Neu.")}, "docs")
+            rc, out = self.check(app, site)
+            self.assertEqual(rc, 1, out)
+            self.assertIn("exposure: NOT updated: de pages/de/docs/basic-tone.html", out)
+            self.assertIn("noiseReduction.aiDenoise: updated", out)
+            rc, out = self.check(app, site, "--reviewed", "only a wording change")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("reviewed: only a wording change", out)
+            write(site, {"pages/de/docs/basic-tone.html": page("exposure", "de", "Neu.")}, "de")
+            rc, out = self.check(app, site)
+            self.assertEqual(rc, 0, out)
+            self.assertIn("every changed tool with a page has its page updated", out)
+
+    def test_a_tool_without_a_page_is_listed_not_failed(self):
+        with tempfile.TemporaryDirectory() as d:
+            app, site, run, write = self.repos(d)
+            tsx = Path(app, "src/components/studio/StudioDevelop.tsx")
+            write(app, {tsx.relative_to(app).as_posix(): tsx.read_text().replace('name="grain"', 'name="grain2"')}, "grain")
+            rc, out = self.check(app, site, "--reviewed", "r")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("grain: no docs page", out)
+
+    def test_without_the_previous_release_on_the_website_it_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            app, site, run, write = self.repos(d)
+            with self.assertRaises(SystemExit) as e:
+                docs_check.site_base(site, "1.0")
+            self.assertIn("no website commit of the previous release 1.0", str(e.exception))
 
 
 if __name__ == "__main__":
