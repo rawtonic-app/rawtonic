@@ -466,6 +466,10 @@ Windows/Linux) checked once against the CPU, CPU fallback, per-model exceptions,
 under the AI cache limit) and later load it with graph optimization off. Output bits measured identical (Mac arm64; x86
 under Rosetta; notes: benchmark-results/aiw2-2026-11-18) for every CPU model of the pack that keeps one; the SigLIP 2
 text encoder, Moebius and the export steps Super Resolution and AI Denoise keep none, and GPU providers are not cached.
+`MemoryPlan`: every session uses ONNX Runtime's sequential plan without CPU arena (`Reuse`); `Model::load_cpu_low_peak`
+loads a CPU session with `LowPeak` (parallel execution mode, which plans no buffer reuse, plus the CPU arena, shrunk after
+each run by `Model::run_options`). Subject uses it with `birefnet_subject_low_peak.onnx` on the CPU of machines with at
+most 16 GB (`rawtonic_segment::use_low_peak_subject`; notes: benchmark-results/mem21-2026-11-26).
 
 
 ### Engine layers

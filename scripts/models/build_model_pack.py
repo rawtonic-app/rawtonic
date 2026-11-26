@@ -200,6 +200,22 @@ SUBJECT_ENTRY = {
     "license_files": ["BiRefNet-MIT.txt"],
 }
 SUBJECT_SHA256 = "1019aa4d150a10830d95d05b0e0e08ed2703c39d3e168dea3333bb0272c16cbf"
+# The same network rewritten for a lower working-memory peak on the CPU by
+# convert_birefnet_low_peak.py from the pinned graph above (same weights; the
+# app uses it only on the CPU of machines with at most 16 GB). Added to
+# pack-2026-11-26.
+SUBJECT_LOW_PEAK_SHA256 = {"birefnet_subject_low_peak.onnx": "8f42980863f6161a8c4368022b6299ee11d58372b5aea9b6a7424e82cbb3c9a1"}
+SUBJECT_LOW_PEAK_ENTRY = SUBJECT_ENTRY | {
+    "used_by": "Subject and background masks on the CPU of machines with at most 16 GB of memory",
+    "source": SUBJECT_ENTRY["source"] + "; rewritten by scripts/models/convert_birefnet_low_peak.py for a lower "
+              "memory peak: the last 1x1 convolution applied before its upsample, the large deformable "
+              "convolutions computed in bands of rows (same weights)",
+}
+SUBJECT_LOW_PEAK_EXPORT = [
+    "uv", "run", "--python", "3.12", "--with", "onnx==1.23.2", "--with", "onnxruntime==1.30.0",
+    "--with", "sympy==1.14.0", "--with", "numpy==2.2.6",
+    "python", str(Path(__file__).resolve().parent / "convert_birefnet_low_peak.py"),
+]
 # The same checkpoint as a Core ML program (macOS's fast path), converted by
 # convert_birefnet_coreml.py in an environment of its own (coremltools 9.0
 # is tested with torch up to 2.7). fp16 since 2026-10-11: equal to fp32
@@ -798,6 +814,13 @@ def main() -> None:
 
         subject = export_birefnet(args.cache / "subject")
         entries.append(place(subject, args.out, subject.name, SUBJECT_SHA256) | SUBJECT_ENTRY)
+    if todo(SUBJECT_LOW_PEAK_SHA256):
+        low_peak = args.cache / "subject-low-peak"
+        source = args.out / "birefnet_subject.onnx"  # placed above, SHA-256 checked
+        subprocess.run(SUBJECT_LOW_PEAK_EXPORT + [str(source), str(low_peak)], check=True)
+        for name, expected in SUBJECT_LOW_PEAK_SHA256.items():
+            if name not in carried:
+                entries.append(place(low_peak / name, args.out, name, expected) | SUBJECT_LOW_PEAK_ENTRY)
     if todo(SUBJECT_COREML_SHA256):
         subject_coreml = args.cache / "subject-coreml"
         subprocess.run(SUBJECT_COREML_EXPORT + [str(subject_coreml), "--precision", "fp16"], check=True)

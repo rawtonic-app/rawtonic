@@ -1054,7 +1054,7 @@ mod tests {
                 session
             };
             let mut today = timed("session as today", &|| {
-                crate::builder(kind, None, None)
+                crate::builder(kind, None, crate::Tuning::default())
                     .unwrap()
                     .commit_from_file(&path)
                     .unwrap()
@@ -1083,7 +1083,14 @@ mod tests {
                     assert!(entry.lookup().is_err());
                 }
                 let mut session = timed(what, &|| {
-                    crate::cpu_session_cached(&path, kind, None, &entry, Duration::ZERO).unwrap()
+                    crate::cpu_session_cached(
+                        &path,
+                        kind,
+                        crate::Tuning::default(),
+                        &entry,
+                        Duration::ZERO,
+                    )
+                    .unwrap()
                 });
                 assert_eq!(
                     bits(&run_once(&mut session, &inputs).unwrap()),

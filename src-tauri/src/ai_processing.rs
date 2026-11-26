@@ -403,8 +403,25 @@ fn model_url(source: &str) -> String {
 /// Downloads `source`, calling `progress(received, total)` as its bytes
 /// arrive (`total` 0 when the server does not say).
 async fn fetch_model(source: &str, progress: &mut (dyn FnMut(u64, u64) + Send)) -> Result<Vec<u8>> {
-    let url = model_url(source);
-    let mut response = reqwest::get(&url).await?;
+    fetch_url(&model_url(source), MODEL_READ_TIMEOUT, progress).await
+}
+
+/// A model download whose connection sends nothing for this long ends with
+/// an error (a stalled transfer would otherwise wait for good, and the
+/// low-peak Subject model's background fetch never try again).
+const MODEL_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// `fetch_model` from `url`, failing when no byte arrives for `read_timeout`.
+async fn fetch_url(
+    url: &str,
+    read_timeout: std::time::Duration,
+    progress: &mut (dyn FnMut(u64, u64) + Send),
+) -> Result<Vec<u8>> {
+    let client = reqwest::Client::builder()
+        .connect_timeout(read_timeout)
+        .read_timeout(read_timeout)
+        .build()?;
+    let mut response = client.get(url).send().await?;
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
             "Could not download {url} (HTTP {}). Check the internet connection and try again.",
@@ -1389,12 +1406,161 @@ pub fn mask_model_installed(app_handle: &tauri::AppHandle, sky: bool) -> bool {
             return true;
         }
     }
-    let (onnx, sha) = if sky {
-        (SKYSEG_FILENAME, SKYSEG_SHA256)
+    let installed = if sky {
+        verified(SKYSEG_FILENAME, SKYSEG_SHA256)
     } else {
-        (SUBJECT_FILENAME, SUBJECT_SHA256)
+        // Either Subject graph serves (`get_or_init_subject_model`).
+        let file = subject_onnx_file(&models_dir);
+        verified(file.name, file.sha256) || verified(SUBJECT_FILENAME, SUBJECT_SHA256)
     };
-    verified(onnx, sha) && ensure_local_runtime().is_ok()
+    installed && ensure_local_runtime().is_ok()
+}
+
+/// The Subject ONNX graph this machine runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SubjectOnnxFile {
+    name: &'static str,
+    sha256: &'static str,
+    /// The low-peak graph, loaded with the low-peak memory plan.
+    low_peak: bool,
+}
+
+/// BiRefNet's low-peak graph where it runs on the CPU of a machine with at
+/// most 16 GB (`rawtonic_segment::use_low_peak_subject`; downloaded on its
+/// first use as every model), else the usual one.
+fn subject_onnx_file(models_dir: &Path) -> SubjectOnnxFile {
+    let low_peak =
+        rawtonic_segment::use_low_peak_subject(crate::memory_pressure::total_memory(), || {
+            rawtonic_segment::subject_onnx_on_cpu(&models_dir.join(SUBJECT_FILENAME))
+        });
+    if low_peak {
+        SubjectOnnxFile {
+            name: rawtonic_segment::SUBJECT_LOW_PEAK_FILENAME,
+            sha256: rawtonic_segment::SUBJECT_LOW_PEAK_SHA256,
+            low_peak: true,
+        }
+    } else {
+        SubjectOnnxFile::USUAL
+    }
+}
+
+impl SubjectOnnxFile {
+    const USUAL: Self = Self {
+        name: SUBJECT_FILENAME,
+        sha256: SUBJECT_SHA256,
+        low_peak: false,
+    };
+
+    fn installed(self, models_dir: &Path) -> bool {
+        verify_sha256(&models_dir.join(self.name), self.sha256).unwrap_or(false)
+    }
+}
+
+/// The background fetch of the low-peak Subject file.
+#[derive(Clone, Copy)]
+enum LowPeakFetch {
+    Idle,
+    Running,
+    Failed(std::time::Instant),
+}
+
+static LOW_PEAK_FETCH: std::sync::Mutex<LowPeakFetch> = std::sync::Mutex::new(LowPeakFetch::Idle);
+
+/// After a failed fetch, the next one waits this long.
+const LOW_PEAK_FETCH_RETRY: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// For a Subject request that may download, on a machine that prefers the
+/// low-peak graph (`subject_onnx_file`) with only the usual one installed
+/// (installed before this graph existed): fetches the low-peak file in the
+/// background, one fetch at a time and at most every 10 minutes after a
+/// failure, while the installed model serves (masking never waits for it).
+/// Once fetched, a loaded usual model is unloaded (a run holding it ends
+/// with it) and the next mask loads the low-peak graph. With no Subject
+/// model installed the request downloads the low-peak file itself, as any
+/// model on its first use.
+pub(crate) fn fetch_low_peak_subject_in_background(app_handle: &tauri::AppHandle) {
+    let Ok(models_dir) = get_models_dir(app_handle) else {
+        return;
+    };
+    // Core ML comes first on macOS: its files installed, no ONNX graph runs.
+    #[cfg(target_os = "macos")]
+    if SUBJECT_CORE_ML_FILES
+        .iter()
+        .all(|&(file, _, sha)| verify_sha256(&models_dir.join(file), sha).unwrap_or(false))
+    {
+        return;
+    }
+    let preferred = subject_onnx_file(&models_dir);
+    if !preferred.low_peak
+        || preferred.installed(&models_dir)
+        || !SubjectOnnxFile::USUAL.installed(&models_dir)
+    {
+        return;
+    }
+    {
+        let mut fetch = lock_recover(&LOW_PEAK_FETCH);
+        match *fetch {
+            LowPeakFetch::Running => return,
+            LowPeakFetch::Failed(at) if at.elapsed() < LOW_PEAK_FETCH_RETRY => return,
+            _ => *fetch = LowPeakFetch::Running,
+        }
+    }
+    let app = app_handle.clone();
+    tauri::async_runtime::spawn(async move {
+        // Through the admission of work made ahead (G74): with memory for
+        // the download held in memory, not beside the photo's decode, a
+        // background decode or a Subject run; it starts and runs on its own
+        // (the background decodes do not wait for it). Not admitted within
+        // a minute: a later request tries again.
+        let ai_state = app.state::<AiState>();
+        let job = crate::ai_ahead::AheadJob::ModelFetch;
+        let need = crate::ai_ahead::estimated_peak(job, true, false);
+        let admitted = crate::ai_ahead::admit_beside(
+            job,
+            || false,
+            need,
+            || None,
+            || ai_state.subject_lock.try_lock().is_err(),
+        )
+        .await;
+        match admitted {
+            Ok(started) => drop(started),
+            Err(_) => {
+                *lock_recover(&LOW_PEAK_FETCH) = LowPeakFetch::Idle;
+                return;
+            }
+        }
+        log::info!("AI subject mask: fetching the low-peak model in the background");
+        let result = download_verified(
+            &app,
+            &models_dir,
+            preferred.name,
+            preferred.sha256,
+            "Subject Model",
+        )
+        .await;
+        let next = match result {
+            Ok(()) => {
+                if let Some(ai) = lock_recover(&ai_state.models).as_mut()
+                    && ai
+                        .subject_model
+                        .as_ref()
+                        .is_some_and(|model| model.on_onnx() && !model.low_peak())
+                {
+                    ai.subject_model = None;
+                }
+                log::info!("AI subject mask: low-peak model fetched; the next mask loads it");
+                LowPeakFetch::Idle
+            }
+            Err(e) => {
+                log::warn!(
+                    "AI subject mask: low-peak model not fetched ({e:#}); the installed model keeps running"
+                );
+                LowPeakFetch::Failed(std::time::Instant::now())
+            }
+        };
+        *lock_recover(&LOW_PEAK_FETCH) = next;
+    });
 }
 
 /// BiRefNet for Subject and Background masks. With `download` false (a
@@ -1410,6 +1576,9 @@ pub async fn get_or_init_subject_model(
             .as_ref()
             .and_then(|state| state.subject_model.clone())
     };
+    if download {
+        fetch_low_peak_subject_in_background(app_handle);
+    }
     if let Some(model) = loaded() {
         return Ok(Some(model));
     }
@@ -1438,15 +1607,30 @@ pub async fn get_or_init_subject_model(
                 "AI subject mask: ONNX Runtime check {} ms",
                 runtime_start.elapsed().as_millis()
             );
-            let path = models_dir.join(SUBJECT_FILENAME);
+            // The low-peak file once installed. Until then the usual one if
+            // installed (offline, or before the background fetch ends): an
+            // update must not make masking wait for a download.
+            let preferred = subject_onnx_file(&models_dir);
+            let file = if preferred.low_peak
+                && !preferred.installed(&models_dir)
+                && SubjectOnnxFile::USUAL.installed(&models_dir)
+            {
+                log::info!(
+                    "AI subject mask: low-peak model not installed yet; the installed usual model runs"
+                );
+                SubjectOnnxFile::USUAL
+            } else {
+                preferred
+            };
+            let path = models_dir.join(file.name);
             let file_start = std::time::Instant::now();
             let skip = if download {
                 runtime?;
                 let result = download_verified(
                     app_handle,
                     &models_dir,
-                    SUBJECT_FILENAME,
-                    SUBJECT_SHA256,
+                    file.name,
+                    file.sha256,
                     "Subject Model",
                 )
                 .await;
@@ -1457,8 +1641,7 @@ pub async fn get_or_init_subject_model(
                 result?;
                 None
             } else {
-                let skip =
-                    mask_model_skip(runtime.is_ok(), || verify_sha256(&path, SUBJECT_SHA256));
+                let skip = mask_model_skip(runtime.is_ok(), || verify_sha256(&path, file.sha256));
                 if runtime.is_ok() {
                     log::info!(
                         "AI subject mask: model file check/hash {} ms",
@@ -1477,7 +1660,11 @@ pub async fn get_or_init_subject_model(
                     "AI subject mask: model loader queue wait {} ms",
                     queued.elapsed().as_millis()
                 );
-                SubjectModel::onnx(&path)
+                if file.low_peak {
+                    SubjectModel::onnx_low_peak(&path)
+                } else {
+                    SubjectModel::onnx(&path)
+                }
             })
             .await??
         }
@@ -4152,6 +4339,66 @@ mod tool_tests {
         );
     }
 
+    /// Tool: BiRefNet's low-peak graph (`SUBJECT_LOW_PEAK_FILENAME`, CPU,
+    /// low-peak memory plan) against the usual graph on the CPU, on the
+    /// photos in `$AI_FILES` (`;`-separated, decoded as the app does) with
+    /// the models in `$AI_MODELS`: per photo the Subject selection's 8-bit
+    /// codes that differ, its IoU at 128 and both run times (notes:
+    /// benchmark-results/mem21-2026-11-26). Memory is measured outside.
+    #[test]
+    #[ignore = "tool: needs AI_FILES, AI_MODELS, ORT_DYLIB_PATH and RAWTONIC_AI_PROVIDER=cpu"]
+    fn print_subject_low_peak_agreement() {
+        use std::time::Instant;
+        let var = |k: &str| std::env::var(k).unwrap();
+        let models = std::path::PathBuf::from(var("AI_MODELS"));
+        // RAWTONIC_AI_PROVIDER=cpu keeps the usual graph on the CPU too.
+        let usual = super::SubjectModel::onnx(&models.join(super::SUBJECT_FILENAME)).unwrap();
+        let low_peak = super::SubjectModel::onnx_low_peak(
+            &models.join(rawtonic_segment::SUBJECT_LOW_PEAK_FILENAME),
+        )
+        .unwrap();
+        let settings = crate::app_settings::AppSettings::default();
+        for path in var("AI_FILES").split(';') {
+            let bytes = std::fs::read(path).unwrap();
+            let image = crate::image_loader::load_base_image_from_bytes(
+                &bytes, path, false, &settings, None,
+            )
+            .unwrap();
+            let raw = !path.to_lowercase().ends_with(".jpg");
+            let select = |model: &super::SubjectModel| {
+                let start = Instant::now();
+                let mask = rawtonic_segment::subject_selection(
+                    &image,
+                    model,
+                    raw,
+                    None,
+                    rawtonic_segment::SUBJECT_VERSION,
+                )
+                .unwrap();
+                (mask, start.elapsed().as_secs_f32())
+            };
+            let (a, t_a) = select(&usual);
+            let (b, t_b) = select(&low_peak);
+            let (mut differ, mut largest, mut inter, mut union) = (0u64, 0u8, 0u64, 0u64);
+            for (p, q) in a.pixels().zip(b.pixels()) {
+                differ += (p[0] != q[0]) as u64;
+                largest = largest.max(p[0].abs_diff(q[0]));
+                let (p, q) = (p[0] >= 128, q[0] >= 128);
+                inter += (p && q) as u64;
+                union += (p || q) as u64;
+            }
+            let iou = if union == 0 {
+                1.0
+            } else {
+                inter as f64 / union as f64
+            };
+            println!(
+                "{path}\t{} px\tcodes differing {differ} (at most {largest})\tIoU {iou:.6}\tusual {t_a:.2} s\tlow peak {t_b:.2} s",
+                a.width() as u64 * a.height() as u64
+            );
+        }
+    }
+
     /// Tool: the app's Subject masks (`run_subject_model`, mask at the
     /// photo's size) of the photos in `$AI_FILES` (`;`-separated, decoded
     /// as the app does) from two Core ML packages, `$SUBJECT_COREML_A` and
@@ -4611,5 +4858,47 @@ mod download_tests {
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
         assert!(persist_downloaded_asset(&model, b"").is_err());
         assert_eq!(std::fs::read(&model).unwrap(), b"new model");
+    }
+}
+
+#[cfg(test)]
+mod model_fetch_tests {
+    use std::time::{Duration, Instant};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A transfer that stalls ends with an error after the read timeout
+    /// instead of waiting for good (so the low-peak Subject model's fetch can
+    /// try again); one that completes is returned whole.
+    #[tokio::test]
+    async fn a_stalled_model_download_ends_and_a_whole_one_is_returned() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            for stall in [true, false] {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut request = [0u8; 1024];
+                    let _ = socket.read(&mut request).await;
+                    let head = b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\n";
+                    socket.write_all(head).await.unwrap();
+                    if stall {
+                        socket.write_all(b"abc").await.unwrap();
+                        tokio::time::sleep(Duration::from_secs(30)).await;
+                    } else {
+                        socket.write_all(b"abcdef").await.unwrap();
+                    }
+                });
+            }
+        });
+        let url = format!("http://{address}/model.onnx");
+        let timeout = Duration::from_millis(300);
+        let started = Instant::now();
+        let stalled = super::fetch_url(&url, timeout, &mut |_, _| {}).await;
+        assert!(stalled.is_err(), "a stalled transfer must fail");
+        assert!(started.elapsed() < Duration::from_secs(10));
+        let whole = super::fetch_url(&url, timeout, &mut |_, _| {})
+            .await
+            .unwrap();
+        assert_eq!(whole, b"abcdef");
     }
 }

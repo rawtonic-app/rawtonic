@@ -849,8 +849,40 @@ fn ort_path(path: &Path) -> Vec<c_char> {
 /// Creates a session for `path` (a `kind` model) on `device` (`None` = the
 /// CPU).
 pub(crate) fn session(path: &Path, kind: ModelKind, device: Option<&Device>) -> Result<Session> {
-    session_with(path, kind, device, None)
+    session_with(path, kind, device, Tuning::default())
 }
+
+/// How a session plans the memory of a run.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MemoryPlan {
+    /// ONNX Runtime's sequential plan, no CPU memory arena (every model):
+    /// a buffer whose tensor ended is reused for a later tensor of the same
+    /// shape, and in-place operators (Reshape) copy nothing. The buffer
+    /// stays allocated, unused, until that later tensor ends: in BiRefNet's
+    /// backbone each block's buffers wait for the next block's, +2.1 GB on
+    /// x86 for 234 MB of tensors alive (notes:
+    /// benchmark-results/mem21-2026-11-26).
+    #[default]
+    Reuse,
+    /// The lowest peak, on the CPU only: ONNX Runtime's parallel execution
+    /// mode, whose plan reuses no buffer (so each tensor's memory goes when
+    /// it ends; Reshape then copies), with the CPU memory arena so the run
+    /// does not fault every buffer's pages in fresh, shrunk at the end of
+    /// each run (`Model::run_options`). BiRefNet's low-peak graph: +1.36 GB
+    /// on x86 for a session's first run instead of +2.13 GB, 22 % slower.
+    LowPeak,
+}
+
+/// The CPU options of a session: `threads` (as `session_with`) and its
+/// memory plan.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Tuning {
+    pub(crate) threads: Option<usize>,
+    pub(crate) plan: MemoryPlan,
+}
+
+/// The run option that shrinks a session's CPU arena at the end of a run.
+const SHRINK_ARENA: (&str, &str) = ("memory.enable_memory_arena_shrinkage", "cpu:0");
 
 /// `session` with at most `threads` threads inside each operator (`None`:
 /// ONNX Runtime's default, one per core) that sleep instead of spinning
@@ -863,7 +895,7 @@ fn session_with(
     path: &Path,
     kind: ModelKind,
     device: Option<&Device>,
-    threads: Option<usize>,
+    tuning: Tuning,
 ) -> Result<Session> {
     if device.is_none()
         && kind.keeps_optimized_graph()
@@ -874,13 +906,13 @@ fn session_with(
         log_subject_load_step(kind, "optimized graph cache key", started);
         match entry {
             Ok(entry) => {
-                return cpu_session_cached(path, kind, threads, &entry, optimized::KEEP_FROM);
+                return cpu_session_cached(path, kind, tuning, &entry, optimized::KEEP_FROM);
             }
             Err(e) if e.is::<optimized::LinkedCache>() => {}
             Err(e) => log::info!("AI {}: no optimized graph: {e:#}", kind.name()),
         }
     }
-    build_session(path, kind, device, threads)
+    build_session(path, kind, device, tuning)
 }
 
 fn log_subject_load_step(kind: ModelKind, step: &str, started: Instant) {
@@ -893,10 +925,10 @@ fn build_session(
     path: &Path,
     kind: ModelKind,
     device: Option<&Device>,
-    threads: Option<usize>,
+    tuning: Tuning,
 ) -> Result<Session> {
     let started = Instant::now();
-    let result = builder(kind, device, threads).and_then(|mut b| Ok(b.commit_from_file(path)?));
+    let result = builder(kind, device, tuning).and_then(|mut b| Ok(b.commit_from_file(path)?));
     log_subject_load_step(kind, "session build", started);
     result
 }
@@ -906,7 +938,7 @@ fn build_session(
 fn cpu_session_cached(
     path: &Path,
     kind: ModelKind,
-    threads: Option<usize>,
+    tuning: Tuning,
     entry: &optimized::Entry,
     keep_from: std::time::Duration,
 ) -> Result<Session> {
@@ -919,11 +951,11 @@ fn cpu_session_cached(
     );
     match lookup {
         Ok(optimized::Lookup::NotKept) => {
-            return build_session(path, kind, None, threads);
+            return build_session(path, kind, None, tuning);
         }
         Ok(optimized::Lookup::Graph(graph)) => {
             let load = Instant::now();
-            let session = builder(kind, None, threads)?
+            let session = builder(kind, None, tuning)?
                 .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Disable)
                 .map_err(|e| anyhow!("optimization level: {e}"))?
                 .commit_from_file(&graph);
@@ -964,12 +996,12 @@ fn cpu_session_cached(
             if !e.is::<optimized::LinkedCache>() {
                 log::info!("AI {}: optimized graph not saved: {e:#}", kind.name());
             }
-            return build_session(path, kind, None, threads);
+            return build_session(path, kind, None, tuning);
         }
     };
     let started = Instant::now();
     let saving =
-        saving_builder(kind, threads, &save).and_then(|mut b| Ok(b.commit_from_file(path)?));
+        saving_builder(kind, tuning, &save).and_then(|mut b| Ok(b.commit_from_file(path)?));
     match saving {
         Ok(session) => {
             let created = started.elapsed();
@@ -1002,7 +1034,7 @@ fn cpu_session_cached(
             save.abandon();
             entry.failed();
             log::info!("AI {}: optimized graph not saved: {e:#}", kind.name());
-            build_session(path, kind, None, threads)
+            build_session(path, kind, None, tuning)
         }
     }
 }
@@ -1011,11 +1043,11 @@ fn cpu_session_cached(
 /// where `save` says.
 fn saving_builder(
     kind: ModelKind,
-    threads: Option<usize>,
+    tuning: Tuning,
     save: &optimized::Save,
 ) -> Result<SessionBuilder> {
     let options = |e: ort::Error<SessionBuilder>| anyhow!("optimized graph options: {e}");
-    let builder = builder(kind, None, threads)?
+    let builder = builder(kind, None, tuning)?
         .with_optimized_model_path(&save.graph_temp)
         .map_err(options)?
         .with_config_entry("session.save_model_format", "ONNX")
@@ -1033,15 +1065,20 @@ fn saving_builder(
     Ok(builder)
 }
 
-/// The session options every session has: `threads` (as `session_with`),
-/// no CPU memory arena, `device`'s provider or the CPU.
-fn builder(
-    kind: ModelKind,
-    device: Option<&Device>,
-    threads: Option<usize>,
-) -> Result<SessionBuilder> {
+/// The session options every session has: `tuning`'s threads (as
+/// `session_with`), no CPU memory arena (`MemoryPlan::Reuse`; the low-peak
+/// plan's on the CPU), `device`'s provider or the CPU.
+fn builder(kind: ModelKind, device: Option<&Device>, tuning: Tuning) -> Result<SessionBuilder> {
     let mut builder = Session::builder(runtime::environment()?)?;
-    if let Some(threads) = threads {
+    let low_peak = device.is_none() && tuning.plan == MemoryPlan::LowPeak;
+    if low_peak {
+        builder = builder
+            .with_parallel_execution(true)
+            .map_err(|e| anyhow!("parallel execution: {e}"))?
+            .with_config_entry("session.inter_op.allow_spinning", "0")
+            .map_err(|e| anyhow!("session spinning: {e}"))?;
+    }
+    if let Some(threads) = tuning.threads {
         builder = builder
             .with_intra_threads(threads.max(1))
             .map_err(|e| anyhow!("session threads: {e}"))?
@@ -1052,7 +1089,10 @@ fn builder(
     // tensors (SAM's encoder about 1 GB, Relight's models about 1 GB more)
     // for as long as the model stays loaded; without it they are freed
     // after each run (notes: benchmark-results/mem-ai-footprint-2026-10-27).
-    unsafe { check((ort::api().DisableCpuMemArena)(builder.ptr_mut()))? };
+    // The low-peak plan keeps it and shrinks it after each run instead.
+    if !low_peak {
+        unsafe { check((ort::api().DisableCpuMemArena)(builder.ptr_mut()))? };
+    }
     if let Some(device) = device {
         append(&mut builder, device, kind)?;
     } else {
@@ -1066,10 +1106,21 @@ fn builder(
                     i32,
                 ) -> ort::sys::OrtStatusPtr,
             > = library.get(b"OrtSessionOptionsAppendExecutionProvider_CPU\0")?;
-            check(append_cpu(builder.ptr_mut(), 0))?;
+            check(append_cpu(builder.ptr_mut(), i32::from(low_peak)))?;
         }
     }
     Ok(builder)
+}
+
+/// Run options for a session with `plan` (`Model::run_options`).
+fn run_options_for(plan: MemoryPlan) -> Result<ort::session::RunOptions> {
+    let mut options = ort::session::RunOptions::new().map_err(|e| anyhow!("run options: {e}"))?;
+    if plan == MemoryPlan::LowPeak {
+        options
+            .set(SHRINK_ARENA.0, SHRINK_ARENA.1)
+            .map_err(|e| anyhow!("run options: {e}"))?;
+    }
+    Ok(options)
 }
 
 /// An error if any value is NaN or infinite: a GPU kernel that went wrong
@@ -1093,6 +1144,8 @@ pub struct Model {
     kind: ModelKind,
     path: PathBuf,
     state: Arc<watch::Slot<Session>>,
+    /// The CPU sessions' memory plan (also of one made after a GPU failed).
+    plan: MemoryPlan,
 }
 
 impl Model {
@@ -1116,7 +1169,11 @@ impl Model {
     pub fn load_cpu_threads(path: &Path, kind: ModelKind, threads: usize) -> Result<Self> {
         ensure_runtime()?;
         let started = Instant::now();
-        let session = session_with(path, kind, None, Some(threads))
+        let tuning = Tuning {
+            threads: Some(threads),
+            plan: MemoryPlan::Reuse,
+        };
+        let session = session_with(path, kind, None, tuning)
             .map_err(|e| e.context(format!("loading {} on CPU", path.display())))?;
         log::info!(
             "AI {}: loaded on CPU ({threads} threads) in {} ms",
@@ -1127,7 +1184,47 @@ impl Model {
             kind,
             path: path.to_path_buf(),
             state: Arc::new(watch::Slot::new(kind.name(), session, Provider::Cpu)),
+            plan: MemoryPlan::Reuse,
         })
+    }
+
+    /// Loads `path` on the CPU with the low-peak memory plan
+    /// (`MemoryPlan::LowPeak`), never on a GPU: for a graph made for it
+    /// (BiRefNet's low-peak graph) on a machine short of memory. Runs need
+    /// `run_options` to give the arena back after each run.
+    pub fn load_cpu_low_peak(path: &Path, kind: ModelKind) -> Result<Self> {
+        ensure_runtime()?;
+        let started = Instant::now();
+        let tuning = Tuning {
+            threads: None,
+            plan: MemoryPlan::LowPeak,
+        };
+        let session = session_with(path, kind, None, tuning)
+            .map_err(|e| e.context(format!("loading {} on CPU", path.display())))?;
+        log::info!(
+            "AI {}: loaded on CPU (low-peak memory plan) in {} ms",
+            kind.name(),
+            started.elapsed().as_millis()
+        );
+        Ok(Self {
+            kind,
+            path: path.to_path_buf(),
+            state: Arc::new(watch::Slot::new(kind.name(), session, Provider::Cpu)),
+            plan: MemoryPlan::LowPeak,
+        })
+    }
+
+    /// The memory plan of the model's CPU sessions.
+    pub fn memory_plan(&self) -> MemoryPlan {
+        self.plan
+    }
+
+    /// New run options for a run of this model (`RunOptions::terminate`
+    /// stops it from another thread): with the low-peak plan they also give
+    /// the session's CPU arena back at the end of the run. Pass them to
+    /// every run of such a model.
+    pub fn run_options(&self) -> Result<ort::session::RunOptions> {
+        run_options_for(self.plan)
     }
 
     /// `load` for a file of the model pack, the model known by its name.
@@ -1199,6 +1296,7 @@ impl Model {
                     kind,
                     path: path.to_path_buf(),
                     state: Arc::new(watch::Slot::new(kind.name(), session, device.provider)),
+                    plan: MemoryPlan::Reuse,
                 })
             }
             Err(e) => {
@@ -1301,6 +1399,7 @@ impl Model {
                         kind,
                         path: path.to_path_buf(),
                         state,
+                        plan: MemoryPlan::Reuse,
                     });
                 }
                 Err(e) => {
@@ -1336,7 +1435,11 @@ impl Model {
 
     /// A new CPU session of this model, after a GPU failed.
     fn cpu_session(&self) -> Result<Session> {
-        session(&self.path, self.kind, None)
+        let tuning = Tuning {
+            threads: None,
+            plan: self.plan,
+        };
+        session_with(&self.path, self.kind, None, tuning)
     }
 
     /// `run` that never waits for a hung GPU (`watch`): on a GPU, `f` runs

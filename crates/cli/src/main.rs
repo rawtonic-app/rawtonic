@@ -644,7 +644,7 @@ struct SelectionModels {
 impl SelectionModels {
     fn new(dir: PathBuf) -> Self {
         Self {
-            segment: rawtonic_segment::Models::new(&dir),
+            segment: rawtonic_segment::Models::new(&dir).with_total_memory(total_memory()),
             dir,
             faces: std::sync::OnceLock::new(),
         }
@@ -1950,6 +1950,13 @@ fn export(args: ExportArgs) -> Result<()> {
     );
     Ok(())
 }
+/// The machine's physical memory in bytes, as the app reads it.
+fn total_memory() -> u64 {
+    let mut system = sysinfo::System::new();
+    system.refresh_memory();
+    system.total_memory()
+}
+
 /// Free physical memory in bytes, as the app's export reads it.
 fn available_memory() -> u64 {
     let mut system = sysinfo::System::new();
