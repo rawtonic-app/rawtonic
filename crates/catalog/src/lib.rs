@@ -43,6 +43,7 @@ pub mod layout;
 mod migrations;
 pub mod one_root;
 pub mod query;
+pub mod sensor_kind;
 pub mod session_folders;
 pub mod session_move;
 pub mod snapshots;
@@ -2243,6 +2244,7 @@ impl Library {
         }
         let tx = self.conn.unchecked_transaction()?;
         self.apply_places(&tx, &moved)?;
+        crate::sensor_kind::forget_reads_of_other_files(&tx, moved.iter().map(|(id, _)| id))?;
         tx.commit()?;
         report.relinked.insert(0, (asset.path, to));
         Ok(report)
@@ -2265,6 +2267,7 @@ impl Library {
         let (report, moved) = self.relink_plan(&resolve_moved(from), &to, None)?;
         let tx = self.conn.unchecked_transaction()?;
         self.apply_places(&tx, &moved)?;
+        crate::sensor_kind::forget_reads_of_other_files(&tx, moved.iter().map(|(id, _)| id))?;
         tx.commit()?;
         Ok(report)
     }

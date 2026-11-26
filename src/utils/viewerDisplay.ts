@@ -14,15 +14,20 @@ export const DEFAULT_VIEWER_BACKGROUND: ViewerBackground = 'default';
  * Neutral greys as display-encoded sRGB values (0–255). The display surface is
  * not an sRGB format, so these reach the screen unchanged. Medium is 119: an
  * 18 % reflectance grey (L* 50), the middle of perceived lightness, for
- * judging tones; Dark is about the earlier default viewer grey.
+ * judging tones. Dark (80) is one step down from Medium (OKLab L 0.43 from
+ * 0.57), well clear of Medium and Darker (18, 0.18) on both sides and of the
+ * canvas colours it meets in the shades (24, 38 and 76). Default is the app's canvas
+ * colour (`--app-bg-primary`, see viewerBackgroundCss) and follows the
+ * interface shade; its entry here is only the fallback when no stylesheet
+ * answers (the Darkest canvas, 24).
  */
 export const VIEWER_BACKGROUND_LEVELS: Record<ViewerBackground, number> = {
-  default: 38,
+  default: 24,
   black: 0,
   veryDark: 18,
-  dark: 38,
+  dark: 80,
   medium: 119,
-  light: 200,
+  light: 201,
   white: 255
 };
 
@@ -42,14 +47,47 @@ export function resolveViewerBackground(settings: ViewerBackgroundSettings | nul
   return DEFAULT_VIEWER_BACKGROUND;
 }
 
+/** The grey a fixed background renders as; Default is the canvas colour instead. */
+function backgroundLevel(background: ViewerBackground): number | null {
+  return background === 'default' ? null : VIEWER_BACKGROUND_LEVELS[background];
+}
+
+/**
+ * The interface shade's canvas colour (`--app-bg-primary`) as 0–255 sRGB.
+ * Sources write it as `rgb(r, g, b)` and the built stylesheet as `#rrggbb`,
+ * so both are read; anything else falls back like the CSS path does (the
+ * Darkest canvas), never to black, which is a choice of its own.
+ */
+function canvasLevel(): number {
+  const declared = getComputedStyle(document.documentElement).getPropertyValue('--app-bg-primary').trim();
+  const hex = declared.match(/^#([0-9a-f]{6})$/i);
+  const values = hex
+    ? [0, 2, 4].map((i) => parseInt(hex[1].slice(i, i + 2), 16))
+    : declared
+        .match(/[\d.]+/g)
+        ?.slice(0, 3)
+        .map(Number);
+  if (!values || values.length < 3 || values.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) {
+    return VIEWER_BACKGROUND_LEVELS.default;
+  }
+  return (values[0] + values[1] + values[2]) / 3;
+}
+
 /** Normalised RGBA for the native display. */
 export function viewerBackgroundRgba(background: ViewerBackground, brightness = 1): [number, number, number, number] {
-  const v = (VIEWER_BACKGROUND_LEVELS[background] / 255) * brightness;
+  const level = backgroundLevel(background) ?? canvasLevel();
+  const v = (level / 255) * brightness;
   return [v, v, v, 1];
 }
 
 export function viewerBackgroundCss(background: ViewerBackground, brightness = 1): string {
-  const v = VIEWER_BACKGROUND_LEVELS[background] * brightness;
+  const level = backgroundLevel(background);
+  if (level === null) {
+    const fallback = VIEWER_BACKGROUND_LEVELS.default;
+    const canvas = `var(--app-bg-primary, rgb(${fallback}, ${fallback}, ${fallback}))`;
+    return brightness === 1 ? canvas : `color-mix(in srgb, ${canvas} ${brightness * 100}%, black)`;
+  }
+  const v = level * brightness;
   return `rgb(${v}, ${v}, ${v})`;
 }
 
