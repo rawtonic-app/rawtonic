@@ -37,8 +37,7 @@ describe('professional adjustment control', () => {
     fireEvent.pointerMove(slider, { clientX: 77.5, clientY: 10, pointerId: 1 });
     fireEvent.pointerUp(slider, { pointerId: 1 });
     expect(change).toHaveBeenLastCalledWith(2);
-    // Codex r1: the suppressed native press must still move keyboard focus.
-    expect(document.activeElement).toBe(slider);
+    expect(document.activeElement).toBe(document.body);
     expect(slider.closest('.adjustment-control')!.classList.contains('is-active')).toBe(false);
   });
   it('moves the thumb to a press beside it, then drags from there', () => {

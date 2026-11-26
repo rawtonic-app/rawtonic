@@ -1934,6 +1934,13 @@
   border-left: 1px solid var(--studio-shade-ink, #17181a);
   border-right: 1px solid var(--studio-shade-ink, #17181a);
 }
+.studio-wb-loupe {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-inline: 5px;
+  white-space: nowrap;
+}
 .studio-viewer-tools button {
   width: 28px;
   justify-content: center;

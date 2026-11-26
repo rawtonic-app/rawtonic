@@ -2,6 +2,7 @@ import { useSettingsStore } from '../../store/useSettingsStore';
 import '../../i18n';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, renderHook, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import StudioWorkspace from './StudioWorkspace';
 import StudioToolBar from './StudioToolBar';
@@ -10,12 +11,13 @@ import { stepBrushSize, useStudioTools } from './useStudioTools';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useUIStore } from '../../store/useUIStore';
 import { debouncedSetHistory } from '../../hooks/useEditorActions';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER } from '../../utils/adjustments';
 import { createSubMask } from '../../utils/maskUtils';
 import { registerSliderDraftRenderer } from '../../utils/sliderDraft';
 import { kindOf } from '../../utils/maskKinds';
 import { Mask, SubMaskMode, ToolType } from '../panel/right/Masks';
-import { Panel, type SelectedImage } from '../ui/AppProperties';
+import { Panel, type ImageFile, type SelectedImage } from '../ui/AppProperties';
 
 // The viewer stands in for the canvas: a surface that reports right-clicks.
 vi.mock('../panel/Editor', () => ({
@@ -206,6 +208,56 @@ describe('cursor tool bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'White balance picker' }));
     expect(editor().isWbPickerActive).toBe(true);
     expect(pressed('White balance picker')).toBe('true');
+  });
+
+  it('saves the loupe option and lets arrows navigate with the checkbox focused', async () => {
+    const previous = useSettingsStore.getState();
+    const save = vi.fn(async (appSettings: NonNullable<typeof previous.appSettings>) =>
+      useSettingsStore.setState({ appSettings })
+    );
+    useSettingsStore.setState({
+      appSettings: {} as NonNullable<typeof previous.appSettings>,
+      handleSettingsChange: save
+    });
+    try {
+      const handleImageSelect = vi.fn();
+      const nextPhoto = '/qa/next.dng';
+      renderHook(() =>
+        useKeyboardShortcuts({
+          sortedImageList: [editor().selectedImage!.path, nextPhoto].map((path) => ({ path }) as ImageFile),
+          handleBackToLibrary: vi.fn(),
+          handleDeleteSelected: vi.fn(),
+          handleImageSelect,
+          handlePasteFiles: vi.fn(),
+          handleZoomChange: vi.fn()
+        })
+      );
+      render(<StudioToolBar />);
+      expect(screen.queryByRole('checkbox', { name: 'Show Loupe' })).toBeNull();
+      const picker = screen.getByRole('button', { name: 'White balance picker' });
+      fireEvent.click(picker);
+      const checkbox = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Show Loupe' });
+      expect(checkbox.checked).toBe(true);
+      const user = userEvent.setup();
+      await user.click(checkbox);
+      expect(save).toHaveBeenCalledWith({ showWbLoupe: false });
+      expect(checkbox.checked).toBe(false);
+      expect(editor().isWbPickerActive).toBe(true);
+      expect(document.activeElement).toBe(checkbox);
+      await user.keyboard('{ArrowRight}');
+      expect(handleImageSelect).toHaveBeenCalledWith(nextPhoto, true);
+      await user.keyboard(' ');
+      expect(checkbox.checked).toBe(true);
+      await user.keyboard(' ');
+      expect(checkbox.checked).toBe(false);
+      fireEvent.click(picker);
+      expect(screen.queryByRole('checkbox', { name: 'Show Loupe' })).toBeNull();
+      fireEvent.click(picker);
+      expect(screen.getByRole<HTMLInputElement>('checkbox', { name: 'Show Loupe' }).checked).toBe(false);
+    } finally {
+      cleanup();
+      useSettingsStore.setState(previous);
+    }
   });
 
   it('does nothing before the photograph is ready', () => {
@@ -458,7 +510,7 @@ describe('[ and ]', () => {
     window.removeEventListener('keydown', rotate);
   });
 
-  it('resize the brush while the slider just dragged keeps the focus, never rotating', () => {
+  it('resize the brush with a focused slider', () => {
     withLinearLayer();
     workspace();
     fireEvent.click(screen.getByRole('button', { name: 'Brush' }));

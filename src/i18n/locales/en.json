@@ -1018,7 +1018,8 @@
       }
     },
     "pickerLoupe": {
-      "label": "Picker loupe"
+      "label": "Picker loupe",
+      "show": "Show Loupe"
     }
   },
   "errors": {
