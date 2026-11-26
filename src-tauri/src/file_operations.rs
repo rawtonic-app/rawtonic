@@ -2838,6 +2838,79 @@ mod tests {
         assert!(!lib.asset(&asset.id).unwrap().missing);
     }
 
+    /// A photograph moved to the system Trash leaves the library at once:
+    /// its folder does not list it as offline, nor does an album by path.
+    /// Undo brings it back with its rating, edit and virtual copy (TRS2).
+    #[test]
+    fn a_photo_moved_to_the_trash_leaves_the_library_and_undo_brings_it_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let capture = dir.join("Capture");
+        let photo = capture.join("A.RAF");
+        fs::write(&photo, "synthetic photo").unwrap();
+        fs::write(capture.join("B.RAF"), "another photo").unwrap();
+        let lib = Library::open(&dir).unwrap();
+        let asset = lib.add_asset(&photo).unwrap();
+        lib.add_asset(&capture.join("B.RAF")).unwrap();
+        let mut metadata = lib.metadata(&asset.id).unwrap();
+        metadata.rating = 4;
+        lib.set_metadata(&asset.id, &metadata).unwrap();
+        lib.save_editor_state(
+            &asset.id,
+            &serde_json::json!({"adjustments":{"exposure":1}}),
+        )
+        .unwrap();
+        let copy = capture.join("A.RAF.c0ffee.rrdata");
+        crate::session_bridge::write_editor_sidecar(
+            &copy,
+            br#"{"version":1,"rating":2,"adjustments":{}}"#,
+        )
+        .unwrap();
+        assert_eq!(lib.copies(&asset.id).unwrap(), ["c0ffee"]);
+        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let trash = BesideTrash(tmp.path().join(".trash"));
+        let op = journal
+            .execute(
+                "trash",
+                "Delete 1 photo",
+                vec![Step::system_trash(&photo), Step::system_trash(&copy)],
+                &trash,
+            )
+            .unwrap();
+        sync_catalog(&op, true).unwrap();
+        assert!(!photo.exists());
+        let offline = |folder: &Path, recursive: bool| {
+            crate::session_bridge::offline_in_folder(folder, recursive)
+        };
+        assert!(offline(&capture, false).is_empty(), "listed as offline");
+        assert!(offline(&dir, true).is_empty());
+        assert!(crate::session_bridge::offline_status(std::slice::from_ref(&photo)).is_empty());
+        assert!(lib.offline_assets().unwrap().is_empty());
+        assert_eq!(lib.summary().unwrap().assets, 1);
+        assert_eq!(
+            lib.search_count(&rawtonic_catalog::Rule::everything())
+                .unwrap(),
+            1
+        );
+        // The record is kept, edits and all, until the Trash is emptied.
+        assert_eq!(lib.metadata(&asset.id).unwrap().rating, 4);
+
+        let op = journal.undo(&op.id, &trash).unwrap();
+        sync_catalog(&op, false).unwrap();
+        assert!(photo.is_file());
+        let back = lib.asset_at(&photo).unwrap().unwrap();
+        assert_eq!(back.id, asset.id);
+        assert!(!back.missing);
+        assert_eq!(back.rating, 4);
+        assert_eq!(
+            lib.editor_state(&asset.id).unwrap().unwrap()["adjustments"]["exposure"],
+            1
+        );
+        assert_eq!(lib.copies(&asset.id).unwrap(), ["c0ffee"]);
+        assert_eq!(lib.summary().unwrap().assets, 2);
+        assert!(offline(&capture, false).is_empty());
+    }
+
     /// The records follow a folder moved to another drive also when that
     /// drive is offline when they do (a crash before the sync, the next
     /// start without the drive): the journal says it was a folder.

@@ -2425,7 +2425,9 @@ pub(crate) fn offline_status(paths: &[PathBuf]) -> HashMap<PathBuf, OfflineEntry
             continue;
         };
         for path in paths {
+            // One the app moved to the Trash left the library: not offline.
             if let Ok(Some(asset)) = lib.asset_at(path)
+                && !lib.is_trashed(&asset.id).unwrap_or(false)
                 && let Ok(offline) = lib.offline_asset(&asset.id)
             {
                 // Keyed by the path asked for (an album's stored form).

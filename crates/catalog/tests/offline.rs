@@ -550,3 +550,40 @@ fn schemas_15_and_9_migrate_in_both_library_modes_without_losing_memberships() {
         }
     }
 }
+
+/// A photograph moved to the system Trash leaves its folder at once: it is
+/// not listed there as offline (a trashed photo shown as Offline looks like
+/// a disconnected drive and invites Locate). Its record keeps rating, edit
+/// and album, so Undo brings it back as it was (TRS2).
+#[test]
+fn a_trashed_photograph_is_not_listed_offline_in_its_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (lib, ids) = catalog(tmp.path());
+    let folder = tmp.path().canonical().unwrap().join("Card/2026");
+    let trash = tmp.path().join("Bin");
+    fs::create_dir_all(&trash).unwrap();
+    fs::rename(folder.join("B.NEF"), trash.join("B.NEF")).unwrap();
+    assert_eq!(lib.set_trashed_at(&folder.join("B.NEF"), true).unwrap(), 1);
+    assert!(lib.offline_in(&folder, false).unwrap().is_empty());
+    assert!(lib.offline_in(tmp.path(), true).unwrap().is_empty());
+    assert!(lib.offline_assets().unwrap().is_empty());
+    assert_eq!(lib.summary().unwrap().assets, 2);
+    assert_eq!(lib.collections().unwrap()[0].count, 2);
+    // Kept, with what was done to it.
+    assert_eq!(lib.metadata(&ids[1]).unwrap().rating, 2);
+
+    // Undo: the file comes back and so does the photograph.
+    fs::rename(trash.join("B.NEF"), folder.join("B.NEF")).unwrap();
+    assert_eq!(lib.set_trashed_at(&folder.join("B.NEF"), false).unwrap(), 1);
+    assert_eq!(lib.summary().unwrap().assets, 3);
+    assert_eq!(lib.collections().unwrap()[0].count, 3);
+    assert_eq!(lib.metadata(&ids[1]).unwrap().rating, 2);
+    assert_eq!(
+        lib.editor_state(&ids[1]).unwrap().unwrap()["adjustments"]["exposure"],
+        2
+    );
+
+    // A file that vanished outside the app is still listed offline.
+    fs::remove_file(folder.join("A.NEF")).unwrap();
+    assert_eq!(lib.offline_in(&folder, false).unwrap().len(), 1);
+}
