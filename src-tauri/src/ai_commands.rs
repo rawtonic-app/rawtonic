@@ -880,15 +880,35 @@ async fn sam_embeddings(
     Ok((embeddings, warped_image, source_is_raw))
 }
 
+/// Whether the loaded photo's SAM encoding with `js_adjustments`' geometry
+/// is kept (`sam_embeddings` answers it without a run).
+fn sam_encoding_cached(
+    state: &AppState,
+    ai_state: &AiState,
+    js_adjustments: &serde_json::Value,
+) -> bool {
+    let Some(loaded) = lock_recover(&state.source.original_image).clone() else {
+        return false;
+    };
+    let path_hash = geometry_key(&loaded, js_adjustments);
+    lock_recover(&ai_state.models)
+        .as_ref()
+        .and_then(|ai| ai.embeddings.as_ref())
+        .is_some_and(|e| e.path_hash == path_hash)
+}
+
 #[tauri::command]
 pub async fn precompute_ai_subject_mask(
     js_adjustments: serde_json::Value,
     path: String,
     background: Option<bool>,
     task_id: Option<String>,
+    asked: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), CommandError> {
+    // Before any wait: opening the masking tools meanwhile starts it.
+    let asked_at = crate::ai_ahead::asked_count();
     let ai_state = app_handle.state::<AiState>();
     let _running = ai_state.lifecycle.run();
     let generation = ai_state.lifecycle.generation();
@@ -899,6 +919,8 @@ pub async fn precompute_ai_subject_mask(
     let cancelled = || _guard.as_ref().is_some_and(|g| g.token.is_cancelled());
     // The models' load takes a turn as their run does (`sam_load_turn`).
     let mut load_turn = None;
+    // Held while an encoding made ahead runs (`ai_ahead::running`).
+    let mut _ahead = None;
     // `background`: asked for by opening a photo, not by the user: only
     // with a model that is already installed (no download), and while the
     // system is not short of memory (as `precompute`).
@@ -910,6 +932,35 @@ pub async fn precompute_ai_subject_mask(
         if cancelled() {
             log::info!("AI object mask: not encoded ahead, the task was cancelled");
             return Ok(());
+        }
+        // As Subject and Sky made ahead (`ai_ahead`): after the decodes,
+        // with memory for the encoder and its run, unless the photographer
+        // opened the masking tools (`asked`).
+        if asked != Some(true) && !sam_encoding_cached(&state, &ai_state, &js_adjustments) {
+            let job = crate::ai_ahead::AheadJob::ObjectEncoding;
+            let loaded = lock_recover(&ai_state.models)
+                .as_ref()
+                .is_some_and(|ai| ai.sam_models.is_some());
+            let need = crate::ai_ahead::estimated_peak(
+                job,
+                rawtonic_onnx::models_run_on_cpu_only(),
+                loaded,
+            );
+            let asked = || crate::ai_ahead::asked_since(asked_at, task_id.as_deref());
+            let admitted = crate::ai_ahead::admit(job, asked, need, || {
+                if cancelled() {
+                    return Some("the task was cancelled");
+                }
+                ahead_photo_skip(current_photo(&state.source).as_deref(), &path)
+            })
+            .await;
+            match admitted {
+                Ok(run) => _ahead = Some(run),
+                Err(why) => {
+                    log::info!("AI object mask: not encoded ahead, {why:?}");
+                    return Ok(());
+                }
+            }
         }
         load_turn = sam_load_turn(&ai_state, false).await;
         crate::ai_processing::preload_sam_models(&app_handle, &ai_state)
@@ -1459,20 +1510,74 @@ fn ahead_photo_skip(current: Option<&str>, requested: &str) -> Option<&'static s
     }
 }
 
+/// What a mask made ahead (`precompute`) came to, for the webview.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AheadMask {
+    /// The mask is there (computed or cached).
+    Ready,
+    /// Not computed, and asking again for this photo would not change that:
+    /// its model is not installed, the photo changed, the run was cancelled.
+    Unavailable,
+    /// Not computed for now: held too long for the photo's decodes or the
+    /// memory, or the system was short of memory. Opening the masking tools
+    /// asks for it again.
+    Dropped,
+}
+
+/// The path of the photo whose full decode is loaded, without waiting.
+fn current_photo(source: &crate::state::source::SourceState) -> Option<String> {
+    lock_recover(&source.original_image)
+        .as_ref()
+        .map(|loaded| loaded.path.clone())
+}
+
+/// Whether the loaded photo's `kind` mask with `js_adjustments`' geometry is
+/// cached (`auto_mask` answers it without a model).
+fn auto_mask_cached(
+    state: &AppState,
+    ai_state: &AiState,
+    kind: AutoMask,
+    js_adjustments: &serde_json::Value,
+    subject_version: u32,
+) -> bool {
+    let Some(loaded) = lock_recover(&state.source.original_image).clone() else {
+        return false;
+    };
+    let mut key = geometry_key(&loaded, js_adjustments);
+    if kind == AutoMask::Subject {
+        key.push_str(&format!(":v{subject_version}"));
+    }
+    cached_mask(ai_state, kind, &key).is_some()
+}
+
+/// The photographer opened the masking tools while the masks made ahead for
+/// the open photo wait for their start (`ai_ahead`): they start now, also
+/// `task_id` (the run's current task) if its command has not reached its
+/// admission yet.
+#[tauri::command]
+pub async fn admit_ai_ahead_work(task_id: Option<String>) {
+    crate::ai_ahead::ask_now(task_id);
+}
+
 /// Computes the open photo's Subject or Sky mask in the background, so the
 /// selection answers at once. Only with a model that is already installed
 /// (nothing is downloaded) and while the system is not short of memory;
 /// dropped when the photo is no longer open; `task_id` cancels it (a photo
 /// switch).
+#[allow(clippy::too_many_arguments)]
 async fn precompute(
     kind: AutoMask,
     js_adjustments: serde_json::Value,
     path: String,
     task_id: Option<String>,
+    asked: bool,
     state: tauri::State<'_, AppState>,
     ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<AheadMask, String> {
+    // Before any wait: opening the masking tools meanwhile starts it.
+    let asked_at = crate::ai_ahead::asked_count();
     let _guard = task_id
         .as_ref()
         .map(|id| AiTaskGuard::new(&ai_state.tasks, id.clone()));
@@ -1483,7 +1588,21 @@ async fn precompute(
         .map(|l| l.path);
     if let Some(reason) = ahead_photo_skip(current.as_deref(), &path) {
         log::info!("AI {} mask: not computed ahead, {reason}", kind.name());
-        return Ok(());
+        // Still decoding after the wait: asked for again when the tools open.
+        return Ok(if current.is_none() {
+            AheadMask::Dropped
+        } else {
+            AheadMask::Unavailable
+        });
+    }
+    // Made ahead only with an installed model (nothing is downloaded): no
+    // wait for memory for a model that is not there.
+    if !model_loaded(&ai_state, kind) && !mask_model_installed(&app_handle, kind == AutoMask::Sky) {
+        log::info!(
+            "AI {} mask: not computed ahead, its model is not installed",
+            kind.name()
+        );
+        return Ok(AheadMask::Unavailable);
     }
     // Ahead of a click only with memory to spare: a run holds about 1.6 GB
     // on Core ML (and loads the model if it is not loaded).
@@ -1492,11 +1611,44 @@ async fn precompute(
             "AI {} mask: not computed ahead, the system is short of memory",
             kind.name()
         );
-        return Ok(());
+        return Ok(AheadMask::Dropped);
     }
-    let start = std::time::Instant::now();
     // Ahead of a click on a new selection: the current Subject version.
     let version = rawtonic_segment::SUBJECT_VERSION;
+    // Not beside the full-resolution decodes, and only with memory for its
+    // peak (`ai_ahead`); a mask computed already needs neither. Opening the
+    // masking tools (`asked`) starts it at once.
+    let mut _ahead = None;
+    if !asked && !auto_mask_cached(&state, &ai_state, kind, &js_adjustments, version) {
+        let job = match kind {
+            AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
+            AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
+        };
+        let need = crate::ai_ahead::estimated_peak(
+            job,
+            rawtonic_onnx::models_run_on_cpu_only(),
+            model_loaded(&ai_state, kind),
+        );
+        let asked = || crate::ai_ahead::asked_since(asked_at, task_id.as_deref());
+        let admitted = crate::ai_ahead::admit(job, asked, need, || {
+            if cancel.is_some_and(|t| t.is_cancelled()) {
+                return Some("the task was cancelled");
+            }
+            ahead_photo_skip(current_photo(&state.source).as_deref(), &path)
+        })
+        .await;
+        match admitted {
+            Ok(run) => _ahead = Some(run),
+            Err(why) => {
+                log::info!("AI {} mask: not computed ahead, {why:?}", kind.name());
+                return Ok(match why {
+                    crate::ai_ahead::NotStarted::TimedOut(_) => AheadMask::Dropped,
+                    crate::ai_ahead::NotStarted::GaveUp(_) => AheadMask::Unavailable,
+                });
+            }
+        }
+    }
+    let start = std::time::Instant::now();
     match auto_mask(
         &state,
         &ai_state,
@@ -1516,16 +1668,16 @@ async fn precompute(
                 kind.name(),
                 start.elapsed().as_millis()
             );
-            Ok(())
+            Ok(AheadMask::Ready)
         }
-        Ok(None) => Ok(()),
+        Ok(None) => Ok(AheadMask::Unavailable),
         Err(_) if cancel.is_some_and(|t| t.is_cancelled()) => {
             log::info!(
                 "AI {} mask: background run of {path} cancelled after {} ms",
                 kind.name(),
                 start.elapsed().as_millis()
             );
-            Ok(())
+            Ok(AheadMask::Unavailable)
         }
         Err(e) => {
             log::warn!("AI {} mask: ahead computation failed: {e}", kind.name());
@@ -1536,20 +1688,24 @@ async fn precompute(
 
 /// Subject/Background ahead of the click (`precompute`): asked for when the
 /// masking tools are open, or when a photo opens after they were used.
+/// What it came to (`AheadMask`): a dropped one is asked for again when the
+/// masking tools open.
 #[tauri::command]
 pub async fn precompute_ai_foreground_mask(
     js_adjustments: serde_json::Value,
     path: String,
     task_id: Option<String>,
+    asked: Option<bool>,
     state: tauri::State<'_, AppState>,
     ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<AheadMask, String> {
     precompute(
         AutoMask::Subject,
         js_adjustments,
         path,
         task_id,
+        asked == Some(true),
         state,
         ai_state,
         app_handle,
@@ -1563,21 +1719,27 @@ pub async fn precompute_ai_sky_mask(
     js_adjustments: serde_json::Value,
     path: String,
     task_id: Option<String>,
+    asked: Option<bool>,
     state: tauri::State<'_, AppState>,
     ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
-) -> Result<(), String> {
+) -> Result<AheadMask, String> {
     precompute(
         AutoMask::Sky,
         js_adjustments,
         path,
         task_id,
+        asked == Some(true),
         state,
         ai_state,
         app_handle,
     )
     .await
 }
+
+/// `preload_ai_mask_models`: a model that waited for its start was loaded
+/// meanwhile (by the photo's mask made ahead).
+const LOADED_MEANWHILE: &str = "the model was loaded meanwhile";
 
 /// The models `preload_ai_mask_models` loads: both, or on the CPU only
 /// Subject. On the CPU a model's weights and the run's transient add up in
@@ -1609,6 +1771,7 @@ fn preload_kinds(on_cpu: bool) -> &'static [AutoMask] {
 /// warm-up and its result is used (notes: reference/birefnet-fp16.md).
 #[tauri::command]
 pub async fn preload_ai_mask_models(
+    state: tauri::State<'_, AppState>,
     ai_state: tauri::State<'_, AiState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
@@ -1616,20 +1779,86 @@ pub async fn preload_ai_mask_models(
         log::info!("AI masks: models not loaded ahead, the system is short of memory");
         return Ok(());
     }
+    // Before any wait: an unload meanwhile (the Library) stops it. Never
+    // asked for: opening the masking tools starts the photo's masks, which
+    // load the model themselves.
+    let generation = ai_state.lifecycle.generation();
     let _running = ai_state.lifecycle.run();
-    let _turn = crate::ai_lifecycle::turn(false).await;
     let on_cpu = rawtonic_onnx::models_run_on_cpu_only();
     if on_cpu {
         log::info!("AI sky mask: model not loaded ahead, AI is running on the CPU");
     }
+    // Asked for as Develop opens: the photo's full decode first (it waits
+    // up to a few seconds; a longer decode holds the admission below).
+    let _ = crate::image_loader::original_image(&state.source).await;
     for &kind in preload_kinds(on_cpu) {
-        let start = std::time::Instant::now();
         let name = kind.name();
-        if network(&ai_state, &app_handle, kind, false)
+        if model_loaded(&ai_state, kind) {
+            continue;
+        }
+        // A model is loaded ahead for the run after it (`precompute`): not
+        // beside the full-resolution decodes, and only with memory for both
+        // (`ai_ahead`).
+        let job = match kind {
+            AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
+            AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
+        };
+        let need = crate::ai_ahead::estimated_peak(job, on_cpu, false);
+        let admitted = crate::ai_ahead::admit(
+            job,
+            || false,
+            need,
+            || {
+                if ai_state.lifecycle.generation() != generation {
+                    return Some("the models were unloaded");
+                }
+                // The photo's mask made ahead loaded it meanwhile.
+                model_loaded(&ai_state, kind).then_some(LOADED_MEANWHILE)
+            },
+        )
+        .await;
+        let _ahead = match admitted {
+            Ok(run) => run,
+            Err(crate::ai_ahead::NotStarted::GaveUp(LOADED_MEANWHILE)) => continue,
+            Err(why) => {
+                log::info!("AI {name} mask: model not loaded ahead, {why:?}");
+                return Ok(());
+            }
+        };
+        let _turn = crate::ai_lifecycle::turn(false).await;
+        // Unloaded while it waited for its turn: nothing is loaded again.
+        if ai_state.lifecycle.generation() != generation {
+            log::info!("AI {name} mask: model not loaded ahead, the models were unloaded");
+            return Ok(());
+        }
+        // Another load holds the model's loader (the photo's mask made
+        // ahead or asked for loads it): not queued behind it, where an
+        // unload meanwhile would go unseen until the loader runs.
+        let loader = match kind {
+            AutoMask::Subject => &ai_state.init_lock,
+            AutoMask::Sky => &ai_state.sky_init_lock,
+        };
+        if loader.try_lock().is_err() {
+            log::info!("AI {name} mask: model not loaded ahead, another load of it runs");
+            continue;
+        }
+        let start = std::time::Instant::now();
+        let loaded = network(&ai_state, &app_handle, kind, false)
             .await
-            .inspect_err(|e| log::warn!("AI {name} mask: ahead model load failed: {e}"))?
-            .is_some()
-        {
+            .inspect_err(|e| log::warn!("AI {name} mask: ahead model load failed: {e}"))?;
+        // Unloaded while the loader waited (it reads the generation once it
+        // runs, after another load of the model ended): what it kept for
+        // this preload goes again.
+        if ai_state.lifecycle.generation() != generation {
+            if let Some(network) = &loaded
+                && let Some(ai) = lock_recover(&ai_state.models).as_mut()
+            {
+                release_network(ai, network);
+            }
+            log::info!("AI {name} mask: model not kept ahead, the models were unloaded");
+            return Ok(());
+        }
+        if loaded.is_some() {
             log::info!(
                 "AI {name} mask: model ready ahead after {} ms",
                 start.elapsed().as_millis()
@@ -1687,6 +1916,27 @@ pub async fn warm_up_ai_mask_models(
         if !crate::ai_processing::core_ml_first_run_pending(&app_handle, kind == AutoMask::Sky) {
             continue;
         }
+        // As the masks made ahead (`ai_ahead`): after the decodes, with
+        // memory for the model and its run.
+        let job = match kind {
+            AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
+            AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
+        };
+        let need = crate::ai_ahead::estimated_peak(
+            job,
+            rawtonic_onnx::models_run_on_cpu_only(),
+            model_loaded(&ai_state, kind),
+        );
+        let _ahead = match crate::ai_ahead::admit(job, || false, need, &stop).await {
+            Ok(run) => run,
+            Err(why) => {
+                log::info!(
+                    "AI {} mask: GPU kernels not built ahead, {why:?}",
+                    kind.name()
+                );
+                return Ok(());
+            }
+        };
         let _running = ai_state.lifecycle.run();
         let outcome = warm_up_model(
             async {
@@ -2025,6 +2275,18 @@ pub async fn load_relight_pattern(path: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn masks_made_ahead_tell_the_webview_which_to_ask_for_again() {
+        // `useAiMasking` asks again for 'dropped' only.
+        for (outcome, name) in [
+            (super::AheadMask::Ready, "ready"),
+            (super::AheadMask::Unavailable, "unavailable"),
+            (super::AheadMask::Dropped, "dropped"),
+        ] {
+            assert_eq!(serde_json::to_value(outcome).unwrap(), name);
+        }
+    }
+
     #[test]
     fn ahead_masks_report_why_the_requested_photo_is_unavailable() {
         assert_eq!(

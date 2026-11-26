@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Opening Develop no longer stacks the background Subject, Sky and object-mask work on the full-resolution decodes of large RAWs. That work, and loading its AI models, now starts only after the open photo has decoded, one task at a time, and only when there is memory for it (the other photos' background decodes wait for it); otherwise it is left for your click. Opening the masking tools or clicking Subject still starts at once. On a 14 GB laptop with AI on the processor, opening four 24–50 MP RAWs had taken Rawtonic to 6–7 GB.
+
 - Develop remembers whether a RAW has a Bayer or an X-Trans sensor once it has read the file, so an offline photo of a session or catalog shows the same AI Denoise controls as online: the X-Trans note for X-Trans, the Quality choice for Bayer. Nothing is remembered from a read that could not tell, and the memory is dropped when the file changes. Rendering and export still read the sensor from the file, so no output changes. Libraries are upgraded to schema 38; older Rawtonic versions cannot open an upgraded library.
 
 - Headless export accepts `--super-resolution-quality fast|full` to enlarge photos 2×. The desktop binary fetches missing Super Resolution models as the Export dialog does. The standalone CLI tells you how to install them when they are missing.
