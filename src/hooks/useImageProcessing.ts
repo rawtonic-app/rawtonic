@@ -16,7 +16,7 @@ import type { SubMask } from '../components/panel/right/Masks';
 import { referToSentMaskBitmaps } from '../utils/bitmapIds';
 import type { TransformWrapperHandle } from '../components/panel/Editor';
 import { debouncedSave, registerScheduledRecipe } from './useEditorActions';
-import { isUneditedTransition } from '../utils/shownNotEdited';
+import { forgetLoadedRecipe, isUneditedTransition } from '../utils/shownNotEdited';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import {
   epochOf,
@@ -1110,6 +1110,7 @@ export function useImageProcessing(
       const prev = prevAdjustmentsRef.current;
 
       if (!prev || prev.path !== selectedImage.path) {
+        forgetLoadedRecipe(adjustments);
         prevAdjustmentsRef.current = { path: selectedImage.path, adjustments };
         return;
       }
@@ -1117,8 +1118,10 @@ export function useImageProcessing(
       const hasAdjustmentsChanged = prev.adjustments !== adjustments;
 
       if (hasAdjustmentsChanged) {
-        // New develop defaults shown on a never-edited photo are no edit.
+        // New develop defaults shown on a never-edited photo, or the saved
+        // recipe loaded again, are no edit.
         if (!isUneditedTransition(prev.adjustments, adjustments)) debouncedSave(selectedImage.path, adjustments);
+        forgetLoadedRecipe(adjustments);
 
         prevAdjustmentsRef.current = { path: selectedImage.path, adjustments };
       }

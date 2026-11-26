@@ -149,19 +149,18 @@ fn load_primary_metadata(image_path: &Path) -> ImageMetadata {
     load_sidecar(&primary)
 }
 
-/// Fill the EXIF cache in the physical sidecar, leaving all edit fields
-/// and any EXIF already saved there alone.
-fn cache_primary_exif(
-    image_path: &Path,
-    exif: &HashMap<String, String>,
-    create: bool,
-) -> anyhow::Result<bool> {
+/// Fill the EXIF cache in the physical sidecar of an image the app made
+/// itself (`write_rrexif_sidecar`), leaving all edit fields and any EXIF
+/// already saved there alone. A photograph's own sidecar never takes it:
+/// reading EXIF keeps it in the app's cache (`save_exif_to_rrcache`), so a
+/// sidecar beside an original changes only with an edit (WQA7: the cache
+/// grew a rated photo's sidecar from 72 B to 12 KB).
+fn cache_primary_exif(image_path: &Path, exif: &HashMap<String, String>) -> anyhow::Result<bool> {
     let primary = get_primary_sidecar_path(image_path);
     let snapshot = rawtonic_fs::read_optional(&primary)?;
     let mut state: serde_json::Value = match &snapshot {
         Some(bytes) => serde_json::from_slice(bytes)?,
-        None if create => serde_json::to_value(ImageMetadata::default())?,
-        None => return Ok(false),
+        None => serde_json::to_value(ImageMetadata::default())?,
     };
     let Some(fields) = state.as_object_mut() else {
         return Ok(false);
@@ -263,9 +262,7 @@ fn cached_exif_data(
     }
 
     let exif_map = read();
-    if !exif_map.is_empty()
-        && !matches!(cache_primary_exif(source_path, &exif_map, false), Ok(true))
-    {
+    if !exif_map.is_empty() {
         save_exif_to_rrcache(source_path, exif_map.clone());
     }
 
@@ -282,9 +279,7 @@ pub fn persist_exif_if_missing(source_path: &Path, source_path_str: &str, file_b
         return;
     }
 
-    if !matches!(cache_primary_exif(source_path, &exif_map, false), Ok(true)) {
-        save_exif_to_rrcache(source_path, exif_map);
-    }
+    save_exif_to_rrcache(source_path, exif_map);
 }
 
 pub fn write_rrexif_sidecar(source_path_str: &str, target_image_path: &Path) -> Result<(), String> {
@@ -302,7 +297,7 @@ pub fn write_rrexif_sidecar(source_path_str: &str, target_image_path: &Path) -> 
         return Ok(());
     }
 
-    cache_primary_exif(target_image_path, &exif_data, true)
+    cache_primary_exif(target_image_path, &exif_data)
         .map(|_| ())
         .map_err(|e| format!("Failed to write sidecar: {}", e))
 }
@@ -358,6 +353,27 @@ mod sidecar_write_tests {
         assert!(saved["exif"]["Comment"].as_str().unwrap().len() <= 500);
     }
 
+    /// WQA7: reading a rated photo's EXIF wrote the whole map (maker note,
+    /// the RAW's own XMP packet) into its sidecar beside the original.
+    #[test]
+    fn reading_exif_leaves_the_photos_sidecar_as_it_was() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = dir.path().join("photo.nef");
+        fs::write(&photo, b"original").unwrap();
+        let sidecar = get_primary_sidecar_path(&photo);
+        let rated = br#"{"version":1,"rating":3,"adjustments":null,"tags":null}"#;
+        rawtonic_fs::atomic_write(&sidecar, rated).unwrap();
+        let exif = HashMap::from([("MakerNote".to_string(), "0x4e696b6f6e".repeat(400))]);
+
+        let path = photo.to_string_lossy();
+        assert_eq!(cached_exif_data(&path, || exif.clone()), exif);
+        // Read again from the app's cache, not from the file.
+        assert_eq!(cached_exif_data(&path, || unreachable!("read twice")), exif);
+
+        assert_eq!(fs::read(&sidecar).unwrap(), rated);
+        assert_eq!(fs::read(&photo).unwrap(), b"original");
+    }
+
     #[test]
     fn exif_cache_preserves_edit_fields_in_the_primary_sidecar() {
         let dir = tempfile::tempdir().unwrap();
@@ -366,7 +382,7 @@ mod sidecar_write_tests {
         let sidecar = get_primary_sidecar_path(&photo);
         rawtonic_fs::atomic_write(&sidecar, br#"{"rating":4,"extra":{"kept":true}}"#).unwrap();
         let exif = HashMap::from([("Model".into(), "Camera".into())]);
-        assert!(cache_primary_exif(&photo, &exif, false).unwrap());
+        assert!(cache_primary_exif(&photo, &exif).unwrap());
 
         let saved: serde_json::Value =
             serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();

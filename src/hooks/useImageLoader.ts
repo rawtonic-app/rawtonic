@@ -19,6 +19,7 @@ import { historyFor, keptSince } from '../utils/photoHistory';
 import { keptSelectionMatchesSettled } from '../utils/queuedSelections';
 import { recipeStepsSince } from '../utils/appUndo';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
+import { markLoadedRecipe } from '../utils/shownNotEdited';
 import { aiDenoiseQualityOf } from '../utils/aiDenoise';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 
@@ -313,6 +314,8 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             // dimensions and current recipe. Cached UI pixels may be shown during
             // loading, but they must never make a new recipe render against the
             // old source.
+            // Not an edit unless it carries edits whose save failed.
+            if (unsavedAdjustments === undefined) markLoadedRecipe(initialAdjusts);
             setEditor((state) => {
               if (state.selectedImage?.path !== selectedImage.path) return state;
               return {
