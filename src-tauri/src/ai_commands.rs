@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use image::GrayImage;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::ai_processing::{
     AI_MASKS_KEPT, AiDepthMaskParameters, AiForegroundMaskParameters, AiSkyMaskParameters,
@@ -1233,7 +1233,6 @@ async fn auto_mask(
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
     // Counts as running from here, so an idle unload waits for the load too.
     let _running = ai_state.lifecycle.run();
-    let mut _run = kind.lock(ai_state).lock().await;
     // Keyed by the photo actually loaded, not the caller's path: a run that
     // outlives a photo switch cannot file one photo's mask under another.
     let loaded = crate::image_loader::original_image(&state.source).await?;
@@ -1256,6 +1255,99 @@ async fn auto_mask(
     if cancelled() {
         return Err(task_cancelled());
     }
+    // A request of the photographer (`origin`) reserves its peak in the
+    // memory budget here, after the cache (a cached mask needs none) and
+    // before the turn (a run waiting for memory must not hold back an export
+    // or a compile, G74/BRK2): speculative work yields to it, caches are let
+    // go for it, on a machine short of memory Subject runs its reduced plan
+    // (G74/BRK1), and when no plan fits it waits (BRK2).
+    // One made ahead holds its reservation already (`precompute`).
+    let reservation = match origin {
+        Some(origin) => {
+            // Made again each attempt: a model loaded or a warped image
+            // cached meanwhile lowers it.
+            let request = || {
+                // The low-peak Subject file is this run's prerequisite on
+                // small CPU machines: its fetch is asked again while the run
+                // waits (it runs beside the wait, `serves_asked`; a fetch not
+                // admitted in time ends, and this starts it again).
+                if download && kind == AutoMask::Subject {
+                    crate::ai_processing::fetch_low_peak_subject_in_background(app_handle);
+                }
+                asked_request(&AskedEstimate {
+                    kind,
+                    origin,
+                    low_peak: kind == AutoMask::Subject
+                        && crate::ai_processing::subject_low_peak_ready(
+                            app_handle, ai_state, download,
+                        ),
+                    on_cpu: rawtonic_onnx::models_run_on_cpu_only(),
+                    loaded: model_loaded(ai_state, kind),
+                    pixels: u64::from(loaded.image.width()) * u64::from(loaded.image.height()),
+                    warp_shared: crate::editor_preview::full_warped_image_shared(
+                        &app_handle.state::<crate::state::develop::DevelopSession>(),
+                        &loaded,
+                        js_adjustments,
+                    ),
+                })
+            };
+            // Not started while no plan fits: the photographer is told once
+            // and the run starts when memory is free; told again when the
+            // wait ends, however it ends (G74/BRK2).
+            let notice = MemoryWait {
+                path: loaded.path.clone(),
+                kind: kind.name(),
+            };
+            let mut told = false;
+            let mut tell = |wait| {
+                if let rawtonic_runtime::memory_budget::Wait::Memory { .. } = wait
+                    && !told
+                {
+                    told = true;
+                    let _ = app_handle.emit(MEMORY_WAIT_EVENT, notice.clone());
+                }
+            };
+            // A request whose photo is no longer the one loaded (a step to
+            // the next photo) stops waiting: it would keep that decode alive
+            // and hold speculative work back for nothing.
+            let gone = || {
+                cancelled()
+                    || !lock_recover(&state.source.original_image)
+                        .as_ref()
+                        .is_some_and(|now| {
+                            // A virtual copy shares the decode: its path
+                            // (with the copy's suffix) tells them apart.
+                            now.path == loaded.path && Arc::ptr_eq(&now.image, &loaded.image)
+                        })
+            };
+            let admitted = admit_asked(request, &gone, &mut tell).await;
+            if told {
+                let _ = app_handle.emit(MEMORY_WAIT_END_EVENT, notice.clone());
+            }
+            match admitted {
+                Ok(reservation) => Some(reservation),
+                Err(_) if !cancelled() && asked.is_some() => {
+                    return Err(CommandError::new(ErrorCode::Stale, PHOTO_CHANGED));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        None => None,
+    };
+    // This kind's runs one at a time, taken after the memory: a request
+    // waiting for memory must not hold back a run of its kind made ahead
+    // that holds memory already (it would never end, G74/BRK2).
+    let mut _run = kind.lock(ai_state).lock().await;
+    if let Some(mask) = cached_mask(ai_state, kind, &key) {
+        return Ok(Some(mask));
+    }
+    if cancelled() {
+        return Err(task_cancelled());
+    }
+    if let Some(asked) = asked {
+        let now = crate::image_loader::original_image(&state.source).await?;
+        ensure_photo(&now.path, asked)?;
+    }
     // Not beside an idle shader compile or an export where they take turns
     // (model load included); a cached mask above needs none. The wait is
     // without this kind's lock: a click must not queue behind a run made
@@ -1277,26 +1369,6 @@ async fn auto_mask(
         Some(turn)
     } else {
         None
-    };
-    // A request of the photographer (`origin`) reserves its peak in the
-    // memory budget here, after the cache (a cached mask needs none) and the
-    // turn: speculative work yields to it, caches are let go for it, and on
-    // a machine short of memory Subject runs its reduced plan (G74/BRK1).
-    // One made ahead holds its reservation already (`precompute`).
-    let reservation = match origin {
-        Some(origin) => {
-            let request = asked_request(&AskedEstimate {
-                kind,
-                origin,
-                low_peak: kind == AutoMask::Subject
-                    && crate::ai_processing::subject_low_peak_ready(app_handle, ai_state, download),
-                on_cpu: rawtonic_onnx::models_run_on_cpu_only(),
-                loaded: model_loaded(ai_state, kind),
-                pixels: u64::from(loaded.image.width()) * u64::from(loaded.image.height()),
-            });
-            Some(admit_asked(request, &cancelled).await?)
-        }
-        None => None,
     };
     let reduced = reservation
         .as_ref()
@@ -1682,6 +1754,25 @@ struct AskedEstimate {
     loaded: bool,
     /// The open photo's full-resolution pixels.
     pixels: u64,
+    /// The photo's full-resolution warped image is cached or being built
+    /// (`editor_preview::full_warped_image_shared`): the run adds none.
+    warp_shared: bool,
+}
+
+/// Told when an AI mask run the photographer asked for does not start for
+/// want of memory (`MemoryWait`); the webview shows a notice and the run
+/// starts by itself when memory is free.
+pub(crate) const MEMORY_WAIT_EVENT: &str = "ai-mask-memory-wait";
+/// Told when such a wait ends (started, cancelled or the photo changed),
+/// with the same `MemoryWait`.
+pub(crate) const MEMORY_WAIT_END_EVENT: &str = "ai-mask-memory-wait-end";
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub(crate) struct MemoryWait {
+    /// The photo the mask is for.
+    path: String,
+    /// "subject" or "sky".
+    kind: &'static str,
 }
 
 const MB: u64 = 1_000_000;
@@ -1702,9 +1793,11 @@ const LOW_PEAK_RUN_REDUCED: u64 = 650 * MB;
 const WARP_BYTES_PER_PIXEL: u64 = 12;
 
 /// The memory budget's request for an AI mask run the photographer asked
-/// for: one at a time, never refused. Subject on the low-peak CPU graph
-/// (the 14–16 GB machines where memory runs short): the model (unless
-/// loaded), the run and the warped image, with the reduced plan's run as its
+/// for: one at a time, started only when one of its plans fits (G74/BRK2;
+/// until then it waits and the photographer is told). Subject on the
+/// low-peak CPU graph (the 14–16 GB machines where memory runs short): the
+/// model (unless loaded), the run and the warped image (unless cached or
+/// being built: the run shares it), with the reduced plan's run as its
 /// fallback;
 /// elsewhere MEM18's measured peaks (`ai_ahead::estimated_peak`), no
 /// fallback. A pending layer waits longer for the open photo's frames.
@@ -1726,7 +1819,12 @@ fn asked_request(e: &AskedEstimate) -> rawtonic_runtime::memory_budget::Request 
         ASKED_WAITS_FOR_VISIBLE
     };
     let request = if e.kind == AutoMask::Subject && e.low_peak {
-        let base = if e.loaded { 0 } else { LOW_PEAK_MODEL } + e.pixels * WARP_BYTES_PER_PIXEL;
+        let warp = if e.warp_shared {
+            0
+        } else {
+            e.pixels * WARP_BYTES_PER_PIXEL
+        };
+        let base = if e.loaded { 0 } else { LOW_PEAK_MODEL } + warp;
         Request::new(Class::Asked, label, base + LOW_PEAK_RUN).reduced(base + LOW_PEAK_RUN_REDUCED)
     } else {
         let job = match e.kind {
@@ -1739,7 +1837,7 @@ fn asked_request(e: &AskedEstimate) -> rawtonic_runtime::memory_budget::Request 
             crate::ai_ahead::estimated_peak(job, e.on_cpu, e.loaded),
         )
     };
-    request.exclusive().visible_wait(wait)
+    request.exclusive().visible_wait(wait).only_when_it_fits()
 }
 
 /// Reserves the object encoder's load and run for a request of the
@@ -1765,27 +1863,31 @@ async fn admit_object_encoding(
         loaded,
     );
     admit_asked(
-        Request::new(Class::Asked, label, need).exclusive(),
+        || Request::new(Class::Asked, label, need).exclusive(),
         cancelled,
+        &mut |_| {},
     )
     .await
     .map(Some)
 }
 
-/// Reserves an asked run's peak (`asked_request`): waits only for another
-/// asked run and, briefly, for the open photo's frames; `cancelled` stops
-/// the wait.
+/// Reserves an asked run's peak (`request` makes it each attempt): waits
+/// for another asked run, briefly for the open photo's frames and, for an AI
+/// mask run, until one of its plans fits (`on_wait` is told why it waits);
+/// `cancelled` stops the wait.
 async fn admit_asked(
-    request: rawtonic_runtime::memory_budget::Request,
+    request: impl FnMut() -> rawtonic_runtime::memory_budget::Request,
     cancelled: &impl Fn() -> bool,
+    on_wait: &mut (dyn FnMut(rawtonic_runtime::memory_budget::Wait) + Send),
 ) -> Result<rawtonic_runtime::memory_budget::Reservation, CommandError> {
     use rawtonic_runtime::memory_budget::Class;
-    match crate::memory_broker::reserve(
+    match crate::memory_broker::reserve_telling(
         request,
         || Class::Asked,
         || cancelled().then_some("cancelled"),
         None,
         None,
+        on_wait,
     )
     .await
     {
@@ -2607,6 +2709,7 @@ mod tests {
             on_cpu: true,
             loaded: false,
             pixels: 8256 * 6192,
+            warp_shared: false,
         })
     }
 
@@ -2624,6 +2727,22 @@ mod tests {
         let warp = 8256 * 6192 * 12;
         assert_eq!(r.need, 1000 * MB + warp + 1400 * MB);
         assert_eq!(r.reduced, Some(1000 * MB + warp + 650 * MB));
+        // It starts only when a plan fits (G74/BRK2, WBRK1: granted beyond
+        // the room, 16 of 16 clicks hit the watchdog).
+        assert!(r.fits_only);
+        // The photo's warped image cached (the new layer's frame built it):
+        // the run adds none.
+        let shared = asked_request(&AskedEstimate {
+            warp_shared: true,
+            kind: AutoMask::Subject,
+            origin: Origin::Click,
+            low_peak: true,
+            on_cpu: true,
+            loaded: false,
+            pixels: 8256 * 6192,
+        });
+        assert_eq!(shared.need, 2400 * MB);
+        assert_eq!(shared.reduced, Some(1650 * MB));
         // Elsewhere (Core ML, or the usual graph): MEM18's measured peaks,
         // no reduced plan.
         let usual = asked_request(&AskedEstimate {
@@ -2633,6 +2752,7 @@ mod tests {
             on_cpu: false,
             loaded: true,
             pixels: 45_000_000,
+            warp_shared: false,
         });
         assert_eq!(usual.need, 4200 * MB);
         assert_eq!(usual.reduced, None);
@@ -2643,6 +2763,7 @@ mod tests {
             on_cpu: true,
             loaded: false,
             pixels: 45_000_000,
+            warp_shared: false,
         });
         assert_eq!((sky.need, sky.reduced), (1200 * MB, None));
     }
@@ -2745,7 +2866,14 @@ mod tests {
     /// broker: a reservation of the photographer's class.
     #[tokio::test]
     async fn the_pending_layer_admission_reserves_in_the_apps_broker() {
-        let reservation = super::admit_asked(pending_subject(), &|| false)
+        // The machine running the test may not have 2.3 GB free: the same
+        // request with a small estimate (it starts only when it fits).
+        let small_pending = || Request {
+            need: MB,
+            reduced: Some(MB),
+            ..pending_subject()
+        };
+        let reservation = super::admit_asked(small_pending, &|| false, &mut |_| {})
             .await
             .expect("admitted");
         assert_eq!(reservation.class(), Class::Asked);
@@ -2759,10 +2887,10 @@ mod tests {
         drop(reservation);
         // A cancelled task stops waiting (here: for its turn behind another
         // asked run).
-        let other = super::admit_asked(pending_subject(), &|| false)
+        let other = super::admit_asked(small_pending, &|| false, &mut |_| {})
             .await
             .expect("admitted");
-        let stopped = super::admit_asked(pending_subject(), &|| true).await;
+        let stopped = super::admit_asked(small_pending, &|| true, &mut |_| {}).await;
         assert!(stopped.is_err());
         drop(other);
     }

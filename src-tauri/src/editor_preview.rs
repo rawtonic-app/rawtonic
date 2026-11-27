@@ -982,6 +982,25 @@ fn prewarm_now(app_handle: &tauri::AppHandle, path: &str, recipe: &serde_json::V
     full_warped_image(&state, &develop, &loaded.image, loaded.is_raw, recipe, true);
 }
 
+/// Whether the editor photo `loaded`'s full-resolution warped image with
+/// `js_adjustments`' geometry is cached or being built: an AI mask run then
+/// shares it and adds no warp of its own (G74/BRK2 estimates).
+pub(crate) fn full_warped_image_shared(
+    develop: &DevelopSession,
+    loaded: &LoadedImage,
+    js_adjustments: &serde_json::Value,
+) -> bool {
+    let geo_hash = calculate_geometry_hash(js_adjustments);
+    let cached = develop
+        .full_warped_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|cache| cache.get(&loaded.image, loaded.is_raw, geo_hash).is_some());
+    let key = (Arc::as_ptr(&loaded.image) as usize, loaded.is_raw, geo_hash);
+    cached || develop.full_warped_build.is_building(&key)
+}
+
 /// After a final preview: keeps its recipe for `prewarm_mask_source`, and
 /// when the editor wants this photo's Auto Mask source and it no longer
 /// matches (AI Denoise replaced the source, a lens or geometry edit), builds
@@ -3264,6 +3283,23 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             let region_first = region_first_pass(&app_handle, &job);
             let responder = job.responder;
             let frame = crate::multi_view_prefetch::PreviewFrame::start(job.is_interactive);
+            // A settled frame of the full decode holds what it may add in the
+            // memory budget while it runs (G74/BRK2: a Subject click's new
+            // layer frame, +1.9 GB for 51 MP on a 14 GB laptop).
+            let _visible = (!interactive)
+                .then(|| {
+                    state
+                        .source
+                        .original_image
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .as_ref()
+                        .map(|loaded| {
+                            u64::from(loaded.image.width()) * u64::from(loaded.image.height())
+                        })
+                })
+                .flatten()
+                .map(crate::memory_broker::hold_visible_frame);
             crate::proxy_worker::note_preview(job.is_interactive);
             // Profiling builds: the memory at a settled frame's start and end
             // (G74/BRK1 harness: what a click's new layer frame adds).

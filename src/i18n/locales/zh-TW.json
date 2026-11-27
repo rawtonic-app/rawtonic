@@ -882,6 +882,8 @@
       "createNewTitle": "建立新的生成式編輯",
       "downloadFailed": "無法下載模型。請檢查網路連線後再試一次。",
       "generatingDepthMap": "正在計算 AI 深度圖...",
+      "memoryWaitSky": "目前記憶體不足，無法計算天空遮罩。請關閉其他應用程式或切換到單張照片檢視；記憶體空出後將自動計算。",
+      "memoryWaitSubject": "目前記憶體不足，無法計算主體遮罩。請關閉其他應用程式或切換到單張照片檢視；記憶體空出後將自動計算。",
       "params": {
         "feather": "羽化",
         "grow": "擴張",

@@ -944,6 +944,8 @@
       "createNewTitle": "Crea Nuova Modifica Generativa",
       "downloadFailed": "Impossibile scaricare il modello. Controlla la connessione a internet e riprova.",
       "generatingDepthMap": "Calcolo mappa di profondità IA...",
+      "memoryWaitSky": "Memoria insufficiente per calcolare ora la maschera del cielo. Chiudi altre app o passa alla vista a foto singola; verrà calcolata quando la memoria sarà libera.",
+      "memoryWaitSubject": "Memoria insufficiente per calcolare ora la maschera del soggetto. Chiudi altre app o passa alla vista a foto singola; verrà calcolata quando la memoria sarà libera.",
       "params": {
         "feather": "Sfumatura",
         "grow": "Espandi",

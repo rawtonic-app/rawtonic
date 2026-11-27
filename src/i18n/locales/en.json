@@ -896,6 +896,8 @@
       "createNewTitle": "Create New Generative Edit",
       "downloadFailed": "The model could not be downloaded. Check the internet connection and try again.",
       "generatingDepthMap": "Calculating AI Depth Map...",
+      "memoryWaitSky": "Not enough memory to compute the Sky mask right now. Close other apps or switch to a single photo view; it will be computed when memory is free.",
+      "memoryWaitSubject": "Not enough memory to compute the Subject mask right now. Close other apps or switch to a single photo view; it will be computed when memory is free.",
       "params": {
         "feather": "Feather",
         "grow": "Grow",

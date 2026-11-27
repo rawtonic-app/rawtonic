@@ -14,7 +14,7 @@ const { invoke, listen, listeners } = vi.hoisted(() => {
 });
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen }));
-const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn(), info: vi.fn() } }));
+const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), dismiss: vi.fn() } }));
 vi.mock('../activity/notify', () => ({ notify: toast }));
 
 import '../i18n';
@@ -22,6 +22,8 @@ import {
   noteLandscapeModelReady,
   AI_MASKING_RECENT_MS,
   AI_MASKS_AHEAD_DELAY_MS,
+  AI_MASK_MEMORY_WAIT_END_EVENT,
+  AI_MASK_MEMORY_WAIT_EVENT,
   AI_MODELS_UNLOADED_EVENT,
   AI_WARM_UP_DELAY_MS,
   objectSelectionBusy,
@@ -135,6 +137,50 @@ describe('automatic AI masks from imported presets', () => {
     );
     await waitFor(() => expect(calls('generate_ai_foreground_mask')).toHaveLength(2));
     expect(calls('generate_ai_foreground_mask')[1]).toMatchObject({ pending: false, taskId: 'sub-new' });
+  });
+
+  it('tells the photographer when a pending Subject layer waits for memory, and settles it when the mask comes', async () => {
+    // G74/BRK2: the backend does not start a run no plan of which fits; the
+    // layer stays pending, the notice says why, and the run starts by
+    // itself when memory is free (the same invoke answers then).
+    useEditorStore.setState({
+      selectedImage: { path: '/s/a.NEF', isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer('ai-foreground', { maskDataBase64: null, grow: 0, feather: 0 })] as never
+      }
+    });
+    let answer: (value: unknown) => void = () => {};
+    invoke.mockImplementation((command: string) =>
+      command === 'generate_ai_foreground_mask' ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(null)
+    );
+    toast.warn.mockClear();
+    toast.dismiss.mockClear();
+    renderHook(() => useAiModelLifecycle(true));
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(listeners.has(AI_MASK_MEMORY_WAIT_EVENT)).toBe(true));
+    await waitFor(() =>
+      expect(invoke.mock.calls.filter((c) => c[0] === 'generate_ai_foreground_mask')).toHaveLength(1)
+    );
+    // Another photo's wait says nothing here.
+    act(() => listeners.get(AI_MASK_MEMORY_WAIT_EVENT)?.({ payload: { path: '/s/b.NEF', kind: 'subject' } }));
+    expect(toast.warn).not.toHaveBeenCalled();
+    act(() => listeners.get(AI_MASK_MEMORY_WAIT_EVENT)?.({ payload: { path: '/s/a.NEF', kind: 'subject' } }));
+    expect(toast.warn).toHaveBeenCalledTimes(1);
+    expect(toast.warn.mock.calls[0][0]).toMatch(/Not enough memory to compute the Subject mask/);
+    expect(toast.warn.mock.calls[0][1]).toMatchObject({ toastId: 'ai-mask-memory-wait-subject' });
+    expect(subOf('sub-ai-foreground')?.parameters).toMatchObject({ maskDataBase64: null });
+    // The other photo's wait ends: it showed no notice, this one's stays.
+    act(() => listeners.get(AI_MASK_MEMORY_WAIT_END_EVENT)?.({ payload: { path: '/s/b.NEF', kind: 'subject' } }));
+    expect(toast.dismiss).not.toHaveBeenCalled();
+    // Memory freed: this photo's wait ends, its notice goes; the run
+    // answers, the layer gets its mask.
+    act(() => listeners.get(AI_MASK_MEMORY_WAIT_END_EVENT)?.({ payload: { path: '/s/a.NEF', kind: 'subject' } }));
+    expect(toast.dismiss).toHaveBeenCalledWith('ai-mask-memory-wait-subject');
+    await act(async () => answer({ maskDataBase64: 'data:image/png;base64,AAAA' }));
+    await waitFor(() =>
+      expect(subOf('sub-ai-foreground')?.parameters).toMatchObject({ maskDataBase64: 'data:image/png;base64,AAAA' })
+    );
   });
 
   /** Answers `generate_*` calls only when the test resolves them. */

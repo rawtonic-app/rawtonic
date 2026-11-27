@@ -944,6 +944,8 @@
       "createNewTitle": "Crear nova edició generativa",
       "downloadFailed": "No s’ha pogut baixar el model. Comprova la connexió a internet i torna-ho a provar.",
       "generatingDepthMap": "S'està calculant el mapa de profunditat d'IA...",
+      "memoryWaitSky": "No hi ha prou memòria per calcular ara la màscara del cel. Tanca altres aplicacions o canvia a la vista d’una sola foto; es calcularà quan hi hagi memòria lliure.",
+      "memoryWaitSubject": "No hi ha prou memòria per calcular ara la màscara del subjecte. Tanca altres aplicacions o canvia a la vista d’una sola foto; es calcularà quan hi hagi memòria lliure.",
       "params": {
         "feather": "Esvaïment",
         "grow": "Expandir",

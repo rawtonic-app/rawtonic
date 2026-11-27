@@ -992,6 +992,8 @@
       "createNewTitle": "Utwórz nową edycję generatywną",
       "downloadFailed": "Nie udało się pobrać modelu. Sprawdź połączenie z internetem i spróbuj ponownie.",
       "generatingDepthMap": "Obliczanie mapy głębi AI...",
+      "memoryWaitSky": "Za mało pamięci, aby teraz obliczyć maskę nieba. Zamknij inne aplikacje lub przełącz na widok pojedynczego zdjęcia; zostanie obliczona, gdy pamięć się zwolni.",
+      "memoryWaitSubject": "Za mało pamięci, aby teraz obliczyć maskę obiektu. Zamknij inne aplikacje lub przełącz na widok pojedynczego zdjęcia; zostanie obliczona, gdy pamięć się zwolni.",
       "params": {
         "feather": "Wtapianie",
         "grow": "Rozszerzanie",

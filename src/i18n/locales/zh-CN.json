@@ -882,6 +882,8 @@
       "createNewTitle": "创建新的生成式编辑",
       "downloadFailed": "无法下载模型。请检查网络连接后重试。",
       "generatingDepthMap": "正在计算 AI 深度图...",
+      "memoryWaitSky": "当前内存不足，无法计算天空蒙版。请关闭其他应用或切换到单张照片视图；内存空闲后将自动计算。",
+      "memoryWaitSubject": "当前内存不足，无法计算主体蒙版。请关闭其他应用或切换到单张照片视图；内存空闲后将自动计算。",
       "params": {
         "feather": "羽化",
         "grow": "扩展",

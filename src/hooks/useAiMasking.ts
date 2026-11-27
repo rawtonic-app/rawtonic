@@ -111,6 +111,49 @@ const USE_REPORT_INTERVAL_MS = 30_000;
 /** Event of `ai_lifecycle::UNLOADED_EVENT`. */
 export const AI_MODELS_UNLOADED_EVENT = 'ai-models-unloaded';
 
+/** `ai_commands::MEMORY_WAIT_EVENT`: a Subject or Sky mask asked for does not
+ * start for want of memory; it starts by itself when memory is free (G74/BRK2).
+ * `MEMORY_WAIT_END_EVENT` follows when that wait ends, however it ends. */
+export const AI_MASK_MEMORY_WAIT_EVENT = 'ai-mask-memory-wait';
+export const AI_MASK_MEMORY_WAIT_END_EVENT = 'ai-mask-memory-wait-end';
+export interface AiMaskMemoryWait {
+  path: string;
+  kind: 'subject' | 'sky';
+}
+const memoryWaitNotice = (kind: AiMaskMemoryWait['kind']) => `ai-mask-memory-wait-${kind}`;
+/** Waits for memory under way, by kind and photo. */
+const memoryWaits = new Map<string, number>();
+const waitKey = ({ path, kind }: AiMaskMemoryWait) => JSON.stringify([kind, path]);
+/** The photo each kind's notice was shown for. */
+const noticeFor = new Map<AiMaskMemoryWait['kind'], string>();
+
+/** A mask waits for memory: the photographer is told when it is the open
+ * photo's (one notice per kind while such a wait lasts). */
+export function noteAiMaskMemoryWait(wait: AiMaskMemoryWait) {
+  memoryWaits.set(waitKey(wait), (memoryWaits.get(waitKey(wait)) ?? 0) + 1);
+  if (useEditorStore.getState().selectedImage?.path !== wait.path) return;
+  noticeFor.set(wait.kind, wait.path);
+  notify.warn(i18n.t(wait.kind === 'sky' ? 'editor.ai.memoryWaitSky' : 'editor.ai.memoryWaitSubject'), {
+    toastId: memoryWaitNotice(wait.kind),
+    source: 'ai'
+  });
+}
+
+/** A wait for memory ended (the run started, was cancelled or its photo
+ * changed): the notice goes when no wait of its kind for that photo is left. */
+export function noteAiMaskMemoryWaitEnd(wait: AiMaskMemoryWait) {
+  const left = Math.max(0, (memoryWaits.get(waitKey(wait)) ?? 0) - 1);
+  if (left > 0) {
+    memoryWaits.set(waitKey(wait), left);
+    return;
+  }
+  memoryWaits.delete(waitKey(wait));
+  // Only the photo's own notice: another photo's may show under that id now.
+  if (noticeFor.get(wait.kind) !== wait.path) return;
+  noticeFor.delete(wait.kind);
+  notify.dismiss(memoryWaitNotice(wait.kind));
+}
+
 /** Why the backend dropped the models (`ai_lifecycle::UnloadReason`). */
 export type AiModelsUnloadReason = 'idle' | 'library' | 'memoryPressure';
 
@@ -226,6 +269,8 @@ export function noteLandscapeModelReady() {
 
 /** Forgets the session state (tests). */
 export function resetAiMaskSession() {
+  memoryWaits.clear();
+  noticeFor.clear();
   landscapeWaitingForModel.clear();
   cancelAiMaskPrecompute();
   lastMaskingUse = null;
@@ -400,6 +445,25 @@ export function useAiModelLifecycle(develop: boolean) {
     return () => {
       unmounted = true;
       stop?.();
+    };
+  }, []);
+  useEffect(() => {
+    const stops: (() => void)[] = [];
+    let unmounted = false;
+    for (const [name, handle] of [
+      [AI_MASK_MEMORY_WAIT_EVENT, noteAiMaskMemoryWait],
+      [AI_MASK_MEMORY_WAIT_END_EVENT, noteAiMaskMemoryWaitEnd]
+    ] as const) {
+      listen<AiMaskMemoryWait>(name, (event) => handle(event.payload))
+        .then((unlisten) => {
+          if (unmounted) unlisten();
+          else stops.push(unlisten);
+        })
+        .catch((err) => console.error('Failed to listen for AI mask memory waits:', err));
+    }
+    return () => {
+      unmounted = true;
+      stops.forEach((stop) => stop());
     };
   }, []);
 }
