@@ -86,7 +86,7 @@ describe('viewer background', () => {
   });
 
   it('is a neutral grey; Medium is the 18 % grey (L* 50)', () => {
-    expect(viewerBackgroundCss('default')).toBe('var(--app-bg-primary, rgb(24, 24, 24))');
+    expect(viewerBackgroundCss('default')).toBe('var(--app-bg-primary, rgb(38, 38, 38))');
     expect(viewerBackgroundRgba('black')).toEqual([0, 0, 0, 1]);
     expect(viewerBackgroundRgba('white')).toEqual([1, 1, 1, 1]);
     expect(viewerBackgroundCss('medium')).toBe('rgb(119, 119, 119)');

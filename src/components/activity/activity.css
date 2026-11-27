@@ -20,18 +20,18 @@
   border: 0;
   border-radius: 4px;
   background: none;
-  color: var(--app-text-secondary, #9a9ca0);
+  color: var(--app-text-secondary, var(--studio-shade-muted));
   font: inherit;
   font-size: 11px;
   cursor: pointer;
 }
 .activity-slot-button:hover,
 .activity-slot-button[aria-expanded='true'] {
-  color: var(--app-text-primary, #e8e8e8);
+  color: var(--app-text-primary, var(--studio-shade-text));
   background: rgb(255 255 255 / 0.08);
 }
 .activity-slot-button:focus-visible {
-  outline: 2px solid var(--app-accent, #a9bdcc);
+  outline: 2px solid var(--app-accent, var(--studio-accent));
   outline-offset: 1px;
 }
 .activity-slot-text {
@@ -101,11 +101,11 @@
   max-height: min(70vh, 560px);
   overflow-y: auto;
   padding: 8px 12px 12px;
-  background: #292a2c;
-  border: 1px solid #45474b;
+  background: var(--studio-shade-bg);
+  border: 1px solid var(--studio-shade-hover);
   border-radius: 4px;
   box-shadow: 0 10px 36px #0009;
-  color: #c9cbce;
+  color: var(--studio-shade-text);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -121,7 +121,7 @@
 }
 .activity-panel-head h2 {
   margin: 0;
-  color: #e0e1e3;
+  color: var(--studio-shade-text);
   font-size: 12px;
   font-weight: 600;
 }
@@ -130,7 +130,7 @@
 }
 .activity-section h3 {
   margin: 0 0 4px;
-  color: #9a9ca0;
+  color: var(--studio-shade-muted);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -143,14 +143,14 @@
 }
 .activity-empty {
   margin: 0;
-  color: #7d7f83;
+  color: var(--studio-shade-muted);
 }
 .activity-entry {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   padding: 6px 0;
-  border-top: 1px solid #36373a;
+  border-top: 1px solid var(--studio-shade-hover);
 }
 .activity-entry:first-child {
   border-top: 0;
@@ -162,7 +162,7 @@
   width: 16px;
   height: 18px;
   flex-shrink: 0;
-  color: #9a9ca0;
+  color: var(--studio-shade-muted);
 }
 .activity-entry-main {
   flex: 1;
@@ -174,7 +174,7 @@ span.activity-entry-title {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
-  color: #e0e1e3;
+  color: var(--studio-shade-text);
 }
 .activity-entry-title p {
   margin: 0;
@@ -186,7 +186,7 @@ span.activity-entry-title {
   -webkit-line-clamp: 4;
   overflow: hidden;
   margin: 2px 0 0;
-  color: #9a9ca0;
+  color: var(--studio-shade-muted);
   white-space: pre-line;
 }
 .activity-entry-progress {
@@ -210,7 +210,7 @@ span.activity-entry-title {
   padding: 0;
   border: 0;
   background: none;
-  color: #a9bdcc;
+  color: var(--studio-accent);
   font: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -222,15 +222,15 @@ span.activity-entry-title {
   border: 0;
   border-radius: 3px;
   background: none;
-  color: #9a9ca0;
+  color: var(--studio-shade-muted);
   cursor: pointer;
 }
 .activity-entry-dismiss:hover {
-  color: #e0e1e3;
+  color: var(--studio-shade-text);
   background: rgb(255 255 255 / 0.08);
 }
 .activity-panel button:focus-visible {
-  outline: 2px solid var(--app-accent, #a9bdcc);
+  outline: 2px solid var(--app-accent, var(--studio-accent));
   outline-offset: 1px;
 }
 

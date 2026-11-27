@@ -80,7 +80,7 @@
   background: none;
   border: 0;
   font: inherit;
-  color: var(--studio-shade-warning, #e5bc72);
+  color: var(--studio-shade-warning);
   cursor: pointer;
 }
 .session-count-pending:hover .session-count-status-text,
@@ -92,11 +92,11 @@
   z-index: 60;
   width: 320px;
   padding: 10px 12px 12px;
-  background: var(--studio-shade-bg, #292a2c);
-  border: 1px solid var(--studio-shade-hover, #45474b);
+  background: var(--studio-shade-bg);
+  border: 1px solid var(--studio-shade-hover);
   border-radius: 4px;
   box-shadow: 0 10px 36px #0009;
-  color: var(--studio-shade-text, #c9cbce);
+  color: var(--studio-shade-text);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -107,14 +107,14 @@
   margin: 0 0 8px;
 }
 .session-xmp-panel .session-xmp-title {
-  color: var(--studio-shade-text, #e0e1e3);
+  color: var(--studio-shade-text);
   font-weight: 600;
 }
 .session-xmp-reasons {
   margin: 0 0 8px;
   padding-left: 16px;
   list-style: disc;
-  color: var(--studio-shade-warning, #e5bc72);
+  color: var(--studio-shade-warning);
 }
 .session-xmp-actions {
   display: flex;
@@ -143,12 +143,12 @@
   background: var(--app-card-active);
 }
 .session-primary {
-  background: #b4c8d3;
-  color: var(--studio-shade-ink, #15232c);
+  background: var(--studio-accent-fill);
+  color: var(--studio-on-accent);
   border-color: transparent;
 }
 .session-primary:hover:not(:disabled) {
-  background: #ccdae2;
+  background: var(--studio-accent-fill-hover);
 }
 .session-action:disabled {
   opacity: 0.38;
@@ -294,15 +294,15 @@
   max-height: calc(100vh - 50px);
   overflow: auto;
   padding: 0;
-  border: 1px solid var(--studio-shade-hover, #4a4e51);
+  border: 1px solid var(--studio-shade-hover);
   border-radius: 10px;
-  background: var(--app-bg-secondary, #242628);
-  color: var(--app-text-primary, #edf0f2);
+  background: var(--app-bg-secondary, var(--studio-shade-inset));
+  color: var(--app-text-primary, var(--studio-shade-text));
   box-shadow: 0 28px 90px #0008;
   font-size: 13px;
 }
 .session-dialog::backdrop {
-  background: rgb(var(--studio-shade-rgb-ink, 9 11 14) / 0.850980392);
+  background: rgb(var(--studio-shade-rgb-ink) / 0.850980392);
 }
 .session-dialog-header {
   display: flex;
@@ -349,11 +349,11 @@
   width: 100%;
   padding: 11px 12px;
   background: var(--app-bg-primary);
-  border: 1px solid var(--studio-shade-hover, #53565a);
+  border: 1px solid var(--studio-shade-hover);
   border-radius: 5px;
   color: var(--app-text-primary);
   font-size: 13px;
-  caret-color: #b4c8d3;
+  caret-color: var(--studio-accent);
 }
 .session-field small {
   font-weight: 400;
@@ -365,7 +365,7 @@
   align-items: center;
   gap: 9px;
   padding: 11px 12px;
-  border: 1px solid var(--studio-shade-hover, #53565a);
+  border: 1px solid var(--studio-shade-hover);
   border-radius: 5px;
   text-align: left;
   width: 100%;
@@ -379,7 +379,7 @@
   white-space: nowrap;
 }
 .session-path:hover {
-  border-color: #a2b2bd;
+  border-color: var(--studio-accent);
 }
 .session-mode {
   display: grid;
@@ -463,7 +463,7 @@
   color: var(--app-text-secondary);
 }
 .session-error {
-  color: var(--studio-shade-error, #f1abab);
+  color: var(--studio-shade-error);
   overflow-wrap: anywhere;
   background: #511c1c50;
   padding: 12px;
@@ -482,7 +482,7 @@
 .session-copy-note svg {
   flex-shrink: 0;
   margin-top: 3px;
-  color: var(--studio-shade-muted, #b4c8d3);
+  color: var(--studio-shade-muted);
 }
 .session-copy-note strong {
   font-weight: 500;
@@ -517,19 +517,19 @@
   font-size: 13px;
 }
 .session-action.is-active {
-  border-color: #b4c8d3;
-  color: var(--studio-shade-muted, #d4e2ea);
+  border-color: var(--studio-accent);
+  color: var(--studio-shade-muted);
 }
 .session-optional {
   font-weight: 400;
   color: var(--app-text-secondary);
 }
 :where(.session-bar, .session-dialog, .session-welcome) :focus-visible {
-  outline: 2px solid #b4c8d3 !important;
+  outline: 2px solid var(--studio-accent) !important;
   outline-offset: 3px;
 }
 ::selection {
-  background: #7e9ca766;
+  background: rgb(var(--studio-rgb-accent) / 0.400);
   color: inherit;
 }
 @media (max-width: 1100px) {
@@ -786,7 +786,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--studio-shade-muted, #b4c8d3);
+  color: var(--studio-shade-muted);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
@@ -800,7 +800,7 @@
   overflow-x: hidden;
   border: 1px solid var(--app-border-color);
   border-radius: 8px;
-  background: var(--app-bg-primary, #1b1d1f);
+  background: var(--app-bg-primary, var(--studio-shade-inset));
   padding: 8px;
 }
 .session-ingest-tiles {
@@ -827,13 +827,13 @@
   width: var(--ingest-tile, 112px);
   height: var(--ingest-tile, 112px);
   border-radius: 6px;
-  background: var(--studio-shade-bg, #2b2e31);
+  background: var(--studio-shade-bg);
   overflow: hidden;
   outline: 2px solid transparent;
   outline-offset: -2px;
   font-size: 11px;
   letter-spacing: 0.04em;
-  color: var(--studio-shade-muted, #8a9096);
+  color: var(--studio-shade-muted);
 }
 .session-ingest-thumb img {
   width: 100%;
@@ -844,7 +844,7 @@
   opacity: 0.45;
 }
 .session-ingest-tile.is-checked .session-ingest-thumb {
-  outline-color: #b4c8d3;
+  outline-color: var(--studio-accent);
 }
 .session-ingest-tile:focus-visible {
   outline: none;
@@ -864,11 +864,11 @@
   border-radius: 4px;
   border: 1px solid #ffffffb0;
   background: #0008;
-  color: #111;
+  color: var(--studio-shade-ink);
 }
 .session-ingest-tile.is-checked .session-ingest-check {
-  border-color: #b4c8d3;
-  background: #b4c8d3;
+  border-color: var(--studio-accent);
+  background: var(--studio-accent-fill);
 }
 .session-ingest-badge {
   position: absolute;
@@ -877,7 +877,7 @@
   padding: 1px 5px;
   border-radius: 4px;
   background: #000b;
-  color: var(--studio-shade-warning, #e6c27a);
+  color: var(--studio-shade-warning);
   font-size: 10px;
   letter-spacing: 0;
 }
@@ -909,8 +909,8 @@
   justify-content: center;
   padding-bottom: 32px;
   pointer-events: none;
-  box-shadow: inset 0 0 0 3px #b4c8d3;
-  background: #b4c8d314;
+  box-shadow: inset 0 0 0 3px var(--studio-accent);
+  background: rgb(var(--studio-rgb-accent) / 0.078);
 }
 .session-drop-overlay span {
   display: flex;
@@ -918,8 +918,8 @@
   gap: 8px;
   padding: 10px 16px;
   border-radius: 8px;
-  background: rgb(var(--studio-shade-overlay-rgb, 27 29 31) / 0.901960784);
-  color: var(--studio-shade-text, #edf0f2);
+  background: rgb(var(--studio-shade-overlay-rgb) / 0.901960784);
+  color: var(--studio-shade-text);
   font-size: 13px;
   box-shadow: 0 8px 30px #0008;
 }
@@ -954,7 +954,7 @@
   margin: 0;
   padding: 14px 28px;
   border-top: 1px solid var(--app-border-color);
-  background: var(--app-bg-secondary, #242628);
+  background: var(--app-bg-secondary, var(--studio-shade-inset));
 }
 .session-ingest-form > .session-dialog-footer > span {
   min-width: 0;
@@ -991,7 +991,7 @@
   display: block;
   padding: 6px 8px;
   border-radius: 5px;
-  background: var(--app-bg-primary, #1b1d1f);
+  background: var(--app-bg-primary, var(--studio-shade-inset));
   color: var(--app-text-secondary);
   font-size: 11px;
   line-height: 1.4;
@@ -1032,7 +1032,7 @@
 }
 .session-ingest-size {
   width: 72px;
-  accent-color: #b4c8d3;
+  accent-color: var(--studio-accent-fill);
   cursor: pointer;
 }
 /* The import dialog's large view: over the dialog, nearly window-sized. */
@@ -1051,9 +1051,9 @@
   height: 100%;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  border: 1px solid var(--studio-shade-hover, #4a4e51);
+  border: 1px solid var(--studio-shade-hover);
   border-radius: 10px;
-  background: var(--studio-shade-ink, #141618);
+  background: var(--studio-shade-ink);
   box-shadow: 0 28px 90px #000a;
   overflow: hidden;
   outline: none;
@@ -1064,7 +1064,7 @@
   gap: 10px;
   padding: 8px 10px 8px 14px;
   border-bottom: 1px solid var(--app-border-color);
-  background: var(--app-bg-secondary, #242628);
+  background: var(--app-bg-secondary, var(--studio-shade-inset));
   font-size: 12px;
 }
 .session-ingest-loupe-check {
@@ -1083,8 +1083,8 @@
   position: static;
 }
 .session-ingest-loupe-check.is-checked .session-ingest-check {
-  border-color: #b4c8d3;
-  background: #b4c8d3;
+  border-color: var(--studio-accent);
+  background: var(--studio-accent-fill);
 }
 .session-ingest-loupe-title {
   display: grid;
@@ -1249,7 +1249,7 @@
   white-space: nowrap;
 }
 .session-sync-group input {
-  accent-color: #b4c8d3;
+  accent-color: var(--studio-accent-fill);
   flex: none;
 }
 .session-sync-group.is-info {
@@ -1281,19 +1281,19 @@
   bottom: -18px;
   margin-bottom: -18px;
   padding: 14px 0 18px;
-  background: var(--app-bg-secondary, #242628);
+  background: var(--app-bg-secondary, var(--studio-shade-inset));
   border-top: 1px solid var(--app-border-color);
 }
 /* The global `*:focus { outline: none !important }` hides outlines of focused
    elements: a ring shows where the keyboard is. */
 .session-sync-dialog button:focus-visible {
   box-shadow:
-    0 0 0 2px var(--app-bg-secondary, #242628),
-    0 0 0 4px #b4c8d3;
+    0 0 0 2px var(--app-bg-secondary, var(--studio-shade-inset)),
+    0 0 0 4px var(--studio-accent);
 }
 /* Native checkboxes draw no shadow; the row around the focused one shows it. */
 .session-sync-dialog label:has(> input:focus-visible) {
-  outline: 2px solid #b4c8d3;
+  outline: 2px solid var(--studio-accent);
   outline-offset: 1px;
   border-radius: 3px;
 }
@@ -1363,7 +1363,7 @@
   cursor: pointer;
 }
 .session-count-pending:hover {
-  color: var(--app-text-primary, #e8e8e8);
+  color: var(--app-text-primary, var(--studio-shade-text));
   background: rgb(255 255 255 / 0.08);
 }
 
@@ -1373,7 +1373,7 @@
 .session-xmp-conflicts {
   margin: 0 0 10px;
   padding-top: 8px;
-  border-top: 1px solid var(--studio-shade-hover, #45474b);
+  border-top: 1px solid var(--studio-shade-hover);
 }
 .session-xmp-conflicts-header {
   display: flex;
@@ -1387,7 +1387,7 @@
   margin: 0;
 }
 .session-xmp-panel .session-xmp-hint {
-  color: var(--studio-shade-muted, #a9abaf);
+  color: var(--studio-shade-muted);
   font-size: 11px;
 }
 .session-xmp-buttons {
@@ -1424,7 +1424,7 @@
 }
 .session-xmp-failed {
   margin: 0 0 8px;
-  color: var(--studio-shade-warning, #e5bc72);
+  color: var(--studio-shade-warning);
   font-size: 11px;
 }
 .session-xmp-failed li {
@@ -1432,8 +1432,8 @@
 }
 .session-xmp-panel button:focus-visible {
   box-shadow:
-    0 0 0 2px var(--studio-shade-bg, #292a2c),
-    0 0 0 4px #b4c8d3;
+    0 0 0 2px var(--studio-shade-bg),
+    0 0 0 4px var(--studio-accent);
 }
 
 /* Import from Catalog: the photographs of the review (G39). */
@@ -1460,7 +1460,7 @@
   white-space: nowrap;
 }
 .catalog-import-list small {
-  color: var(--studio-shade-muted, #9aa4ab);
+  color: var(--studio-shade-muted);
   white-space: nowrap;
 }
 .catalog-import-list select {
@@ -1481,7 +1481,7 @@
   min-width: 0;
 }
 .session-ingest-source-head .session-action.is-active {
-  border-color: #b4c8d3;
+  border-color: var(--studio-accent);
   color: var(--app-text-primary);
 }
 .session-ingest-rating {
@@ -1518,7 +1518,7 @@
   cursor: pointer;
 }
 .session-ingest-loupe-zoom.is-on {
-  border-color: #b4c8d3;
+  border-color: var(--studio-accent);
   color: var(--app-text-primary);
 }
 .session-ingest-loupe-image {

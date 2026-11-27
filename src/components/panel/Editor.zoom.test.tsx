@@ -30,10 +30,13 @@ vi.mock('./editor/ImageCanvas', async () => {
   };
 });
 
-// The Darkest canvas colour, `--app-bg-primary: rgb(...)` in src/styles.css
+// The Darkest viewer grey, `--app-bg-primary: #rrggbb` in src/styles.css
 // (jsdom has no cascade, so the token is set from it): Default's viewer colour.
-const CANVAS = Number(
-  readFileSync('src/styles.css', 'utf8').match(/:root \{\s*--app-bg-primary: rgb\((\d+), \d+, \d+\)/)![1]
+const CANVAS = parseInt(
+  readFileSync('src/styles.css', 'utf8').match(
+    /:root\[data-interface-shade='darkest'\] \{\s*--app-bg-primary: #([0-9a-f]{2})/i
+  )![1],
+  16
 );
 
 // The viewer's fit; a test changes it as the viewer's size would change.

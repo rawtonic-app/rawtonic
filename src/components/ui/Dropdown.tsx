@@ -248,7 +248,7 @@ const Dropdown = <T extends React.Key>({
         disabled={disabled}
         className={clsx(
           'w-full border border-border-color rounded-md px-3 mr-4 py-2 flex justify-between items-center text-left disabled:opacity-50 disabled:cursor-not-allowed',
-          'focus:ring-accent focus:border-accent focus:outline-hidden focus:ring-2',
+          'focus:ring-accent focus:border-accent focus:outline-hidden focus:ring-1',
           triggerClassName || 'bg-surface'
         )}
         onClick={() => (isOpen ? setIsOpen(false) : open())}

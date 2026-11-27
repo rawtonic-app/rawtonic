@@ -184,10 +184,16 @@ it('keeps fixed-size transparent control icons above the plot (studio.css applie
   const { readFileSync } = await import('node:fs');
   const style = document.createElement('style');
   const css = readFileSync('src/components/studio/studio.css', 'utf8') as string;
-  // jsdom does not resolve custom-property fallbacks in paint properties.
-  // Resolve the optional shade tokens to their actual Darkest fallbacks;
-  // palette contrast for every shade is checked in themes.test.ts.
-  style.textContent = css.replace(/var\(--studio-(?:shade-[\w-]+|focus),\s*([^)]+)\)/g, '$1');
+  // jsdom does not resolve custom properties in paint properties. Resolve
+  // the shade tokens to their Darkest values from src/styles.css; palette
+  // contrast for every shade is checked in themes.test.ts.
+  const tokenFile = readFileSync('src/styles.css', 'utf8') as string;
+  const darkest = tokenFile.slice(tokenFile.indexOf(":root[data-interface-shade='darkest'] {")).split('}')[0];
+  const shade = Object.fromEntries([...darkest.matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2]]));
+  style.textContent = css.replace(
+    /var\((--[\w-]+)(?:,\s*([^)]+))?\)/g,
+    (all: string, key: string, fallback?: string) => shade[key] ?? fallback ?? all
+  );
   document.head.appendChild(style);
   try {
     const { container } = render(
@@ -209,10 +215,10 @@ it('keeps fixed-size transparent control icons above the plot (studio.css applie
     // Assert the visual state contract with the real stylesheet, including
     // the studio's general pressed-button styles.
     for (const [state, fill, stroke] of [
-      ['', 'rgba(0, 0, 0, 0)', 'rgb(150, 154, 159)'],
-      ['is-on', 'rgba(0, 0, 0, 0)', 'rgb(238, 240, 243)'],
-      ['is-lit', 'rgb(0, 0, 0)', 'rgb(238, 240, 243)'],
-      ['is-on is-lit', 'rgb(0, 0, 0)', 'rgb(238, 240, 243)']
+      ['', 'rgba(0, 0, 0, 0)', 'rgb(166, 166, 166)'],
+      ['is-on', 'rgba(0, 0, 0, 0)', 'rgb(230, 230, 230)'],
+      ['is-lit', 'rgb(0, 0, 0)', 'rgb(230, 230, 230)'],
+      ['is-on is-lit', 'rgb(0, 0, 0)', 'rgb(230, 230, 230)']
     ]) {
       shadow.setAttribute('class', `studio-clip-corner studio-clip-shadows ${state}`);
       expect(getComputedStyle(mark).fill).toBe(fill);

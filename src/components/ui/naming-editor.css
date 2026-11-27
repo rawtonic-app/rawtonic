@@ -1,7 +1,7 @@
 .naming-editor {
-  --naming-line: var(--app-border-color, #50545a);
-  --naming-surface: var(--app-bg-primary, #202123);
-  --naming-text: var(--app-text-primary, #edf0f2);
+  --naming-line: var(--app-border-color);
+  --naming-surface: var(--app-bg-primary);
+  --naming-text: var(--app-text-primary);
   display: grid;
   gap: 10px;
   min-width: 0;
@@ -41,7 +41,7 @@
   border-color: currentColor;
 }
 .naming-editor :is(input, select, button, summary):focus-visible {
-  outline: 2px solid var(--app-accent, #b4c8d3);
+  outline: 2px solid var(--app-accent, var(--studio-accent));
   outline-offset: 2px;
 }
 .naming-example {
@@ -53,7 +53,7 @@
 .naming-example span,
 .naming-builder p,
 .naming-builder small {
-  color: var(--app-text-secondary, #b8bec6);
+  color: var(--app-text-secondary, var(--studio-accent));
   font-size: 11px;
   line-height: 1.5;
 }
@@ -87,7 +87,7 @@
   white-space: pre-wrap;
 }
 .naming-parts .is-token {
-  background: var(--app-bg-tertiary, #3b3e43);
+  background: var(--app-bg-tertiary, var(--studio-accent-tint));
 }
 .naming-save {
   border-top: 1px solid var(--naming-line);
@@ -131,7 +131,7 @@
   bottom: 0;
   left: 0;
   width: 3px;
-  background: var(--app-accent, #b4c8d3);
+  background: var(--app-accent, var(--studio-accent-fill));
   border-radius: 2px;
 }
 .naming-drop-slot.is-end {
@@ -141,16 +141,16 @@
   border: 1px dashed var(--naming-line);
   border-radius: 4px;
   padding: 5px 8px;
-  color: var(--app-text-secondary, #b8bec6);
+  color: var(--app-text-secondary, var(--studio-accent));
 }
 .naming-drag-preview {
   display: inline-block;
   white-space: pre;
   padding: 6px 10px;
   border-radius: 4px;
-  border: 1px solid #b4c8d3;
-  color: #edf0f2;
-  background: #3b3e43;
+  border: 1px solid var(--studio-accent);
+  color: var(--studio-shade-text);
+  background: var(--studio-accent-tint);
   box-shadow: 0 4px 16px #0006;
   font-size: 12px;
 }
@@ -179,7 +179,7 @@
   cursor: text;
 }
 .naming-field:focus-within {
-  border-color: var(--app-accent, #b4c8d3);
+  border-color: var(--app-accent, var(--studio-accent));
 }
 .naming-field.is-invalid {
   border-color: var(--app-error-color, #f5a5a5);
@@ -207,7 +207,7 @@
   align-items: center;
   gap: 1px;
   border-radius: 12px;
-  background: var(--app-bg-tertiary, #3b3e43);
+  background: var(--app-bg-tertiary, var(--studio-accent-tint));
   border: 1px solid var(--naming-line);
   padding: 0 2px 0 0;
 }
@@ -225,7 +225,7 @@
 }
 .naming-editor .naming-chip .naming-chip-option {
   font-size: 11px;
-  color: var(--app-text-secondary, #b8bec6);
+  color: var(--app-text-secondary, var(--studio-accent));
 }
 .naming-editor .naming-chip .naming-chip-remove {
   padding: 1px 4px;
@@ -233,7 +233,7 @@
   align-items: center;
 }
 .naming-hint {
-  color: var(--app-text-secondary, #b8bec6);
+  color: var(--app-text-secondary, var(--studio-accent));
   font-size: 11px;
 }
 .naming-counter-row {
@@ -254,7 +254,7 @@
 }
 .naming-group legend {
   font-size: 11px;
-  color: var(--app-text-secondary, #b8bec6);
+  color: var(--app-text-secondary, var(--studio-accent));
   padding: 0;
 }
 .naming-code {
@@ -320,12 +320,12 @@
   padding: 8px;
   border: 1px solid var(--naming-line);
   border-radius: 6px;
-  background: var(--app-bg-secondary, #242628);
+  background: var(--app-bg-secondary, var(--studio-shade-inset));
   box-shadow: 0 12px 40px #0009;
 }
 .naming-popover-hint {
   margin: 0;
-  color: var(--app-text-secondary, #b8bec6);
+  color: var(--app-text-secondary, var(--studio-accent));
   font-size: 11px;
   line-height: 1.4;
 }
@@ -336,7 +336,7 @@
   gap: 8px;
 }
 .naming-popover-empty {
-  color: var(--app-text-secondary, #b8bec6);
+  color: var(--app-text-secondary, var(--studio-accent));
   padding: 6px 2px;
 }
 .naming-popover .naming-group {
@@ -346,7 +346,7 @@
 }
 .naming-group-title {
   font-size: 11px;
-  color: var(--app-text-secondary, #b8bec6);
+  color: var(--app-text-secondary, var(--studio-accent));
   padding: 2px 4px;
 }
 .naming-editor .naming-popover .naming-token-item {
@@ -362,11 +362,11 @@
 }
 .naming-editor .naming-popover .naming-token-item:hover,
 .naming-editor .naming-popover .naming-token-item:focus-visible {
-  background: var(--app-bg-tertiary, #3b3e43);
+  background: var(--app-bg-tertiary, var(--studio-accent-tint));
   outline-offset: -2px;
 }
 .naming-token-item code {
-  color: var(--app-text-secondary, #b8bec6);
+  color: var(--app-text-secondary, var(--studio-accent));
   font-size: 10px;
 }
 .naming-editor .naming-save {

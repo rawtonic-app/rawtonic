@@ -16,13 +16,13 @@ export const DEFAULT_VIEWER_BACKGROUND: ViewerBackground = 'default';
  * 18 % reflectance grey (L* 50), the middle of perceived lightness, for
  * judging tones. Dark (80) is one step down from Medium (OKLab L 0.43 from
  * 0.57), well clear of Medium and Darker (18, 0.18) on both sides and of the
- * canvas colours it meets in the shades (24, 38 and 76). Default is the app's canvas
+ * viewer greys it meets in the shades (38, 56 and 90). Default is the app's canvas
  * colour (`--app-bg-primary`, see viewerBackgroundCss) and follows the
  * interface shade; its entry here is only the fallback when no stylesheet
- * answers (the Darkest canvas, 24).
+ * answers (the Darkest viewer grey, 38).
  */
 export const VIEWER_BACKGROUND_LEVELS: Record<ViewerBackground, number> = {
-  default: 24,
+  default: 38,
   black: 0,
   veryDark: 18,
   dark: 80,

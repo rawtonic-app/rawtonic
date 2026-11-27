@@ -1233,7 +1233,8 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
       'Luminance range',
       'Depth range'
     ]);
-    expect(items.every((i) => i.querySelector('svg'))).toBe(true);
+    // Menus are text-first (VISCALM1): no per-item icons.
+    expect(items.some((i) => i.querySelector('svg'))).toBe(false);
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Radial' }));
     const masks = useEditorStore.getState().adjustments.masks;
     expect(masks.map((m) => m.subMasks[0].type)).toEqual([Mask.AiSky, Mask.Radial]);

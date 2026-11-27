@@ -501,85 +501,158 @@
   }
 }
 
-:root {
-  --app-bg-primary: rgb(24, 24, 24);
-  --app-bg-secondary: rgb(35, 35, 35);
-  --app-surface: rgb(28, 28, 28);
-  --app-card-active: rgb(43, 43, 43);
-  --app-button-text: rgb(0, 0, 0);
-  --app-text-primary: rgb(232, 234, 237);
-  --app-text-secondary: rgb(158, 158, 158);
-  --app-accent: rgb(255, 255, 255);
-  --app-border-color: rgb(45, 45, 45);
-  --app-hover-color: rgb(255, 255, 255);
-}
-
-/* Darkest deliberately uses the incumbent fallbacks in studio.css. These
-   neutral ramps affect chrome only; Viewer background remains independent.
-   Pressed fills mark selection, intentionally deeper than inset controls. */
-:root[data-interface-shade='dark-grey'] {
-  --app-bg-primary: rgb(38, 38, 38);
-  --app-bg-secondary: rgb(48, 48, 48);
-  --app-surface: rgb(43, 43, 43);
-  --app-card-active: rgb(58, 58, 58);
-  --app-button-text: rgb(0, 0, 0);
-  --app-text-primary: rgb(240, 240, 240);
-  --app-text-secondary: rgb(196, 196, 196);
-  --app-accent: rgb(255, 255, 255);
-  --app-border-color: rgb(112, 112, 112);
-  --app-hover-color: rgb(255, 255, 255);
+/* VISCALM1 (2026-11-27): four neutral role greys per shade (R = G = B) — chrome
+   (inset: top bar, sunken fields), panel (bg: sidebars, inspector), viewer (the
+   photo's surroundings, one step lighter than the panels so the chrome recedes)
+   and control (raised: buttons, fills) — plus ink/hover/dim/line/muted/text, and
+   ONE accent: a fill for every primary button, selection and on-toggle, with an
+   ink variant for accent text and focus rings. Stylesheets use these tokens only. */
+:root,
+:root[data-interface-shade='darkest'] {
+  --app-bg-primary: #262626;
+  --app-bg-secondary: #1c1c1c;
+  --app-surface: #303030;
+  --app-card-active: #3c3c3c;
+  --app-button-text: #ffffff;
+  --app-text-primary: #e6e6e6;
+  --app-text-secondary: #a6a6a6;
+  --app-accent: #3e6ea3;
+  --app-border-color: #3c3c3c;
+  --app-hover-color: #e6e6e6;
+  --studio-shade-ink: #0c0c0c;
+  --studio-shade-inset: #161616;
+  --studio-shade-bg: #1c1c1c;
+  --studio-shade-raised: #303030;
+  --studio-shade-hover: #3c3c3c;
+  --studio-shade-dim: #6e6e6e;
+  --studio-shade-line: #8c8c8c;
+  --studio-shade-muted: #a6a6a6;
+  --studio-shade-text: #e6e6e6;
+  --studio-shade-viewer: #262626;
+  --studio-shade-panel: #1c1c1c;
+  --studio-rgb-ink: 12 12 12;
+  --studio-rgb-inset: 22 22 22;
+  --studio-rgb-bg: 28 28 28;
+  --studio-rgb-raised: 48 48 48;
+  --studio-rgb-hover: 60 60 60;
+  --studio-rgb-dim: 110 110 110;
+  --studio-rgb-line: 140 140 140;
+  --studio-rgb-muted: 166 166 166;
+  --studio-rgb-text: 230 230 230;
+  --studio-shade-rgb-ink: 12 12 12;
+  --studio-shade-rgb-line: 140 140 140;
+  --studio-shade-rgb-text: 230 230 230;
+  --studio-shade-overlay-rgb: 22 22 22;
+  --studio-shade-accent: #8cb3dc;
+  --studio-rgb-accent: 140 179 220;
+  --studio-focus: #8cb3dc;
+  --studio-accent-fill: #3e6ea3;
+  --studio-accent-fill-hover: #4676b0;
+  --studio-on-accent: #ffffff;
+  --studio-accent-tint: color-mix(in srgb, #3e6ea3 38%, #1c1c1c);
+  --studio-shade-pressed-rgb: 62 110 163;
+  --studio-shade-pressed-alpha: 0.45;
   --studio-shade-warning: #e6c47e;
   --studio-shade-error: #f1abab;
   --studio-shade-success: #a8c8a0;
-  --studio-focus: #e0effa;
-  --studio-shade-accent: #e0effa;
-  --studio-shade-ink: #202020;
-  --studio-shade-rgb-ink: 32 32 32;
-  --studio-shade-inset: #282828;
-  --studio-shade-bg: #343434;
-  --studio-shade-raised: #404040;
-  --studio-shade-hover: #484848;
-  --studio-shade-line: #999999;
-  --studio-shade-rgb-line: 153 153 153;
-  --studio-shade-muted: #adadad;
-  --studio-shade-dim: #737373;
-  --studio-shade-overlay-rgb: 24 24 24;
-  --studio-shade-pressed-rgb: 0 0 0;
-  --studio-shade-pressed-alpha: 0.32;
-  --studio-shade-text: #f0f0f0;
-  --studio-shade-rgb-text: 240 240 240;
 }
+
+:root[data-interface-shade='dark-grey'] {
+  --app-bg-primary: #383838;
+  --app-bg-secondary: #2c2c2c;
+  --app-surface: #424242;
+  --app-card-active: #4e4e4e;
+  --app-button-text: #ffffff;
+  --app-text-primary: #f0f0f0;
+  --app-text-secondary: #c4c4c4;
+  --app-accent: #3a68a0;
+  --app-border-color: #4e4e4e;
+  --app-hover-color: #f0f0f0;
+  --studio-shade-ink: #1a1a1a;
+  --studio-shade-inset: #262626;
+  --studio-shade-bg: #2c2c2c;
+  --studio-shade-raised: #424242;
+  --studio-shade-hover: #4e4e4e;
+  --studio-shade-dim: #808080;
+  --studio-shade-line: #a0a0a0;
+  --studio-shade-muted: #c4c4c4;
+  --studio-shade-text: #f0f0f0;
+  --studio-shade-viewer: #383838;
+  --studio-shade-panel: #2c2c2c;
+  --studio-rgb-ink: 26 26 26;
+  --studio-rgb-inset: 38 38 38;
+  --studio-rgb-bg: 44 44 44;
+  --studio-rgb-raised: 66 66 66;
+  --studio-rgb-hover: 78 78 78;
+  --studio-rgb-dim: 128 128 128;
+  --studio-rgb-line: 160 160 160;
+  --studio-rgb-muted: 196 196 196;
+  --studio-rgb-text: 240 240 240;
+  --studio-shade-rgb-ink: 26 26 26;
+  --studio-shade-rgb-line: 160 160 160;
+  --studio-shade-rgb-text: 240 240 240;
+  --studio-shade-overlay-rgb: 38 38 38;
+  --studio-shade-accent: #9cc0e6;
+  --studio-rgb-accent: 156 192 230;
+  --studio-focus: #9cc0e6;
+  --studio-accent-fill: #3a68a0;
+  --studio-accent-fill-hover: #4676b0;
+  --studio-on-accent: #ffffff;
+  --studio-accent-tint: color-mix(in srgb, #3a68a0 38%, #2c2c2c);
+  --studio-shade-pressed-rgb: 58 104 160;
+  --studio-shade-pressed-alpha: 0.5;
+  --studio-shade-warning: #e6c47e;
+  --studio-shade-error: #f1abab;
+  --studio-shade-success: #a8c8a0;
+}
+
 :root[data-interface-shade='medium-grey'] {
-  --app-bg-primary: rgb(76, 76, 76);
-  --app-bg-secondary: rgb(88, 88, 88);
-  --app-surface: rgb(82, 82, 82);
-  --app-card-active: rgb(98, 98, 98);
-  --app-button-text: rgb(0, 0, 0);
-  --app-text-primary: rgb(255, 255, 255);
-  --app-text-secondary: rgb(235, 235, 235);
-  --app-accent: rgb(255, 255, 255);
-  --app-border-color: rgb(170, 170, 170);
-  --app-hover-color: rgb(255, 255, 255);
-  --studio-shade-warning: #ffdf85;
-  --studio-shade-error: #ffbfbf;
-  --studio-shade-success: #b6efb6;
-  --studio-focus: #e0effa;
-  --studio-shade-accent: #e0effa;
-  --studio-shade-ink: #373737;
-  --studio-shade-rgb-ink: 55 55 55;
-  --studio-shade-inset: #3e3e3e;
-  --studio-shade-bg: #505050;
-  --studio-shade-raised: #626262;
+  --app-bg-primary: #5a5a5a;
+  --app-bg-secondary: #444444;
+  --app-surface: #5c5c5c;
+  --app-card-active: #696969;
+  --app-button-text: #10233a;
+  --app-text-primary: #ffffff;
+  --app-text-secondary: #ececec;
+  --app-accent: #9cc3ee;
+  --app-border-color: #696969;
+  --app-hover-color: #ffffff;
+  --studio-shade-ink: #2c2c2c;
+  --studio-shade-inset: #3c3c3c;
+  --studio-shade-bg: #444444;
+  --studio-shade-raised: #5c5c5c;
   --studio-shade-hover: #696969;
-  --studio-shade-line: #c0c0c0;
-  --studio-shade-rgb-line: 192 192 192;
-  --studio-shade-muted: #e0e0e0;
-  --studio-shade-dim: #949494;
-  --studio-shade-overlay-rgb: 24 24 24;
-  --studio-shade-pressed-rgb: 0 0 0;
-  --studio-shade-pressed-alpha: 0.32;
+  --studio-shade-dim: #9a9a9a;
+  --studio-shade-line: #c4c4c4;
+  --studio-shade-muted: #ececec;
   --studio-shade-text: #ffffff;
+  --studio-shade-viewer: #5a5a5a;
+  --studio-shade-panel: #444444;
+  --studio-rgb-ink: 44 44 44;
+  --studio-rgb-inset: 60 60 60;
+  --studio-rgb-bg: 68 68 68;
+  --studio-rgb-raised: 92 92 92;
+  --studio-rgb-hover: 105 105 105;
+  --studio-rgb-dim: 154 154 154;
+  --studio-rgb-line: 196 196 196;
+  --studio-rgb-muted: 236 236 236;
+  --studio-rgb-text: 255 255 255;
+  --studio-shade-rgb-ink: 44 44 44;
+  --studio-shade-rgb-line: 196 196 196;
   --studio-shade-rgb-text: 255 255 255;
+  --studio-shade-overlay-rgb: 60 60 60;
+  --studio-shade-accent: #cfe2f7;
+  --studio-rgb-accent: 207 226 247;
+  --studio-focus: #cfe2f7;
+  --studio-accent-fill: #9cc3ee;
+  --studio-accent-fill-hover: #b0d0f2;
+  --studio-on-accent: #10233a;
+  --studio-accent-tint: color-mix(in srgb, #9cc3ee 38%, #444444);
+  --studio-shade-pressed-rgb: 111 159 214;
+  --studio-shade-pressed-alpha: 0.4;
+  --studio-shade-warning: #ffdf85;
+  --studio-shade-error: #ffcaca;
+  --studio-shade-success: #b6efb6;
 }
 
 /* Native select menus and number steppers belong to the dark interface too,

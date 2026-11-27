@@ -15,14 +15,14 @@ import {
 const css = readFileSync('src/styles.css', 'utf8');
 function canvasCode(selector: string): number {
   const body = css.slice(css.indexOf(selector) + selector.length).split('}')[0];
-  const value = body.match(/--app-bg-primary:\s*rgb\((\d+), (\d+), (\d+)\)/);
+  const value = body.match(/--app-bg-primary:\s*#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/i);
   if (!value) throw new Error(`no canvas colour for ${selector}`);
-  const [r, g, b] = [value[1], value[2], value[3]].map(Number);
+  const [r, g, b] = [value[1], value[2], value[3]].map((h) => parseInt(h, 16));
   expect([g, b]).toEqual([r, r]);
   return r;
 }
 const CANVAS = {
-  darkest: canvasCode(':root {'),
+  darkest: canvasCode(":root[data-interface-shade='darkest'] {"),
   'dark-grey': canvasCode(":root[data-interface-shade='dark-grey'] {"),
   'medium-grey': canvasCode(":root[data-interface-shade='medium-grey'] {")
 };
@@ -61,10 +61,10 @@ it('gives the seven backgrounds a colour of their own in every interface shade',
 });
 
 it('keeps the closest pair, Dark Gray and the Medium Grey canvas, apart in lightness', () => {
-  // User check (W1 DIM1, Linux): the UI's Medium Grey chrome (#4c4c4c = 76)
-  // against Dark Gray (80) side by side in the same viewer. Neither this nor
-  // the pixel read-out below is a desktop app run; that stays open.
-  expect(oklabLightness(80) - oklabLightness(CANVAS['medium-grey'])).toBeCloseTo(0.0147, 3);
+  // User check (W1 DIM1, Linux): Medium Grey's viewer against Dark Gray (80)
+  // side by side in the same viewer; VISCALM1 moved that viewer to 90.
+  // Neither this nor the pixel read-out below is a desktop app run.
+  expect(Math.abs(oklabLightness(80) - oklabLightness(CANVAS['medium-grey']))).toBeGreaterThan(0.01);
   // Every fixed step keeps at least this lightness step from the nearest
   // canvas, so Dark Gray never becomes a second Default.
   for (const canvas of Object.values(CANVAS)) {

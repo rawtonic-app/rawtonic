@@ -1659,7 +1659,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
   useEffect(() => {
     const rootStyle = getComputedStyle(document.documentElement);
-    const bgPrimaryStr = rootStyle.getPropertyValue('--app-bg-primary') || 'rgb(24, 24, 24)';
+    const bgPrimaryStr = rootStyle.getPropertyValue('--app-bg-primary') || 'rgb(38, 38, 38)';
     // The photo alone (F) uses the chosen viewer background over the whole
     // screen too (one background setting, as Capture One keeps its viewer
     // background in full screen); otherwise the app's chrome colour lies

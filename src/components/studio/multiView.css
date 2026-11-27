@@ -34,7 +34,7 @@
   pointer-events: none;
 }
 .studio-mv-cell.is-primary::after {
-  border-color: #d4d6d9cc;
+  border-color: rgb(var(--studio-rgb-text) / 0.800);
 }
 .studio-mv-cell.is-edit-all::after {
   border-color: #e8890c;
@@ -121,7 +121,7 @@
   gap: 1px;
   padding: 2px;
   border-radius: 4px;
-  background: #1d1e20e6;
+  background: rgb(var(--studio-rgb-inset) / 0.902);
   border: 1px solid #ffffff1a;
   opacity: 0;
   pointer-events: auto;
@@ -172,7 +172,7 @@
   font-size: 12px;
 }
 .studio-workspace .studio-edit-all.is-on {
-  color: #1d1e20;
+  color: var(--studio-shade-inset);
   background: #e8890c;
 }
 /* The pinned reference (Capture One's compare variant): orange frame and a
@@ -192,7 +192,7 @@
   height: 22px;
   border-radius: 4px;
   background: #e8890c;
-  color: #1d1e20;
+  color: var(--studio-shade-inset);
   pointer-events: auto;
 }
 /* A zoomed cell says how far (Lightroom's Compare shows it per photograph). */
@@ -201,7 +201,7 @@
   left: 6px;
   padding: 1px 6px;
   border-radius: 3px;
-  background: #1d1e20d9;
+  background: rgb(var(--studio-rgb-inset) / 0.851);
   border: 1px solid #ffffff1a;
   color: var(--studio-text);
   font-size: 11px;
