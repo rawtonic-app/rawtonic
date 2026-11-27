@@ -136,6 +136,7 @@ interface ProcessState {
   isIndexing: boolean;
   indexingProgress: Progress;
   thumbnails: Record<string, string>;
+  imageErrors: Record<string, string>;
   mediumThumbnails: Record<string, string>;
   thumbnailProgress: Progress;
   aiModelDownloadStatus: string | null;
@@ -178,6 +179,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
   isIndexing: false,
   indexingProgress: { current: 0, total: 0 },
   thumbnails: {},
+  imageErrors: {},
   mediumThumbnails: {},
   thumbnailProgress: { current: 0, total: 0 },
   aiModelDownloadStatus: null,

@@ -204,6 +204,8 @@ pub fn start_metadata_workers(app_handle: tauri::AppHandle) {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImageFile {
+    #[serde(default)]
+    pub(crate) content_type: Option<String>,
     pub path: String,
     pub(crate) modified: u64,
     pub(crate) is_edited: bool,
@@ -249,6 +251,7 @@ pub(crate) fn offline_image_files(
                 .unwrap_or_else(|| unedited(&entry.path));
             let file =
                 |path: String, is_virtual_copy: bool, metadata: ImageFileMetadata| ImageFile {
+                    content_type: None,
                     path,
                     modified: entry.mtime,
                     is_edited: metadata.is_edited,
@@ -703,6 +706,7 @@ pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<Ima
                 };
 
                 file_results.push(ImageFile {
+                    content_type: crate::formats::raster_content_type(&path_buf).map(str::to_owned),
                     path: virtual_path,
                     modified,
                     is_edited: metadata.is_edited,
@@ -824,6 +828,7 @@ pub fn list_images_recursive(
                 };
 
                 file_results.push(ImageFile {
+                    content_type: crate::formats::raster_content_type(&path_buf).map(str::to_owned),
                     path: virtual_path,
                     modified,
                     is_edited: metadata.is_edited,

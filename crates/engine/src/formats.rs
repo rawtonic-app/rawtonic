@@ -4,6 +4,71 @@ use std::path::Path;
 use rawtonic_rawdecode::format_extensions::is_image_extension;
 pub use rawtonic_rawdecode::format_extensions::{NON_RAW_EXTENSIONS, RAW_EXTENSIONS};
 
+/// Raster content wins over a misleading RAW suffix. Other filenames keep
+/// their existing badges and avoid the extra I/O. TIFFs require positive
+/// evidence, since their first image can be a camera preview.
+pub fn raster_content_type(path: &Path) -> Option<&'static str> {
+    if !path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            RAW_EXTENSIONS
+                .iter()
+                .any(|(raw_ext, _)| raw_ext.eq_ignore_ascii_case(ext))
+        })
+    {
+        return None;
+    }
+    use std::{
+        collections::HashMap,
+        path::PathBuf,
+        sync::{LazyLock, Mutex},
+        time::SystemTime,
+    };
+    type Stamped = (u64, Option<SystemTime>, Option<&'static str>);
+    static CACHE: LazyLock<Mutex<HashMap<PathBuf, Stamped>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+    let meta = std::fs::metadata(path).ok()?;
+    if rawtonic_fs::is_cloud_placeholder_metadata(&meta) {
+        return None;
+    }
+    let stamp = (meta.len(), meta.modified().ok());
+    if let Ok(cache) = CACHE.lock()
+        && let Some(&(len, modified, kind)) = cache.get(path)
+        && (len, modified) == stamp
+    {
+        return kind;
+    }
+    let kind = raster_content_type_local(path);
+    if let Ok(mut cache) = CACHE.lock() {
+        if cache.len() >= 16_384 {
+            cache.clear();
+        }
+        cache.insert(path.to_path_buf(), (stamp.0, stamp.1, kind));
+    }
+    kind
+}
+
+fn raster_content_type_local(path: &Path) -> Option<&'static str> {
+    use std::io::Read;
+    let mut header = [0; 32];
+    let len = std::fs::File::open(path).ok()?.read(&mut header).ok()?;
+    let bytes = &header[..len];
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("JPEG")
+    } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("PNG")
+    } else if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
+        (rawtonic_rawdecode::raw_tiff::raster_evidence(path)
+            == rawtonic_rawdecode::raw_tiff::RasterEvidence::Raster)
+            .then_some("TIFF")
+    } else if crate::heif::is_heif(bytes) {
+        Some("HEIF")
+    } else {
+        None
+    }
+}
+
 pub fn is_raw_file<P: AsRef<Path>>(path: P) -> bool {
     let ext = match path.as_ref().extension().and_then(|s| s.to_str()) {
         Some(e) => e,
@@ -14,7 +79,7 @@ pub fn is_raw_file<P: AsRef<Path>>(path: P) -> bool {
         .iter()
         .any(|(raw_ext, _)| raw_ext.eq_ignore_ascii_case(ext))
     {
-        return true;
+        return raster_content_type(path.as_ref()).is_none();
     }
     // Some cameras wrote their raw files as `.tif` (Phase One backs, Canon
     // EOS-1D/1Ds, Kodak DCS); their first TIFF image is a thumbnail, so they
@@ -107,6 +172,51 @@ mod tests {
         image::RgbImage::from_pixel(64, 48, image::Rgb([90, 120, 150]))
             .save_with_format(path, image::ImageFormat::Tiff)
             .unwrap();
+    }
+
+    #[test]
+    fn raster_content_overrides_raw_suffix() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["photo.NEF", "photo.CR2"] {
+            let path = dir.path().join(name);
+            for format in [
+                image::ImageFormat::Jpeg,
+                image::ImageFormat::Png,
+                image::ImageFormat::Tiff,
+            ] {
+                image::RgbImage::new(2, 2)
+                    .save_with_format(&path, format)
+                    .unwrap();
+                assert!(!is_raw_file(&path), "{name}: {format:?}");
+                let bytes = std::fs::read(&path).unwrap();
+                let decoded = crate::image_loader::load_base_image(
+                    &bytes,
+                    path.to_str().unwrap(),
+                    false,
+                    &crate::image_loader::BaseImageOptions::default(),
+                    None,
+                )
+                .unwrap();
+                assert_eq!((decoded.width(), decoded.height()), (2, 2));
+            }
+            std::fs::write(&path, iiq_tiff()).unwrap();
+            assert!(is_raw_file(&path));
+            // TIFF/EP CFA photometric tag, with no decodable pixel data.
+            // A RAW must fail as RAW rather than opening a TIFF preview.
+            let mut cfa = b"II*\0\x08\0\0\0".to_vec();
+            cfa.extend_from_slice(&1_u16.to_le_bytes());
+            cfa.extend_from_slice(&262_u16.to_le_bytes());
+            cfa.extend_from_slice(&3_u16.to_le_bytes());
+            cfa.extend_from_slice(&1_u32.to_le_bytes());
+            cfa.extend_from_slice(&32803_u32.to_le_bytes());
+            cfa.extend_from_slice(&0_u32.to_le_bytes());
+            std::fs::write(&path, cfa).unwrap();
+            assert!(is_raw_file(&path));
+            for unknown in [b"II*\0\x08\0\0\0\0\0".as_slice(), b"II*\0\xff\xff\xff\x7f"] {
+                std::fs::write(&path, unknown).unwrap();
+                assert!(is_raw_file(&path), "unknown TIFF retains RAW fallback");
+            }
+        }
     }
 
     #[test]

@@ -766,6 +766,7 @@ export interface ImageFile {
   is_virtual_copy: boolean;
   is_cloud_placeholder: boolean;
   is_raw: boolean;
+  content_type?: string | null;
   group_id: string | null;
   /** The file is missing or on a disconnected drive; the library still holds
    * the photograph (it opens on its previews). */

@@ -3,6 +3,8 @@
 ## Unreleased
 
 - A calmer interface: the panels use four neutral greys (no blue tint) and sit a step darker than the photo's surroundings, so the chrome recedes; every primary button, selection and switch uses one accent colour; slider values are no longer bold and the slider handle is bigger and plainer; context menus show text without icons; Develop's section headers show only on/off and reset until you point at them (presets, copy and targeted adjustment appear then); the viewer bar's zoom list and the Camera preview and Proof margin switches moved into its ⋯ menu (a switch that is on stays in the bar while the bar has room). Preferences and the Copy adjustments dialog follow the same look. Nothing was removed and photos and exports are unchanged.
+- JPEG, PNG, TIFF and HEIF photos with a camera RAW extension open by their content. Undecodable photos show an error in the browser and Develop.
+
 - When memory is short, a Subject selection that a photo opens with now counts more of what its run, the photo's redraw with the new mask and the saved thumbnail after it took on a 14 GB Windows laptop (measured on a 50 MP RAW): there the selection now waits with "waiting for memory…" and computes once there is room, and the open photo's saved thumbnail, when it has to be rendered from the full photo, waits for room (or for you to go to another photo). Before, in one test the thumbnail took the system below the memory Rawtonic keeps free right after the mask appeared. Where the faster mode no longer fits, a selection computes in the slower low-memory mode. The masks themselves are unchanged.
 
 ## 0.1.0-alpha.21 — 2026-11-27

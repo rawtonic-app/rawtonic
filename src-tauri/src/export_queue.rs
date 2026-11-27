@@ -2101,18 +2101,19 @@ mod tests {
             e.extend(value.to_le_bytes());
             e
         };
-        // Layout: header 8, IFD0 at 8 (2 entries: 2 + 24 + 4 = 30) → 38,
-        // Exif IFD at 38 (2 entries: 30) → 68, "Maker\0" at 68 → 74 (pad 76),
-        // rational at 76 → 84, comment at 84.
+        // Layout: header 8, IFD0 at 8 (3 entries: 42) → 50,
+        // Exif IFD at 50 (30) → 80, "Maker\0" at 80 → 86 (pad 88),
+        // rational at 88 → 96, comment at 96. CFA marks a camera RAW.
         let mut tiff = b"II*\0".to_vec();
         tiff.extend(8u32.to_le_bytes());
-        tiff.extend(2u16.to_le_bytes());
-        tiff.extend(entry(0x010f, 2, 6, 68));
-        tiff.extend(entry(0x8769, 4, 1, 38));
+        tiff.extend(3u16.to_le_bytes());
+        tiff.extend(entry(262, 3, 1, 32803));
+        tiff.extend(entry(0x010f, 2, 6, 80));
+        tiff.extend(entry(0x8769, 4, 1, 50));
         tiff.extend(0u32.to_le_bytes());
         tiff.extend(2u16.to_le_bytes());
-        tiff.extend(entry(0x829a, 5, 1, 76));
-        tiff.extend(entry(0x9286, 7, comment.len() as u32, 84));
+        tiff.extend(entry(0x829a, 5, 1, 88));
+        tiff.extend(entry(0x9286, 7, comment.len() as u32, 96));
         tiff.extend(0u32.to_le_bytes());
         tiff.extend(b"Maker\0\0\0");
         tiff.extend(2u32.to_le_bytes());

@@ -1,3 +1,5 @@
+import '../i18n';
+import { useProcessStore } from '../store/useProcessStore';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { resetActivityBridges, startActivityBridges } from '../activity/bridges';
 import { resetActivityStore, useActivityStore } from '../store/useActivityStore';
@@ -599,4 +601,17 @@ it('never starts the decode of a photograph left while its proxy frame was await
   } finally {
     vi.useRealTimers();
   }
+});
+
+it('keeps an undecodable selection with an explicit error for Develop', async () => {
+  const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  renderHook(() => useImageLoader({ current: null }));
+  await act(async () => {});
+  await resolve(Invokes.LoadMetadata, '/first.dng', { adjustments: INITIAL_ADJUSTMENTS });
+  const load = pending.find((item) => item.command === Invokes.LoadImage && item.path === '/first.dng')!;
+  load.settled = true;
+  await act(async () => load.reject(new Error('Cannot decode photo')));
+  expect(useEditorStore.getState().selectedImage?.path).toBe('/first.dng');
+  expect(useProcessStore.getState().imageErrors['/first.dng']).toMatch(/first.dng/);
+  errorLog.mockRestore();
 });

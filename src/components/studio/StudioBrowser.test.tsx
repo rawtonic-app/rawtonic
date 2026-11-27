@@ -33,10 +33,10 @@ function sizeBrowser(el: HTMLElement) {
     ({ left: 0, top: 0, width: 812, height: 512, right: 812, bottom: 512, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
 }
 
-function grid(onClearSelection = vi.fn(), film = false) {
+function grid(onClearSelection = vi.fn(), film = false, images = files) {
   const view = render(
     <StudioBrowser
-      files={files}
+      files={images}
       film={film}
       currentPath="/s/b.NEF"
       onSelect={vi.fn()}
@@ -58,7 +58,7 @@ const click = (target: Element, x: number, y: number, up: { x: number; y: number
 };
 
 beforeEach(() => {
-  useProcessStore.setState({ thumbnails: {}, mediumThumbnails: {} });
+  useProcessStore.setState({ thumbnails: {}, mediumThumbnails: {}, imageErrors: {} });
   vi.mocked(invoke).mockReset();
   vi.stubGlobal(
     'ResizeObserver',
@@ -352,4 +352,16 @@ describe('tile file names', () => {
     expect(names).toEqual(['A.CR2 · Virtual copy', 'A.CR2 · Virtual copy']);
     expect(titles).toEqual(['A.CR2 (virtual copy)', 'A.CR2 (virtual copy)']);
   });
+});
+
+it('shows an undecodable photo error in its tile', () => {
+  useProcessStore.setState({ imageErrors: { '/s/a.NEF': 'Cannot decode photo' } });
+  grid();
+  expect(screen.getByRole('alert').textContent).toBe('Cannot decode photo');
+});
+
+it('badges a JPEG under a RAW suffix with its detected content type', () => {
+  grid(vi.fn(), false, [{ ...file('/s/renamed.NEF'), is_raw: false, content_type: 'JPEG' }]);
+  expect(screen.getByText('JPEG')).toBeTruthy();
+  expect(screen.queryByText('RAW')).toBeNull();
 });

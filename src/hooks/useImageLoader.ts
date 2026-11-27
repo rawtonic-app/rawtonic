@@ -3,6 +3,7 @@ import { loadErrorText } from '../utils/loadError';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { notify } from '../activity/notify';
+import { useProcessStore } from '../store/useProcessStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { isRawPhoto, useLibraryStore } from '../store/useLibraryStore';
 import { isDecoderError, offerCameraHelp, warnPreviewFallback } from '../components/contribute/CameraHelpDialog';
@@ -142,6 +143,11 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
       const stillCurrent = () => isEffectActive && useEditorStore.getState().selectedImage?.path === selectedImage.path;
 
       const loadAll = async () => {
+        useProcessStore.getState().setProcess((state) => ({
+          imageErrors: Object.fromEntries(
+            Object.entries(state.imageErrors).filter(([path]) => path !== selectedImage.path)
+          )
+        }));
         try {
           useEditorStore.getState().patchesSentToBackend.clear();
           // Native load_image already clears source-dependent caches. Metadata
@@ -505,7 +511,10 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                 notify.error(loadErrorText(err, selectedImage.path));
               }
             }
-            setEditor({ selectedImage: null, panelsHeld: false });
+            useProcessStore.getState().setProcess((state) => ({
+              imageErrors: { ...state.imageErrors, [selectedImage.path]: loadErrorText(err, selectedImage.path) }
+            }));
+            setEditor({ panelsHeld: false });
           }
         } finally {
           if (stillCurrent()) {

@@ -44,6 +44,121 @@ impl TiffKind {
 /// (`CFA` from TIFF/EP, `LinearRaw` from DNG).
 const RAW_PHOTOMETRICS: [u32; 2] = [32803, 34892];
 
+/// Positive evidence for overriding a camera RAW filename. Unknown containers
+/// retain the filename's RAW route, including its embedded-preview fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RasterEvidence {
+    Raster,
+    Unknown,
+}
+
+/// Unlike [`classify`], this never treats a decoder failure as raster evidence.
+/// It inspects TIFF directories only; no camera decoder is invoked.
+pub fn raster_evidence(path: &Path) -> RasterEvidence {
+    if rawtonic_fs::is_cloud_placeholder(path) {
+        return RasterEvidence::Unknown;
+    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let Ok(file) = std::fs::File::open(path) else {
+            return RasterEvidence::Unknown;
+        };
+        // Read only directory data, without mapping a removable source.
+        raster_evidence_reader(&mut std::io::BufReader::new(file))
+    }))
+    .unwrap_or(RasterEvidence::Unknown)
+}
+
+#[cfg(test)]
+fn raster_evidence_inner(bytes: &[u8]) -> RasterEvidence {
+    raster_evidence_reader(&mut std::io::Cursor::new(bytes))
+}
+
+fn raster_evidence_reader<R: std::io::Read + std::io::Seek>(reader: &mut R) -> RasterEvidence {
+    use TiffCommonTag as Tag;
+    let mut bytes = [0; 12];
+    if reader.read_exact(&mut bytes).is_err() {
+        return RasterEvidence::Unknown;
+    }
+    if !(bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*"))
+        || bytes.get(8..12) == Some(b"IIII".as_slice())
+        || bytes.get(8..12) == Some(b"CR\x02\0".as_slice())
+    {
+        return RasterEvidence::Unknown;
+    }
+    if reader.seek(std::io::SeekFrom::Start(0)).is_err() {
+        return RasterEvidence::Unknown;
+    }
+    let Ok(tiff) = GenericTiffReader::new(reader, 0, 0, None, &[]) else {
+        return RasterEvidence::Unknown;
+    };
+    let with_tag = |tag| {
+        tiff.chains()
+            .iter()
+            .flat_map(|root| root.find_ifds_with_tag(tag))
+            .collect::<Vec<_>>()
+    };
+    let raw_tags = [
+        Tag::DNGVersion,
+        Tag::CFAPattern,
+        Tag::CFARepeatPatternDim,
+        Tag::Cr2Id,
+        Tag::Cr2OldOffset,
+        Tag::NefMeta1,
+        Tag::NefMeta2,
+        Tag::NefKey,
+        Tag::SonyOffset,
+        Tag::SonyLength,
+        Tag::SonyKey,
+        Tag::KodakIFD,
+    ];
+    if raw_tags.into_iter().any(|tag| !with_tag(tag).is_empty())
+        || with_tag(Tag::PhotometricInt).iter().any(|ifd| {
+            ifd.get_entry(Tag::PhotometricInt)
+                .is_some_and(|entry| RAW_PHOTOMETRICS.contains(&entry.value.force_u32(0)))
+        })
+    {
+        return RasterEvidence::Unknown;
+    }
+    let number = |ifd: &rawler::formats::tiff::IFD, tag: Tag| {
+        ifd.get_entry(tag).map(|entry| entry.value.force_u32(0))
+    };
+    let images = with_tag(Tag::ImageWidth);
+    let full: Vec<_> = images
+        .iter()
+        .filter(|ifd| number(ifd, Tag::NewSubFileType).unwrap_or(0) & 1 == 0)
+        .collect();
+    // Incomplete image directories cannot prove which image is full size.
+    if full.iter().any(|ifd| {
+        number(ifd, Tag::ImageWidth).unwrap_or(0) == 0
+            || number(ifd, Tag::ImageLength).unwrap_or(0) == 0
+    }) {
+        return RasterEvidence::Unknown;
+    }
+    let area = |ifd: &rawler::formats::tiff::IFD| {
+        u64::from(number(ifd, Tag::ImageWidth).unwrap_or(0))
+            * u64::from(number(ifd, Tag::ImageLength).unwrap_or(0))
+    };
+    let largest = full.iter().map(|ifd| area(ifd)).max().unwrap_or(0);
+    if largest == 0 {
+        return RasterEvidence::Unknown;
+    }
+    let plain = full.iter().filter(|ifd| area(ifd) == largest).all(|image| {
+        match (
+            number(image, Tag::PhotometricInt),
+            number(image, Tag::SamplesPerPixel),
+        ) {
+            (Some(2 | 6), Some(samples)) => samples >= 3,
+            (Some(0 | 1), Some(1)) => true,
+            _ => false,
+        }
+    });
+    if plain {
+        RasterEvidence::Raster
+    } else {
+        RasterEvidence::Unknown
+    }
+}
+
 /// Classifies the TIFF at `path` by its content. Files that cannot be read
 /// count as [`TiffKind::Raster`], so the image path reports the error as
 /// before.
