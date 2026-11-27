@@ -2533,7 +2533,6 @@
       "chosen": "在偏好設定中選擇：{{path}}",
       "converted": "預覽會轉換為 {{profile}}。",
       "description": "預覽透過哪個色彩描述檔顯示。它從不改變輸出。",
-      "notApplied": "系統描述檔為 {{profile}}。",
       "pickTitle": "選擇顯示器的 ICC 描述檔",
       "refused": "無法使用此描述檔：{{reason}}",
       "rendererOff": "原生算繪器已關閉：預覽不會轉換為 {{profile}}。",

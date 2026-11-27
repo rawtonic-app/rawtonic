@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { UnlistenFn, listen } from '@tauri-apps/api/event';
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
 import { notify } from '../activity/notify';
 import i18n from 'i18next';
 import { ImageFile, Invokes, Progress } from '../components/ui/AppProperties';
@@ -19,6 +19,7 @@ import { useActivityStore } from '../store/useActivityStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { GPU_DEVICE_LOST, GPU_DEVICE_RECOVERED } from '../utils/gpuRecovery';
+import { forMonitorTransform, MONITOR_COLOUR_CHANGED, setMonitorTransform, thumbnailFileUrl } from '../utils/thumbnailUrl';
 import { followPathMoves } from '../utils/pathKeyedState';
 import { libraryImageIndex, libraryImagePath } from '../utils/libraryIndex';
 import { setMergeStateFor } from './useProductivityActions';
@@ -439,8 +440,8 @@ export function useTauriListeners({
       const path = libraryImagePath(images, emittedPath);
 
       if (thumbnailPath && previewPath) {
-        thumbnailBuffer.current[path] = convertFileSrc(thumbnailPath.replace(/\\/g, '/'));
-        mediumThumbnailBuffer.current[path] = convertFileSrc(previewPath.replace(/\\/g, '/'));
+        thumbnailBuffer.current[path] = thumbnailFileUrl(thumbnailPath);
+        mediumThumbnailBuffer.current[path] = thumbnailFileUrl(previewPath);
         refs.current.markGenerated(path);
       } else if (data) {
         thumbnailBuffer.current[path] = data;
@@ -886,6 +887,21 @@ export function useTauriListeners({
       listen(GPU_DEVICE_RECOVERED, () => {
         if (!isEffectActive) return;
         notify.info(i18n.t('errors.gpuDeviceRecovered'), { toastId: GPU_DEVICE_RECOVERED, autoClose: 8000 });
+        useMultiViewStore.getState().recipesSaved();
+      }),
+      // Linux: a new monitor transform (src-tauri browser_colour): the
+      // thumbnails load again through it; the cells develop again (the
+      // editor's frame renders again in useImageProcessing).
+      listen<number>(MONITOR_COLOUR_CHANGED, (event) => {
+        if (!isEffectActive) return;
+        const next = event.payload;
+        setMonitorTransform(next);
+        const moved = (urls: Record<string, string>) =>
+          Object.fromEntries(Object.entries(urls).map(([path, url]) => [path, forMonitorTransform(url, next)]));
+        useProcessStore.getState().setProcess((state) => ({
+          thumbnails: moved(state.thumbnails),
+          mediumThumbnails: moved(state.mediumThumbnails)
+        }));
         useMultiViewStore.getState().recipesSaved();
       }),
       // Repeated losses: no new device; the photo stays as last shown.

@@ -22,6 +22,7 @@ mod app_menu;
 mod app_quit;
 mod app_settings;
 mod app_state;
+mod browser_colour;
 mod apple_raw;
 mod auto_straighten;
 mod auto_white_balance;
@@ -272,6 +273,13 @@ fn start(args: Vec<String>) {
                 browser_preview_transport::serve(request, responder);
             },
         );
+        // Thumbnails through the monitor profile (browser_colour.rs).
+        builder = builder.register_asynchronous_uri_scheme_protocol(
+            browser_colour::SCHEME,
+            |context, request, responder| {
+                browser_colour::serve(context.app_handle().clone(), request, responder);
+            },
+        );
         if !is_headless {
             builder = builder.plugin(tauri_plugin_wayland_nvidia_quirk::init());
         }
@@ -436,6 +444,12 @@ fn start(args: Vec<String>) {
             }
             #[cfg(feature = "qa-control")]
             qa_crash::at("setup");
+            // Linux has no native display whose creation looks the monitor
+            // profile up: the webview's streams get it now.
+            #[cfg(target_os = "linux")]
+            if !is_headless {
+                monitor_profile::refresh(app.handle(), "main");
+            }
             let startup_state = app.state::<state::startup::StartupState>();
 
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]

@@ -2631,7 +2631,6 @@
       "chosen": "Chosen in Preferences: {{path}}",
       "converted": "The preview is converted into {{profile}}.",
       "description": "Which colour profile the preview is shown through. Exports are never changed by it.",
-      "notApplied": "The system profile is {{profile}}.",
       "pickTitle": "Choose the monitor's ICC profile",
       "refused": "This profile cannot be used: {{reason}}",
       "rendererOff": "The native renderer is off: the preview is not converted into {{profile}}.",

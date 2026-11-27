@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
+import { isSchemeThumbnail } from './thumbnailUrl';
 
 const pending = new Set<string>();
 let scheduled = false;
@@ -24,7 +25,8 @@ export function noteThumbnailUse(source: string | undefined) {
     const url = new URL(source);
     if (
       url.protocol !== 'asset:' &&
-      !(['http:', 'https:'].includes(url.protocol) && url.hostname === 'asset.localhost')
+      !(['http:', 'https:'].includes(url.protocol) && url.hostname === 'asset.localhost') &&
+      !isSchemeThumbnail(url)
     )
       return;
     const name = decodeURIComponent(url.pathname.slice(url.pathname.lastIndexOf('/') + 1));

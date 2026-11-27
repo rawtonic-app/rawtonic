@@ -27,6 +27,7 @@ use std::fmt;
 
 use moxcms::{ColorProfile, DataColorSpace, Layout, RenderingIntent, TransformOptions};
 
+pub mod kwin;
 #[cfg(all(target_os = "linux", feature = "system-lookup"))]
 pub mod linux;
 #[cfg(all(windows, feature = "system-lookup"))]
@@ -162,6 +163,35 @@ impl DisplayLut {
             }
         }
         [0, 1, 2].map(|c| linear_at(&self.curve, c, level[c]))
+    }
+
+    /// Converts 8-bit RGBA pixels (alpha untouched) in place: each value
+    /// as [`DisplayLut::apply`] gives it, rounded to the nearest code. For
+    /// frames and thumbnails shown by a webview (Linux), where no present
+    /// pass converts them.
+    pub fn convert_rgba8(&self, pixels: &mut [u8]) {
+        let n = self.size as usize;
+        let max = (n - 1) as f32;
+        // Per input code: the grid cell below it and the weight of the one above.
+        let cells: [(usize, f32); 256] = std::array::from_fn(|code| {
+            let at = code as f32 / 255.0 * max;
+            let base = (at.floor() as usize).min(n - 2);
+            (base, at - base as f32)
+        });
+        let levels = &self.levels;
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            let (r, fr) = cells[pixel[0] as usize];
+            let (g, fg) = cells[pixel[1] as usize];
+            let (b, fb) = cells[pixel[2] as usize];
+            let at = |dr: usize, dg: usize, db: usize| levels[(r + dr) + (g + dg) * n + (b + db) * n * n];
+            let lerp = |a: [f32; 3], b: [f32; 3], f: f32| [0, 1, 2].map(|c| a[c] + (b[c] - a[c]) * f);
+            let r0 = lerp(lerp(at(0, 0, 0), at(1, 0, 0), fr), lerp(at(0, 1, 0), at(1, 1, 0), fr), fg);
+            let r1 = lerp(lerp(at(0, 0, 1), at(1, 0, 1), fr), lerp(at(0, 1, 1), at(1, 1, 1), fr), fg);
+            let level = lerp(r0, r1, fb);
+            for c in 0..3 {
+                pixel[c] = (linear_at(&self.curve, c, level[c]) * 255.0).round() as u8;
+            }
+        }
     }
 }
 
@@ -400,6 +430,42 @@ mod tests {
                     (got[c] as i16 - want[c] as i16).abs() <= 1,
                     "{patch:?}: {got:?} vs {want:?}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn eight_bit_pixels_get_the_tables_values() {
+        // The webview's frames and thumbnails (Linux): every code as
+        // `apply` gives it, alpha kept; the known patches within ±1.
+        let icc = ColorProfile::new_adobe_rgb().encode().unwrap();
+        let lut = display_lut(Encoding::Srgb, &icc).unwrap().unwrap();
+        let mut pixels = Vec::new();
+        for r in (0..=255u16).step_by(15) {
+            for g in (0..=255u16).step_by(17) {
+                for b in (0..=255u16).step_by(5) {
+                    pixels.extend([r as u8, g as u8, b as u8, (r ^ b) as u8]);
+                }
+            }
+        }
+        for patch in PATCHES {
+            pixels.extend([patch[0], patch[1], patch[2], 255]);
+        }
+        let mut converted = pixels.clone();
+        lut.convert_rgba8(&mut converted);
+        for (before, after) in pixels.as_chunks::<4>().0.iter().zip(converted.as_chunks::<4>().0) {
+            let want = lut.apply([0, 1, 2].map(|c| before[c] as f32 / 255.0)).map(code);
+            for c in 0..3 {
+                assert!((after[c] as i16 - want[c] as i16).abs() <= 1, "{before:?}: {after:?} vs {want:?}");
+            }
+            assert_eq!(after[3], before[3]);
+        }
+        let gamma = |v: f64| v.powf(256.0 / 563.0);
+        let start = converted.len() - PATCHES.len() * 4;
+        for (patch, got) in PATCHES.iter().zip(converted[start..].as_chunks::<4>().0) {
+            let want = expected(*patch, ADOBE, gamma);
+            for c in 0..3 {
+                assert!((got[c] as i16 - want[c] as i16).abs() <= 1, "{patch:?}: {got:?} vs {want:?}");
             }
         }
     }

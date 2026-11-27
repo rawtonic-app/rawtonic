@@ -2914,7 +2914,6 @@
       "chosen": "Wybrany w Preferencjach: {{path}}",
       "converted": "Podgląd jest konwertowany do {{profile}}.",
       "description": "Przez który profil kolorów wyświetlany jest podgląd. Nigdy nie zmienia eksportów.",
-      "notApplied": "Profil systemowy to {{profile}}.",
       "pickTitle": "Wybierz profil ICC monitora",
       "refused": "Tego profilu nie można użyć: {{reason}}",
       "rendererOff": "Natywny renderer jest wyłączony: podgląd nie jest konwertowany do {{profile}}.",

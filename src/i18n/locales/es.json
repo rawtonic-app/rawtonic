@@ -2773,7 +2773,6 @@
       "chosen": "Elegido en Preferencias: {{path}}",
       "converted": "La vista previa se convierte a {{profile}}.",
       "description": "El perfil de color a través del cual se muestra la vista previa. Nunca cambia las exportaciones.",
-      "notApplied": "El perfil del sistema es {{profile}}.",
       "pickTitle": "Elegir el perfil ICC del monitor",
       "refused": "Este perfil no se puede usar: {{reason}}",
       "rendererOff": "El renderizador nativo está desactivado: la vista previa no se convierte a {{profile}}.",
