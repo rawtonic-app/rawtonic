@@ -708,6 +708,30 @@ fn generate_thumbnail_with_source(
     )
 }
 
+/// The open photograph's colour noise render input its thumbnail renders
+/// from (with the stored preview proxy, in place of the full decode), when
+/// one was built for `adjustments` (`color_noise_view::for_thumbnail`).
+fn colour_noise_input(
+    path_str: &str,
+    adjustments: &serde_json::Value,
+    is_raw: bool,
+    settings: &AppSettings,
+    app_handle: &AppHandle,
+) -> Option<Arc<image::Rgb32FImage>> {
+    (is_raw && !adjustments.is_null() && image_loader::ai_denoise_settings(adjustments).is_none())
+        .then(|| {
+            let tm = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
+            crate::color_noise_view::for_thumbnail(
+                &app_handle.state::<DevelopSession>().color_noise_view,
+                path_str,
+                &get_all_adjustments_from_json(adjustments, is_raw, tm),
+                adjustments,
+                is_raw,
+            )
+        })
+        .flatten()
+}
+
 /// Whether a thumbnail base cached for a photo (`entry`) serves a render of
 /// the recipe whose base hash is `base_hash`: the same base, enough
 /// resolution for its crop at `target_res`, and the mask source when the
@@ -734,11 +758,12 @@ fn base_reusable(
 /// the base its last render cached rather than from the full decode (its
 /// retouched copy and warp at full resolution, `memory_broker::
 /// THUMBNAIL_BYTES_PER_PIXEL`): a save that changed no part of the base (an
-/// exposure or colour edit). The four such renders in WBRK5 grew the app
-/// by 0 MB (G74/BRK6, review r1). Only the plain case: a recipe that a new
-/// recipe's defaults complete or no cached base say no, and the render
-/// counts its full estimate. (A render from the colour noise view's input
-/// reads the stored preview proxy, not the full decode, either way.)
+/// exposure or colour edit), or from the colour noise view's render input
+/// with the stored preview proxy (review r2: that render reads no full
+/// decode either). The four such renders in WBRK5 grew the app by 0 MB
+/// (G74/BRK6, review r1). Only these cases: a recipe that a new recipe's
+/// defaults complete or no cached base say no, and the render counts its
+/// full estimate.
 pub(crate) fn open_photo_thumbnail_reuses_its_base(path_str: &str, app_handle: &AppHandle) -> bool {
     let (source_path, sidecar_path) = parse_virtual_path(path_str);
     let Some(metadata) = thumbnail_metadata(&source_path, &sidecar_path) else {
@@ -749,6 +774,16 @@ pub(crate) fn open_photo_thumbnail_reuses_its_base(path_str: &str, app_handle: &
         return false;
     }
     let settings = crate::state::settings::current(app_handle);
+    let is_raw = is_raw_file(&source_path);
+    if colour_noise_input(path_str, adjustments, is_raw, &settings, app_handle).is_some()
+        && crate::preview_proxy::stands_for(
+            &source_path,
+            adjustments,
+            crate::preview_proxy::ProxyKind::Standard,
+        ) == Some(true)
+    {
+        return true;
+    }
     let target_res = settings.medium_thumbnail_resolution.unwrap_or(1280);
     let crop: Option<Crop> =
         serde_json::from_value(adjustments[geometry::CROP.name()].clone()).ok();
@@ -944,21 +979,9 @@ fn develop_thumbnail_with_source(
     // warped preview proxy, as the Develop fit view. Not with AI Denoise:
     // the input was made from the denoised decode, the proxy stands for the
     // photograph without it.
-    let color_noise = (is_raw
-        && gpu_context.is_some()
-        && !adjustments.is_null()
-        && image_loader::ai_denoise_settings(&adjustments).is_none())
-    .then(|| {
-        let tm = crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
-        crate::color_noise_view::for_thumbnail(
-            &app_handle.state::<DevelopSession>().color_noise_view,
-            path_str,
-            &get_all_adjustments_from_json(&adjustments, is_raw, tm),
-            &adjustments,
-            is_raw,
-        )
-    })
-    .flatten();
+    let color_noise = (gpu_context.is_some())
+        .then(|| colour_noise_input(path_str, &adjustments, is_raw, &settings, app_handle))
+        .flatten();
     let (proxy, color_noise) = match (proxy, color_noise) {
         (None, Some(input)) => match stored_proxy(&source_path, &adjustments, &settings) {
             Some(proxy) => (Some(proxy), Some(input)),

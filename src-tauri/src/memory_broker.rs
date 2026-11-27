@@ -444,12 +444,22 @@ pub(crate) fn admit_open_photo_thumbnail(
 /// full-resolution copy, +0 MB in 4 of 4 such renders in WBRK5; it still
 /// takes its turn after the frame and the photographer's requests).
 fn open_photo_thumbnail_request(pixels: u64, reuses_its_base: bool) -> Request {
-    let need = if reuses_its_base {
-        0
+    // Labels of their own: the broker corrects an estimate by its label's
+    // measured peaks, and a rebuild's must not raise a cached render's
+    // (review r2).
+    if reuses_its_base {
+        Request::new(
+            Class::Export,
+            "saved thumbnail of the open photo from its cached base",
+            0,
+        )
     } else {
-        pixels.saturating_mul(THUMBNAIL_BYTES_PER_PIXEL)
-    };
-    Request::new(Class::Export, "saved thumbnail of the open photo", need)
+        Request::new(
+            Class::Export,
+            "saved thumbnail of the open photo",
+            pixels.saturating_mul(THUMBNAIL_BYTES_PER_PIXEL),
+        )
+    }
 }
 
 /// Whether the open photo's full-resolution decode or a frame of it is under
@@ -1007,9 +1017,23 @@ mod tests {
                 )
                 .is_ok()
         );
+        // The rebuild measured its peak (+2021 MB as in WBRK5).
+        let rebuild = broker
+            .try_reserve(
+                open_photo_thumbnail_request(pixels, false),
+                &|| freed,
+                false,
+                Duration::ZERO,
+                None,
+            )
+            .expect("room");
+        broker.observe(4798 * MB + 2021 * MB);
+        drop(rebuild);
+        assert!(broker.corrected("saved thumbnail of the open photo", Plan::Full, 0) >= 2021 * MB);
         // A save that leaves the base as it was (an exposure edit) renders
         // from the base its last render cached: it adds no full-resolution
-        // copy and renders at once (review r1).
+        // copy and renders at once (review r1), whatever a rebuild took
+        // before (review r2).
         assert!(
             broker
                 .try_reserve(
