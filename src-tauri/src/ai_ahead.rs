@@ -154,8 +154,10 @@ pub(crate) use crate::memory_broker::NotStarted;
 /// (`Class::Asked`), it still starts only when it fits (G74/BRK2).
 pub fn request(job: AheadJob, need: u64, reserve: u64) -> Request {
     let request = Request::new(Class::Speculative, job.label(), need).only_when_it_fits();
+    // The fetch is what a waiting Subject click may need to fit (the
+    // low-peak model): it runs beside such a click.
     let request = match job {
-        AheadJob::ModelFetch => request,
+        AheadJob::ModelFetch => request.serves_asked(),
         _ => request.exclusive(),
     };
     match job {

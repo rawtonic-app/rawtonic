@@ -1285,24 +1285,41 @@ async fn auto_mask(
                 })
             };
             // Not started while no plan fits: the photographer is told once
-            // and the run starts when memory is free (G74/BRK2).
-            let (app, path) = (app_handle.clone(), loaded.path.clone());
+            // and the run starts when memory is free; told again when the
+            // wait ends, however it ends (G74/BRK2).
+            let notice = MemoryWait {
+                path: loaded.path.clone(),
+                kind: kind.name(),
+            };
             let mut told = false;
-            let mut tell = move |wait| {
+            let mut tell = |wait| {
                 if let rawtonic_runtime::memory_budget::Wait::Memory { .. } = wait
                     && !told
                 {
                     told = true;
-                    let _ = app.emit(
-                        MEMORY_WAIT_EVENT,
-                        MemoryWait {
-                            path: path.clone(),
-                            kind: kind.name(),
-                        },
-                    );
+                    let _ = app_handle.emit(MEMORY_WAIT_EVENT, notice.clone());
                 }
             };
-            Some(admit_asked(request, &cancelled, &mut tell).await?)
+            // A request whose photo is no longer the one loaded (a step to
+            // the next photo) stops waiting: it would keep that decode alive
+            // and hold speculative work back for nothing.
+            let gone = || {
+                cancelled()
+                    || !lock_recover(&state.source.original_image)
+                        .as_ref()
+                        .is_some_and(|now| Arc::ptr_eq(&now.image, &loaded.image))
+            };
+            let admitted = admit_asked(request, &gone, &mut tell).await;
+            if told {
+                let _ = app_handle.emit(MEMORY_WAIT_END_EVENT, notice.clone());
+            }
+            match admitted {
+                Ok(reservation) => Some(reservation),
+                Err(_) if !cancelled() && asked.is_some() => {
+                    return Err(CommandError::new(ErrorCode::Stale, PHOTO_CHANGED));
+                }
+                Err(e) => return Err(e),
+            }
         }
         None => None,
     };
@@ -1735,6 +1752,9 @@ struct AskedEstimate {
 /// want of memory (`MemoryWait`); the webview shows a notice and the run
 /// starts by itself when memory is free.
 pub(crate) const MEMORY_WAIT_EVENT: &str = "ai-mask-memory-wait";
+/// Told when such a wait ends (started, cancelled or the photo changed),
+/// with the same `MemoryWait`.
+pub(crate) const MEMORY_WAIT_END_EVENT: &str = "ai-mask-memory-wait-end";
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub(crate) struct MemoryWait {

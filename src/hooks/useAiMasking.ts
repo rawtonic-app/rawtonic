@@ -112,22 +112,35 @@ const USE_REPORT_INTERVAL_MS = 30_000;
 export const AI_MODELS_UNLOADED_EVENT = 'ai-models-unloaded';
 
 /** `ai_commands::MEMORY_WAIT_EVENT`: a Subject or Sky mask asked for does not
- * start for want of memory; it starts by itself when memory is free (G74/BRK2). */
+ * start for want of memory; it starts by itself when memory is free (G74/BRK2).
+ * `MEMORY_WAIT_END_EVENT` follows when that wait ends, however it ends. */
 export const AI_MASK_MEMORY_WAIT_EVENT = 'ai-mask-memory-wait';
+export const AI_MASK_MEMORY_WAIT_END_EVENT = 'ai-mask-memory-wait-end';
 export interface AiMaskMemoryWait {
   path: string;
   kind: 'subject' | 'sky';
 }
 const memoryWaitNotice = (kind: AiMaskMemoryWait['kind']) => `ai-mask-memory-wait-${kind}`;
+/** Waits for memory under way, by kind: the notice stays while any does. */
+const memoryWaits = new Map<AiMaskMemoryWait['kind'], number>();
 
-/** Tells the photographer that the open photo's mask waits for memory (one
- * notice per kind, settled when the run ends). */
+/** A mask waits for memory: the photographer is told when it is the open
+ * photo's (one notice per kind while any such wait lasts). */
 export function noteAiMaskMemoryWait({ path, kind }: AiMaskMemoryWait) {
+  memoryWaits.set(kind, (memoryWaits.get(kind) ?? 0) + 1);
   if (useEditorStore.getState().selectedImage?.path !== path) return;
   notify.warn(i18n.t(kind === 'sky' ? 'editor.ai.memoryWaitSky' : 'editor.ai.memoryWaitSubject'), {
     toastId: memoryWaitNotice(kind),
     source: 'ai'
   });
+}
+
+/** A wait for memory ended (the run started, was cancelled or its photo
+ * changed): the notice goes with the last one of its kind. */
+export function noteAiMaskMemoryWaitEnd({ kind }: AiMaskMemoryWait) {
+  const left = Math.max(0, (memoryWaits.get(kind) ?? 0) - 1);
+  memoryWaits.set(kind, left);
+  if (left === 0) notify.dismiss(memoryWaitNotice(kind));
 }
 
 /** Why the backend dropped the models (`ai_lifecycle::UnloadReason`). */
@@ -245,6 +258,7 @@ export function noteLandscapeModelReady() {
 
 /** Forgets the session state (tests). */
 export function resetAiMaskSession() {
+  memoryWaits.clear();
   landscapeWaitingForModel.clear();
   cancelAiMaskPrecompute();
   lastMaskingUse = null;
@@ -422,17 +436,22 @@ export function useAiModelLifecycle(develop: boolean) {
     };
   }, []);
   useEffect(() => {
-    let stop: (() => void) | undefined;
+    const stops: (() => void)[] = [];
     let unmounted = false;
-    listen<AiMaskMemoryWait>(AI_MASK_MEMORY_WAIT_EVENT, (event) => noteAiMaskMemoryWait(event.payload))
-      .then((unlisten) => {
-        if (unmounted) unlisten();
-        else stop = unlisten;
-      })
-      .catch((err) => console.error('Failed to listen for AI mask memory waits:', err));
+    for (const [name, handle] of [
+      [AI_MASK_MEMORY_WAIT_EVENT, noteAiMaskMemoryWait],
+      [AI_MASK_MEMORY_WAIT_END_EVENT, noteAiMaskMemoryWaitEnd]
+    ] as const) {
+      listen<AiMaskMemoryWait>(name, (event) => handle(event.payload))
+        .then((unlisten) => {
+          if (unmounted) unlisten();
+          else stops.push(unlisten);
+        })
+        .catch((err) => console.error('Failed to listen for AI mask memory waits:', err));
+    }
     return () => {
       unmounted = true;
-      stop?.();
+      stops.forEach((stop) => stop());
     };
   }, []);
 }
@@ -675,7 +694,6 @@ export function useAiMasking() {
       return false;
     } finally {
       unregisterAiTask(subMaskId);
-      notify.dismiss(memoryWaitNotice('subject'));
     }
   };
 
@@ -705,7 +723,6 @@ export function useAiMasking() {
       return false;
     } finally {
       unregisterAiTask(subMaskId);
-      notify.dismiss(memoryWaitNotice('sky'));
     }
   };
 

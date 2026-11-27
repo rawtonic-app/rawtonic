@@ -149,6 +149,11 @@ pub struct Request {
     /// a Subject run granted beyond the room took a 14 GB laptop past the
     /// watchdog in 16 of 16 clicks, WBRK1).
     pub fits_only: bool,
+    /// Speculative work an asked request may be waiting for (the low-peak
+    /// Subject model's fetch): it is not held back by a P1 that waits, and
+    /// leaves no click reserve then (G74/BRK2 review: a click waiting for
+    /// memory blocked the download that would have let it fit).
+    pub serves_asked: bool,
 }
 
 impl Request {
@@ -162,7 +167,13 @@ impl Request {
             reserve: 0,
             visible_wait: ASKED_WAITS_FOR_VISIBLE,
             fits_only: false,
+            serves_asked: false,
         }
+    }
+
+    pub fn serves_asked(mut self) -> Self {
+        self.serves_asked = true;
+        self
     }
 
     pub fn only_when_it_fits(mut self) -> Self {
@@ -380,12 +391,12 @@ pub fn decide(request: &Request, situation: &Situation) -> Decision {
             grant(Plan::Full, 0)
         }
         Class::Speculative => {
-            if situation.asked_waiting
-                || situation
-                    .held
-                    .iter()
-                    .any(|h| h.class == Class::Asked && h.exclusive)
-            {
+            let asked_runs = situation
+                .held
+                .iter()
+                .any(|h| h.class == Class::Asked && h.exclusive);
+            let beside_waiting = request.serves_asked && situation.asked_waiting;
+            if asked_runs || (situation.asked_waiting && !beside_waiting) {
                 return Decision::Wait(Wait::Asked);
             }
             if request.exclusive && exclusive_held(Class::Speculative) {
@@ -395,7 +406,9 @@ pub fn decide(request: &Request, situation: &Situation) -> Decision {
                 return Decision::Wait(Wait::Visible);
             }
             let room = speculative_room(situation);
-            let need = request.need.saturating_add(request.reserve);
+            // Beside a waiting click the reserve is that click's own: none.
+            let reserve = if beside_waiting { 0 } else { request.reserve };
+            let need = request.need.saturating_add(reserve);
             if room < need {
                 return Decision::Wait(Wait::Memory { room, need });
             }
@@ -1615,5 +1628,28 @@ mod tests {
         );
         assert!(b.held().is_empty(), "nothing held for a run not started");
         assert!(!b.asked_active());
+    }
+    #[test]
+    fn the_model_fetch_a_waiting_click_needs_runs_beside_it() {
+        let none: [Held; 0] = [];
+        let fetch = Request::new(Class::Speculative, "fetch", 700 * MB)
+            .reserve(3 * GB)
+            .serves_asked();
+        let decode = Request::new(Class::Speculative, "decode", 700 * MB).reserve(3 * GB);
+        let mut s = situation(&none, reading(3 * GB, 3 * GB));
+        s.asked_waiting = true;
+        // Room 1.41 GB: the fetch (no reserve beside the waiting click)
+        // starts, other speculative work still waits for the click.
+        assert!(matches!(decide(&fetch, &s), Decision::Grant { .. }));
+        assert_eq!(decide(&decode, &s), Decision::Wait(Wait::Asked));
+        // Not while an asked run holds its reservation.
+        let click = [Held {
+            exclusive: true,
+            ..held(1, Class::Asked, GB, 3 * GB)
+        }];
+        assert_eq!(
+            decide(&fetch, &situation(&click, reading(20 * GB, 3 * GB))),
+            Decision::Wait(Wait::Asked)
+        );
     }
 }

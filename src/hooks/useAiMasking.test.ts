@@ -22,6 +22,7 @@ import {
   noteLandscapeModelReady,
   AI_MASKING_RECENT_MS,
   AI_MASKS_AHEAD_DELAY_MS,
+  AI_MASK_MEMORY_WAIT_END_EVENT,
   AI_MASK_MEMORY_WAIT_EVENT,
   AI_MODELS_UNLOADED_EVENT,
   AI_WARM_UP_DELAY_MS,
@@ -169,12 +170,16 @@ describe('automatic AI masks from imported presets', () => {
     expect(toast.warn.mock.calls[0][0]).toMatch(/Not enough memory to compute the Subject mask/);
     expect(toast.warn.mock.calls[0][1]).toMatchObject({ toastId: 'ai-mask-memory-wait-subject' });
     expect(subOf('sub-ai-foreground')?.parameters).toMatchObject({ maskDataBase64: null });
-    // Memory freed: the run answers, the layer gets its mask, the notice goes.
+    // Memory freed: the backend ends both waits (the other photo's too),
+    // the notice goes with the last; the run answers, the layer gets its mask.
+    act(() => listeners.get(AI_MASK_MEMORY_WAIT_END_EVENT)?.({ payload: { path: '/s/b.NEF', kind: 'subject' } }));
+    expect(toast.dismiss).not.toHaveBeenCalled();
+    act(() => listeners.get(AI_MASK_MEMORY_WAIT_END_EVENT)?.({ payload: { path: '/s/a.NEF', kind: 'subject' } }));
+    expect(toast.dismiss).toHaveBeenCalledWith('ai-mask-memory-wait-subject');
     await act(async () => answer({ maskDataBase64: 'data:image/png;base64,AAAA' }));
     await waitFor(() =>
       expect(subOf('sub-ai-foreground')?.parameters).toMatchObject({ maskDataBase64: 'data:image/png;base64,AAAA' })
     );
-    expect(toast.dismiss).toHaveBeenCalledWith('ai-mask-memory-wait-subject');
   });
 
   /** Answers `generate_*` calls only when the test resolves them. */
