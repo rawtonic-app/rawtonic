@@ -286,29 +286,67 @@ pub fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
 /// retried for a while and then fails, naming the cause, with the old file
 /// untouched.
 pub fn atomic_write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
-    let parent = path.parent().context("File needs a parent directory")?;
-    let replaced = fs::symlink_metadata(path).ok();
-    if let Some(meta) = &replaced {
-        ensure!(
-            meta.is_file() && !meta.file_type().is_symlink(),
-            "Refusing to replace a symlink or non-file"
-        );
-        #[cfg(windows)]
-        ensure!(
-            !meta.permissions().readonly(),
-            "{} is read-only; it is not replaced",
-            path.display()
-        );
+    let mut writer = AtomicWriter::new(path)?;
+    writer.write_all(bytes.as_ref())?;
+    writer.commit()
+}
+
+/// [`atomic_write`] fed piece by piece (a download streamed to disk): the
+/// bytes go to a temporary file beside `path` ([`temp::file_for`]); only
+/// [`AtomicWriter::commit`] replaces `path`. Dropped without a commit (an
+/// error, a cut connection, a wrong checksum), the temporary file is
+/// removed and `path` is left as it was.
+pub struct AtomicWriter {
+    file: tempfile::NamedTempFile,
+    path: std::path::PathBuf,
+    replaced: Option<fs::Metadata>,
+}
+
+impl AtomicWriter {
+    /// Refuses a symlink or non-file at `path` (and on Windows a read-only
+    /// file) before anything is written.
+    pub fn new(path: &Path) -> Result<Self> {
+        path.parent().context("File needs a parent directory")?;
+        let replaced = fs::symlink_metadata(path).ok();
+        if let Some(meta) = &replaced {
+            ensure!(
+                meta.is_file() && !meta.file_type().is_symlink(),
+                "Refusing to replace a symlink or non-file"
+            );
+            #[cfg(windows)]
+            ensure!(
+                !meta.permissions().readonly(),
+                "{} is read-only; it is not replaced",
+                path.display()
+            );
+        }
+        Ok(Self {
+            file: temp::file_for(path)?,
+            path: path.to_path_buf(),
+            replaced,
+        })
     }
-    let mut file = temp::file_for(path)?;
-    file.write_all(bytes.as_ref())?;
-    file.as_file().sync_all()?;
-    if let Some(meta) = &replaced {
-        file.as_file().set_permissions(meta.permissions())?;
+
+    pub fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.file.write_all(bytes)
     }
-    replace(file, path)?;
-    sync_dir(parent)?;
-    Ok(())
+
+    /// Syncs the temporary file, keeps a replaced file's permissions and
+    /// renames it over `path`, then syncs the folder.
+    pub fn commit(self) -> Result<()> {
+        let Self {
+            file,
+            path,
+            replaced,
+        } = self;
+        file.as_file().sync_all()?;
+        if let Some(meta) = &replaced {
+            file.as_file().set_permissions(meta.permissions())?;
+        }
+        replace(file, &path)?;
+        sync_dir(path.parent().context("File needs a parent directory")?)?;
+        Ok(())
+    }
 }
 
 /// The bytes at `path`, or None if it does not exist. Other read errors

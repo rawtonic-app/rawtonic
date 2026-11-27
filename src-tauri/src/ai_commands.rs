@@ -1172,12 +1172,17 @@ impl Network {
     }
 }
 
-/// Whether the network for `kind` is loaded.
+/// Whether the network for `kind` is loaded. Not a usual Subject model the
+/// fetched low-peak file supersedes: the run's load replaces it (G74/FET1),
+/// so its estimate counts that load.
 fn model_loaded(ai_state: &AiState, kind: AutoMask) -> bool {
     lock_recover(&ai_state.models)
         .as_ref()
         .is_some_and(|ai| match kind {
-            AutoMask::Subject => ai.subject_model.is_some(),
+            AutoMask::Subject => ai
+                .subject_model
+                .as_deref()
+                .is_some_and(|model| !crate::ai_processing::subject_superseded(model)),
             AutoMask::Sky => ai.sky_model.is_some(),
         })
 }
@@ -1280,6 +1285,12 @@ async fn auto_mask(
                 // admitted in time ends, and this starts it again).
                 if download && kind == AutoMask::Subject {
                     crate::ai_processing::fetch_low_peak_subject_in_background(app_handle);
+                }
+                // A usual model the fetched low-peak file supersedes goes
+                // first when no run holds it: its memory is room for the
+                // low-peak load this run counts (G74/FET1).
+                if kind == AutoMask::Subject {
+                    crate::ai_processing::settle_superseded_subject(app_handle, ai_state);
                 }
                 asked_request(&AskedEstimate {
                     kind,
@@ -2148,6 +2159,9 @@ async fn precompute(
             AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
             AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
         };
+        if kind == AutoMask::Subject {
+            crate::ai_processing::settle_superseded_subject(&app_handle, &ai_state);
+        }
         let need = crate::ai_ahead::estimated_peak(
             job,
             rawtonic_onnx::models_run_on_cpu_only(),
@@ -2465,6 +2479,9 @@ pub async fn warm_up_ai_mask_models(
             AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
             AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
         };
+        if kind == AutoMask::Subject {
+            crate::ai_processing::settle_superseded_subject(&app_handle, &ai_state);
+        }
         let need = crate::ai_ahead::estimated_peak(
             job,
             rawtonic_onnx::models_run_on_cpu_only(),

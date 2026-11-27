@@ -375,24 +375,74 @@ pub(crate) fn get_models_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf> {
     Ok(models_dir)
 }
 
-/// Writes a verified download to `dest`: a temporary file of its own
-/// renamed over the old one (never deleted first, never a name another
-/// load or the CLI writes at the same time).
-fn persist_downloaded_asset(dest: &Path, bytes: &[u8]) -> Result<()> {
-    if bytes.is_empty() {
-        return Err(anyhow::anyhow!(
-            "Downloaded asset for {} was empty",
-            dest.display()
-        ));
+/// A model download streamed to disk (G74/FET1): its bytes go to a
+/// temporary file of its own beside `dest` (`rawtonic_fs::AtomicWriter`)
+/// and into a SHA-256 as they arrive, so a fetch holds only the piece in
+/// flight in memory, never the whole file. Only `finish` with the pinned
+/// SHA-256 renames it over `dest` (never deleted first, never a name another
+/// load or the CLI writes at the same time); dropped before (a cut
+/// connection, an error) or with the wrong SHA-256, the temporary file goes
+/// and `dest` stays as it was.
+struct VerifiedDownload {
+    file: rawtonic_fs::AtomicWriter,
+    hash: sha2::Sha256,
+    received: u64,
+    dest: PathBuf,
+}
+
+impl VerifiedDownload {
+    fn new(dest: &Path) -> Result<Self> {
+        use sha2::Digest as _;
+        let parent = dest.parent().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Cannot determine parent directory for downloaded asset {}",
+                dest.display()
+            )
+        })?;
+        fs::create_dir_all(parent)?;
+        // Temporary files of an earlier download a crash or a kill left
+        // (older than `STALE_AGE`; a live download writes its own all along).
+        let removed = rawtonic_fs::temp::sweep_folder(parent, std::time::SystemTime::now());
+        if removed.files > 0 {
+            log::info!(
+                "AI: removed {} abandoned download file(s) ({} bytes) in {}",
+                removed.files,
+                removed.bytes,
+                parent.display()
+            );
+        }
+        Ok(Self {
+            file: rawtonic_fs::AtomicWriter::new(dest)?,
+            hash: sha2::Sha256::new(),
+            received: 0,
+            dest: dest.to_path_buf(),
+        })
     }
-    let parent = dest.parent().ok_or_else(|| {
-        anyhow::anyhow!(
-            "Cannot determine parent directory for downloaded asset {}",
-            dest.display()
-        )
-    })?;
-    fs::create_dir_all(parent)?;
-    rawtonic_fs::atomic_write(dest, bytes)
+
+    fn write(&mut self, piece: &[u8]) -> Result<()> {
+        use sha2::Digest as _;
+        self.hash.update(piece);
+        self.file.write_all(piece)?;
+        self.received += piece.len() as u64;
+        Ok(())
+    }
+
+    fn finish(self, expected_hash: &str) -> Result<()> {
+        use sha2::Digest as _;
+        if self.received == 0 {
+            return Err(anyhow::anyhow!(
+                "Downloaded asset for {} was empty",
+                self.dest.display()
+            ));
+        }
+        let hash = rawtonic_fs::hex(self.hash.finalize());
+        if hash != expected_hash {
+            return Err(anyhow::anyhow!(
+                "download has SHA-256 {hash}, expected {expected_hash}"
+            ));
+        }
+        self.file.commit()
+    }
 }
 
 /// The download URL of a file of the model pack.
@@ -400,23 +450,21 @@ fn model_url(source: &str) -> String {
     format!("{MODEL_PACK_URL}/{source}")
 }
 
-/// Downloads `source`, calling `progress(received, total)` as its bytes
-/// arrive (`total` 0 when the server does not say).
-async fn fetch_model(source: &str, progress: &mut (dyn FnMut(u64, u64) + Send)) -> Result<Vec<u8>> {
-    fetch_url(&model_url(source), MODEL_READ_TIMEOUT, progress).await
-}
-
 /// A model download whose connection sends nothing for this long ends with
 /// an error (a stalled transfer would otherwise wait for good, and the
 /// low-peak Subject model's background fetch never try again).
 const MODEL_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// `fetch_model` from `url`, failing when no byte arrives for `read_timeout`.
+/// Downloads `url` piece by piece into `sink`, calling
+/// `progress(received, total)` as its bytes arrive (`total` 0 when the
+/// server does not say), failing when no byte arrives for `read_timeout`.
+/// Returns the bytes received.
 async fn fetch_url(
     url: &str,
     read_timeout: std::time::Duration,
     progress: &mut (dyn FnMut(u64, u64) + Send),
-) -> Result<Vec<u8>> {
+    sink: &mut (dyn FnMut(&[u8]) -> Result<()> + Send),
+) -> Result<u64> {
     let client = reqwest::Client::builder()
         .connect_timeout(read_timeout)
         .read_timeout(read_timeout)
@@ -429,35 +477,58 @@ async fn fetch_url(
         ));
     }
     let total = response.content_length().unwrap_or(0);
-    let mut bytes = Vec::with_capacity(total as usize);
+    let mut received = 0u64;
     while let Some(chunk) = response.chunk().await? {
-        bytes.extend_from_slice(&chunk);
-        progress(bytes.len() as u64, total);
+        sink(&chunk)?;
+        received += chunk.len() as u64;
+        progress(received, total);
     }
-    Ok(bytes)
+    Ok(received)
 }
 
-/// Replaces `dest` only with a download whose SHA-256 matches: a failed or
-/// corrupt download leaves the file that was there.
+/// Replaces `dest` only with a download whose SHA-256 matches, streamed to
+/// disk (`VerifiedDownload`): a failed, cut or corrupt download leaves the
+/// file that was there and no partial file.
 async fn download_verified_model(
     source: &str,
     dest: &Path,
     expected_hash: &str,
     progress: &mut (dyn FnMut(u64, u64) + Send),
 ) -> Result<()> {
-    let bytes = fetch_model(source, progress).await?;
-    persist_verified_asset(dest, &bytes, expected_hash)
-        .map_err(|e| anyhow::anyhow!("{}: {e}", model_url(source)))
+    download_verified_from(
+        &model_url(source),
+        dest,
+        expected_hash,
+        MODEL_READ_TIMEOUT,
+        progress,
+    )
+    .await
 }
 
+/// `download_verified_model` from `url`.
+async fn download_verified_from(
+    url: &str,
+    dest: &Path,
+    expected_hash: &str,
+    read_timeout: std::time::Duration,
+    progress: &mut (dyn FnMut(u64, u64) + Send),
+) -> Result<()> {
+    let mut download = VerifiedDownload::new(dest)?;
+    fetch_url(url, read_timeout, progress, &mut |piece| {
+        download.write(piece)
+    })
+    .await?;
+    download
+        .finish(expected_hash)
+        .map_err(|e| anyhow::anyhow!("{url}: {e}"))
+}
+
+/// `VerifiedDownload` of `bytes` at once (tests).
+#[cfg(test)]
 fn persist_verified_asset(dest: &Path, bytes: &[u8], expected_hash: &str) -> Result<()> {
-    let hash = rawtonic_fs::sha256_hex(bytes);
-    if hash != expected_hash {
-        return Err(anyhow::anyhow!(
-            "download has SHA-256 {hash}, expected {expected_hash}"
-        ));
-    }
-    persist_downloaded_asset(dest, bytes)
+    let mut download = VerifiedDownload::new(dest)?;
+    download.write(bytes)?;
+    download.finish(expected_hash)
 }
 
 /// `true` when the installed model file at `path` has the SHA-256
@@ -1487,13 +1558,126 @@ static LOW_PEAK_FETCH: std::sync::Mutex<LowPeakFetch> = std::sync::Mutex::new(Lo
 /// After a failed fetch, the next one waits this long.
 const LOW_PEAK_FETCH_RETRY: std::time::Duration = std::time::Duration::from_secs(600);
 
+/// The background fetch's ends that installed the low-peak Subject file
+/// (`fetched`) and those a missing file has cleared again (`cleared`): while
+/// `fetched` is ahead, a cached usual ONNX model is superseded. The fetch
+/// never touches a cached or loading model itself (G74/FET1: a fetch that
+/// ended while the usual model was being loaded left it cached for good);
+/// `settle_superseded_subject` swaps it. Counters, not a flag, so a check
+/// of the file that a newer fetch overtook cannot clear that fetch's mark.
+struct Superseded {
+    fetched: std::sync::atomic::AtomicU64,
+    cleared: std::sync::atomic::AtomicU64,
+}
+
+impl Superseded {
+    const fn new() -> Self {
+        Self {
+            fetched: std::sync::atomic::AtomicU64::new(0),
+            cleared: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// The fetch's end: a cached usual model, or one being loaded, is
+    /// superseded.
+    fn mark(&self) {
+        self.fetched
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The fetch ends seen, while they supersede a usual model.
+    fn pending(&self) -> Option<u64> {
+        let fetched = self.fetched.load(std::sync::atomic::Ordering::SeqCst);
+        (fetched > self.cleared.load(std::sync::atomic::Ordering::SeqCst)).then_some(fetched)
+    }
+
+    /// The low-peak file was found missing after the fetch ends `seen`
+    /// (`pending`): those no longer supersede; a later one still does.
+    fn clear(&self, seen: u64) {
+        self.cleared
+            .fetch_max(seen, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+static USUAL_SUBJECT_SUPERSEDED: Superseded = Superseded::new();
+
+/// The cached model `slot` stays, or (`None`) is dropped from the cache so
+/// that the next load takes the fetched low-peak file: a usual ONNX model
+/// that is `superseded` with the low-peak file installed goes unless a run
+/// still holds it (`Arc::strong_count` beyond the cache and this copy);
+/// then it keeps serving, so two Subject sessions never live at once, and
+/// a later request swaps it.
+fn cached_subject<M>(
+    slot: &mut Option<Arc<M>>,
+    superseded: bool,
+    usual: impl Fn(&M) -> bool,
+    low_peak_installed: bool,
+) -> Option<Arc<M>> {
+    let model = slot.clone()?;
+    if !usual(&model) || !superseded || !low_peak_installed {
+        return Some(model);
+    }
+    // The cache and `model` here; more is a run holding it.
+    if Arc::strong_count(&model) > 2 {
+        return Some(model);
+    }
+    *slot = None;
+    None
+}
+
+/// A loaded Subject model of the usual ONNX graph.
+fn usual_onnx(model: &SubjectModel) -> bool {
+    model.on_onnx() && !model.low_peak()
+}
+
+/// Whether the cached Subject model `model` is the usual graph the fetched
+/// low-peak file supersedes: the next load replaces it, so the memory
+/// budget counts that load and the low-peak plan, not the cached model
+/// (`model_loaded`, `subject_low_peak_ready`).
+pub(crate) fn subject_superseded(model: &SubjectModel) -> bool {
+    usual_onnx(model) && USUAL_SUBJECT_SUPERSEDED.pending().is_some()
+}
+
+/// Lets a cached usual Subject model the fetched low-peak file supersedes
+/// go when no run holds it (`cached_subject`), before a Subject request's
+/// admission (its memory counts for the new plan, G74/FET1) and in the
+/// loader. When the low-peak file is missing again, the usual model stays
+/// and counts as loaded again.
+pub(crate) fn settle_superseded_subject(app_handle: &tauri::AppHandle, ai_state: &AiState) {
+    let Some(seen) = USUAL_SUBJECT_SUPERSEDED.pending() else {
+        return;
+    };
+    let cached_usual = lock_recover(&ai_state.models)
+        .as_ref()
+        .and_then(|ai| ai.subject_model.as_deref().map(usual_onnx))
+        .unwrap_or(false);
+    if !cached_usual {
+        return;
+    }
+    // Looked at outside the models' lock.
+    let installed = get_models_dir(app_handle).is_ok_and(|dir| subject_onnx_to_load(&dir).low_peak);
+    if !installed {
+        USUAL_SUBJECT_SUPERSEDED.clear(seen);
+        return;
+    }
+    let released = lock_recover(&ai_state.models)
+        .as_mut()
+        .is_some_and(|ai| cached_subject(&mut ai.subject_model, true, usual_onnx, true).is_none());
+    if released {
+        log::info!(
+            "AI subject mask: usual model let go; the next load takes the fetched low-peak model"
+        );
+    }
+}
+
 /// For a Subject request that may download, on a machine that prefers the
 /// low-peak graph (`subject_onnx_file`) with only the usual one installed
 /// (installed before this graph existed): fetches the low-peak file in the
 /// background, one fetch at a time and at most every 10 minutes after a
 /// failure, while the installed model serves (masking never waits for it).
-/// Once fetched, a loaded usual model is unloaded (a run holding it ends
-/// with it) and the next mask loads the low-peak graph. With no Subject
+/// Once fetched, the next mask loads the low-peak graph in place of a
+/// cached usual model (also one whose load the fetch's end overtook) as
+/// soon as no run holds it (`cached_subject`; never two sessions at once). With no Subject
 /// model installed the request downloads the low-peak file itself, as any
 /// model on its first use.
 pub(crate) fn fetch_low_peak_subject_in_background(app_handle: &tauri::AppHandle) {
@@ -1526,11 +1710,10 @@ pub(crate) fn fetch_low_peak_subject_in_background(app_handle: &tauri::AppHandle
     let app = app_handle.clone();
     tauri::async_runtime::spawn(async move {
         // Speculative work of the memory budget (G74, BRK1): with room
-        // for the download held in memory and the click reserve, not beside
+        // for the streamed download and the click reserve, not beside
         // the photo's decode or a request of the photographer (a Subject
         // click's run); its reservation is held until the download ends.
         // Not admitted within a minute: a later request tries again.
-        let ai_state = app.state::<AiState>();
         let job = crate::ai_ahead::AheadJob::ModelFetch;
         let need = crate::ai_ahead::estimated_peak(job, true, false);
         let _reservation = match crate::ai_ahead::admit(&app, job, || false, need, || None).await {
@@ -1551,15 +1734,10 @@ pub(crate) fn fetch_low_peak_subject_in_background(app_handle: &tauri::AppHandle
         .await;
         let next = match result {
             Ok(()) => {
-                if let Some(ai) = lock_recover(&ai_state.models).as_mut()
-                    && ai
-                        .subject_model
-                        .as_ref()
-                        .is_some_and(|model| model.on_onnx() && !model.low_peak())
-                {
-                    ai.subject_model = None;
-                }
-                log::info!("AI subject mask: low-peak model fetched; the next mask loads it");
+                USUAL_SUBJECT_SUPERSEDED.mark();
+                log::info!(
+                    "AI subject mask: low-peak model fetched; the next mask loads it once no run holds the usual one"
+                );
                 LowPeakFetch::Idle
             }
             Err(e) => {
@@ -1605,6 +1783,7 @@ pub(crate) fn subject_low_peak_ready(
     if let Some(model) = lock_recover(&ai_state.models)
         .as_ref()
         .and_then(|state| state.subject_model.clone())
+        .filter(|model| !subject_superseded(model))
     {
         return model.low_peak();
     }
@@ -1643,7 +1822,9 @@ pub async fn get_or_init_subject_model_planned(
     if download {
         fetch_low_peak_subject_in_background(app_handle);
     }
-    if let Some(model) = loaded().filter(|m| serves(m, reduced)) {
+    // A usual model the fetched low-peak file supersedes goes to the lock
+    // (`settle_superseded_subject`), so no request takes it past a swap.
+    if let Some(model) = loaded().filter(|m| serves(m, reduced) && !subject_superseded(m)) {
         return Ok(Some(model));
     }
     let lock_wait = std::time::Instant::now();
@@ -1652,7 +1833,9 @@ pub async fn get_or_init_subject_model_planned(
         "AI subject mask: init lock wait {} ms",
         lock_wait.elapsed().as_millis()
     );
-    if let Some(model) = loaded() {
+    settle_superseded_subject(app_handle, ai_state);
+    let cached = loaded();
+    if let Some(model) = cached {
         if serves(&model, reduced) {
             return Ok(Some(model));
         }
@@ -4971,7 +5154,9 @@ mod relight_tests {
 
 #[cfg(test)]
 mod download_tests {
-    use super::persist_downloaded_asset;
+    fn persist_downloaded_asset(dest: &std::path::Path, bytes: &[u8]) -> anyhow::Result<()> {
+        super::persist_verified_asset(dest, bytes, &rawtonic_fs::sha256_hex(bytes))
+    }
 
     /// A download replaces the installed file by a rename, without deleting
     /// it first, through a temporary file of its own: the fixed
@@ -4994,8 +5179,200 @@ mod download_tests {
 
 #[cfg(test)]
 mod model_fetch_tests {
+    use std::sync::Arc;
     use std::time::{Duration, Instant};
+
+    /// A stand-in for a loaded Subject model: the usual graph or the
+    /// low-peak one.
+    #[derive(Debug, PartialEq)]
+    enum Loaded {
+        Usual,
+        LowPeak,
+    }
+
+    fn usual(model: &Loaded) -> bool {
+        *model == Loaded::Usual
+    }
+
+    /// G74/FET1: the background fetch ends while the usual model is being
+    /// loaded (the loader chose the usual file before the low-peak one was
+    /// there and keeps it after the fetch ended). The usual model must not
+    /// stay cached for good: the next request (no run holding it) loads
+    /// the fetched file; while a run holds it, it serves (never a second
+    /// session beside it). The steps run in this order on one thread, so
+    /// the interleaving is the race's, without sleeps.
+    #[test]
+    fn a_fetch_ending_during_the_usual_load_leaves_no_stale_cached_model() {
+        let superseded = super::Superseded::new();
+        let pending = || superseded.pending().is_some();
+        // The loader takes the init lock, finds no cached model and chooses
+        // the usual file.
+        let loading = Arc::new(Loaded::Usual);
+        // Hook: the fetch ends now, mid-load.
+        superseded.mark();
+        // The loader keeps what it loaded and returns it to its run.
+        let mut slot = Some(loading.clone());
+        let run = loading;
+        // A request (its admission or its load) while that run holds the
+        // model: it serves (no second session) and stays cached.
+        let served = super::cached_subject(&mut slot, pending(), usual, true);
+        assert!(served.as_ref().is_some_and(|m| Arc::ptr_eq(m, &run)));
+        assert!(slot.is_some());
+        drop(served);
+        drop(run);
+        // The next request after the run: the cache is emptied before its
+        // admission, so the budget counts the low-peak load and the load
+        // takes the fetched file.
+        assert!(super::cached_subject(&mut slot, pending(), usual, true).is_none());
+        assert!(slot.is_none());
+        slot = Some(Arc::new(Loaded::LowPeak));
+        // The low-peak model serves from then on.
+        assert!(super::cached_subject(&mut slot, pending(), usual, true).is_some());
+        // Without the low-peak file installed (removed later), the usual
+        // model serves; it is never loaded again and again.
+        let mut usual_slot = Some(Arc::new(Loaded::Usual));
+        assert!(super::cached_subject(&mut usual_slot, pending(), usual, false).is_some());
+    }
+
+    /// A check that found the low-peak file missing clears only the fetch
+    /// ends it saw: one that ended meanwhile still supersedes the usual
+    /// model (review r2).
+    #[test]
+    fn a_missing_file_check_overtaken_by_a_fetch_keeps_that_fetch() {
+        let superseded = super::Superseded::new();
+        assert_eq!(superseded.pending(), None);
+        superseded.mark();
+        let seen = superseded.pending().unwrap();
+        // Hook: a newer fetch ends between the check and the clear.
+        superseded.mark();
+        superseded.clear(seen);
+        assert!(superseded.pending().is_some());
+        let seen = superseded.pending().unwrap();
+        superseded.clear(seen);
+        assert_eq!(superseded.pending(), None);
+    }
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Tool (G74/FET1 measurement): downloads `FET1_URL` to `FET1_DEST`
+    /// with SHA-256 `FET1_SHA`, `FET1_MODE` `stream` (the app's path) or
+    /// `buffer` (the path before FET1: the whole file in memory, room for
+    /// `FET1_BYTES` reserved up front as for the announced length, then
+    /// written), and prints the process's peak resident memory before and
+    /// after (`getrusage`). One mode per process.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[tokio::test]
+    #[ignore]
+    async fn measure_model_download_peak_memory() {
+        fn peak_rss_mb() -> f64 {
+            let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+            unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+            // Bytes on macOS, kilobytes on Linux.
+            let bytes = if cfg!(target_os = "macos") {
+                usage.ru_maxrss as f64
+            } else {
+                usage.ru_maxrss as f64 * 1024.0
+            };
+            bytes / 1e6
+        }
+        let var = |name: &str| std::env::var(name).unwrap();
+        let (url, dest, sha) = (var("FET1_URL"), var("FET1_DEST"), var("FET1_SHA"));
+        let dest = std::path::PathBuf::from(dest);
+        let before = peak_rss_mb();
+        let started = Instant::now();
+        match var("FET1_MODE").as_str() {
+            "stream" => super::download_verified_from(
+                &url,
+                &dest,
+                &sha,
+                super::MODEL_READ_TIMEOUT,
+                &mut |_, _| {},
+            )
+            .await
+            .unwrap(),
+            "buffer" => {
+                // As before FET1: room for the announced length up front.
+                let length: usize = var("FET1_BYTES").parse().unwrap();
+                let mut bytes = Vec::with_capacity(length);
+                super::fetch_url(
+                    &url,
+                    super::MODEL_READ_TIMEOUT,
+                    &mut |_, _| {},
+                    &mut |piece| {
+                        bytes.extend_from_slice(piece);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
+                assert_eq!(rawtonic_fs::sha256_hex(&bytes), sha);
+                rawtonic_fs::atomic_write(&dest, &bytes).unwrap();
+            }
+            other => panic!("FET1_MODE {other}"),
+        }
+        println!(
+            "FET1 mode={} bytes={} peak_rss_before_mb={before:.1} peak_rss_after_mb={:.1} seconds={:.2}",
+            var("FET1_MODE"),
+            std::fs::metadata(&dest).unwrap().len(),
+            peak_rss_mb(),
+            started.elapsed().as_secs_f64()
+        );
+    }
+
+    /// Serves `bodies` one per connection: (bytes sent, Content-Length);
+    /// the connection closes after the bytes sent.
+    async fn serve(bodies: Vec<(&'static [u8], usize)>) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            for (body, length) in bodies {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = [0u8; 1024];
+                let _ = socket.read(&mut request).await;
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
+                );
+                socket.write_all(head.as_bytes()).await.unwrap();
+                socket.write_all(body).await.unwrap();
+                socket.shutdown().await.unwrap();
+            }
+        });
+        format!("http://{address}/model.onnx")
+    }
+
+    /// G74/FET1: a download streams to a temporary file of its own; a cut
+    /// connection or a wrong SHA-256 publishes nothing and leaves no
+    /// partial file in the models folder, the installed file as it was; a
+    /// whole one with the pinned SHA-256 replaces it.
+    #[tokio::test]
+    async fn a_cut_or_corrupt_download_leaves_no_file_and_a_whole_one_is_published() {
+        let dir = tempfile::tempdir().unwrap();
+        let model = dir.path().join("model.onnx");
+        let sha = rawtonic_fs::sha256_hex(b"new model");
+        let url = serve(vec![(b"new m", 9), (b"bad model", 9), (b"new model", 9)]).await;
+        let timeout = Duration::from_secs(5);
+        let names = || -> Vec<String> {
+            let mut names: Vec<String> = std::fs::read_dir(dir.path())
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        let cut = super::download_verified_from(&url, &model, &sha, timeout, &mut |_, _| {}).await;
+        assert!(cut.is_err(), "a cut transfer must fail");
+        assert!(names().is_empty(), "left {:?}", names());
+        std::fs::write(&model, b"old model").unwrap();
+        let corrupt =
+            super::download_verified_from(&url, &model, &sha, timeout, &mut |_, _| {}).await;
+        assert!(corrupt.is_err(), "a wrong SHA-256 must fail");
+        assert_eq!(names(), ["model.onnx"]);
+        assert_eq!(std::fs::read(&model).unwrap(), b"old model");
+        super::download_verified_from(&url, &model, &sha, timeout, &mut |_, _| {})
+            .await
+            .unwrap();
+        assert_eq!(names(), ["model.onnx"]);
+        assert_eq!(std::fs::read(&model).unwrap(), b"new model");
+    }
 
     /// A transfer that stalls ends with an error after the read timeout
     /// instead of waiting for good (so the low-peak Subject model's fetch can
@@ -5024,12 +5401,21 @@ mod model_fetch_tests {
         let url = format!("http://{address}/model.onnx");
         let timeout = Duration::from_millis(300);
         let started = Instant::now();
-        let stalled = super::fetch_url(&url, timeout, &mut |_, _| {}).await;
+        let mut bytes = Vec::new();
+        let stalled = super::fetch_url(&url, timeout, &mut |_, _| {}, &mut |piece| {
+            bytes.extend_from_slice(piece);
+            Ok(())
+        })
+        .await;
         assert!(stalled.is_err(), "a stalled transfer must fail");
         assert!(started.elapsed() < Duration::from_secs(10));
-        let whole = super::fetch_url(&url, timeout, &mut |_, _| {})
-            .await
-            .unwrap();
+        let mut whole = Vec::new();
+        super::fetch_url(&url, timeout, &mut |_, _| {}, &mut |piece| {
+            whole.extend_from_slice(piece);
+            Ok(())
+        })
+        .await
+        .unwrap();
         assert_eq!(whole, b"abcdef");
     }
 }
