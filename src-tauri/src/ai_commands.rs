@@ -1255,8 +1255,12 @@ async fn auto_mask(
     origin: Option<Origin>,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, CommandError> {
+    // What the retries of a run the guard stopped need beyond their own
+    // estimates (`memory_budget::Broker::stopped_short`), for this request
+    // only.
+    let mut more = 0u64;
     loop {
-        let mut stopped_short = false;
+        let mut stopped_short = None;
         let mask = auto_mask_attempt(
             state,
             ai_state,
@@ -1268,17 +1272,21 @@ async fn auto_mask(
             download,
             origin,
             cancel,
+            more,
             &mut stopped_short,
         )
         .await?;
-        if !stopped_short {
-            return Ok(mask);
+        match stopped_short {
+            Some(short) => more = more.saturating_add(short),
+            None => return Ok(mask),
         }
     }
 }
 
-/// One attempt of `auto_mask`; `stopped_short` is set when the run-time
-/// guard stopped its run (then `Ok(None)`, and it is asked again).
+/// One attempt of `auto_mask`, its asked request needing `more` bytes than
+/// its estimate; `stopped_short` is set to what its retry needs beyond its
+/// estimate when the run-time guard stopped its run (then `Ok(None)`, and
+/// it is asked again).
 #[allow(clippy::too_many_arguments)]
 async fn auto_mask_attempt(
     state: &tauri::State<'_, AppState>,
@@ -1291,7 +1299,8 @@ async fn auto_mask_attempt(
     download: bool,
     origin: Option<Origin>,
     cancel: Option<&Arc<AiTaskToken>>,
-    stopped_short: &mut bool,
+    more: u64,
+    stopped_short: &mut Option<u64>,
 ) -> Result<Option<Arc<String>>, CommandError> {
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
     // Counts as running from here, so an idle unload waits for the load too.
@@ -1361,6 +1370,7 @@ async fn auto_mask_attempt(
                     ),
                     frame_rebuilds: frame_rebuilds_after_answer(download),
                 })
+                .more(more)
             };
             // Not started while no plan fits: the photographer is told once
             // and the run starts when memory is free; told again when the
@@ -1625,19 +1635,19 @@ async fn auto_mask_attempt(
     if let (Some(at), Some(reservation)) = (tripped, reservation.as_ref())
         && terminated.load(std::sync::atomic::Ordering::SeqCst)
     {
-        let short = crate::memory_broker::BROKER.stopped_short(
-            reservation,
-            crate::memory_pressure::reading().app.or(at.app),
-        );
+        // The larger of the guard's sample and now: what the run freed
+        // while it stopped still counts (review r2).
+        let app_now = crate::memory_pressure::reading().app.max(at.app);
+        let short = crate::memory_broker::BROKER.stopped_short(reservation, app_now);
         log::info!(
-            "AI {} mask: run stopped with {} MB available, {} MB is kept for the system; it waits for memory and runs again (its estimates count {} MB more from now on); {}",
+            "AI {} mask: run stopped with {} MB available, {} MB is kept for the system; it runs again when there is room for {} MB more than its estimate; {}",
             kind.name(),
             at.available / MB,
             rawtonic_runtime::memory_budget::floor(at.total) / MB,
             short / MB,
             crate::memory_pressure::memory_line()
         );
-        *stopped_short = true;
+        *stopped_short = Some(short);
         return Ok(None);
     }
     let (data, model_ms, backend) = result.map_err(|e| e.to_string())??;
