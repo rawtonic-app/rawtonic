@@ -2631,7 +2631,6 @@
       "chosen": "In den Einstellungen gewählt: {{path}}",
       "converted": "Die Vorschau wird in {{profile}} umgerechnet.",
       "description": "Über welches Farbprofil die Vorschau angezeigt wird. Exporte ändert es nie.",
-      "notApplied": "Das Systemprofil ist {{profile}}.",
       "pickTitle": "ICC-Profil des Monitors wählen",
       "refused": "Dieses Profil kann nicht verwendet werden: {{reason}}",
       "rendererOff": "Der native Renderer ist aus: Die Vorschau wird nicht in {{profile}} umgerechnet.",

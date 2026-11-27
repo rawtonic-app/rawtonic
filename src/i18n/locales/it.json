@@ -2773,7 +2773,6 @@
       "chosen": "Scelto nelle Preferenze: {{path}}",
       "converted": "L'anteprima viene convertita in {{profile}}.",
       "description": "Il profilo colore attraverso cui viene mostrata l'anteprima. Non modifica mai le esportazioni.",
-      "notApplied": "Il profilo di sistema è {{profile}}.",
       "pickTitle": "Scegli il profilo ICC del monitor",
       "refused": "Questo profilo non può essere usato: {{reason}}",
       "rendererOff": "Il renderer nativo è disattivato: l'anteprima non viene convertita in {{profile}}.",

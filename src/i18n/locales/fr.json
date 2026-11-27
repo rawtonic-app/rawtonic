@@ -2773,7 +2773,6 @@
       "chosen": "Choisi dans les préférences : {{path}}",
       "converted": "L'aperçu est converti en {{profile}}.",
       "description": "Le profil colorimétrique à travers lequel l'aperçu est affiché. Les exports n'en sont jamais modifiés.",
-      "notApplied": "Le profil du système est {{profile}}.",
       "pickTitle": "Choisir le profil ICC du moniteur",
       "refused": "Ce profil ne peut pas être utilisé : {{reason}}",
       "rendererOff": "Le rendu natif est désactivé : l'aperçu n'est pas converti en {{profile}}.",

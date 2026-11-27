@@ -6,9 +6,12 @@
 //! profile chosen in Preferences instead), read again whenever the window
 //! moves, its display's scale changes or it gets the focus back (a profile
 //! changed in Colour Management meanwhile). On macOS ColorSync matches the
-//! windows to the display; on Linux the webview shows the previews (no
-//! native display), so the profile is only looked up and named in
-//! Preferences.
+//! windows to the display. On Linux the webview shows the previews and the
+//! Library's thumbnails as device values, so the main window's transform
+//! converts both before they reach it (`browser_colour.rs`), unless the
+//! compositor colour-manages the window itself (KWin with a colour
+//! profile): then nothing is converted, as on Windows with HDR or Auto
+//! colour management.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -27,11 +30,9 @@ const STATUS_EVENT: &str = "monitor-profile-changed";
 #[serde(rename_all = "camelCase")]
 pub struct MonitorStatus {
     /// "system": the OS matches the window to the display (macOS; Windows
-    /// with HDR or Auto colour management); "converted": the preview is
+    /// with HDR or Auto colour management; Linux with KWin managing it); "converted": the preview is
     /// converted into `profile`; "srgb": shown as sRGB (an sRGB monitor, no
-    /// profile, or one that cannot be used: see `notice`); "notApplied":
-    /// found, but not applied by Rawtonic on this system (Linux);
-    /// "rendererOff": `profile` would be used, but the native renderer is
+    /// profile, or one that cannot be used: see `notice`); "rendererOff": `profile` would be used, but the native renderer is
     /// off, so the webview's preview is not converted.
     pub mode: &'static str,
     /// The profile's name, if one was found.
@@ -59,6 +60,8 @@ struct Applied {
     /// Per window label: the newest lookup started; an older one that
     /// finishes later is dropped.
     lookups: HashMap<String, u64>,
+    /// Linux: why the newest lookup leaves the colours to the desktop.
+    managed_notice: Option<String>,
 }
 
 /// What a lookup found: the system's answer and the chosen profile.
@@ -70,7 +73,7 @@ type Shown = (Option<Vec<u8>>, MonitorStatus);
 
 impl Applied {
     /// Starts a lookup for window `label`: its number.
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     fn start(&mut self, label: &str) -> u64 {
         let next = self.lookups.get(label).copied().unwrap_or(0) + 1;
         self.lookups.insert(label.to_string(), next);
@@ -81,7 +84,7 @@ impl Applied {
     /// newest, and it found something other than what is installed. Only
     /// an installed result is noted ([`Applied::commit`]), so a lookup
     /// dropped for a newer one never makes that newer one skip its work.
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     fn fresh(&self, label: &str, lookup: u64, inputs: &Inputs) -> bool {
         self.newest(label, lookup) && self.inputs.get(label) != Some(inputs)
     }
@@ -127,7 +130,7 @@ fn status_of(
         location,
         from_override,
         notice,
-        override_available: cfg!(windows),
+        override_available: cfg!(any(windows, target_os = "linux")),
     }
 }
 
@@ -150,7 +153,12 @@ fn resolve(
         // Windows converts sRGB windows itself (HDR, Auto colour
         // management): values converted here would be converted twice.
         (Some((path, _)), SystemProfile::ManagedBySystem) => {
-            let notice = "The chosen profile is not used while Windows manages this display's colours (HDR or Auto colour management).".to_string();
+            let notice = if cfg!(windows) {
+                "The chosen profile is not used while Windows manages this display's colours (HDR or Auto colour management)."
+            } else {
+                "The chosen profile is not used while the desktop manages this display's colours (a colour profile set in its display settings)."
+            }
+            .to_string();
             return (
                 None,
                 None,
@@ -212,7 +220,7 @@ fn resolve(
 }
 
 /// The profile chosen in Preferences: its path and bytes.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 fn chosen(app: &AppHandle) -> Option<(String, Result<Vec<u8>, String>)> {
     let path = crate::state::settings::current(app)
         .monitor_profile
@@ -254,13 +262,101 @@ pub fn refresh(app: &AppHandle, label: &str) {
             apply(&app, &label, lookup, system, chosen(&app));
         });
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        use tauri::Manager;
+        let Some(window) = app.get_webview_window(label) else {
+            return;
+        };
+        let output = window_output(&window);
+        let lookup = lock_recover(&APPLIED)
+            .get_or_insert_with(Applied::default)
+            .start(label);
+        let (app, label) = (app.clone(), label.to_string());
+        tauri::async_runtime::spawn_blocking(move || {
+            let (system, name) = rawtonic_display_profile::linux::profile_of_window(&output);
+            let managed = (system == SystemProfile::ManagedBySystem).then(|| {
+                format!(
+                    "The desktop (KWin) converts the colours of {} itself, from the colour profile set in System Settings > Display & Monitor: Rawtonic leaves the preview in sRGB so it is not converted twice.",
+                    name.as_deref().unwrap_or("this display")
+                )
+            });
+            lock_recover(&APPLIED)
+                .get_or_insert_with(Applied::default)
+                .managed_notice = managed;
+            apply(&app, &label, lookup, system, chosen(&app));
+        });
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     let _ = (app, label);
+}
+
+/// Wayland tells a window no move, and GTK 3 no output change when the
+/// scale stays the same: every 2 s each window's monitor is read again, and
+/// a window that is on another monitor (or whose desktop layout changed)
+/// looks its profile up again.
+#[cfg(target_os = "linux")]
+pub fn watch_outputs(app: &AppHandle) {
+    let app = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("monitor-output-watch".into())
+        .spawn(move || {
+            use tauri::Manager;
+            let mut last: HashMap<String, rawtonic_display_profile::linux::WindowOutput> =
+                HashMap::new();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                for label in ["main", crate::second_window::LABEL] {
+                    let Some(window) = app.get_webview_window(label) else {
+                        last.remove(label);
+                        continue;
+                    };
+                    // The first look too: the window may have moved before
+                    // it (an unchanged answer builds nothing).
+                    let now = window_output(&window);
+                    if last.get(label) != Some(&now) {
+                        refresh(&app, label);
+                    }
+                    last.insert(label.to_string(), now);
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        log::warn!("Monitor output watch not started: {error}");
+    }
+}
+
+/// Where `window` is: its monitor's position (logical and device px) and
+/// the logical position of every monitor. Read on the main thread (GTK).
+#[cfg(target_os = "linux")]
+fn window_output(window: &tauri::WebviewWindow) -> rawtonic_display_profile::linux::WindowOutput {
+    let logical = |m: &tauri::Monitor| {
+        let at = m.position().to_logical::<f64>(m.scale_factor());
+        (at.x.round() as i32, at.y.round() as i32)
+    };
+    let rect = |m: &tauri::Monitor| {
+        let size = m.size().to_logical::<f64>(m.scale_factor());
+        (
+            logical(m),
+            (size.width.round() as i32, size.height.round() as i32),
+        )
+    };
+    let current = window.current_monitor().ok().flatten();
+    rawtonic_display_profile::linux::WindowOutput {
+        logical: current.as_ref().map(logical),
+        physical: current.as_ref().map(|m| (m.position().x, m.position().y)),
+        monitors: window
+            .available_monitors()
+            .unwrap_or_default()
+            .iter()
+            .map(rect)
+            .collect(),
+    }
 }
 
 /// Applies what [`resolve`] makes of `system` and `chosen` to window
 /// `label`, unless a newer lookup than `lookup` was started meanwhile.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 fn apply(
     app: &AppHandle,
     label: &str,
@@ -292,8 +388,11 @@ fn apply(
     if !applied.commit(label, lookup, inputs) || !applied.changed(label, now) {
         return;
     }
-    let installed = set_transform(context.as_ref(), label, lut.as_ref());
-    let status = shown_status(status, lut.is_some(), installed);
+    let installed = set_transform(app, context.as_ref(), label, lut.as_ref());
+    let mut status = shown_status(status, lut.is_some(), installed);
+    if status.mode == "system" && status.notice.is_none() {
+        status.notice = applied.managed_notice.clone();
+    }
     log::info!(
         "Monitor profile of window {label}: {} {:?} ({:?})",
         status.mode,
@@ -321,8 +420,43 @@ fn shown_status(mut status: MonitorStatus, converts: bool, installed: bool) -> M
 }
 
 /// Sets `lut` on window `label`'s native display; whether it has one.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 fn set_transform(
+    app: &AppHandle,
+    context: Option<&crate::gpu_processing::GpuContext>,
+    label: &str,
+    lut: Option<&rawtonic_display_profile::DisplayLut>,
+) -> bool {
+    // Linux has no native display: the webview is the display; its frames
+    // (and the main window's thumbnails) are converted (browser_colour.rs).
+    // A change renders the main window's frame again, which the second
+    // window mirrors.
+    #[cfg(target_os = "linux")]
+    {
+        if crate::browser_colour::set(label, lut) {
+            let _ = app.emit(
+                crate::browser_colour::CHANGED_EVENT,
+                crate::browser_colour::generation(),
+            );
+            // Its own frames (a locked photograph, a 100 % region) too.
+            if label == crate::second_window::LABEL
+                && let Some(context) = context
+            {
+                crate::second_window::develop_again(app, context);
+            }
+        }
+        true
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = app;
+        set_native_transform(context, label, lut)
+    }
+}
+
+/// Sets `lut` on window `label`'s native display; whether it has one.
+#[cfg(not(target_os = "linux"))]
+fn set_native_transform(
     context: Option<&crate::gpu_processing::GpuContext>,
     label: &str,
     lut: Option<&rawtonic_display_profile::DisplayLut>,
@@ -343,8 +477,7 @@ fn set_transform(
     }
 }
 
-/// The main window's status, for Preferences: as last applied (Windows),
-/// or looked up now (Linux).
+/// The main window's status, for Preferences: as last applied.
 #[tauri::command]
 pub async fn monitor_profile_status() -> Result<MonitorStatus, String> {
     tauri::async_runtime::spawn_blocking(main_status)
@@ -357,21 +490,7 @@ fn main_status() -> MonitorStatus {
     status_of(None, None, false, "system", None)
 }
 
-#[cfg(target_os = "linux")]
-fn main_status() -> MonitorStatus {
-    let system = rawtonic_display_profile::linux::profile_of_output(None);
-    let (_, icc, mut status) = resolve(system, None);
-    if icc.is_some() {
-        status.mode = "notApplied";
-        status.notice = Some(
-            "The first display's profile (with several displays the window's may differ). On Linux the webview shows the preview as sRGB: Rawtonic does not convert it into this profile; the desktop may."
-                .into(),
-        );
-    }
-    status
-}
-
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn main_status() -> MonitorStatus {
     lock_recover(&APPLIED)
         .as_ref()

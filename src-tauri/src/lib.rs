@@ -26,6 +26,7 @@ mod apple_raw;
 mod auto_straighten;
 mod auto_white_balance;
 mod batch_journal;
+mod browser_colour;
 #[cfg(any(target_os = "linux", test))]
 mod browser_preview_transport;
 mod bw_auto;
@@ -264,6 +265,18 @@ fn start(args: Vec<String>) {
         |_context, request, responder| scope_images::serve(request, responder),
     );
 
+    // Thumbnails through the monitor profile (browser_colour.rs): WebKitGTK
+    // shows images as device values.
+    #[cfg(target_os = "linux")]
+    {
+        builder = builder.register_asynchronous_uri_scheme_protocol(
+            browser_colour::SCHEME,
+            |context, request, responder| {
+                browser_colour::serve(context.app_handle().clone(), request, responder);
+            },
+        );
+    }
+
     #[cfg(target_os = "linux")]
     {
         builder = builder.register_asynchronous_uri_scheme_protocol(
@@ -272,6 +285,7 @@ fn start(args: Vec<String>) {
                 browser_preview_transport::serve(request, responder);
             },
         );
+
         if !is_headless {
             builder = builder.plugin(tauri_plugin_wayland_nvidia_quirk::init());
         }
@@ -436,6 +450,13 @@ fn start(args: Vec<String>) {
             }
             #[cfg(feature = "qa-control")]
             qa_crash::at("setup");
+            // Linux has no native display whose creation looks the monitor
+            // profile up: the webview's streams get it now.
+            #[cfg(target_os = "linux")]
+            if !is_headless {
+                monitor_profile::refresh(app.handle(), "main");
+                monitor_profile::watch_outputs(app.handle());
+            }
             let startup_state = app.state::<state::startup::StartupState>();
 
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]

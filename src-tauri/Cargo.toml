@@ -66,6 +66,7 @@ turbojpeg = { workspace = true, features = ["cmake"] }
 base64 = { workspace = true }
 tauri-plugin-fs = "2.7.1"
 rayon = { workspace = true }
+percent-encoding = "2"
 blake3 = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true, features = ["derive"] }

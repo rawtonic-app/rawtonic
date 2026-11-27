@@ -2978,16 +2978,46 @@ fn process_preview_job(
             if pixel_roi.is_none()
                 && !crop_edit
                 && let Some(app) = app_handle
-                && crate::second_window::is_open()
+                && crate::second_window::takes_live_frames()
             {
-                crate::second_window::on_browser_frame(
-                    app,
-                    context,
-                    &loaded_image.path,
-                    &jpeg_bytes,
-                    final_rgba_image.dimensions(),
-                    tool_view,
-                );
+                // On a display with another profile it gets the frame
+                // converted into that one, encoded as the main one was (a
+                // PNG, or a JPEG of the same quality).
+                let own = (!crate::browser_colour::second_matches_main()).then(|| {
+                    let converted = crate::browser_colour::second_frame(final_rgba_image);
+                    if jpeg_bytes.starts_with(b"\x89PNG") {
+                        crate::preview_jpeg::encode_settled_like_as_is(&converted, 1.0, Some(true))
+                    } else if is_interactive {
+                        crate::preview_jpeg::encode_rgbx_444_as_is(&converted, jpeg_quality)
+                    } else {
+                        // As the main encode chose (a full zoom: 100 % quality).
+                        let quality = if _browser_full_zoom {
+                            crate::preview_jpeg::ONE_TO_ONE_QUALITY
+                        } else {
+                            crate::preview_jpeg::settled_quality(effective_scale)
+                        };
+                        crate::preview_jpeg::encode_rgbx_444_as_is(&converted, quality)
+                    }
+                });
+                match own {
+                    Some(Ok(bytes)) => crate::second_window::on_browser_frame(
+                        app,
+                        context,
+                        &loaded_image.path,
+                        &bytes,
+                        final_rgba_image.dimensions(),
+                        tool_view,
+                    ),
+                    Some(Err(error)) => log::warn!("Second window frame not encoded: {error}"),
+                    None => crate::second_window::on_browser_frame(
+                        app,
+                        context,
+                        &loaded_image.path,
+                        &jpeg_bytes,
+                        final_rgba_image.dimensions(),
+                        tool_view,
+                    ),
+                }
             }
             // A settled region at 100 %: the second window develops its own
             // frames of the new recipe.

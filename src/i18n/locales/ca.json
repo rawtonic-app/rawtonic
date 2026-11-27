@@ -2773,7 +2773,6 @@
       "chosen": "Triat a les Preferències: {{path}}",
       "converted": "La previsualització es converteix a {{profile}}.",
       "description": "El perfil de color a través del qual es mostra la previsualització. Mai no canvia les exportacions.",
-      "notApplied": "El perfil del sistema és {{profile}}.",
       "pickTitle": "Tria el perfil ICC del monitor",
       "refused": "Aquest perfil no es pot fer servir: {{reason}}",
       "rendererOff": "El renderitzador natiu està desactivat: la previsualització no es converteix a {{profile}}.",

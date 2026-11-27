@@ -27,6 +27,7 @@ use std::fmt;
 
 use moxcms::{ColorProfile, DataColorSpace, Layout, RenderingIntent, TransformOptions};
 
+pub mod kwin;
 #[cfg(all(target_os = "linux", feature = "system-lookup"))]
 pub mod linux;
 #[cfg(all(windows, feature = "system-lookup"))]
@@ -162,6 +163,88 @@ impl DisplayLut {
             }
         }
         [0, 1, 2].map(|c| linear_at(&self.curve, c, level[c]))
+    }
+
+    /// The conversion of 8-bit values, built once per transform
+    /// ([`ByteConverter`]).
+    pub fn byte_converter(&self) -> ByteConverter {
+        let n = self.size as usize;
+        let max = (n - 1) as f32;
+        // Per input code: the grid cell below it (as an offset per axis) and
+        // the weight of the one above.
+        let cell = |stride: usize| -> Vec<(usize, f32)> {
+            (0..256)
+                .map(|code| {
+                    let at = code as f32 / 255.0 * max;
+                    let base = (at.floor() as usize).min(n - 2);
+                    (base * stride, at - base as f32)
+                })
+                .collect()
+        };
+        // Per channel: the monitor's code for each of OUT_STEPS grey levels.
+        let out = (0..=OUT_STEPS)
+            .map(|i| {
+                let level = i as f32 / OUT_STEPS as f32;
+                [0, 1, 2].map(|c| (linear_at(&self.curve, c, level) * 255.0).round() as u8)
+            })
+            .collect();
+        ByteConverter {
+            n,
+            cells: [cell(1), cell(n), cell(n * n)],
+            levels: self.levels.clone(),
+            out,
+        }
+    }
+}
+
+/// Grey levels per channel of [`ByteConverter`]'s output table.
+const OUT_STEPS: usize = 16384;
+
+/// [`DisplayLut`] for 8-bit RGBA pixels: each value as
+/// [`DisplayLut::apply`] gives it, to the nearest code (±1). For frames and
+/// thumbnails shown by a webview, where no present pass converts them.
+#[derive(Debug, Clone)]
+pub struct ByteConverter {
+    n: usize,
+    cells: [Vec<(usize, f32)>; 3],
+    levels: Vec<[f32; 3]>,
+    out: Vec<[u8; 3]>,
+}
+
+impl ByteConverter {
+    /// Converts 8-bit RGBA pixels in place (alpha untouched).
+    // Each channel's own level picks its code: no slice copy.
+    #[allow(clippy::manual_memcpy)]
+    pub fn convert_rgba8(&self, pixels: &mut [u8]) {
+        let [rs, gs, bs] = &self.cells;
+        let out = &self.out;
+        let n = self.n;
+        let levels = &self.levels;
+        let (dg, db) = (n, n * n);
+        for pixel in pixels.as_chunks_mut::<4>().0 {
+            let (r, fr) = rs[pixel[0] as usize];
+            let (g, fg) = gs[pixel[1] as usize];
+            let (b, fb) = bs[pixel[2] as usize];
+            let o = r + g + b;
+            let (c000, c100, c010, c110) =
+                (levels[o], levels[o + 1], levels[o + dg], levels[o + dg + 1]);
+            let (c001, c101, c011, c111) = (
+                levels[o + db],
+                levels[o + db + 1],
+                levels[o + db + dg],
+                levels[o + db + dg + 1],
+            );
+            for c in 0..3 {
+                let x00 = c000[c] + (c100[c] - c000[c]) * fr;
+                let x10 = c010[c] + (c110[c] - c010[c]) * fr;
+                let x01 = c001[c] + (c101[c] - c001[c]) * fr;
+                let x11 = c011[c] + (c111[c] - c011[c]) * fr;
+                let y0 = x00 + (x10 - x00) * fg;
+                let y1 = x01 + (x11 - x01) * fg;
+                let level = (y0 + (y1 - y0) * fb).clamp(0.0, 1.0);
+                pixel[c] = out[(level * OUT_STEPS as f32 + 0.5) as usize][c];
+            }
+        }
     }
 }
 
@@ -395,6 +478,55 @@ mod tests {
         for patch in PATCHES {
             let got = lut.apply(patch.map(|v| v as f32 / 255.0)).map(code);
             let want = expected(patch, primaries, &encode);
+            for c in 0..3 {
+                assert!(
+                    (got[c] as i16 - want[c] as i16).abs() <= 1,
+                    "{patch:?}: {got:?} vs {want:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn eight_bit_pixels_get_the_tables_values() {
+        // The webview's frames and thumbnails (Linux): every code as
+        // `apply` gives it, alpha kept; the known patches within ±1.
+        let icc = ColorProfile::new_adobe_rgb().encode().unwrap();
+        let lut = display_lut(Encoding::Srgb, &icc).unwrap().unwrap();
+        let mut pixels = Vec::new();
+        for r in (0..=255u16).step_by(15) {
+            for g in (0..=255u16).step_by(17) {
+                for b in (0..=255u16).step_by(5) {
+                    pixels.extend([r as u8, g as u8, b as u8, (r ^ b) as u8]);
+                }
+            }
+        }
+        for patch in PATCHES {
+            pixels.extend([patch[0], patch[1], patch[2], 255]);
+        }
+        let mut converted = pixels.clone();
+        lut.byte_converter().convert_rgba8(&mut converted);
+        for (before, after) in pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(converted.as_chunks::<4>().0)
+        {
+            let want = lut
+                .apply([0, 1, 2].map(|c| before[c] as f32 / 255.0))
+                .map(code);
+            for c in 0..3 {
+                assert!(
+                    (after[c] as i16 - want[c] as i16).abs() <= 1,
+                    "{before:?}: {after:?} vs {want:?}"
+                );
+            }
+            assert_eq!(after[3], before[3]);
+        }
+        let gamma = |v: f64| v.powf(256.0 / 563.0);
+        let start = converted.len() - PATCHES.len() * 4;
+        for (patch, got) in PATCHES.iter().zip(converted[start..].as_chunks::<4>().0) {
+            let want = expected(*patch, ADOBE, gamma);
             for c in 0..3 {
                 assert!(
                     (got[c] as i16 - want[c] as i16).abs() <= 1,

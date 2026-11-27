@@ -53,6 +53,7 @@ import { dragTargetResolution, needsFrameSize, previewTargetResolution } from '.
 import { applyLayerSolo } from '../utils/layerSolo';
 import { onSharpenViewReady, type SharpenView } from '../utils/sharpenView';
 import { onGpuRecovered } from '../utils/gpuRecovery';
+import { onMonitorColourChanged } from '../utils/thumbnailUrl';
 import { onColorNoiseViewReady } from '../utils/colorNoiseView';
 import { acknowledgeParameters, forgetParameterReferences, withParameterReferences } from '../utils/maskParameterRefs';
 import { useOsPlatform } from './useOsPlatform';
@@ -625,10 +626,19 @@ export function useImageProcessing(
       const targetRes = currentResRef.current;
       if (splitView && targetRes) requestSplitBefore(targetRes);
     });
+    // Linux: a new monitor transform (src-tauri browser_colour): the
+    // webview's frame and the split's before are converted again.
+    const stopColour = onMonitorColourChanged(() => {
+      renderView();
+      const { splitView } = useEditorStore.getState();
+      const targetRes = currentResRef.current;
+      if (splitView && targetRes) requestSplitBefore(targetRes);
+    });
     return () => {
       unsubscribe();
       stopReady();
       stopRecovered();
+      stopColour();
     };
   }, [previewQueue, currentResRef]);
   // The export's colour noise reduction for the fit view is in: a webview

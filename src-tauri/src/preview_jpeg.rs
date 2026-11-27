@@ -65,10 +65,21 @@ pub(crate) fn encode_settled_like(
     scale: f32,
     lossless: Option<bool>,
 ) -> Result<Vec<u8>, String> {
+    // The monitor profile (Linux: nothing after the webview converts it).
+    encode_settled_like_as_is(&crate::browser_colour::frame(image), scale, lossless)
+}
+
+/// [`encode_settled_like`] of `image`'s values as they are (already in the
+/// monitor profile of the window showing it).
+pub(crate) fn encode_settled_like_as_is(
+    image: &image::RgbaImage,
+    scale: f32,
+    lossless: Option<bool>,
+) -> Result<Vec<u8>, String> {
     match lossless.unwrap_or_else(|| settled_lossless(scale)) {
         true => encode_png_rgb(image),
-        false if lossless.is_some() => encode_rgbx_444(image, ONE_TO_ONE_QUALITY),
-        false => encode_rgbx_444(image, settled_quality(scale)),
+        false if lossless.is_some() => encode_rgbx_444_as_is(image, ONE_TO_ONE_QUALITY),
+        false => encode_rgbx_444_as_is(image, settled_quality(scale)),
     }
 }
 
@@ -103,7 +114,19 @@ const MCU: usize = 8;
 const MIN_STRIP_MCU_ROWS: usize = 16;
 const MAX_STRIPS: usize = 6;
 
+/// A browser frame (a drag draft) as a 4:4:4 JPEG, converted into the
+/// monitor profile where the webview shows it as device values
+/// (`browser_colour`).
+#[cfg_attr(not(any(target_os = "linux", test)), allow(dead_code))]
 pub(crate) fn encode_rgbx_444(image: &image::RgbaImage, quality: u8) -> Result<Vec<u8>, String> {
+    encode_rgbx_444_as_is(&crate::browser_colour::frame(image), quality)
+}
+
+/// `image` as a 4:4:4 JPEG, its values as they are.
+pub(crate) fn encode_rgbx_444_as_is(
+    image: &image::RgbaImage,
+    quality: u8,
+) -> Result<Vec<u8>, String> {
     let (width, height) = (image.width() as usize, image.height() as usize);
     let mcu_rows = height.div_ceil(MCU);
     let mcus_per_row = width.div_ceil(MCU).max(1);

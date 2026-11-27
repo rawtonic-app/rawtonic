@@ -17,7 +17,10 @@
 //! volume that cannot do that fails cleanly).
 //!
 //! On Linux, `--features system-lookup -- --lookup` prints what colord / X11 hold for the display
-//! instead.
+//! instead; `-- --x11-set FILE N` publishes FILE as monitor N's X11 profile
+//! (`_ICC_PROFILE`, `_ICC_PROFILE_N` for N > 0, as colour tools such as
+//! `dispwin -I` do) and `-- --x11-clear N` removes it again (a GUI check on
+//! a desktop without colord; note what was there first).
 
 use std::io::Write;
 
@@ -51,6 +54,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arg = std::env::args()
         .nth(1)
         .ok_or("usage: monitor_check OUT | --lookup")?;
+    if arg == "--x11-set" || arg == "--x11-clear" {
+        #[cfg(all(target_os = "linux", feature = "system-lookup"))]
+        {
+            let args: Vec<String> = std::env::args().skip(2).collect();
+            let (file, monitor) = match (arg.as_str(), args.as_slice()) {
+                ("--x11-set", [file, n]) => (Some(std::fs::read(file)?), n.parse::<usize>()?),
+                ("--x11-clear", [n]) => (None, n.parse::<usize>()?),
+                _ => return Err("usage: --x11-set FILE N | --x11-clear N".into()),
+            };
+            x11_set(file.as_deref(), monitor)?;
+            println!("done");
+        }
+        #[cfg(not(all(target_os = "linux", feature = "system-lookup")))]
+        println!("--x11-set/--x11-clear are for Linux with --features system-lookup");
+        return Ok(());
+    }
     if arg == "--lookup" {
         #[cfg(all(target_os = "linux", feature = "system-lookup"))]
         {
@@ -127,5 +146,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     publish(&out.join("expected.txt"), &expected)?;
     println!("wrote {}", out.display());
+    Ok(())
+}
+
+/// Sets (or with `None` deletes) monitor `monitor`'s X11 ICC profile atom.
+#[cfg(all(target_os = "linux", feature = "system-lookup"))]
+fn x11_set(icc: Option<&[u8]>, monitor: usize) -> Result<(), Box<dyn std::error::Error>> {
+    let xlib = x11_dl::xlib::Xlib::open()?;
+    let name = match monitor {
+        0 => "_ICC_PROFILE".to_string(),
+        n => format!("_ICC_PROFILE_{n}"),
+    };
+    let name = std::ffi::CString::new(name)?;
+    // SAFETY: the display is opened and closed here; `icc` outlives the call.
+    unsafe {
+        let display = (xlib.XOpenDisplay)(std::ptr::null());
+        if display.is_null() {
+            return Err("no X display (DISPLAY)".into());
+        }
+        let root = (xlib.XDefaultRootWindow)(display);
+        let atom = (xlib.XInternAtom)(display, name.as_ptr(), 0);
+        let cardinal = (xlib.XInternAtom)(display, c"CARDINAL".as_ptr(), 0);
+        match icc {
+            Some(icc) => {
+                (xlib.XChangeProperty)(
+                    display,
+                    root,
+                    atom,
+                    cardinal,
+                    8,
+                    x11_dl::xlib::PropModeReplace,
+                    icc.as_ptr(),
+                    icc.len() as i32,
+                );
+            }
+            None => {
+                (xlib.XDeleteProperty)(display, root, atom);
+            }
+        }
+        (xlib.XSync)(display, 0);
+        (xlib.XCloseDisplay)(display);
+    }
     Ok(())
 }

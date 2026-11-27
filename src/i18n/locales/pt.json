@@ -2773,7 +2773,6 @@
       "chosen": "Escolhido nas Preferências: {{path}}",
       "converted": "A pré-visualização é convertida para {{profile}}.",
       "description": "O perfil de cor através do qual a pré-visualização é mostrada. Nunca altera as exportações.",
-      "notApplied": "O perfil do sistema é {{profile}}.",
       "pickTitle": "Escolher o perfil ICC do monitor",
       "refused": "Este perfil não pode ser usado: {{reason}}",
       "rendererOff": "O renderizador nativo está desligado: a pré-visualização não é convertida para {{profile}}.",
