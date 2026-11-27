@@ -340,7 +340,7 @@
 }
 .studio-panel-resizer:hover,
 .studio-panel-resizer:focus-visible {
-  background: rgb(var(--studio-rgb-accent) / 0.290);
+  background: rgb(var(--studio-rgb-accent) / 0.29);
 }
 .studio-develop {
   /* Fill the bounded panel directly, including when CSS zoom sizes its
@@ -664,7 +664,7 @@
   padding: 6px 10px;
   font-size: 11px;
   color: var(--studio-shade-text);
-  background: rgb(var(--studio-rgb-accent) / 0.200);
+  background: rgb(var(--studio-rgb-accent) / 0.2);
   border-bottom: 1px solid var(--studio-shade-inset);
 }
 .studio-target > span {
@@ -900,7 +900,7 @@
   height: 13px;
   margin-top: -5.5px;
   background: var(--studio-shade-text);
-  box-shadow: 0 0 0 2px rgb(var(--studio-rgb-accent) / 0.600);
+  box-shadow: 0 0 0 2px rgb(var(--studio-rgb-accent) / 0.6);
 }
 .adjustment-track.temperature::-webkit-slider-runnable-track {
   background: linear-gradient(90deg, #6b99c7, #d0b263);
@@ -2538,7 +2538,7 @@
 }
 .studio-folder.is-selected,
 .studio-history.is-selected {
-  background: rgb(var(--studio-rgb-accent) / 0.400);
+  background: rgb(var(--studio-rgb-accent) / 0.4);
   color: var(--studio-shade-text);
 }
 .studio-folder > button {
@@ -4040,7 +4040,7 @@
 .studio-tool-slot.is-dragged {
   position: relative;
   z-index: 1;
-  background: rgb(var(--studio-rgb-accent) / 0.400);
+  background: rgb(var(--studio-rgb-accent) / 0.4);
   outline: 1px solid var(--studio-accent);
   outline-offset: -1px;
   box-shadow: 0 4px 14px #0007;
@@ -4417,7 +4417,7 @@ body.is-dragging.is-drop-refused * {
   border-radius: 50%;
   /* Hue 0 at the right, increasing counter-clockwise (Lightroom). */
   background:
-    radial-gradient(closest-side, var(--studio-shade-dim) 0%, rgb(var(--studio-rgb-dim) / 0.000) 100%),
+    radial-gradient(closest-side, var(--studio-shade-dim) 0%, rgb(var(--studio-rgb-dim) / 0) 100%),
     conic-gradient(
       from 90deg,
       hsl(0 50% 50%),
@@ -4496,7 +4496,7 @@ body.is-dragging.is-drop-refused * {
   inset: calc(100% * 0.12 / 2.24);
   border-radius: 50%;
   background:
-    radial-gradient(closest-side, var(--studio-shade-dim) 0%, rgb(var(--studio-rgb-dim) / 0.000) 100%),
+    radial-gradient(closest-side, var(--studio-shade-dim) 0%, rgb(var(--studio-rgb-dim) / 0) 100%),
     conic-gradient(
       from 90deg,
       oklch(0.68 0.13 0),

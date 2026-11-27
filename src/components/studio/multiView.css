@@ -34,7 +34,7 @@
   pointer-events: none;
 }
 .studio-mv-cell.is-primary::after {
-  border-color: rgb(var(--studio-rgb-text) / 0.800);
+  border-color: rgb(var(--studio-rgb-text) / 0.8);
 }
 .studio-mv-cell.is-edit-all::after {
   border-color: #e8890c;

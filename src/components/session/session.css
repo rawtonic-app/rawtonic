@@ -529,7 +529,7 @@
   outline-offset: 3px;
 }
 ::selection {
-  background: rgb(var(--studio-rgb-accent) / 0.400);
+  background: rgb(var(--studio-rgb-accent) / 0.4);
   color: inherit;
 }
 @media (max-width: 1100px) {

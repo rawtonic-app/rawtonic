@@ -73,7 +73,9 @@ const Switch = ({
         <div
           className={clsx(
             'w-full h-full rounded-full border transition-colors',
-            checked ? 'bg-(--studio-accent-fill) border-(--studio-accent-fill)' : 'bg-(--studio-shade-raised) border-(--studio-shade-dim)',
+            checked
+              ? 'bg-(--studio-accent-fill) border-(--studio-accent-fill)'
+              : 'bg-(--studio-shade-raised) border-(--studio-shade-dim)',
             trackClassName
           )}
         ></div>

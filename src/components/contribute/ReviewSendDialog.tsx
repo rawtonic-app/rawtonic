@@ -170,7 +170,10 @@ export default function ReviewSendDialog({
             {id && (
               <>
                 <div className="flex items-center gap-2">
-                  <code className="select-all rounded bg-(--studio-shade-inset) px-2 py-1 font-mono text-sm" data-testid="report-id">
+                  <code
+                    className="select-all rounded bg-(--studio-shade-inset) px-2 py-1 font-mono text-sm"
+                    data-testid="report-id"
+                  >
                     {id}
                   </code>
                   <Button variant="ghost" onClick={() => void copyId()} aria-label={t('contribute.review.copyId')}>

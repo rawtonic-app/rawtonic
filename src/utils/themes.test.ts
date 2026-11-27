@@ -49,7 +49,9 @@ const NON_GREY = [
   '--app-button-text'
 ];
 const shadeTokens = (shade: string) =>
-  tokens(shade === 'darkest' ? ":root,\n:root[data-interface-shade='darkest'] {" : `:root[data-interface-shade='${shade}'] {`);
+  tokens(
+    shade === 'darkest' ? ":root,\n:root[data-interface-shade='darkest'] {" : `:root[data-interface-shade='${shade}'] {`
+  );
 const luminance = (value: string) => contrast(value, '#000000');
 
 it('defines the same role tokens in every interface shade', () => {
@@ -94,7 +96,9 @@ for (const shade of SHADES) {
     it('orders the roles: chrome and panels darker than the viewer, controls above panels', () => {
       const order = ['ink', 'inset', 'bg', 'viewer'];
       for (let i = 1; i < order.length; i++)
-        expect(luminance(role(order[i])), `${order[i - 1]} < ${order[i]}`).toBeGreaterThan(luminance(role(order[i - 1])));
+        expect(luminance(role(order[i])), `${order[i - 1]} < ${order[i]}`).toBeGreaterThan(
+          luminance(role(order[i - 1]))
+        );
       expect(luminance(role('raised'))).toBeGreaterThan(luminance(role('bg')));
       expect(luminance(role('hover'))).toBeGreaterThan(luminance(role('raised')));
       expect(palette['--app-bg-primary']).toBe(role('viewer'));
@@ -109,7 +113,9 @@ for (const shade of SHADES) {
         expect(contrast(role('line'), role(bg)), `line / ${bg}`).toBeGreaterThanOrEqual(3);
       }
       expect(contrast(palette['--studio-on-accent'], palette['--studio-accent-fill'])).toBeGreaterThanOrEqual(4.5);
-      expect(contrast(palette['--studio-on-accent'], palette['--studio-accent-fill-hover'])).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(palette['--studio-on-accent'], palette['--studio-accent-fill-hover'])).toBeGreaterThanOrEqual(
+        4.5
+      );
       expect(contrast(palette['--app-button-text'], palette['--app-accent'])).toBeGreaterThanOrEqual(4.5);
       for (const fg of ['warning', 'error', 'success'])
         for (const bg of ['inset', 'bg', 'raised'])
