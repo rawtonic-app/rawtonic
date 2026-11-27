@@ -5892,7 +5892,6 @@ name = "rawtonic-display-profile"
 version = "0.1.0"
 dependencies = [
  "dbus",
- "log",
  "moxcms",
  "png 0.18.1",
  "windows-sys 0.61.2",

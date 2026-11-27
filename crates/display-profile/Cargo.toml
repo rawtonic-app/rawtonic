@@ -9,7 +9,6 @@ description = "The monitor's ICC profile: where each OS keeps it, and the displa
 workspace = true
 
 [dependencies]
-log = { workspace = true }
 moxcms = "0.8"
 
 [dev-dependencies]
