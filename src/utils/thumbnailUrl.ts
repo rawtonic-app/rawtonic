@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * The URL a cached thumbnail is shown from. On Linux it goes through the
- * app's `rawtonic-thumb` scheme, which converts it into the monitor profile
- * (src-tauri/src/browser_colour.rs: WebKitGTK shows images as device
- * values); elsewhere the asset protocol serves the file, and the system
- * matches it to the display. The `mp` query names the monitor transform the
+ * The URL a cached thumbnail is shown from. On Linux and Windows it goes
+ * through the app's `rawtonic-thumb` scheme, which converts it into the
+ * monitor profile (src-tauri/src/browser_colour.rs: WebKitGTK and WebView2
+ * show images as device values); on macOS the asset protocol serves the
+ * file and ColorSync matches it to the display. The `mp` query names the monitor transform the
  * URL was made for, so a new one (`monitor-colour-changed`) loads the
  * thumbnails again instead of the webview's cached copies.
  */
@@ -15,18 +15,18 @@ import { platform } from '@tauri-apps/plugin-os';
 export const THUMBNAIL_SCHEME = 'rawtonic-thumb';
 export const MONITOR_COLOUR_CHANGED = 'monitor-colour-changed';
 
-let linux: boolean | null = null;
+let converting: boolean | null = null;
 let generation = 0;
 
 function throughScheme() {
-  if (linux === null) {
+  if (converting === null) {
     try {
-      linux = platform() === 'linux';
+      converting = ['linux', 'windows'].includes(platform());
     } catch {
-      linux = false;
+      converting = false;
     }
   }
-  return linux;
+  return converting;
 }
 
 /** The URL of the cached thumbnail file at `path`. */
@@ -58,8 +58,8 @@ export function setMonitorTransform(next: number) {
 }
 
 /** Tests: the platform as given. */
-export function setThumbnailPlatformForTests(isLinux: boolean | null) {
-  linux = isLinux;
+export function setThumbnailPlatformForTests(throughScheme: boolean | null) {
+  converting = throughScheme;
   generation = 0;
 }
 

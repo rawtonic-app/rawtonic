@@ -2,15 +2,18 @@
 //! notes: benchmark-results/mcm2-2026-11-27/REPORT.md).
 //!
 //! WebKitGTK shows images as device values: nothing between the app and
-//! the display converts them. So the two streams of photographs it shows
-//! are converted here, each in one place, with the main window's display
+//! the display converts them (nor does WebView2 on Windows for the
+//! thumbnails, WMCM1). So the streams of photographs the webview shows are
+//! converted here, each in one place, with the main window's display
 //! transform (`monitor_profile.rs`, the same 65³ table the Windows present
 //! pass samples):
 //!
-//! - Develop's frames (and multi-view cells, the second window's) as they
-//!   are encoded for the webview ([`frame`], called by `preview_jpeg`);
+//! - Linux: Develop's frames (and multi-view cells, the second window's)
+//!   as they are encoded for the webview ([`frame`], called by
+//!   `preview_jpeg`; Windows draws Develop natively, converted there);
 //! - the Library's thumbnails (grid, filmstrip, Loupe), served through the
-//!   `rawtonic-thumb` scheme instead of the asset protocol ([`serve`]).
+//!   `rawtonic-thumb` scheme instead of the asset protocol ([`serve`]), on
+//!   Linux and Windows.
 //!
 //! Without a transform (an sRGB display, no profile, the compositor
 //! colour-managing the window itself) frames are encoded from the
@@ -23,13 +26,13 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock};
 
-use rawtonic_display_profile::DisplayLut;
+use rawtonic_display_profile::{ByteConverter, DisplayLut};
 use rayon::prelude::*;
 
 use crate::state::lock::lock_recover;
 
 /// The scheme Linux thumbnails are served by.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 pub const SCHEME: &str = "rawtonic-thumb";
 /// Sent (with the new generation) when the transform changed.
 pub const CHANGED_EVENT: &str = "monitor-colour-changed";
@@ -42,22 +45,23 @@ const MAX_CONVERTED_BYTES: usize = 96 * 1024 * 1024;
 #[derive(Default)]
 struct Current {
     generation: u64,
-    lut: Option<Arc<DisplayLut>>,
+    /// The table and its 8-bit conversion.
+    lut: Option<Arc<(DisplayLut, ByteConverter)>>,
 }
 
 impl Current {
     /// Installs `lut` (None: no transform); whether it differs from the
     /// one installed (then the generation moves on).
     fn set(&mut self, lut: Option<&DisplayLut>) -> bool {
-        if self.lut.as_deref() == lut {
+        if self.lut.as_deref().map(|(l, _)| l) == lut {
             return false;
         }
-        self.lut = lut.cloned().map(Arc::new);
+        self.lut = lut.map(|l| Arc::new((l.clone(), l.byte_converter())));
         self.generation += 1;
         true
     }
 
-    fn get(&self) -> (u64, Option<Arc<DisplayLut>>) {
+    fn get(&self) -> (u64, Option<Arc<(DisplayLut, ByteConverter)>>) {
         (self.generation, self.lut.clone())
     }
 }
@@ -67,7 +71,7 @@ static CURRENT: RwLock<Current> = RwLock::new(Current {
     lut: None,
 });
 
-fn current() -> (u64, Option<Arc<DisplayLut>>) {
+fn current() -> (u64, Option<Arc<(DisplayLut, ByteConverter)>>) {
     CURRENT.read().unwrap_or_else(|e| e.into_inner()).get()
 }
 
@@ -83,7 +87,7 @@ pub fn generation() -> u64 {
 }
 
 /// `pixels` (8-bit RGBA rows) converted by `lut`, on all threads.
-fn convert(lut: &DisplayLut, pixels: &mut [u8]) {
+fn convert(lut: &ByteConverter, pixels: &mut [u8]) {
     // 64 Ki pixels a task: a 4K frame in ~130 tasks.
     pixels
         .par_chunks_mut(4 * 65536)
@@ -93,10 +97,13 @@ fn convert(lut: &DisplayLut, pixels: &mut [u8]) {
 /// A frame for the webview: `image` converted into the monitor profile, or
 /// `image` itself when there is no transform.
 pub fn frame(image: &image::RgbaImage) -> Cow<'_, image::RgbaImage> {
-    frame_with(current().1.as_deref(), image)
+    frame_with(current().1.as_deref().map(|(_, c)| c), image)
 }
 
-fn frame_with<'a>(lut: Option<&DisplayLut>, image: &'a image::RgbaImage) -> Cow<'a, image::RgbaImage> {
+fn frame_with<'a>(
+    lut: Option<&ByteConverter>,
+    image: &'a image::RgbaImage,
+) -> Cow<'a, image::RgbaImage> {
     match lut {
         Some(lut) => {
             let mut converted = image.clone();
@@ -141,7 +148,7 @@ impl Converted {
 static CONVERTED: Mutex<Option<Converted>> = Mutex::new(None);
 
 /// A cached thumbnail converted by `lut`: decoded, converted, encoded again.
-pub fn convert_thumbnail(lut: &DisplayLut, jpeg: &[u8]) -> Result<Vec<u8>, String> {
+pub fn convert_thumbnail(lut: &ByteConverter, jpeg: &[u8]) -> Result<Vec<u8>, String> {
     let mut image = image::load_from_memory_with_format(jpeg, image::ImageFormat::Jpeg)
         .map_err(|e| e.to_string())?
         .to_rgba8();
@@ -155,7 +162,7 @@ pub fn convert_thumbnail(lut: &DisplayLut, jpeg: &[u8]) -> Result<Vec<u8>, Strin
 fn thumbnail(
     root: &std::path::Path,
     path: &std::path::Path,
-    (generation, lut): (u64, Option<Arc<DisplayLut>>),
+    (generation, lut): (u64, Option<Arc<(DisplayLut, ByteConverter)>>),
 ) -> Option<Arc<Vec<u8>>> {
     use rawtonic_fs::Canonical;
     let root = root.canonical().ok()?;
@@ -172,7 +179,7 @@ fn thumbnail(
         return Some(bytes);
     }
     let file = std::fs::read(&path).ok()?;
-    let bytes = match convert_thumbnail(&lut, &file) {
+    let bytes = match convert_thumbnail(&lut.1, &file) {
         Ok(bytes) => Arc::new(bytes),
         Err(error) => {
             log::warn!("Thumbnail {} not converted: {error}", path.display());
@@ -196,7 +203,7 @@ fn requested_path(uri: &tauri::http::Uri) -> Option<std::path::PathBuf> {
 }
 
 /// Serves a thumbnail request off the main thread.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 pub fn serve(
     app: tauri::AppHandle,
     request: tauri::http::Request<Vec<u8>>,
@@ -268,8 +275,18 @@ mod tests {
         let file = root.path().join("abc_small.jpg");
         let jpeg = crate::preview_jpeg::encode_rgbx_444_as_is(&source, 90).unwrap();
         std::fs::write(&file, &jpeg).unwrap();
-        assert_eq!(*thumbnail(root.path(), &file, installed.get()).unwrap(), jpeg);
-        assert!(thumbnail(root.path(), &root.path().join("missing.jpg"), installed.get()).is_none());
+        assert_eq!(
+            *thumbnail(root.path(), &file, installed.get()).unwrap(),
+            jpeg
+        );
+        assert!(
+            thumbnail(
+                root.path(),
+                &root.path().join("missing.jpg"),
+                installed.get()
+            )
+            .is_none()
+        );
         let outside = tempfile::tempdir().unwrap();
         let elsewhere = outside.path().join("x.jpg");
         std::fs::write(&elsewhere, &jpeg).unwrap();
@@ -282,11 +299,12 @@ mod tests {
         assert!(installed.set(Some(&lut)));
         assert!(!installed.set(Some(&lut)));
         assert_eq!(installed.get().0, 1);
-        let converted = frame_with(Some(&lut), &source).into_owned();
+        let converted = frame_with(Some(&lut.byte_converter()), &source).into_owned();
         let decoded = image::load_from_memory(&jpeg).unwrap().to_rgb8();
-        let thumb = image::load_from_memory(&thumbnail(root.path(), &file, installed.get()).unwrap())
-            .unwrap()
-            .to_rgb8();
+        let thumb =
+            image::load_from_memory(&thumbnail(root.path(), &file, installed.get()).unwrap())
+                .unwrap()
+                .to_rgb8();
         for patch in 0..10 {
             let input = source.get_pixel(patch * 32 + 16, 16).0;
             let want = lut.apply([0, 1, 2].map(|c| input[c] as f32 / 255.0));
@@ -297,7 +315,10 @@ mod tests {
                 assert!((got[c] as i16 - want).abs() <= 1, "patch {patch}: {got:?}");
                 let from_file = (from_file[c] * 255.0).round() as i16;
                 let shown = centre(&thumb, patch)[c] as i16;
-                assert!((shown - from_file).abs() <= 3, "thumbnail patch {patch}: {shown} vs {from_file}");
+                assert!(
+                    (shown - from_file).abs() <= 3,
+                    "thumbnail patch {patch}: {shown} vs {from_file}"
+                );
             }
         }
         // Red really moved (Adobe RGB's red is wider than sRGB's).
@@ -305,7 +326,10 @@ mod tests {
         // Back to sRGB: the file's bytes again, a new generation.
         assert!(installed.set(None));
         assert_eq!(installed.get().0, 2);
-        assert_eq!(*thumbnail(root.path(), &file, installed.get()).unwrap(), jpeg);
+        assert_eq!(
+            *thumbnail(root.path(), &file, installed.get()).unwrap(),
+            jpeg
+        );
     }
 
     /// The cost of converting a 4K frame (3840 × 2160) on all threads;
@@ -313,7 +337,7 @@ mod tests {
     #[test]
     #[ignore = "timing probe"]
     fn frame_conversion_timing_4k() {
-        let lut = adobe_lut();
+        let converter = adobe_lut().byte_converter();
         let image = image::RgbaImage::from_fn(3840, 2160, |x, y| {
             image::Rgba([(x % 256) as u8, (y % 256) as u8, ((x ^ y) % 256) as u8, 255])
         });
@@ -321,7 +345,7 @@ mod tests {
             let mut times = Vec::new();
             for _ in 0..20 {
                 let start = std::time::Instant::now();
-                let converted = frame_with(Some(&lut), &image);
+                let converted = frame_with(Some(&converter), &image);
                 std::hint::black_box(&converted);
                 times.push(start.elapsed().as_secs_f64() * 1000.0);
             }

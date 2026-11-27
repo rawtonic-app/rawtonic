@@ -165,31 +165,84 @@ impl DisplayLut {
         [0, 1, 2].map(|c| linear_at(&self.curve, c, level[c]))
     }
 
-    /// Converts 8-bit RGBA pixels (alpha untouched) in place: each value
-    /// as [`DisplayLut::apply`] gives it, rounded to the nearest code. For
-    /// frames and thumbnails shown by a webview (Linux), where no present
-    /// pass converts them.
-    pub fn convert_rgba8(&self, pixels: &mut [u8]) {
+    /// The conversion of 8-bit values, built once per transform
+    /// ([`ByteConverter`]).
+    pub fn byte_converter(&self) -> ByteConverter {
         let n = self.size as usize;
         let max = (n - 1) as f32;
-        // Per input code: the grid cell below it and the weight of the one above.
-        let cells: [(usize, f32); 256] = std::array::from_fn(|code| {
-            let at = code as f32 / 255.0 * max;
-            let base = (at.floor() as usize).min(n - 2);
-            (base, at - base as f32)
-        });
+        // Per input code: the grid cell below it (as an offset per axis) and
+        // the weight of the one above.
+        let cell = |stride: usize| -> Vec<(usize, f32)> {
+            (0..256)
+                .map(|code| {
+                    let at = code as f32 / 255.0 * max;
+                    let base = (at.floor() as usize).min(n - 2);
+                    (base * stride, at - base as f32)
+                })
+                .collect()
+        };
+        // Per channel: the monitor's code for each of OUT_STEPS grey levels.
+        let out = (0..=OUT_STEPS)
+            .map(|i| {
+                let level = i as f32 / OUT_STEPS as f32;
+                [0, 1, 2].map(|c| (linear_at(&self.curve, c, level) * 255.0).round() as u8)
+            })
+            .collect();
+        ByteConverter {
+            n,
+            cells: [cell(1), cell(n), cell(n * n)],
+            levels: self.levels.clone(),
+            out,
+        }
+    }
+}
+
+/// Grey levels per channel of [`ByteConverter`]'s output table.
+const OUT_STEPS: usize = 16384;
+
+/// [`DisplayLut`] for 8-bit RGBA pixels: each value as
+/// [`DisplayLut::apply`] gives it, to the nearest code (±1). For frames and
+/// thumbnails shown by a webview, where no present pass converts them.
+#[derive(Debug, Clone)]
+pub struct ByteConverter {
+    n: usize,
+    cells: [Vec<(usize, f32)>; 3],
+    levels: Vec<[f32; 3]>,
+    out: Vec<[u8; 3]>,
+}
+
+impl ByteConverter {
+    /// Converts 8-bit RGBA pixels in place (alpha untouched).
+    // Each channel's own level picks its code: no slice copy.
+    #[allow(clippy::manual_memcpy)]
+    pub fn convert_rgba8(&self, pixels: &mut [u8]) {
+        let [rs, gs, bs] = &self.cells;
+        let out = &self.out;
+        let n = self.n;
         let levels = &self.levels;
+        let (dg, db) = (n, n * n);
         for pixel in pixels.as_chunks_mut::<4>().0 {
-            let (r, fr) = cells[pixel[0] as usize];
-            let (g, fg) = cells[pixel[1] as usize];
-            let (b, fb) = cells[pixel[2] as usize];
-            let at = |dr: usize, dg: usize, db: usize| levels[(r + dr) + (g + dg) * n + (b + db) * n * n];
-            let lerp = |a: [f32; 3], b: [f32; 3], f: f32| [0, 1, 2].map(|c| a[c] + (b[c] - a[c]) * f);
-            let r0 = lerp(lerp(at(0, 0, 0), at(1, 0, 0), fr), lerp(at(0, 1, 0), at(1, 1, 0), fr), fg);
-            let r1 = lerp(lerp(at(0, 0, 1), at(1, 0, 1), fr), lerp(at(0, 1, 1), at(1, 1, 1), fr), fg);
-            let level = lerp(r0, r1, fb);
+            let (r, fr) = rs[pixel[0] as usize];
+            let (g, fg) = gs[pixel[1] as usize];
+            let (b, fb) = bs[pixel[2] as usize];
+            let o = r + g + b;
+            let (c000, c100, c010, c110) =
+                (levels[o], levels[o + 1], levels[o + dg], levels[o + dg + 1]);
+            let (c001, c101, c011, c111) = (
+                levels[o + db],
+                levels[o + db + 1],
+                levels[o + db + dg],
+                levels[o + db + dg + 1],
+            );
             for c in 0..3 {
-                pixel[c] = (linear_at(&self.curve, c, level[c]) * 255.0).round() as u8;
+                let x00 = c000[c] + (c100[c] - c000[c]) * fr;
+                let x10 = c010[c] + (c110[c] - c010[c]) * fr;
+                let x01 = c001[c] + (c101[c] - c001[c]) * fr;
+                let x11 = c011[c] + (c111[c] - c011[c]) * fr;
+                let y0 = x00 + (x10 - x00) * fg;
+                let y1 = x01 + (x11 - x01) * fg;
+                let level = (y0 + (y1 - y0) * fb).clamp(0.0, 1.0);
+                pixel[c] = out[(level * OUT_STEPS as f32 + 0.5) as usize][c];
             }
         }
     }
@@ -452,11 +505,21 @@ mod tests {
             pixels.extend([patch[0], patch[1], patch[2], 255]);
         }
         let mut converted = pixels.clone();
-        lut.convert_rgba8(&mut converted);
-        for (before, after) in pixels.as_chunks::<4>().0.iter().zip(converted.as_chunks::<4>().0) {
-            let want = lut.apply([0, 1, 2].map(|c| before[c] as f32 / 255.0)).map(code);
+        lut.byte_converter().convert_rgba8(&mut converted);
+        for (before, after) in pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(converted.as_chunks::<4>().0)
+        {
+            let want = lut
+                .apply([0, 1, 2].map(|c| before[c] as f32 / 255.0))
+                .map(code);
             for c in 0..3 {
-                assert!((after[c] as i16 - want[c] as i16).abs() <= 1, "{before:?}: {after:?} vs {want:?}");
+                assert!(
+                    (after[c] as i16 - want[c] as i16).abs() <= 1,
+                    "{before:?}: {after:?} vs {want:?}"
+                );
             }
             assert_eq!(after[3], before[3]);
         }
@@ -465,7 +528,10 @@ mod tests {
         for (patch, got) in PATCHES.iter().zip(converted[start..].as_chunks::<4>().0) {
             let want = expected(*patch, ADOBE, gamma);
             for c in 0..3 {
-                assert!((got[c] as i16 - want[c] as i16).abs() <= 1, "{patch:?}: {got:?} vs {want:?}");
+                assert!(
+                    (got[c] as i16 - want[c] as i16).abs() <= 1,
+                    "{patch:?}: {got:?} vs {want:?}"
+                );
             }
         }
     }

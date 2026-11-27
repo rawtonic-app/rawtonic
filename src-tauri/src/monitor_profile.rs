@@ -391,17 +391,20 @@ fn set_transform(
     label: &str,
     lut: Option<&rawtonic_display_profile::DisplayLut>,
 ) -> bool {
-    // Linux: the webview's frames and thumbnails (no native display).
+    // The webview's thumbnails (Linux, Windows: WebView2 does not match
+    // images to the display, WMCM1) and on Linux its frames: the main
+    // window's transform.
+    if label == "main" && cfg!(any(target_os = "linux", windows)) && crate::browser_colour::set(lut)
+    {
+        let _ = app.emit(
+            crate::browser_colour::CHANGED_EVENT,
+            crate::browser_colour::generation(),
+        );
+    }
+    // Linux has no native display: the webview is the display.
     if cfg!(target_os = "linux") {
-        if crate::browser_colour::set(lut) {
-            let _ = app.emit(
-                crate::browser_colour::CHANGED_EVENT,
-                crate::browser_colour::generation(),
-            );
-        }
         return true;
     }
-    let _ = app;
     let Some(context) = context else {
         return false;
     };

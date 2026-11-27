@@ -88,9 +88,16 @@ fn parse(config: &str) -> Option<(Vec<Value>, Vec<Setup>)> {
 /// (every monitor's logical position): the one layout of KWin's whose
 /// enabled outputs sit exactly there. `None` when no layout or several
 /// differing ones fit (the window's output is then unknown).
-pub fn output_at(config: &str, monitors: &[(i32, i32)], position: (i32, i32)) -> Option<KwinOutput> {
+pub fn output_at(
+    config: &str,
+    monitors: &[(i32, i32)],
+    position: (i32, i32),
+) -> Option<KwinOutput> {
     let (outputs, setups) = parse(config)?;
-    let mut wanted: Vec<(i64, i64)> = monitors.iter().map(|&(x, y)| (x as i64, y as i64)).collect();
+    let mut wanted: Vec<(i64, i64)> = monitors
+        .iter()
+        .map(|&(x, y)| (x as i64, y as i64))
+        .collect();
     wanted.sort_unstable();
     let at = (position.0 as i64, position.1 as i64);
     let mut found: Option<usize> = None;
@@ -150,7 +157,12 @@ mod tests {
         assert!(second.converts);
         assert_eq!(second.source, "ICC /p/wide.icc");
         // The other two-display layout: (0, 0) is HDMI-A-1 there.
-        assert_eq!(output_at(&c, &[(0, 0), (1920, 0)], (0, 0)).unwrap().connector, "HDMI-A-1");
+        assert_eq!(
+            output_at(&c, &[(0, 0), (1920, 0)], (0, 0))
+                .unwrap()
+                .connector,
+            "HDMI-A-1"
+        );
         assert_eq!(output_at(&c, &[(0, 0)], (0, 0)).unwrap().connector, "DP-1");
         // A layout KWin does not know: unknown, never a guess.
         assert_eq!(output_at(&c, &[(0, 0), (100, 0)], (0, 0)), None);
@@ -163,7 +175,11 @@ mod tests {
         let two = [(0, 0), (2649, 0)];
         assert!(output_at(&c, &two, (0, 0)).unwrap().converts);
         assert!(!output_at(&c, &two, (2649, 0)).unwrap().converts);
-        let hdr = c.replacen(r#""highDynamicRange":false"#, r#""highDynamicRange":true"#, 2);
+        let hdr = c.replacen(
+            r#""highDynamicRange":false"#,
+            r#""highDynamicRange":true"#,
+            2,
+        );
         assert_eq!(output_at(&hdr, &two, (2649, 0)).unwrap().source, "HDR");
         assert_eq!(any_output_converts(&config(r#""sRGB""#, r#""sRGB""#)), None);
         assert_eq!(output_at("not json", &two, (0, 0)), None);

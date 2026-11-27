@@ -72,7 +72,8 @@ fn x11_monitors() -> Vec<(String, (i32, i32))> {
     if std::env::var_os("DISPLAY").is_none() {
         return Vec::new();
     }
-    let (Ok(xlib), Ok(xrandr)) = (x11_dl::xlib::Xlib::open(), x11_dl::xrandr::Xrandr::open()) else {
+    let (Ok(xlib), Ok(xrandr)) = (x11_dl::xlib::Xlib::open(), x11_dl::xrandr::Xrandr::open())
+    else {
         return Vec::new();
     };
     let mut found = Vec::new();
@@ -92,7 +93,9 @@ fn x11_monitors() -> Vec<(String, (i32, i32))> {
                 if name.is_null() {
                     continue;
                 }
-                let text = std::ffi::CStr::from_ptr(name).to_string_lossy().into_owned();
+                let text = std::ffi::CStr::from_ptr(name)
+                    .to_string_lossy()
+                    .into_owned();
                 (xlib.XFree)(name.cast());
                 found.push((text, (monitor.x, monitor.y)));
             }
@@ -173,7 +176,9 @@ pub fn profile_of_window(window: &WindowOutput) -> (SystemProfile, Option<String
     if wayland && kde {
         let config = std::env::var_os("XDG_CONFIG_HOME")
             .map(std::path::PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config")))
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config"))
+            })
             .and_then(|dir| std::fs::read_to_string(dir.join("kwinoutputconfig.json")).ok());
         if let Some(config) = config {
             let output = window
@@ -186,7 +191,10 @@ pub fn profile_of_window(window: &WindowOutput) -> (SystemProfile, Option<String
                 None => crate::kwin::any_output_converts(&config),
             };
             if managing.is_some() {
-                return (SystemProfile::ManagedBySystem, managing.map(|o| o.connector));
+                return (
+                    SystemProfile::ManagedBySystem,
+                    managing.map(|o| o.connector),
+                );
             }
             name = output.map(|o| o.connector);
         }

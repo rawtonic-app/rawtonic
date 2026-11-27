@@ -16,7 +16,7 @@ describe('thumbnailFileUrl', () => {
     expect(thumbnailFileUrl('C:\\cache\\a_small.jpg')).toBe(`asset://localhost/${encodeURIComponent('C:/cache/a_small.jpg')}`);
   });
 
-  it('goes through the converting scheme on Linux and names the monitor transform', () => {
+  it('goes through the converting scheme on Linux and Windows and names the monitor transform', () => {
     setThumbnailPlatformForTests(true);
     const first = thumbnailFileUrl('/cache/a_small.jpg');
     expect(first).toBe(`rawtonic-thumb://localhost/${encodeURIComponent('/cache/a_small.jpg')}?mp=0`);

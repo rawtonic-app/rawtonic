@@ -889,8 +889,8 @@ export function useTauriListeners({
         notify.info(i18n.t('errors.gpuDeviceRecovered'), { toastId: GPU_DEVICE_RECOVERED, autoClose: 8000 });
         useMultiViewStore.getState().recipesSaved();
       }),
-      // Linux: a new monitor transform (src-tauri browser_colour): the
-      // thumbnails load again through it; the cells develop again (the
+      // Linux/Windows: a new monitor transform (src-tauri browser_colour):
+      // the thumbnails load again through it; the cells develop again (the
       // editor's frame renders again in useImageProcessing).
       listen<number>(MONITOR_COLOUR_CHANGED, (event) => {
         if (!isEffectActive) return;
