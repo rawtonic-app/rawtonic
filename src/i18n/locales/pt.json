@@ -314,6 +314,7 @@
       "dock_filmstrip_left": "Tira de fotos à esquerda da foto",
       "dock_filmstrip_right": "Tira de fotos à direita da foto",
       "edit_with": "Editar com…",
+      "export_previous": "Exportar com as definições anteriores",
       "find_duplicates": "Encontrar duplicados…",
       "flag_pick": "Escolher",
       "flag_reject": "Rejeitar",
@@ -387,7 +388,8 @@
       "zoom_100": "Zoom 100 %",
       "zoom_fit": "Ajustar à janela",
       "zoom_in": "Ampliar",
-      "zoom_out": "Reduzir"
+      "zoom_out": "Reduzir",
+      "zoom_toggle": "Alternar zoom"
     },
     "menus": {
       "app": "{{app}}",
@@ -2664,6 +2666,7 @@
         "dock_filmstrip_bottom": "Tira de fotos abaixo da foto",
         "dock_filmstrip_left": "Tira de fotos à esquerda da foto",
         "dock_filmstrip_right": "Tira de fotos à direita da foto",
+        "export_previous": "Exportar com as definições anteriores",
         "focus_search": "Focar o campo de pesquisa",
         "import_photos": "Importar fotos",
         "mask_background": "Nova camada: Fundo",
@@ -2743,7 +2746,8 @@
         "zoom_in": "Mais zoom",
         "zoom_in_step": "Mais zoom (por etapas)",
         "zoom_out": "Menos zoom",
-        "zoom_out_step": "Menos zoom (por etapas)"
+        "zoom_out_step": "Menos zoom (por etapas)",
+        "zoom_toggle": "Alternar zoom (Ajustar ↔ último nível de zoom)"
       },
       "sections": {
         "editing": "Edição",
@@ -3960,6 +3964,11 @@
         "legend": "Esta exportação",
         "quality": "qualidade {{quality}}",
         "sizeLimit": "≤ {{kb}} KB"
+      },
+      "previous": {
+        "none": "Ainda não há nenhuma exportação para repetir",
+        "noSelection": "Selecione fotos para exportar",
+        "repeats": "Repete a última exportação: {{recipes}}"
       },
       "progress": {
         "cancelling": "Cancelando…",

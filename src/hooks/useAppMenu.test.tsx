@@ -387,7 +387,9 @@ describe('the macOS menu bar', () => {
       'stack_move_down',
       'auto_stack',
       // hooks/useVirtualCopyCommand.
-      'virtual_copy'
+      'virtual_copy',
+      // hooks/useRecipeMenuCommands.
+      'export_previous'
     ]);
     const missing = menuCommands().filter((command) => !owners.has(command) && !appCommand(command));
     expect(missing).toEqual([]);

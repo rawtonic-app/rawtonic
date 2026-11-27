@@ -219,3 +219,12 @@ describe('keys without their physical code', () => {
     expect(press({ key: '!', code: '', shiftKey: true })).toEqual(['shift']);
   });
 });
+
+it('binds Z to the zoom toggle and ⌥⇧⌘E to Export with Previous, each alone on its key (ZOOM-Z, EXP-PREV)', () => {
+  const map = buildComboMap(null);
+  expect(map.get('KeyZ')).toEqual(['zoom_toggle']);
+  expect(map.get('ctrl+shift+alt+KeyE')).toEqual(['export_previous']);
+  // Undo and redo keep ⌘Z and ⇧⌘Z; Export keeps ⇧⌘E.
+  expect(map.get('ctrl+KeyZ')).toEqual(['undo']);
+  expect(map.get('ctrl+shift+KeyE')).toEqual(['toggle_export']);
+});

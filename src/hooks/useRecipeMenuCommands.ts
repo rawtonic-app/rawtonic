@@ -7,8 +7,11 @@ import { useEditorStore } from '../store/useEditorStore';
 import { notifyAppCommandsChanged, registerAppCommands } from '../utils/appCommands';
 import { draftFromPreset, exportSettingsFromDraft, savedRecipes } from '../utils/exportRecipes';
 import { runExportJobs } from '../utils/runExportJobs';
+import { exportPreviousState, exportWithPrevious } from '../utils/exportPrevious';
 
-const selection = () => {
+/** The photographs the File menu's exports act on: the selection, else the
+ * one the viewer shows. */
+export const exportSelection = () => {
   const selected = useLibraryStore.getState().multiSelectedPaths;
   const image = useEditorStore.getState().selectedImage;
   return selected.length ? [...selected] : viewerShown(useUIStore.getState()) && image ? [image.path] : [];
@@ -26,9 +29,9 @@ export function useRecipeMenuCommands(): void {
             `recipe:${recipe.id}`,
             {
               menu: { group: 'recipes' as const, label: recipe.name },
-              enabled: () => !choosing.current && selection().length > 0,
+              enabled: () => !choosing.current && exportSelection().length > 0,
               run: () => {
-                const paths = selection();
+                const paths = exportSelection();
                 const draft = draftFromPreset(recipe);
                 choosing.current = true;
                 notifyAppCommandsChanged();
@@ -42,5 +45,26 @@ export function useRecipeMenuCommands(): void {
         )
       ),
     [presets]
+  );
+  // Lightroom's Export with Previous: the last export of this library, for
+  // the selection, without the dialog.
+  const repeating = useRef(false);
+  useEffect(
+    () =>
+      registerAppCommands({
+        export_previous: {
+          enabled: () => !repeating.current && exportPreviousState(exportSelection()).enabled,
+          disabledHint: () => (repeating.current ? undefined : exportPreviousState(exportSelection()).hint),
+          run: () => {
+            repeating.current = true;
+            notifyAppCommandsChanged();
+            void exportWithPrevious(exportSelection()).finally(() => {
+              repeating.current = false;
+              notifyAppCommandsChanged();
+            });
+          }
+        }
+      }),
+    []
   );
 }

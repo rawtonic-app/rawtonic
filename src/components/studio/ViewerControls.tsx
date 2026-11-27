@@ -8,7 +8,8 @@ import { useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { shortcutHint } from '../../utils/keyboardUtils';
 import { captureInfoParts } from '../../utils/captureInfo';
-import { fitZoomValue, zoomPresetsAboveFit } from '../../utils/viewerDisplay';
+import { ZOOM_LEVELS, zoomLevelLabel } from '../../utils/viewerDisplay';
+import { rememberZoomLevel } from '../../utils/zoomLevel';
 import { readoutColor, readoutValues, usePointerSampleStore } from '../../utils/pointerSample';
 
 /** Capture One's proof margin: fit leaves a margin around the photograph (Alt+X). */
@@ -39,24 +40,45 @@ export function ProofMarginButton() {
   );
 }
 
-/** The zoom menu's entries; those below fit are left out (the viewer never goes below fit). */
-export function ZoomPresetOptions() {
-  const fit = useEditorStore((s) => {
-    const { originalSize, baseRenderSize, adjustments } = s;
-    const swapped = (adjustments.orientationSteps || 0) % 2 === 1;
-    const width = swapped ? originalSize.height : originalSize.width;
-    const height = swapped ? originalSize.width : originalSize.height;
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    return fitZoomValue(width, height, baseRenderSize?.width ?? 0, baseRenderSize?.height ?? 0, dpr);
-  });
+export type ZoomHandler = (value: number, fit?: boolean, belowFit?: boolean) => void;
+
+/** A zoom menu level (or the 100 % button): zooms there, below fit too,
+ * and is the level Z returns to. */
+export function chooseZoomLevel(onZoom: ZoomHandler, level: number): void {
+  rememberZoomLevel(level);
+  onZoom(level, false, true);
+}
+
+/**
+ * The viewer bar's zoom menu: Fit and every level (ZOOM_LEVELS), below fit
+ * too. It hands the focus back after a choice, so Z, Space and the other
+ * plain keys reach the viewer again (a focused select keeps them).
+ */
+export function ZoomSelect({ onZoom }: { onZoom: ZoomHandler }) {
+  const { t } = useTranslation();
   return (
-    <>
-      {zoomPresetsAboveFit(fit).map((preset) => (
-        <option key={preset} value={String(preset)}>
-          {`${Math.round(preset * 100)}%`}
+    <select
+      className="studio-zoom-select"
+      aria-label={t('studio.workspace.viewer.zoom')}
+      title={t('studio.workspace.viewer.zoom')}
+      value=""
+      onChange={(e) => {
+        const { value } = e.target;
+        e.currentTarget.blur();
+        if (value === 'fit') onZoom(1, true);
+        else if (value) chooseZoomLevel(onZoom, Number(value));
+      }}
+    >
+      <option value="" disabled>
+        {t('studio.workspace.viewer.zoom')}
+      </option>
+      <option value="fit">{t('studio.workspace.viewer.fit')}</option>
+      {ZOOM_LEVELS.map((level) => (
+        <option key={level} value={String(level)}>
+          {zoomLevelLabel(level)}
         </option>
       ))}
-    </>
+    </select>
   );
 }
 
@@ -111,23 +133,15 @@ export function PointerReadout() {
 
 /**
  * The viewer bar's ⋯ (always shown since VISCALM1): Camera preview, Proof
- * margin, Fit, 100 % and the zoom presets. The bar itself leaves out the zoom
+ * margin, Fit, 100 % and the zoom levels. The bar itself leaves out the zoom
  * list and the two toggles while they are off, and Fit and 100 % once it runs
  * short (useFitOneRow's level 4, UX4-07), so none of them becomes unreachable.
  */
-export function ViewerOverflowMenu({ onZoom }: { onZoom(value: number, fit?: boolean): void }) {
+export function ViewerOverflowMenu({ onZoom }: { onZoom: ZoomHandler }) {
   const { t } = useTranslation();
   const { showContextMenu } = useContextMenu();
   const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
   const osPlatform = useSettingsStore((s) => s.osPlatform);
-  const fit = useEditorStore((s) => {
-    const { originalSize, baseRenderSize, adjustments } = s;
-    const swapped = (adjustments.orientationSteps || 0) % 2 === 1;
-    const width = swapped ? originalSize.height : originalSize.width;
-    const height = swapped ? originalSize.width : originalSize.height;
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    return fitZoomValue(width, height, baseRenderSize?.width ?? 0, baseRenderSize?.height ?? 0, dpr);
-  });
   const label = t('studio.workspace.viewer.more');
   return (
     <button
@@ -162,13 +176,20 @@ export function ViewerOverflowMenu({ onZoom }: { onZoom(value: number, fit?: boo
           { type: OPTION_SEPARATOR },
           // Fit and 100 % leave the bar one level later (UX4-07).
           { label: t('studio.workspace.viewer.fitTitle'), shortcut: ',', onClick: () => onZoom(1, true) },
-          { label: t('studio.workspace.viewer.actualPixels'), shortcut: '.', onClick: () => onZoom(1) },
+          {
+            label: t('studio.workspace.viewer.actualPixels'),
+            shortcut: '.',
+            onClick: () => chooseZoomLevel(onZoom, 1)
+          },
           {
             label: t('studio.workspace.viewer.zoom'),
-            submenu: zoomPresetsAboveFit(fit).map((preset) => ({
-              label: `${Math.round(preset * 100)}%`,
-              onClick: () => onZoom(preset)
-            }))
+            submenu: [
+              { label: t('studio.workspace.viewer.fit'), onClick: () => onZoom(1, true) },
+              ...ZOOM_LEVELS.map((level) => ({
+                label: zoomLevelLabel(level),
+                onClick: () => chooseZoomLevel(onZoom, level)
+              }))
+            ]
           }
         ]);
       }}

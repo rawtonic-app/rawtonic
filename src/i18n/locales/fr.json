@@ -314,6 +314,7 @@
       "dock_filmstrip_left": "Bande de photos à gauche de la photo",
       "dock_filmstrip_right": "Bande de photos à droite de la photo",
       "edit_with": "Modifier avec…",
+      "export_previous": "Exporter avec les paramètres précédents",
       "find_duplicates": "Rechercher les doublons…",
       "flag_pick": "Retenir",
       "flag_reject": "Rejeter",
@@ -387,7 +388,8 @@
       "zoom_100": "Zoom à 100 %",
       "zoom_fit": "Ajuster à la fenêtre",
       "zoom_in": "Zoom avant",
-      "zoom_out": "Zoom arrière"
+      "zoom_out": "Zoom arrière",
+      "zoom_toggle": "Basculer le zoom"
     },
     "menus": {
       "app": "{{app}}",
@@ -2664,6 +2666,7 @@
         "dock_filmstrip_bottom": "Bande de photos sous la photo",
         "dock_filmstrip_left": "Bande de photos à gauche de la photo",
         "dock_filmstrip_right": "Bande de photos à droite de la photo",
+        "export_previous": "Exporter avec les paramètres précédents",
         "focus_search": "Activer le champ de recherche",
         "import_photos": "Importer des photos",
         "mask_background": "Nouveau calque : Arrière-plan",
@@ -2743,7 +2746,8 @@
         "zoom_in": "Zoom avant",
         "zoom_in_step": "Zoom avant (par palier)",
         "zoom_out": "Zoom arrière",
-        "zoom_out_step": "Zoom arrière (par palier)"
+        "zoom_out_step": "Zoom arrière (par palier)",
+        "zoom_toggle": "Basculer le zoom (Ajuster ↔ dernier niveau de zoom)"
       },
       "sections": {
         "editing": "Retouche",
@@ -3960,6 +3964,11 @@
         "legend": "Cet export",
         "quality": "qualité {{quality}}",
         "sizeLimit": "≤ {{kb}} Ko"
+      },
+      "previous": {
+        "none": "Aucun export à répéter pour l’instant",
+        "noSelection": "Sélectionnez des photos à exporter",
+        "repeats": "Répète le dernier export : {{recipes}}"
       },
       "progress": {
         "cancelling": "Annulation…",

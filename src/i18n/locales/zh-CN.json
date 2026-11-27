@@ -283,6 +283,7 @@
       "dock_filmstrip_left": "胶片条置于照片左侧",
       "dock_filmstrip_right": "胶片条置于照片右侧",
       "edit_with": "编辑方式…",
+      "export_previous": "使用上次设置导出",
       "find_duplicates": "查找重复项…",
       "flag_pick": "留用",
       "flag_reject": "排除",
@@ -356,7 +357,8 @@
       "zoom_100": "缩放至 100 %",
       "zoom_fit": "适合窗口",
       "zoom_in": "放大",
-      "zoom_out": "缩小"
+      "zoom_out": "缩小",
+      "zoom_toggle": "切换缩放"
     },
     "menus": {
       "app": "{{app}}",
@@ -2424,6 +2426,7 @@
         "dock_filmstrip_bottom": "胶片条置于照片下方",
         "dock_filmstrip_left": "胶片条置于照片左侧",
         "dock_filmstrip_right": "胶片条置于照片右侧",
+        "export_previous": "使用上次设置导出",
         "focus_search": "聚焦搜索框",
         "import_photos": "导入照片",
         "mask_background": "新建图层：背景",
@@ -2503,7 +2506,8 @@
         "zoom_in": "放大",
         "zoom_in_step": "放大（步进）",
         "zoom_out": "缩小",
-        "zoom_out_step": "缩小（步进）"
+        "zoom_out_step": "缩小（步进）",
+        "zoom_toggle": "切换缩放（适合 ↔ 上次缩放级别）"
       },
       "sections": {
         "editing": "编辑",
@@ -3690,6 +3694,11 @@
         "legend": "本次导出",
         "quality": "质量 {{quality}}",
         "sizeLimit": "≤ {{kb}} KB"
+      },
+      "previous": {
+        "none": "还没有可重复的导出",
+        "noSelection": "请选择要导出的照片",
+        "repeats": "重复上次导出：{{recipes}}"
       },
       "progress": {
         "cancelling": "正在取消…",

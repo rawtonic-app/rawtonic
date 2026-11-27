@@ -1337,6 +1337,33 @@ it('starts from Lightroom or Capture One on the welcome screen: a catalog first,
   expect(await screen.findByLabelText('Library to import')).toBeTruthy();
 });
 
+it('creates a catalog with the name its field shows when none is typed (CAT-NAME)', async () => {
+  const user = userEvent.setup();
+  const catalog = { ...summary, manifest: { ...summary.manifest, mode: 'catalog' } };
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) =>
+    command === 'session_create' || command === 'session_summary' ? catalog : base(command, args)
+  );
+  render(
+    <ContextMenuProvider>
+      <SessionWorkspace onNavigate={vi.fn(async () => {})} />
+    </ContextMenuProvider>
+  );
+  await user.click(screen.getByRole('button', { name: 'Import from Lightroom or Capture One…' }));
+  expect((screen.getByLabelText('Catalog name') as HTMLInputElement).placeholder).toBe('Photo library');
+  await user.click(screen.getByRole('button', { name: 'Location' }));
+  const create = screen.getByRole('button', { name: 'Create catalog' });
+  expect((create as HTMLButtonElement).disabled).toBe(false);
+  await user.click(create);
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith('session_create', {
+      directory: '/jobs/Photo library.catalog',
+      name: 'Photo library',
+      catalog: true
+    })
+  );
+});
+
 it('keeps a tethered camera while the library is still restoring and disconnects it in another library', () => {
   // tether_status answered before session_last: no library known yet.
   expect(leavesTetheredLibrary('/jobs/Acme', null)).toBe(false);

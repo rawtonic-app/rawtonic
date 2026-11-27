@@ -36,7 +36,8 @@ import {
   whitesAmountV17
 } from '../utils/adjustments';
 import { revertStyle, withStyleAmount } from '../utils/appliedStyle';
-import { AppSettings, Invokes } from '../components/ui/AppProperties';
+import { AppSettings, Invokes, Panel } from '../components/ui/AppProperties';
+import { cropModeBox } from '../utils/viewerDisplay';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
 import { cropEditCancelled, cropGestureEnded, cropGestureStarted } from '../utils/cropGesture';
 
@@ -721,6 +722,70 @@ it('never zooms out below fit from the keys, the zoom menu or the 100 % button',
   expect(useEditorStore.getState().zoom).toBeCloseTo(4);
   act(() => result.current.handleZoomChange(0, true));
   expect(useEditorStore.getState().zoom).toBe(1);
+});
+
+it('shows a zoom menu level below fit smaller than fit, and goes up to 1600 % (ZOOM-Z)', () => {
+  // Fit is 25 % (6000×4000 in 1500×1000 on a 1× screen).
+  useEditorStore.setState({
+    originalSize: { width: 6000, height: 4000 },
+    baseRenderSize: { width: 1500, height: 1000, offsetX: 0, offsetY: 0, containerWidth: 1500, containerHeight: 1000 },
+    zoom: 1
+  });
+  const { result } = renderHook(useEditorActions);
+  act(() => result.current.handleZoomChange(0.125, false, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(0.5);
+  // A level above fit is not changed by the flag.
+  act(() => result.current.handleZoomChange(0.5, false, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(2);
+  act(() => result.current.handleZoomChange(16, false, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(64);
+  act(() => result.current.handleZoomChange(40));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(64);
+});
+
+it('zooms relative to the crop the viewer fits, and Zoom Out below fit never enlarges (ZOOM-Z)', () => {
+  // 6000×4000 cropped to 3000×2000, fitted to 1500×1000 at 1×: fit is 50 %.
+  useEditorStore.setState({
+    originalSize: { width: 6000, height: 4000 },
+    adjustments: {
+      ...useEditorStore.getState().adjustments,
+      crop: { unit: 'px', x: 0, y: 0, width: 3000, height: 2000 }
+    },
+    baseRenderSize: { width: 1500, height: 1000, offsetX: 0, offsetY: 0, containerWidth: 1500, containerHeight: 1000 },
+    zoom: 1
+  });
+  const { result } = renderHook(useEditorActions);
+  act(() => result.current.handleZoomChange(1, false, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(2);
+  act(() => result.current.handleZoomChange(0.25, false, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(0.5);
+  // Zoom Out from 25 % (below fit) asks for less: it stays, never jumps to fit.
+  act(() => result.current.handleZoomChange(0.25 / 1.2));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(0.5);
+  act(() => result.current.handleZoomChange(0, true));
+  expect(useEditorStore.getState().zoom).toBe(1);
+  useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, crop: null } });
+});
+
+it('in the crop tool counts the whole frame in its box (ZOOM-Z)', () => {
+  // 6000×4000 cropped to 3000×2000; the viewer is 1500×1000 at 1×. The crop
+  // tool places the whole frame in its own box (cropModeBox, inside a margin).
+  useUIStore.setState({ activePanel: Panel.Crop });
+  useEditorStore.setState({
+    originalSize: { width: 6000, height: 4000 },
+    adjustments: {
+      ...useEditorStore.getState().adjustments,
+      crop: { unit: 'px', x: 0, y: 0, width: 3000, height: 2000 }
+    },
+    baseRenderSize: { width: 1500, height: 1000, offsetX: 0, offsetY: 0, containerWidth: 1500, containerHeight: 1000 },
+    zoom: 1
+  });
+  const box = cropModeBox(1500, 1000, 6000, 4000);
+  const { result } = renderHook(useEditorActions);
+  act(() => result.current.handleZoomChange(1, false, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(6000 / box.width);
+  useUIStore.setState({ activePanel: Panel.Adjustments });
+  useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, crop: null } });
 });
 
 it('fits a large photograph in a small view (a multi view cell) without zooming it in', () => {

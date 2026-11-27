@@ -314,6 +314,7 @@
       "dock_filmstrip_left": "Tira de fotos a l'esquerra de la foto",
       "dock_filmstrip_right": "Tira de fotos a la dreta de la foto",
       "edit_with": "Edita amb…",
+      "export_previous": "Exporta amb la configuració anterior",
       "find_duplicates": "Cerca duplicats…",
       "flag_pick": "Tria",
       "flag_reject": "Rebutja",
@@ -387,7 +388,8 @@
       "zoom_100": "Zoom al 100 %",
       "zoom_fit": "Ajusta a la finestra",
       "zoom_in": "Amplia",
-      "zoom_out": "Redueix"
+      "zoom_out": "Redueix",
+      "zoom_toggle": "Alterna el zoom"
     },
     "menus": {
       "app": "{{app}}",
@@ -2664,6 +2666,7 @@
         "dock_filmstrip_bottom": "Tira de fotos sota la foto",
         "dock_filmstrip_left": "Tira de fotos a l'esquerra de la foto",
         "dock_filmstrip_right": "Tira de fotos a la dreta de la foto",
+        "export_previous": "Exporta amb la configuració anterior",
         "focus_search": "Enfocar camp de cerca",
         "import_photos": "Importa fotos",
         "mask_background": "Nova capa: Fons",
@@ -2743,7 +2746,8 @@
         "zoom_in": "Apropar",
         "zoom_in_step": "Apropar (per passos)",
         "zoom_out": "Allunyar",
-        "zoom_out_step": "Allunyar (per passos)"
+        "zoom_out_step": "Allunyar (per passos)",
+        "zoom_toggle": "Alterna el zoom (Ajusta ↔ darrer nivell de zoom)"
       },
       "sections": {
         "editing": "Edició",
@@ -3960,6 +3964,11 @@
         "legend": "Aquesta exportació",
         "quality": "qualitat {{quality}}",
         "sizeLimit": "≤ {{kb}} KB"
+      },
+      "previous": {
+        "none": "Encara no hi ha cap exportació per repetir",
+        "noSelection": "Selecciona fotos per exportar",
+        "repeats": "Repeteix la darrera exportació: {{recipes}}"
       },
       "progress": {
         "cancelling": "S'està cancel·lant…",

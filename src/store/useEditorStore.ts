@@ -29,6 +29,8 @@ interface BaseRenderSize extends ImageDimensions {
   containerWidth: number;
   offsetX: number;
   offsetY: number;
+  /** Proof margin around the fitted photograph, CSS px (0 or missing when off). */
+  margin?: number;
 }
 
 export interface FinalPreview {

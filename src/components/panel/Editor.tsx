@@ -54,7 +54,10 @@ import BrowserBeforePane from './editor/BrowserBeforePane';
 import { compositeWhileMoving } from '../../utils/layerWhileMoving';
 import { isFullPreviewZoom, isOneToOne, snapToDevicePixel } from '../../utils/pixelSnap';
 import {
+  MAX_ZOOM_LEVEL,
   MIN_VIEWER_ZOOM,
+  drawsSharpPixels,
+  zoomFrame,
   SURROUNDINGS_OPACITY,
   cropModeBox,
   cropSelectionOnScreen,
@@ -406,7 +409,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           offsetX: size.offsetX || 0,
           offsetY: size.offsetY || 0,
           containerWidth: size.containerWidth || 0,
-          containerHeight: size.containerHeight || 0
+          containerHeight: size.containerHeight || 0,
+          margin: size.margin ?? 0
         };
         setEditor({ baseRenderSize: newSize });
       }
@@ -551,7 +555,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           offsetX: size.offsetX,
           offsetY: size.offsetY,
           containerWidth: imageContainerRef.current?.clientWidth || 0,
-          containerHeight: imageContainerRef.current?.clientHeight || 0
+          containerHeight: imageContainerRef.current?.clientHeight || 0,
+          margin: size.margin ?? 0
         },
         size.scale
       );
@@ -560,24 +565,35 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   );
 
   const transformConfig = useMemo(() => {
+    // Never smaller than fit (with the proof margin when it is on), but for
+    // a zoom menu level below it (handleZoomChange): gestures from there
+    // zoom in, never further out.
+    const minScale = targetZoom > 0 && targetZoom < MIN_VIEWER_ZOOM ? targetZoom : MIN_VIEWER_ZOOM;
     if (!selectedImage || !imageRenderSize.scale || !originalSize) {
-      return { minScale: MIN_VIEWER_ZOOM, maxScale: 20 };
+      return { minScale, maxScale: 20, pixelatedScale: 20 };
     }
 
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    const scaleFor100Percent = 1 / imageRenderSize.scale;
+    // The transform's scale at 100 %, for what the viewer fits: the crop, or
+    // in the crop tool the whole frame in its box (as handleZoomChange).
+    const { image, fitted } = zoomFrame(originalSize, adjustments, imageRenderSize, isCropping);
+    const scaleFor100Percent =
+      image.width > 0 && fitted.width > 0 ? image.width / fitted.width : 1 / imageRenderSize.scale;
 
-    const maxScale = (2.0 / dpr) * scaleFor100Percent;
-
-    // Never smaller than fit (with the proof margin when it is on).
+    // Up to the zoom menu's 1600 %; from 200 % (two device px per
+    // photograph px) the pixels are drawn sharp (nearest), but never at fit
+    // (`drawsSharpPixels`).
     return {
-      minScale: MIN_VIEWER_ZOOM,
-      maxScale: Math.max(20, maxScale)
+      minScale,
+      maxScale: Math.max(20, (MAX_ZOOM_LEVEL / dpr) * scaleFor100Percent),
+      pixelatedScale: (2.0 / dpr) * scaleFor100Percent
     };
-  }, [selectedImage, imageRenderSize.scale, originalSize]);
+  }, [selectedImage, imageRenderSize, originalSize, targetZoom, adjustments, isCropping]);
 
   const minScaleRef = useRef(transformConfig.minScale);
   const maxScaleRef = useRef(transformConfig.maxScale);
+  const pixelatedScaleRef = useRef(transformConfig.pixelatedScale);
+  pixelatedScaleRef.current = transformConfig.pixelatedScale;
 
   useEffect(() => {
     minScaleRef.current = transformConfig.minScale;
@@ -1900,7 +1916,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         lastCropSelectionRef.current = selectionKey;
         isInvoking = true;
 
-        const isZoomedIn = scale >= maxScaleRef.current - 0.5;
+        const isZoomedIn = drawsSharpPixels(scale, pixelatedScaleRef.current);
 
         invoke(Invokes.UpdateWgpuTransform, {
           payload: {
@@ -2679,7 +2695,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }
 
   const isZoomActionActive = !isPanningDisabled;
-  const isMaxZoom = transformState.scale >= maxScaleRef.current - 0.5;
+  // Sharp pixels from 200 % (pixelatedScale), as on the native display.
+  const isMaxZoom = drawsSharpPixels(transformState.scale, pixelatedScaleRef.current);
 
   let cursorStyle = 'default';
   if (isPanningState && isMiddleMousePanning.current) {

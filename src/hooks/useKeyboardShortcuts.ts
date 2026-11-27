@@ -7,6 +7,8 @@ import i18n from 'i18next';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
 import { buildComboMap, eventCode, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
+import { MAX_ZOOM_LEVEL, zoomFrame, zoomToggleTarget } from '../utils/viewerDisplay';
+import { rememberZoomLevel } from '../utils/zoomLevel';
 import { readFilmstripDock } from '../utils/filmstripDock';
 import { runAutoStraighten } from '../utils/autoStraighten';
 import { cropEditCancelled } from '../utils/cropGesture';
@@ -176,7 +178,7 @@ interface KeyboardShortcutsProps {
   handleMoveToSelects?(): void;
   handleImageSelect(path: string, openInEditor?: boolean): void;
   handlePasteFiles(str: string): void;
-  handleZoomChange(zoomValue: number, fitToWindow?: boolean): void;
+  handleZoomChange(zoomValue: number, fitToWindow?: boolean, belowFit?: boolean): void;
 }
 
 interface ShortcutState {
@@ -185,6 +187,21 @@ interface ShortcutState {
   ui: ReturnType<typeof useUIStore.getState>;
   settings: ReturnType<typeof useSettingsStore.getState>;
   process: ReturnType<typeof useProcessStore.getState>;
+}
+
+/** Fit and the zoom shown, 1 = 100 % of what the viewer fits (the crop, or
+ * in the crop tool the whole frame), as handleZoomChange counts them. */
+function shownZoom(s: ShortcutState): { fit: number; current: number } {
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  const { image, fitted } = zoomFrame(
+    s.editor.originalSize,
+    s.editor.adjustments,
+    s.editor.baseRenderSize,
+    s.ui.activePanel === Panel.Crop
+  );
+  if (!(image.width > 0 && fitted.width > 0)) return { fit: 1, current: 1 };
+  const fit = (fitted.width * dpr) / image.width;
+  return { fit, current: fit * (s.editor.zoom > 0 ? s.editor.zoom : 1) };
 }
 
 function toggleScopes(s: ShortcutState): void {
@@ -564,67 +581,47 @@ export const useKeyboardShortcuts = ({
         }
       },
       zoom_in_step: zoomAction('stepIn', (s) => {
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const currentPercent =
-          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-            : 1.0;
-        handleZoomChange(Math.min(currentPercent + 0.1, 2.0));
+        const currentPercent = shownZoom(s).current;
+        handleZoomChange(Math.min(currentPercent + 0.1, MAX_ZOOM_LEVEL));
       }),
       zoom_out_step: zoomAction('stepOut', (s) => {
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const currentPercent =
-          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-            : 1.0;
+        const currentPercent = shownZoom(s).current;
         handleZoomChange(Math.max(currentPercent - 0.1, 0.1));
       }),
       cycle_zoom: zoomAction('cycle', (s) => {
         // (The Library grid's Space opens the loupe: see the builtins.)
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const { originalSize, displaySize, baseRenderSize } = s.editor;
-        const currentPercent =
-          originalSize?.width > 0 && displaySize?.width > 0
-            ? Math.round(((displaySize.width * dpr) / originalSize.width) * 100)
-            : 100;
-        let fitPercent = 100;
-
-        if (originalSize?.width > 0 && baseRenderSize?.width > 0) {
-          const originalAspect = originalSize.width / originalSize.height;
-          const baseAspect = baseRenderSize.width / baseRenderSize.height;
-          fitPercent =
-            originalAspect > baseAspect
-              ? Math.round(((baseRenderSize.width * dpr) / originalSize.width) * 100)
-              : Math.round(((baseRenderSize.height * dpr) / originalSize.height) * 100);
-        }
-
-        const doubleFitPercent = fitPercent * 2;
-        if (Math.abs(currentPercent - fitPercent) < 5) {
-          handleZoomChange(doubleFitPercent < 100 ? doubleFitPercent / 100 : 1.0);
-        } else if (Math.abs(currentPercent - doubleFitPercent) < 5 && doubleFitPercent < 100) {
+        // Fit, 2× fit (below 100 %), 100 %, in what the viewer fits.
+        // The stage is read from the viewer's transform (1 = fit), so a
+        // photograph that fits at a few percent still steps on.
+        const doubleFit = shownZoom(s).fit * 2;
+        const zoom = s.editor.zoom > 0 ? s.editor.zoom : 1;
+        if (Math.abs(zoom - 1) < 0.02) {
+          handleZoomChange(doubleFit < 1 ? doubleFit : 1.0);
+        } else if (Math.abs(zoom - 2) < 0.04 && doubleFit < 1) {
           handleZoomChange(1.0);
         } else {
           handleZoomChange(0, true);
         }
       }),
       zoom_in: zoomAction('in', (s) => {
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const currentPercent =
-          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-            : 1.0;
-        handleZoomChange(Math.min(currentPercent * 1.2, 2.0));
+        const currentPercent = shownZoom(s).current;
+        handleZoomChange(Math.min(currentPercent * 1.2, MAX_ZOOM_LEVEL));
       }),
       zoom_out: zoomAction('out', (s) => {
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const currentPercent =
-          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-            : 1.0;
+        const currentPercent = shownZoom(s).current;
         handleZoomChange(Math.max(currentPercent / 1.2, 0.1));
       }),
       zoom_fit: zoomAction('fit', () => handleZoomChange(0, true)),
-      zoom_100: zoomAction('actual', () => handleZoomChange(1.0)),
+      zoom_100: zoomAction('actual', () => {
+        rememberZoomLevel(1);
+        handleZoomChange(1.0);
+      }),
+      // Lightroom's Z: fit ↔ the level chosen last.
+      zoom_toggle: zoomAction('toggle', (s) => {
+        const target = zoomToggleTarget(s.editor.zoom, s.settings.appSettings?.viewerZoomLevel);
+        if (target === 'fit') handleZoomChange(0, true);
+        else handleZoomChange(target, false, true);
+      }),
       toggle_zoom_lock: {
         shouldFire: () => useMultiViewStore.getState().active,
         execute: (e) => {

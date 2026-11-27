@@ -297,6 +297,7 @@
       "dock_filmstrip_left": "Filmstrip Left of the Photo",
       "dock_filmstrip_right": "Filmstrip Right of the Photo",
       "edit_with": "Edit With…",
+      "export_previous": "Export with Previous",
       "find_duplicates": "Find Duplicates…",
       "flag_pick": "Pick",
       "flag_reject": "Reject",
@@ -370,7 +371,8 @@
       "zoom_100": "Zoom to 100 %",
       "zoom_fit": "Zoom to Fit",
       "zoom_in": "Zoom In",
-      "zoom_out": "Zoom Out"
+      "zoom_out": "Zoom Out",
+      "zoom_toggle": "Zoom Toggle"
     },
     "menus": {
       "app": "{{app}}",
@@ -2522,6 +2524,7 @@
         "dock_filmstrip_bottom": "Filmstrip Under the Photo",
         "dock_filmstrip_left": "Filmstrip Left of the Photo",
         "dock_filmstrip_right": "Filmstrip Right of the Photo",
+        "export_previous": "Export with previous settings",
         "focus_search": "Focus search field",
         "import_photos": "Import photos",
         "mask_background": "New background layer",
@@ -2601,7 +2604,8 @@
         "zoom_in": "Zoom in",
         "zoom_in_step": "Zoom in (by step)",
         "zoom_out": "Zoom out",
-        "zoom_out_step": "Zoom out (by step)"
+        "zoom_out_step": "Zoom out (by step)",
+        "zoom_toggle": "Toggle zoom (Fit ↔ last zoom level)"
       },
       "sections": {
         "editing": "Editing",
@@ -3796,6 +3800,11 @@
         "legend": "This export",
         "quality": "quality {{quality}}",
         "sizeLimit": "≤ {{kb}} KB"
+      },
+      "previous": {
+        "none": "No export to repeat yet",
+        "noSelection": "Select photos to export",
+        "repeats": "Repeats the last export: {{recipes}}"
       },
       "progress": {
         "cancelling": "Cancelling…",

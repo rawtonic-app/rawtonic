@@ -84,12 +84,12 @@ import {
 } from '../utils/developDefaults';
 import { withOwnBitmapIds } from '../utils/bitmapIds';
 import { appliedStyleOf, recordStyle, revertStyle, withStyleValues } from '../utils/appliedStyle';
-import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
+import { ImageMetadata, Invokes, Panel } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerLibrarySwitchReset, registerQuitCheck, registerQuitFlush } from '../utils/quit';
 import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/sliderDraft';
 import { saveFailure } from './useLibraryActions';
-import { clampViewerZoom } from '../utils/viewerDisplay';
+import { clampViewerZoom, MAX_ZOOM_LEVEL, zoomFrame } from '../utils/viewerDisplay';
 import { noteTool } from '../components/contribute/usageStats';
 import {
   recipeBatchAction,
@@ -1976,59 +1976,43 @@ export function useEditorActions() {
     [applyAdjustmentsToPaths]
   );
 
-  const handleZoomChange = useCallback((zoomValue: number, fitToWindow: boolean = false) => {
+  /** `belowFit`: a zoom menu level, which may show the photograph smaller
+   * than fit (Lightroom's 1:4); every other zoom stops at fit. */
+  const handleZoomChange = useCallback((zoomValue: number, fitToWindow: boolean = false, belowFit = false) => {
     const { originalSize, baseRenderSize, adjustments } = useEditorStore.getState();
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    let targetZoomPercent: number;
 
-    const orientationSteps = adjustments.orientationSteps || 0;
-    const isSwapped = orientationSteps === 1 || orientationSteps === 3;
-    const effectiveOriginalWidth = isSwapped ? originalSize.height : originalSize.width;
-    const effectiveOriginalHeight = isSwapped ? originalSize.width : originalSize.height;
-
-    if (fitToWindow) {
-      if (
-        effectiveOriginalWidth > 0 &&
-        effectiveOriginalHeight > 0 &&
-        baseRenderSize.width > 0 &&
-        baseRenderSize.height > 0
-      ) {
-        const originalAspect = effectiveOriginalWidth / effectiveOriginalHeight;
-        const baseAspect = baseRenderSize.width / baseRenderSize.height;
-        targetZoomPercent =
-          originalAspect > baseAspect
-            ? baseRenderSize.width / effectiveOriginalWidth
-            : baseRenderSize.height / effectiveOriginalHeight;
-      } else {
-        targetZoomPercent = 1.0;
-      }
-    } else {
-      targetZoomPercent = zoomValue / dpr;
-    }
+    // What the viewer fits (the crop, or in the crop tool the whole frame in
+    // its box) and its size at fit; a zoom level counts its pixels.
+    const { image, fitted } = zoomFrame(
+      originalSize,
+      adjustments,
+      baseRenderSize,
+      useUIStore.getState().activePanel === Panel.Crop
+    );
 
     // No lower bound here but fit (below): a large photograph in a small
     // view (a multi view cell) fits at well under 10 %, and a floor there
     // zoomed it in past its cell.
-    targetZoomPercent = Math.min(2.0, targetZoomPercent);
-
-    let transformZoom = 1.0;
-    if (
-      effectiveOriginalWidth > 0 &&
-      effectiveOriginalHeight > 0 &&
-      baseRenderSize.width > 0 &&
-      baseRenderSize.height > 0
-    ) {
-      const originalAspect = effectiveOriginalWidth / effectiveOriginalHeight;
-      const baseAspect = baseRenderSize.width / baseRenderSize.height;
-      if (originalAspect > baseAspect) {
-        transformZoom = (targetZoomPercent * effectiveOriginalWidth) / baseRenderSize.width;
-      } else {
-        transformZoom = (targetZoomPercent * effectiveOriginalHeight) / baseRenderSize.height;
-      }
-    }
-    // Never below fit (zoom 1, with the proof margin when it is on).
+    const targetZoomPercent = Math.min(MAX_ZOOM_LEVEL, fitToWindow ? 0 : zoomValue / dpr);
+    // The transform's scale: 1 is fit.
+    const transformZoom =
+      fitToWindow || !(image.width > 0 && fitted.width > 0) ? 1.0 : (targetZoomPercent * image.width) / fitted.width;
+    // Never below fit (zoom 1, with the proof margin when it is on) but
+    // for a zoom menu level below it.
     const { zoomRequests } = useEditorStore.getState();
-    useEditorStore.getState().setEditor({ zoom: clampViewerZoom(transformZoom), zoomRequests: zoomRequests + 1 });
+    // Other zooms stop at fit, or at a level below it already shown, so
+    // Zoom Out there never enlarges the photograph.
+    const shownZoom = useEditorStore.getState().zoom;
+    const floor =
+      belowFit && !fitToWindow
+        ? Math.min(1, Math.max(transformZoom, 0.01))
+        : !fitToWindow && shownZoom > 0 && shownZoom < 1
+          ? shownZoom
+          : undefined;
+    useEditorStore
+      .getState()
+      .setEditor({ zoom: clampViewerZoom(transformZoom, floor), zoomRequests: zoomRequests + 1 });
   }, []);
 
   return {

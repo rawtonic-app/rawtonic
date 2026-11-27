@@ -155,6 +155,19 @@
           "shortcutLabel": "⇧⌘E"
         },
         {
+          "kind": "item",
+          "id": "cmd:export_previous",
+          "label": "Export with Previous",
+          "enabled": false,
+          "shortcut": {
+            "key": "e",
+            "command": true,
+            "shift": true,
+            "option": true
+          },
+          "shortcutLabel": "⌥⇧⌘E"
+        },
+        {
           "kind": "submenu",
           "label": "Export with Recipe",
           "items": []
@@ -1119,6 +1132,16 @@
             "command": true
           },
           "shortcutLabel": "⌘1"
+        },
+        {
+          "kind": "item",
+          "id": "cmd:zoom_toggle",
+          "label": "Zoom Toggle",
+          "enabled": false,
+          "shortcut": {
+            "key": "z"
+          },
+          "shortcutLabel": "Z"
         }
       ]
     },

@@ -208,13 +208,14 @@ export function fitInViewer(
 }
 
 /**
- * The viewer never shows the photograph smaller than fit: zoom 1 is fit (with
- * the proof margin when it is on), as in Capture One.
+ * Zoom 1 is fit (with the proof margin when it is on). Gestures and the zoom
+ * keys never go below it, as in Capture One; only a zoom menu level below fit
+ * does (`ZOOM_LEVELS`), as in Lightroom.
  */
 export const MIN_VIEWER_ZOOM = 1;
 
-export function clampViewerZoom(zoom: number): number {
-  return Number.isFinite(zoom) ? Math.max(MIN_VIEWER_ZOOM, zoom) : MIN_VIEWER_ZOOM;
+export function clampViewerZoom(zoom: number, floor: number = MIN_VIEWER_ZOOM): number {
+  return Number.isFinite(zoom) ? Math.max(floor, zoom) : MIN_VIEWER_ZOOM;
 }
 
 /**
@@ -234,12 +235,87 @@ export function fitZoomValue(
   return perPixel * dpr;
 }
 
-export const ZOOM_PRESETS = [0.25, 0.5, 1, 2, 4] as const;
+/**
+ * The size, in image pixels, of what the viewer fits: the crop when there is
+ * one (as the viewer fits it), else the photograph turned by its orientation.
+ * Zoom levels are relative to it (100 % = one of its pixels per screen pixel).
+ */
+export function shownImageSize(
+  original: { width: number; height: number },
+  adjustments: { crop?: { width: number; height: number } | null; orientationSteps?: number }
+): { width: number; height: number } {
+  const { crop } = adjustments;
+  if (crop && crop.width > 0 && crop.height > 0) return { width: crop.width, height: crop.height };
+  const swapped = (adjustments.orientationSteps || 0) % 2 === 1;
+  return swapped
+    ? { width: original.height, height: original.width }
+    : { width: original.width, height: original.height };
+}
 
-/** The zoom menu's entries that are not smaller than fit. */
-export function zoomPresetsAboveFit(fit: number | null): number[] {
-  if (fit === null || !Number.isFinite(fit)) return [...ZOOM_PRESETS];
-  return ZOOM_PRESETS.filter((preset) => preset >= fit * (1 - 1e-3));
+/**
+ * What a zoom level is relative to: `image`, the image px the viewer fits
+ * (`shownImageSize`), and `fitted`, their size in CSS px at fit (transform
+ * scale 1). The crop tool places the whole turned frame in its own box
+ * (`cropModeBox`) instead of the crop's fitted size (`base`).
+ */
+export function zoomFrame(
+  original: { width: number; height: number },
+  adjustments: { crop?: { width: number; height: number } | null; orientationSteps?: number },
+  base: { width: number; height: number; offsetX: number; offsetY: number; margin?: number },
+  cropping: boolean
+): { image: { width: number; height: number }; fitted: { width: number; height: number } } {
+  if (!cropping) {
+    return { image: shownImageSize(original, adjustments), fitted: { width: base.width, height: base.height } };
+  }
+  const image = shownImageSize(original, { orientationSteps: adjustments.orientationSteps });
+  const fitted = cropModeBox(
+    base.width + 2 * base.offsetX,
+    base.height + 2 * base.offsetY,
+    image.width,
+    image.height,
+    base.margin ?? 0
+  );
+  return { image, fitted };
+}
+
+/**
+ * Whether the viewer draws the photograph's pixels sharp (nearest): from
+ * 200 % (`pixelatedScale`, the transform's scale there) but never at fit,
+ * so a small photograph fitted above 200 % stays smooth while a chosen
+ * 200 % below its fit is sharp.
+ */
+export function drawsSharpPixels(scale: number, pixelatedScale: number): boolean {
+  return scale >= pixelatedScale - 1e-3 && Math.abs(scale - 1) > 1e-3;
+}
+
+/**
+ * The zoom menu's levels (1 = 100 %, one image pixel per screen pixel), as
+ * Lightroom's Navigator lists them: 1:4 … 1:1 … 16:1, those below fit too
+ * (the photograph is then shown smaller than fit, centred). Fit is its own
+ * entry beside them.
+ */
+export const ZOOM_LEVELS = [0.25, 1 / 3, 0.5, 2 / 3, 1, 2, 4, 8, 16] as const;
+
+/** The largest zoom: 1600 %. */
+export const MAX_ZOOM_LEVEL = 16;
+
+/** A level's label: 25 %, 33 %, 50 %, 66 %, 100 % … (cut, not rounded, as
+ * Lightroom's 1:3 and 2:3 read 33 % and 66 %). */
+export function zoomLevelLabel(level: number): string {
+  return `${Math.floor(level * 100 + 1e-6)}%`;
+}
+
+/** The level Z returns to from fit: the one chosen last (`viewerZoomLevel`),
+ * 100 % before any or for a value that is not a level. */
+export function rememberedZoomLevel(stored: number | null | undefined): number {
+  const level = ZOOM_LEVELS.find((l) => stored !== null && stored !== undefined && Math.abs(l - stored) < 1e-3);
+  return level ?? 1;
+}
+
+/** Z (Lightroom's zoom toggle): at fit (`zoom` 1, the viewer's transform
+ * scale) it goes to the remembered level, anywhere else back to fit. */
+export function zoomToggleTarget(zoom: number, stored: number | null | undefined): 'fit' | number {
+  return Math.abs(zoom - 1) < 0.01 ? rememberedZoomLevel(stored) : 'fit';
 }
 
 export interface ScreenRect {

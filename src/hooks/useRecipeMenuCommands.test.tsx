@@ -68,3 +68,41 @@ it('does not export the cached Develop photograph after the grid selection is cl
   expect(appCommandEnabled('recipe:jpg')).toBe(false);
   expect(runAppCommand('recipe:jpg')).toBe(false);
 });
+
+it('repeats the last export for another selection without a dialog, per library, after the first export (EXP-PREV)', async () => {
+  useLibraryStore.setState({ sessionDirectory: '/jobs/A' });
+  renderHook(useRecipeMenuCommands);
+  useLibraryStore.setState({ multiSelectedPaths: ['/photos/a.raw'] });
+  // Nothing exported from this library yet: greyed out, saying why.
+  expect(appCommandEnabled('export_previous')).toBe(false);
+  expect(appCommand('export_previous')?.disabledHint?.()).toBe('No export to repeat yet');
+  act(() => {
+    expect(runAppCommand('recipe:jpg')).toBe(true);
+  });
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith(Invokes.ExportImagesBatch, expect.anything()));
+  expect(open).toHaveBeenCalledOnce();
+  await waitFor(() => expect(appCommandEnabled('export_previous')).toBe(true));
+  vi.mocked(invoke).mockClear();
+  useLibraryStore.setState({ multiSelectedPaths: ['/photos/b.raw', '/photos/c.raw'] });
+  act(() => {
+    expect(runAppCommand('export_previous')).toBe(true);
+  });
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith(Invokes.ExportImagesBatch, {
+      requests: [
+        expect.objectContaining({
+          paths: ['/photos/b.raw', '/photos/c.raw'],
+          outputFolderOrFile: '/output',
+          isExplicitFilePath: false,
+          outputFormat: 'jpg'
+        })
+      ]
+    })
+  );
+  // The folder picked the first time: no picker again.
+  expect(open).toHaveBeenCalledOnce();
+  // Kept in the settings by library: another library has none yet.
+  expect(useSettingsStore.getState().appSettings?.lastExports?.['/jobs/A']?.jobs).toHaveLength(1);
+  act(() => useLibraryStore.setState({ sessionDirectory: '/jobs/B' }));
+  expect(appCommandEnabled('export_previous')).toBe(false);
+});

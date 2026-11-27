@@ -146,7 +146,7 @@ export const useAppInitialization = ({
           !settings.copyPasteSettings.includedAdjustments ||
           settings.copyPasteSettings.includedAdjustments.length === 0
         ) {
-          // knownAdjustments and autoSync are left to the backend's serde defaults.
+          // knownAdjustments is left to the backend's serde default.
           settings.copyPasteSettings = {
             mode: 'merge',
             includedAdjustments: COPYABLE_ADJUSTMENT_KEYS
