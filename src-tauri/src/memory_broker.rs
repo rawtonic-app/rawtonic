@@ -87,6 +87,13 @@ static FRAME_CACHES_BUILT_AFTER: AtomicU64 = AtomicU64::new(0);
 /// runs at 7 GB (G74/BRK4, notes: benchmark-results/wbrk3-2026-11-27).
 static FRAME_BASES_BUILT: AtomicU64 = AtomicU64::new(0);
 
+/// The newest release a rendered frame built a base after: with the colour
+/// noise view's render input built after that frame, the next frame (its
+/// refresh, served from that base) builds the caches (review of the first
+/// laptop run: the refresh frame never counted, the frame was counted for
+/// every request).
+static FRAME_BASE_BUILT_AFTER: AtomicU64 = AtomicU64::new(0);
+
 /// Notes that a preview base of the open photo was built from its decode.
 pub(crate) fn note_frame_base_built() {
     FRAME_BASES_BUILT.fetch_add(1, Ordering::SeqCst);
@@ -124,9 +131,10 @@ pub(crate) struct VisibleFrame {
     /// `FRAME_BASES_BUILT` at its start.
     bases: u64,
     rendered: bool,
-    /// Rendered with its caches all there: a base built while it ran and
-    /// no colour noise render input still to build after it.
-    built: bool,
+    /// A base built while it ran.
+    built_base: bool,
+    /// No colour noise render input still to build after it.
+    nothing_to_build: bool,
 }
 
 impl VisibleFrame {
@@ -134,14 +142,22 @@ impl VisibleFrame {
     /// follows it (the colour noise view's render input wanted).
     pub(crate) fn rendered(&mut self, more_to_build: bool) {
         self.rendered = true;
-        self.built = FRAME_BASES_BUILT.load(Ordering::SeqCst) > self.bases && !more_to_build;
+        self.built_base = FRAME_BASES_BUILT.load(Ordering::SeqCst) > self.bases;
+        self.nothing_to_build = !more_to_build;
     }
 }
 
 impl Drop for VisibleFrame {
     fn drop(&mut self) {
         if self.rendered {
-            if self.built {
+            // Built after the newest release it saw at its start: by it, or
+            // by an earlier frame that started after that release.
+            if self.built_base {
+                FRAME_BASE_BUILT_AFTER.fetch_max(self.releases, Ordering::SeqCst);
+            }
+            if self.nothing_to_build
+                && FRAME_BASE_BUILT_AFTER.load(Ordering::SeqCst) >= self.releases
+            {
                 FRAME_CACHES_BUILT_AFTER.fetch_max(self.releases, Ordering::SeqCst);
             }
             FRAMES_ENDED_UP_TO.fetch_max(self.started, Ordering::SeqCst);
@@ -164,7 +180,8 @@ pub(crate) fn hold_visible_frame(pixels: u64) -> VisibleFrame {
         releases: FRAME_CACHE_RELEASES.load(Ordering::SeqCst),
         bases: FRAME_BASES_BUILT.load(Ordering::SeqCst),
         rendered: false,
-        built: false,
+        built_base: false,
+        nothing_to_build: false,
     }
 }
 
@@ -856,13 +873,19 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(!frame_counted_by_an_answer());
 
-        // A base built, but the colour noise input still to come: gone.
+        // A base built, but the colour noise input still to come: gone;
+        // the frame rendered once it is in (from that base) builds them.
         let mut base_only = hold_visible_frame(1);
         note_frame_base_built();
         base_only.rendered(true);
         drop(base_only);
         assert!(frame_caches_dropped());
+        let mut refresh = hold_visible_frame(1);
+        refresh.rendered(false);
+        drop(refresh);
+        assert!(!frame_caches_dropped());
         // A frame that builds them.
+        note_frame_caches_dropped();
         frame_building_its_caches();
         assert!(!frame_caches_dropped());
 
