@@ -46,7 +46,7 @@ export default function MonitorProfileSettings({
 
   const load = useCallback(() => {
     loadStatus()
-      .then(setStatus)
+      .then((loaded) => setStatus(typeof loaded?.mode === 'string' ? loaded : null))
       .catch(() => setStatus(null));
   }, [loadStatus]);
 
@@ -54,9 +54,13 @@ export default function MonitorProfileSettings({
     load();
     let unlisten: (() => void) | undefined;
     let gone = false;
-    listen<MonitorStatus>('monitor-profile-changed', (event) => setStatus(event.payload))
-      .then((stop) => (gone ? stop() : (unlisten = stop)))
-      .catch(() => undefined);
+    try {
+      listen<MonitorStatus>('monitor-profile-changed', (event) => setStatus(event.payload))
+        .then((stop) => (gone ? stop() : (unlisten = stop)))
+        .catch(() => undefined);
+    } catch {
+      // No app events (tests, a page outside the app): the status stays as loaded.
+    }
     return () => {
       gone = true;
       unlisten?.();

@@ -548,6 +548,8 @@ export interface AppSettings {
   crashReports?: boolean;
   /** Anonymous weekly usage statistics (ADR 0017); off unless true. */
   usageStats?: boolean;
+  /** ICC profile chosen for the preview instead of the monitor's (Windows); the app saves it itself (`monitor_profile_choose`). */
+  monitorProfile?: string | null;
   /** Connect Canon cameras on the camera library's untested path to help
    * test it (Preferences > Tethering); off unless true. */
   tetherExperimentalCanon?: boolean;

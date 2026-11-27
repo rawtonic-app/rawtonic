@@ -252,31 +252,32 @@ pub async fn monitor_profile_status() -> Result<MonitorStatus, String> {
         .map_err(|e| e.to_string())
 }
 
+#[cfg(target_os = "macos")]
 fn main_status() -> MonitorStatus {
-    {
-        if cfg!(target_os = "macos") {
-            return status_of(None, None, false, "system", None);
-        }
-        #[cfg(target_os = "linux")]
-        {
-            let system = rawtonic_display_profile::linux::profile_of_output(None);
-            let (_, icc, mut status) = resolve(system, None);
-            if icc.is_some() {
-                status.mode = "notApplied";
-                status.notice = Some(
-                    "On Linux the webview shows the preview as sRGB: Rawtonic does not convert it into this profile; the desktop may."
-                        .into(),
-                );
-            }
-            return status;
-        }
-        #[cfg(not(target_os = "linux"))]
-        lock_recover(&APPLIED)
-            .as_ref()
-            .and_then(|applied| applied.windows.get("main"))
-            .map(|(_, status)| status.clone())
-            .unwrap_or_else(|| status_of(None, None, false, "srgb", None))
+    status_of(None, None, false, "system", None)
+}
+
+#[cfg(target_os = "linux")]
+fn main_status() -> MonitorStatus {
+    let system = rawtonic_display_profile::linux::profile_of_output(None);
+    let (_, icc, mut status) = resolve(system, None);
+    if icc.is_some() {
+        status.mode = "notApplied";
+        status.notice = Some(
+            "On Linux the webview shows the preview as sRGB: Rawtonic does not convert it into this profile; the desktop may."
+                .into(),
+        );
     }
+    status
+}
+
+#[cfg(windows)]
+fn main_status() -> MonitorStatus {
+    lock_recover(&APPLIED)
+        .as_ref()
+        .and_then(|applied| applied.windows.get("main"))
+        .map(|(_, status)| status.clone())
+        .unwrap_or_else(|| status_of(None, None, false, "srgb", None))
 }
 
 /// Chooses the ICC profile at `path` for the preview instead of the
