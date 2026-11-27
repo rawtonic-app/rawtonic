@@ -69,7 +69,10 @@ import { useContextMenu } from '../../context/ContextMenuContext';
 import { viewerBackgroundMenu } from './editor/viewerBackgroundMenu';
 import { createCropSelection } from './editor/cropSelection';
 
+/** A CSS colour token as normalised RGBA: `#rrggbb` (the shade tokens) or `rgb(r, g, b)`. */
 const parseRgb = (rgbStr: string): [number, number, number, number] => {
+  const hex = rgbStr.trim().match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
+  if (hex) return [parseInt(hex[1], 16) / 255, parseInt(hex[2], 16) / 255, parseInt(hex[3], 16) / 255, 1.0];
   const match = rgbStr.match(/[\d.]+/g);
   if (match && match.length >= 3) {
     return [parseFloat(match[0]) / 255, parseFloat(match[1]) / 255, parseFloat(match[2]) / 255, 1.0];
@@ -1659,7 +1662,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
   useEffect(() => {
     const rootStyle = getComputedStyle(document.documentElement);
-    const bgPrimaryStr = rootStyle.getPropertyValue('--app-bg-primary') || 'rgb(24, 24, 24)';
+    const bgPrimaryStr = rootStyle.getPropertyValue('--app-bg-primary') || 'rgb(38, 38, 38)';
     // The photo alone (F) uses the chosen viewer background over the whole
     // screen too (one background setting, as Capture One keeps its viewer
     // background in full screen); otherwise the app's chrome colour lies

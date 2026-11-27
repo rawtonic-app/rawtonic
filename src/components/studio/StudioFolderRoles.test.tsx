@@ -61,7 +61,9 @@ const renderTree = (folderActions: Pick<FolderActions, 'setRoleFolder'>) =>
 const row = (path: string) => screen.getAllByTitle(path)[0].parentElement!;
 /** The newest menu's item (closing menus fade out). */
 const menu = () => within(screen.getAllByRole('menu').at(-1)!);
-const item = (name: RegExp | string) => menu().getByRole('menuitem', { name });
+// Role entries are radio items (the folder's own role is checked).
+const item = (name: RegExp | string) =>
+  menu().queryByRole('menuitem', { name }) ?? menu().getByRole('menuitemradio', { name });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -116,14 +118,14 @@ describe("set a folder's role from the folder tree (G38)", () => {
     useLibraryStore.setState({ sessionDirectory: null, sessionFolders: [] });
     renderTree({ setRoleFolder });
     fireEvent.contextMenu(row('/job/Selects/Day 1'));
-    expect(screen.queryAllByRole('menuitem', { name: /^Set as .* Folder$/ })).toHaveLength(0);
+    expect(screen.queryAllByRole('menuitemradio', { name: /^Set as .* Folder$/ })).toHaveLength(0);
     expect(setRoleFolder).not.toHaveBeenCalled();
   });
 
   it('refuses the session folder itself instead of offering it', () => {
     renderTree({ setRoleFolder });
     fireEvent.contextMenu(row('/job'));
-    expect(screen.queryAllByRole('menuitem', { name: /^Set as .* Folder$/ })).toHaveLength(0);
+    expect(screen.queryAllByRole('menuitemradio', { name: /^Set as .* Folder$/ })).toHaveLength(0);
   });
 
   it('offers no role folders in a catalog, which keeps two different ones as its own (G40)', async () => {
@@ -160,7 +162,7 @@ describe("set a folder's role from the folder tree (G38)", () => {
     // The folder list is a catalog's once its drives are read.
     expect(screen.getByText('Macintosh HD')).toBeTruthy();
     fireEvent.contextMenu(row('/catalog/Photos'));
-    expect(screen.queryAllByRole('menuitem', { name: /^Set as .* Folder$/ })).toHaveLength(0);
+    expect(screen.queryAllByRole('menuitemradio', { name: /^Set as .* Folder$/ })).toHaveLength(0);
     expect(screen.getAllByRole('menuitem', { name: /role folders belong to a session/ }).at(-1)).toHaveProperty(
       'disabled',
       true

@@ -320,7 +320,7 @@ function MenuItem({ option, path, hideContextMenu }: MenuItemProps) {
           }
         }}
         ref={itemRef}
-        role={option.checked === undefined ? 'menuitem' : 'menuitemradio'}
+        role={option.checked === undefined ? 'menuitem' : option.toggle ? 'menuitemcheckbox' : 'menuitemradio'}
         aria-checked={option.checked}
         aria-haspopup={option.submenu ? 'menu' : undefined}
         aria-expanded={option.submenu ? !!isSubmenuOpen : undefined}
@@ -338,7 +338,7 @@ function MenuItem({ option, path, hideContextMenu }: MenuItemProps) {
           {option.color && (
             <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: option.color }}></div>
           )}
-          {option.icon && <option.icon size={14} className="shrink-0" />}
+          {/* VISCALM1: menus are text-first; only checks and colour labels, which carry state, show a mark. */}
           <span
             className="truncate"
             // Only a label the menu's widest size still cuts off gets its

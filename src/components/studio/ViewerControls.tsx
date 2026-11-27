@@ -110,10 +110,10 @@ export function PointerReadout() {
 }
 
 /**
- * The viewer bar's ⋯ once the bar runs short (useFitOneRow's level 3,
- * UX4-07): Camera preview, Proof margin, Fit, 100 % and the zoom presets,
- * which the bar then leaves out (Fit and 100 % from level 4), so none of
- * them becomes unreachable.
+ * The viewer bar's ⋯ (always shown since VISCALM1): Camera preview, Proof
+ * margin, Fit, 100 % and the zoom presets. The bar itself leaves out the zoom
+ * list and the two toggles while they are off, and Fit and 100 % once it runs
+ * short (useFitOneRow's level 4, UX4-07), so none of them becomes unreachable.
  */
 export function ViewerOverflowMenu({ onZoom }: { onZoom(value: number, fit?: boolean): void }) {
   const { t } = useTranslation();

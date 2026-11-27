@@ -236,6 +236,7 @@ export function ToolGroup({
         {onReset && (
           <button
             type="button"
+            className="studio-tool-reset"
             title={
               before
                 ? t('studio.develop.toolGroup.resetOrHold', { tool: name })

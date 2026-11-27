@@ -2,17 +2,7 @@ import type { MouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { detectionPending } from '../../utils/settingsClipboard';
 import type { TFunction } from 'i18next';
-import {
-  Check,
-  Eye,
-  EyeOff,
-  FlipHorizontal2,
-  Minus,
-  Plus,
-  SquaresIntersect,
-  Trash2,
-  type LucideIcon
-} from 'lucide-react';
+import { Eye, EyeOff, FlipHorizontal2, Minus, Plus, SquaresIntersect, Trash2, type LucideIcon } from 'lucide-react';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
 import { openMaskingTools } from '../../hooks/useAiMasking';
@@ -156,7 +146,7 @@ export default function StudioMaskComponents() {
       rect.bottom,
       Object.values(SubMaskMode).map((mode) => ({
         label: t(`studio.masks.modes.${mode}`),
-        icon: sub.mode === mode ? Check : MODE_ICONS[mode],
+        checked: sub.mode === mode,
         onClick: () => updateComponent(sub.id, { mode })
       }))
     );

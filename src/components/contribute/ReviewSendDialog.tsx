@@ -170,7 +170,10 @@ export default function ReviewSendDialog({
             {id && (
               <>
                 <div className="flex items-center gap-2">
-                  <code className="select-all rounded bg-[#1f2022] px-2 py-1 font-mono text-sm" data-testid="report-id">
+                  <code
+                    className="select-all rounded bg-(--studio-shade-inset) px-2 py-1 font-mono text-sm"
+                    data-testid="report-id"
+                  >
                     {id}
                   </code>
                   <Button variant="ghost" onClick={() => void copyId()} aria-label={t('contribute.review.copyId')}>
@@ -211,7 +214,7 @@ export default function ReviewSendDialog({
               <figure>
                 <img
                   alt={t('contribute.review.screenshot')}
-                  className="max-h-48 rounded border border-[#3c3f43]"
+                  className="max-h-48 rounded border border-(--studio-shade-hover)"
                   src={view.screenshot.src}
                 />
                 <figcaption className="text-text-secondary text-xs mt-1">

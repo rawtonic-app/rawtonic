@@ -30,10 +30,13 @@ vi.mock('./editor/ImageCanvas', async () => {
   };
 });
 
-// The Darkest canvas colour, `--app-bg-primary: rgb(...)` in src/styles.css
+// The Darkest viewer grey, `--app-bg-primary: #rrggbb` in src/styles.css
 // (jsdom has no cascade, so the token is set from it): Default's viewer colour.
-const CANVAS = Number(
-  readFileSync('src/styles.css', 'utf8').match(/:root \{\s*--app-bg-primary: rgb\((\d+), \d+, \d+\)/)![1]
+const CANVAS = parseInt(
+  readFileSync('src/styles.css', 'utf8').match(
+    /:root\[data-interface-shade='darkest'\] \{\s*--app-bg-primary: #([0-9a-f]{2})/i
+  )![1],
+  16
 );
 
 // The viewer's fit; a test changes it as the viewer's size would change.
@@ -115,7 +118,10 @@ describe('Editor zoom', () => {
     useSettingsStore.setState({ osPlatform: 'macos', appSettings: { keybinds: {} } as AppSettings });
     // Default is the app's canvas colour (`--app-bg-primary`); jsdom has no
     // cascade, so the token is set here (and removed after).
-    document.documentElement.style.setProperty('--app-bg-primary', `rgb(${CANVAS}, ${CANVAS}, ${CANVAS})`);
+    // Written as the stylesheet writes it (`#rrggbb`), which both the
+    // backdrop (bgSecondary) and the second display's colour (bgPrimary) read.
+    const hex = CANVAS.toString(16).padStart(2, '0');
+    document.documentElement.style.setProperty('--app-bg-primary', `#${hex}${hex}${hex}`);
     useEditorStore.setState({ hasRenderedFirstFrame: true });
     vi.mocked(invoke).mockClear();
     const viewer = createRef<TransformWrapperHandle>();
@@ -130,6 +136,7 @@ describe('Editor zoom', () => {
       await vi.waitFor(() => expect(transforms().length).toBeGreaterThan(0));
       const initial = (transforms().at(-1)?.[1] as { payload: Record<string, unknown> }).payload;
       expect(initial.bgSecondary).toEqual([CANVAS / 255, CANVAS / 255, CANVAS / 255, 1]);
+      expect(initial.bgPrimary).toEqual([CANVAS / 255, CANVAS / 255, CANVAS / 255, 1]);
 
       fireEvent.contextMenu(viewer.current!.instance.wrapperComponent!, { clientX: 460, clientY: 45 });
       fireEvent.click(getByText('White'));

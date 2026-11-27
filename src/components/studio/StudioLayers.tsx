@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import {
   ArrowDown,
   ArrowUp,
-  Check,
   Copy,
   Eraser,
   Eye,
@@ -69,7 +68,8 @@ export function useRadialOptionsMenu() {
     showContextMenu(e.clientX, e.clientY, [
       {
         label: t('studio.develop.layers.drawMaskInside'),
-        icon: inside ? Check : undefined,
+        checked: inside,
+        toggle: true,
         onClick: toggle
       }
     ]);
@@ -366,13 +366,15 @@ export default function StudioLayers({
     showContextMenu(e.clientX, e.clientY, [
       {
         label: soloKey ? `${t('studio.develop.layers.menu.solo')} (${soloKey})` : t('studio.develop.layers.menu.solo'),
-        icon: layerSolo?.layerId === target.id && !layerSolo.componentId ? Check : Eye,
+        checked: layerSolo?.layerId === target.id && !layerSolo.componentId,
+        toggle: true,
         onClick: () => soloLayer(target)
       },
       { type: OPTION_SEPARATOR },
       {
         label: t('editor.masks.settings.invertMask'),
-        icon: target.invert ? Check : FlipHorizontal2,
+        checked: !!target.invert,
+        toggle: true,
         onClick: () => toggleInvert(target)
       },
       {

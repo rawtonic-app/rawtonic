@@ -5,7 +5,6 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   ArrowDownAZ,
   ArrowDownToLine,
-  Check,
   ChevronRight,
   ClipboardPaste,
   FileEdit,
@@ -184,7 +183,7 @@ function FolderRow({
             );
             return {
               label: t(`studio.library.folders.setRole.${role}` as const),
-              icon: isRole ? Check : undefined,
+              checked: isRole,
               disabled: isRole,
               onClick: () => roleActions(role, path)
             };
@@ -646,18 +645,18 @@ export function StudioFolders({ onNavigate, actions }: { onNavigate(path: string
     showContextMenu(x, y, [
       ...SORT_KEYS.map((key) => ({
         label: t(`studio.library.folders.sort.${key}`),
-        icon: sort.key === key ? Check : undefined,
+        checked: sort.key === key,
         onClick: () => setSort({ key, order: sort.order })
       })),
       { type: OPTION_SEPARATOR },
       {
         label: t('studio.library.folders.sort.ascending'),
-        icon: sort.order === SortDirection.Ascending ? Check : undefined,
+        checked: sort.order === SortDirection.Ascending,
         onClick: () => setSort({ ...sort, order: SortDirection.Ascending })
       },
       {
         label: t('studio.library.folders.sort.descending'),
-        icon: sort.order === SortDirection.Descending ? Check : undefined,
+        checked: sort.order === SortDirection.Descending,
         onClick: () => setSort({ ...sort, order: SortDirection.Descending })
       }
     ]);

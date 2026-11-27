@@ -151,7 +151,7 @@ export default function CameraHelpDialog({
           <Text variant={TextVariants.small} color="secondary">
             {t('contribute.cameraHelp.nothingSent')}
           </Text>
-          <div className="rounded border border-[#3c3f43] p-3 text-sm flex flex-col gap-2 items-start">
+          <div className="rounded border border-(--studio-shade-hover) p-3 text-sm flex flex-col gap-2 items-start">
             <span>{t('contribute.cameraHelp.reportInstead')}</span>
             <Button variant="ghost" onClick={() => onReport(photo ?? filePhoto(request.path))}>
               {t('contribute.cameraHelp.report')}

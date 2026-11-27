@@ -816,6 +816,8 @@ export interface Option {
   customProps?: object;
   /** A choice in a group: shows a check mark when true, room for one when false. */
   checked?: boolean;
+  /** An independent on/off command (menuitemcheckbox) rather than one choice of a group (menuitemradio). */
+  toggle?: boolean;
   disabled?: boolean;
   icon?: LucideIcon;
   isDestructive?: boolean;

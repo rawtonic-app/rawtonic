@@ -682,7 +682,12 @@ describe('Develop tool contracts', () => {
     // it became a history step of its own and Undo stopped at it.
     mount();
     const slider = screen.getByRole('slider', { name: 'Exposure' }) as HTMLInputElement;
-    vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 109, height: 20 } as DOMRect);
+    vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue({
+      left: -1.5,
+      top: 0,
+      width: 112,
+      height: 20
+    } as DOMRect);
     slider.setPointerCapture = vi.fn();
     const exposure = () => useEditorStore.getState().adjustments.exposure;
     fireEvent.pointerDown(slider, { button: 0, clientX: 14.5, clientY: 10 });
@@ -1108,7 +1113,7 @@ describe("selections, ranges and components (Lightroom's mask menu)", () => {
     // The mode glyph opens Add / Subtract / Intersect; the first component has none.
     expect(screen.queryByRole('button', { name: /^Mode of Sky/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Mode of Object: Subtract' }));
-    fireEvent.click(screen.getAllByRole('menuitem', { name: 'Intersect' }).at(-1)!);
+    fireEvent.click(screen.getAllByRole('menuitemradio', { name: 'Intersect' }).at(-1)!);
     expect(last().subMasks[1].mode).toBe(SubMaskMode.Intersect);
     expect(screen.getByRole('button', { name: 'Mode of Object: Intersect' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Invert Object' }));
@@ -1233,7 +1238,8 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
       'Luminance range',
       'Depth range'
     ]);
-    expect(items.every((i) => i.querySelector('svg'))).toBe(true);
+    // Menus are text-first (VISCALM1): no per-item icons.
+    expect(items.some((i) => i.querySelector('svg'))).toBe(false);
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'Radial' }));
     const masks = useEditorStore.getState().adjustments.masks;
     expect(masks.map((m) => m.subMasks[0].type)).toEqual([Mask.AiSky, Mask.Radial]);
