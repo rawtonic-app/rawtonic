@@ -4855,7 +4855,9 @@ pub struct GlobalAdjustments {
     /// `GAMUT_MAPPING_RENDER_VERSION`): 1 = clipped to it and turned back to
     /// their own hue (shader.wgsl `restore_hue`), 0 = clipped per channel,
     /// 2 (`renderVersion` 12, `GAMUT_KNEE_RENDER_VERSION`) = as 1 after
-    /// easing saturated colours near the edge towards it (`ease_into_gamut`).
+    /// easing saturated colours near the edge towards it (`ease_into_gamut`);
+    /// non-RAW photos take 1 again from `renderVersion` 21
+    /// (`SOURCE_GAMUT_RENDER_VERSION`).
     pub gamut_mapping: u32,
     /// Film grain colour (`grainColor` / 100, grain version 3): 0 one
     /// neutral layer like black-and-white film, 1 independent dye layers.
@@ -5997,7 +5999,7 @@ fn get_global_adjustments_resolved(
         clarity_version: versions.clarity.uniform(),
         temperature_version: versions.temperature.uniform() | (versions.tint.uniform() << 8),
         image_key_median: 0.0,
-        gamut_mapping: versions.render.gamut_mapping_uniform(),
+        gamut_mapping: versions.render.gamut_mapping_uniform(is_raw),
         grain_color: (effects.grain_color.get() / 100.0).clamp(0.0, 1.0) as f32,
         capture_gain: u32::from(versions.render.capture_gain()),
         scene_black: u32::from(versions.render.scene_black()),
@@ -6513,8 +6515,12 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// and AVIF) off into SDR white from 0.75 of diffuse white to the source's
 /// peak instead of clipping everything above diffuse white
 /// (`hdr_source::ROLLOFF_RENDER_VERSION`); other photos develop as 19.
+/// 21 (2026-11-27) clips the colours of non-RAW photos (JPEG, PNG, TIFF,
+/// HEIF, …) at the output space's edge keeping their hue, without the
+/// knee of 12, so a rendered photo at its default edit keeps its own
+/// pixels (`SOURCE_GAMUT_RENDER_VERSION`); RAWs develop as 20.
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 20;
+pub const RENDER_VERSION: u64 = 21;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the
@@ -6545,6 +6551,16 @@ pub const GAMUT_MAPPING_RENDER_VERSION: u64 = 4;
 /// (`GlobalAdjustments::gamut_mapping` 2, shader `ease_into_gamut`; notes:
 /// parity-gaps/G01-base-profiles.md, tasks ATF10 and ATF10F).
 pub const GAMUT_KNEE_RENDER_VERSION: u64 = 12;
+
+/// The render version from which non-RAW photos leave the knee of
+/// `GAMUT_KNEE_RENDER_VERSION` out (`GlobalAdjustments::gamut_mapping` 1:
+/// clipped at the output space's edge at their own hue): a JPEG, PNG or
+/// TIFF is already rendered, its saturated colours lie on or near its
+/// space's edge by design, and the knee eased them inwards at the default
+/// edit (sRGB red 255,0,0 exported as 253,17,8). Product decision
+/// (task NRI1): a rendered file at its default edit keeps its own pixels.
+/// RAWs keep the knee (notes: benchmark-results/nri1-2026-11-27/REPORT.md).
+pub const SOURCE_GAMUT_RENDER_VERSION: u64 = 21;
 
 /// The render version from which exports compute the detail stage (noise
 /// reduction, sharpening) in a pass of their own before the main pass, as
@@ -11272,6 +11288,21 @@ mod thumbnail_tests {
 mod render_version_tests {
     use super::*;
     use serde_json::json;
+
+    /// Non-RAW photos leave the knee of 12 out from `renderVersion` 21
+    /// (clipped at their hue, 1); RAWs keep it, saved non-RAW edits of
+    /// 12–20 keep theirs.
+    #[test]
+    fn non_raw_photos_leave_the_gamut_knee_out_from_render_version_21() {
+        let mapping = |version: u64, is_raw: bool| {
+            get_global_adjustments_from_json(&json!({ "renderVersion": version }), is_raw, None)
+                .gamut_mapping
+        };
+        assert_eq!(mapping(SOURCE_GAMUT_RENDER_VERSION, false), 1);
+        assert_eq!(mapping(SOURCE_GAMUT_RENDER_VERSION, true), 2);
+        assert_eq!(mapping(SOURCE_GAMUT_RENDER_VERSION - 1, false), 2);
+        assert_eq!(mapping(GAMUT_KNEE_RENDER_VERSION - 1, false), 1);
+    }
 
     /// Colours outside the output space keep their hue from `renderVersion`
     /// 4 on; saved edits made before it, and recipes without the key, clip.

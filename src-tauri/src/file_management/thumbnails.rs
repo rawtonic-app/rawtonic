@@ -262,7 +262,28 @@ fn thumbnail_hash_for_engine(
         true,
         true,
         true,
+        true,
     )
+}
+
+/// The key a non-RAW tile following the develop defaults (or a Reset's
+/// recipe) was cached under before renderVersion 21 kept its colours on
+/// the edge of its space (2026-11-27): while the original is unavailable,
+/// that tile is better than none. `None` where the key did not change.
+fn thumbnail_hash_before_source_gamut(path_str: &str, adjustments_bytes: &[u8]) -> Option<String> {
+    let before = thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
+        true,
+        None,
+        true,
+        true,
+        true,
+        false,
+    )?;
+    (Some(&before) != compute_thumbnail_cache_hash(path_str, adjustments_bytes).as_ref())
+        .then_some(before)
 }
 
 /// The key a tile was cached under before a photo's camera matched its
@@ -278,6 +299,7 @@ fn thumbnail_hash_before_camera_identity(
         crate::preview_proxy::ENGINE_VERSION,
         true,
         None,
+        false,
         false,
         false,
         false,
@@ -297,6 +319,7 @@ fn thumbnail_hash_with_display_copy_held(
         crate::preview_proxy::ENGINE_VERSION,
         true,
         Some(true),
+        false,
         false,
         false,
         false,
@@ -320,6 +343,7 @@ fn thumbnail_hash_with_display_copy_renewed(
         false,
         false,
         false,
+        false,
     )
 }
 
@@ -337,6 +361,7 @@ fn thumbnail_hash_before_refreshes(path_str: &str, adjustments_bytes: &[u8]) -> 
         false,
         false,
         false,
+        false,
     )
 }
 
@@ -351,6 +376,7 @@ fn thumbnail_hash_before_orf_preview(path_str: &str, adjustments_bytes: &[u8]) -
         true,
         None,
         true,
+        false,
         false,
         false,
     )
@@ -375,6 +401,7 @@ fn thumbnail_hash_before_hdr_rolloff(path_str: &str, adjustments_bytes: &[u8]) -
         true,
         true,
         false,
+        false,
     )
 }
 
@@ -388,6 +415,7 @@ fn thumbnail_hash_with(
     camera_identity: bool,
     orf_preview: bool,
     hdr_rolloff: bool,
+    source_gamut: bool,
 ) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
@@ -407,11 +435,13 @@ fn thumbnail_hash_with(
     }
     // A photograph without an edit renders with the user's develop defaults
     // (`rawtonic_engine::develop_defaults`): new ones make new thumbnails.
+    let mut with_defaults = false;
     if let Some(defaults) = rawtonic_engine::develop_defaults::fingerprint()
         && rawtonic_engine::develop_defaults::follows_defaults(
             adjustments.as_ref().unwrap_or(&serde_json::Value::Null),
         )
     {
+        with_defaults = true;
         hasher.update(b"\0develop-defaults\0");
         hasher.update(&defaults);
         // The same defaults may give a photo another camera entry since its
@@ -449,6 +479,23 @@ fn thumbnail_hash_with(
         && rawtonic_engine::hdr_source::may_be_hdr_file(&source_path.to_string_lossy())
     {
         hasher.update(b"\0hdr-rolloff-v1");
+    }
+    // A rendered photo's new edit (no recipe but the user's develop
+    // defaults when they are not for RAWs only, or a Reset's recipe)
+    // develops at the newest render
+    // version, which from 21 keeps its colours on the edge of its space
+    // (`image_processing::SOURCE_GAMUT_RENDER_VERSION`; 12–20 eased them
+    // inwards): such tiles are made again once. Without a recipe or
+    // defaults the tile shows the file's own pixels and keeps its key.
+    if source_gamut
+        && !is_raw_file(&source_path)
+        && adjustments
+            .as_ref()
+            .is_none_or(rawtonic_engine::image_processing::is_new_recipe)
+        && ((with_defaults && !rawtonic_engine::develop_defaults::current().raw_only)
+            || adjustments.as_ref().is_some_and(|a| !a.is_null()))
+    {
+        hasher.update(b"\0source-gamut-v1");
     }
     if is_raw_file(&source_path) {
         // A never-edited Olympus / OM System RAW's tile was developed from
@@ -804,11 +851,11 @@ fn develop_thumbnail_with_source(
                     // (a JPEG or TIFF too when they are not for RAWs only).
                     || (rawtonic_engine::develop_defaults::follows_defaults(&adjustments)
                         && rawtonic_engine::develop_defaults::for_path(&source_path).is_some())
-                    // A PQ/HLG photo's highlights roll off from the newest
-                    // render version (rawtonic_engine::hdr_source).
-                    || (!is_raw
-                        && !adjustments.is_null()
-                        && rawtonic_engine::hdr_source::headroom(&source_path_str).is_some())) =>
+                    // A rendered photo's Reset recipe develops at the newest
+                    // render version as its export does: PQ/HLG highlights
+                    // roll off (rawtonic_engine::hdr_source), colours beyond
+                    // the output space clip at their hue (renderVersion 21).
+                    || (!is_raw && !adjustments.is_null())) =>
         {
             let mut recipe = if adjustments.is_null() {
                 serde_json::json!({})
@@ -1831,9 +1878,10 @@ fn preferred_thumbnail_hash<'a>(
 }
 
 /// The keys a tile of `path_str` may have been cached under, newest
-/// first: before the PQ/HLG roll-off, before ORF maker-note previews, before camera identities, with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
+/// first: before renderVersion 21's source gamut, before the PQ/HLG roll-off, before ORF maker-note previews, before camera identities, with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
 fn older_tile_keys(path_str: &str, adjustments_bytes: &[u8]) -> Vec<String> {
     [
+        thumbnail_hash_before_source_gamut(path_str, adjustments_bytes),
         thumbnail_hash_before_hdr_rolloff(path_str, adjustments_bytes),
         thumbnail_hash_before_orf_preview(path_str, adjustments_bytes),
         thumbnail_hash_before_camera_identity(path_str, adjustments_bytes),
@@ -2818,6 +2866,75 @@ mod share_lookup_tests {
             super::thumbnail_hash_before_hdr_rolloff(&jpeg.to_string_lossy(), recipe),
             None
         );
+    }
+
+    /// A non-RAW tile of a new edit (a Reset's recipe) changes its key with
+    /// renderVersion 21 (`source-gamut-v1`) and keeps the older key as a
+    /// fallback; a saved edit, a photo without a recipe and a RAW keep
+    /// theirs.
+    #[test]
+    fn a_non_raw_new_edit_tile_is_made_again_for_render_version_21() {
+        let temp = tempfile::tempdir().unwrap();
+        let jpeg = temp.path().join("IMG_0003.JPG");
+        std::fs::write(&jpeg, b"not read for the key").unwrap();
+        let path = jpeg.to_string_lossy().into_owned();
+        let reset = b"{}";
+        let new = super::compute_thumbnail_cache_hash(&path, reset).unwrap();
+        let before = super::thumbnail_hash_before_source_gamut(&path, reset).unwrap();
+        assert_ne!(new, before);
+        assert_eq!(super::older_tile_keys(&path, reset).first(), Some(&before));
+        for kept in [&b"null"[..], br#"{"renderVersion":20,"exposure":1}"#] {
+            assert_eq!(super::thumbnail_hash_before_source_gamut(&path, kept), None);
+        }
+        let raw = temp.path().join("IMG_0003.CR3");
+        std::fs::write(&raw, b"raw").unwrap();
+        assert_eq!(
+            super::thumbnail_hash_before_source_gamut(&raw.to_string_lossy(), reset),
+            None
+        );
+    }
+
+    /// Develop defaults for RAWs only leave a JPEG's tile key as it was;
+    /// defaults for every file make its tile again for renderVersion 21.
+    #[test]
+    fn develop_defaults_retag_non_raw_tiles_only_when_they_apply_to_them() {
+        // The defaults are process-wide: run in a child process of its own.
+        const CHILD: &str = "RAWTONIC_SOURCE_GAMUT_DEFAULTS_TEST_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let test = concat!(
+                "file_management::thumbnails::tests::",
+                "develop_defaults_retag_non_raw_tiles_only_when_they_apply_to_them"
+            );
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", test])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let jpeg = temp.path().join("IMG_0004.JPG");
+        std::fs::write(&jpeg, b"not read for the key").unwrap();
+        let path = jpeg.to_string_lossy().into_owned();
+        for (raw_only, retagged) in [(true, false), (false, true)] {
+            rawtonic_engine::develop_defaults::set_current(
+                serde_json::from_value(serde_json::json!({
+                    "rawOnly": raw_only,
+                    "global": {"settings": {"exposure": 0.5}}
+                }))
+                .unwrap(),
+            );
+            assert_eq!(
+                super::thumbnail_hash_before_source_gamut(&path, b"null").is_some(),
+                retagged,
+                "rawOnly {raw_only}"
+            );
+        }
     }
 
     fn set_mtime(path: &std::path::Path, time: std::time::SystemTime) {

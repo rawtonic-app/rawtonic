@@ -384,7 +384,7 @@
   "sharpenVersion": 8,
   "lumaNoiseVersion": 2,
   "aiDenoiseVersion": 6,
-  "renderVersion": 20,
+  "renderVersion": 21,
   "sourceFrameVersion": 3,
   "grainVersion": 4
 }

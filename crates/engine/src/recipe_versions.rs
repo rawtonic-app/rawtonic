@@ -138,9 +138,13 @@ impl RenderVersion {
     }
 
     /// The shader's `gamut_mapping`: 0 clipped per channel, 1 clipped at the
-    /// colour's own hue, 2 eased towards the edge first.
-    pub fn gamut_mapping_uniform(self) -> u32 {
-        if self.0 >= ip::GAMUT_KNEE_RENDER_VERSION {
+    /// colour's own hue, 2 eased towards the edge first. A non-RAW
+    /// (`is_raw` false) takes 1 from `SOURCE_GAMUT_RENDER_VERSION`, so a
+    /// rendered source's own colours on the edge of its space stay.
+    pub fn gamut_mapping_uniform(self, is_raw: bool) -> u32 {
+        if !is_raw && self.0 >= ip::SOURCE_GAMUT_RENDER_VERSION {
+            1
+        } else if self.0 >= ip::GAMUT_KNEE_RENDER_VERSION {
             2
         } else {
             u32::from(self.gamut_mapping())
