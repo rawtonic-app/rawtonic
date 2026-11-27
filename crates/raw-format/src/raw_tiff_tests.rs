@@ -4,6 +4,63 @@
 
 use super::{TiffKind, classify_bytes};
 
+#[test]
+fn overriding_a_raw_suffix_requires_positive_full_image_evidence() {
+    use super::{RasterEvidence, raster_evidence_inner};
+    for (photometric, samples) in [(2, 3), (6, 3), (0, 1), (1, 1)] {
+        let plain = camera(
+            image(640, 480, photometric, samples, 8, 1),
+            "NIKON",
+            "unknown",
+        );
+        assert_eq!(
+            raster_evidence_inner(&Tiff::pages(vec![plain]).build()),
+            RasterEvidence::Raster
+        );
+    }
+    for raw in [
+        image(640, 480, 32803, 1, 14, 1),
+        image(640, 480, 34892, 3, 16, 1),
+        image(640, 480, 2, 3, 8, 1).with(33421, Value::Shorts(vec![2, 2])),
+        image(640, 480, 2, 3, 8, 1).with(33422, Value::Shorts(vec![0, 1, 1, 2])),
+        image(640, 480, 2, 3, 8, 1).with(50706, Value::Longs(vec![1])),
+        image(640, 480, 2, 3, 8, 1).with(0x7200, Value::Longs(vec![1024])),
+        image(160, 120, 2, 3, 8, 1).with(254, Value::Longs(vec![1])),
+    ] {
+        assert_eq!(
+            raster_evidence_inner(&Tiff::pages(vec![raw]).build()),
+            RasterEvidence::Unknown
+        );
+    }
+    let preview = image(160, 120, 2, 3, 8, 1).with(254, Value::Longs(vec![1]));
+    let unknown_full = Ifd::default()
+        .with(256, Value::Longs(vec![6000]))
+        .with(257, Value::Longs(vec![4000]));
+    assert_eq!(
+        raster_evidence_inner(&Tiff::pages(vec![preview, unknown_full]).build()),
+        RasterEvidence::Unknown
+    );
+    for unknown in [
+        Ifd::default().with(256, Value::Longs(vec![640])),
+        Ifd::default()
+            .with(256, Value::Longs(vec![640]))
+            .with(257, Value::Longs(vec![480])),
+    ] {
+        assert_eq!(
+            raster_evidence_inner(&Tiff::pages(vec![image(640, 480, 2, 3, 8, 1), unknown]).build()),
+            RasterEvidence::Unknown
+        );
+    }
+    assert_eq!(
+        raster_evidence_inner(b"II*\0\xff\xff\xff\x7f"),
+        RasterEvidence::Unknown
+    );
+    assert_eq!(
+        raster_evidence_inner(&Tiff::pages(vec![Ifd::default()]).build()),
+        RasterEvidence::Unknown
+    );
+}
+
 const SHORT: u16 = 3;
 const LONG: u16 = 4;
 const ASCII: u16 = 2;

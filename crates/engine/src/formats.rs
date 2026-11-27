@@ -4,12 +4,52 @@ use std::path::Path;
 use rawtonic_rawdecode::format_extensions::is_image_extension;
 pub use rawtonic_rawdecode::format_extensions::{NON_RAW_EXTENSIONS, RAW_EXTENSIONS};
 
-/// Raster content wins over a misleading suffix. TIFFs must first pass the
-/// camera-container classifier, since their first image can be a preview.
+/// Raster content wins over a misleading RAW suffix. Other filenames keep
+/// their existing badges and avoid the extra I/O. TIFFs require positive
+/// evidence, since their first image can be a camera preview.
 pub fn raster_content_type(path: &Path) -> Option<&'static str> {
-    if rawtonic_fs::is_cloud_placeholder(path) {
+    if !path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| {
+            RAW_EXTENSIONS
+                .iter()
+                .any(|(raw_ext, _)| raw_ext.eq_ignore_ascii_case(ext))
+        })
+    {
         return None;
     }
+    use std::{
+        collections::HashMap,
+        path::PathBuf,
+        sync::{LazyLock, Mutex},
+        time::SystemTime,
+    };
+    type Stamped = (u64, Option<SystemTime>, Option<&'static str>);
+    static CACHE: LazyLock<Mutex<HashMap<PathBuf, Stamped>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+    let meta = std::fs::metadata(path).ok()?;
+    if rawtonic_fs::is_cloud_placeholder_metadata(&meta) {
+        return None;
+    }
+    let stamp = (meta.len(), meta.modified().ok());
+    if let Ok(cache) = CACHE.lock()
+        && let Some(&(len, modified, kind)) = cache.get(path)
+        && (len, modified) == stamp
+    {
+        return kind;
+    }
+    let kind = raster_content_type_local(path);
+    if let Ok(mut cache) = CACHE.lock() {
+        if cache.len() >= 16_384 {
+            cache.clear();
+        }
+        cache.insert(path.to_path_buf(), (stamp.0, stamp.1, kind));
+    }
+    kind
+}
+
+fn raster_content_type_local(path: &Path) -> Option<&'static str> {
     use std::io::Read;
     let mut header = [0; 32];
     let len = std::fs::File::open(path).ok()?.read(&mut header).ok()?;
@@ -19,7 +59,9 @@ pub fn raster_content_type(path: &Path) -> Option<&'static str> {
     } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("PNG")
     } else if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
-        (!rawtonic_rawdecode::raw_tiff::classify_cached(path).is_raw()).then_some("TIFF")
+        (rawtonic_rawdecode::raw_tiff::raster_evidence(path)
+            == rawtonic_rawdecode::raw_tiff::RasterEvidence::Raster)
+            .then_some("TIFF")
     } else if crate::heif::is_heif(bytes) {
         Some("HEIF")
     } else {
@@ -170,6 +212,10 @@ mod tests {
             cfa.extend_from_slice(&0_u32.to_le_bytes());
             std::fs::write(&path, cfa).unwrap();
             assert!(is_raw_file(&path));
+            for unknown in [b"II*\0\x08\0\0\0\0\0".as_slice(), b"II*\0\xff\xff\xff\x7f"] {
+                std::fs::write(&path, unknown).unwrap();
+                assert!(is_raw_file(&path), "unknown TIFF retains RAW fallback");
+            }
         }
     }
 
