@@ -164,7 +164,11 @@ export function ViewerOverflowMenu({ onZoom }: { onZoom: ZoomHandler }) {
           { type: OPTION_SEPARATOR },
           // Fit and 100 % leave the bar one level later (UX4-07).
           { label: t('studio.workspace.viewer.fitTitle'), shortcut: ',', onClick: () => onZoom(1, true) },
-          { label: t('studio.workspace.viewer.actualPixels'), shortcut: '.', onClick: () => chooseZoomLevel(onZoom, 1) },
+          {
+            label: t('studio.workspace.viewer.actualPixels'),
+            shortcut: '.',
+            onClick: () => chooseZoomLevel(onZoom, 1)
+          },
           {
             label: t('studio.workspace.viewer.zoom'),
             submenu: [

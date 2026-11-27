@@ -1773,8 +1773,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
   /** The name a new library gets: the one typed, else for a catalog the
    * name its field shows ("Photo library", as Lightroom and Capture One open
    * into a default catalog); a session's field shows only an example. */
-  const libraryName = (asCatalog: boolean) =>
-    name.trim() || (asCatalog ? t('session.create.catalogPlaceholder') : '');
+  const libraryName = (asCatalog: boolean) => name.trim() || (asCatalog ? t('session.create.catalogPlaceholder') : '');
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
