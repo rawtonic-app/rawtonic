@@ -203,13 +203,18 @@ fn frame_after_settled(started_before: u64) -> bool {
 /// the frame when the caches are gone (once for a batch: a second selection
 /// answered with it does not count it again), is not exclusive (another
 /// selection of the photo may start beside it) and keeps speculative work,
-/// exports, the saved thumbnail and idle compiles back
-/// (`memory_pressure::guard_idle_compiles` reads `asked_active`). It is held
+/// the open photo's saved thumbnail and idle compiles back
+/// (`memory_pressure::guard_idle_compiles` reads `asked_active`); an export
+/// the photographer starts meanwhile is not held back by it. It is held
 /// on a task until a frame started after the answer has ended, the photo is
 /// quiet (`ai_ahead::QUIET`) and no colour noise build of it is wanted or
 /// running, at most [`AFTER_ANSWER_HOLD`], or until the photo is left.
+/// `asked`: the photo the mask is for (None: the open one); when another
+/// photo is open by now, the webview drops the answer and nothing is held
+/// (review r1).
 pub(crate) fn after_answer(
     app: &tauri::AppHandle,
+    asked: Option<&str>,
     reservation: Option<rawtonic_runtime::memory_budget::Reservation>,
     label: &'static str,
 ) {
@@ -218,7 +223,8 @@ pub(crate) fn after_answer(
             .source
             .original_image,
     )
-    .clone() else {
+    .clone()
+    .filter(|loaded| asked.is_none_or(|asked| loaded.path == asked)) else {
         return;
     };
     let pixels = u64::from(loaded.image.width()) * u64::from(loaded.image.height());

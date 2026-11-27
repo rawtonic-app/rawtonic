@@ -420,7 +420,7 @@ pub async fn generate_ai_people_mask(
         return Err(crate::ai_commands::task_cancelled());
     }
     // What follows the answer is held as any AI mask's (G74/BRK4).
-    crate::memory_broker::after_answer(&app_handle, None, "AI people selection");
+    crate::memory_broker::after_answer(&app_handle, None, None, "AI people selection");
     Ok(AiPeopleMaskParameters {
         parts,
         person,

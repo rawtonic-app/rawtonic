@@ -1286,12 +1286,14 @@ fn preview_base(
     } else {
         preparation_key
     };
+    // Read before the lookup: a base found or built across a release is
+    // not taken for one after it (review r1).
+    let releases = crate::memory_broker::frame_cache_releases();
     let reusable = develop
         .reusable_previews
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(&loaded_image.image, cache_key, build_dim);
-    let releases = crate::memory_broker::frame_cache_releases();
     if let Some(preview) = reusable {
         // Every release empties the reusable bases: this one is there
         // (G74/BRK4).

@@ -234,7 +234,7 @@ pub async fn generate_ai_landscape_mask(
     );
     // Its run reserves nothing: what follows the answer is held as any AI
     // mask's (G74/BRK4).
-    crate::memory_broker::after_answer(&app_handle, None, "AI landscape selection");
+    crate::memory_broker::after_answer(&app_handle, Some(&path), None, "AI landscape selection");
     Ok(AiSkyMaskParameters {
         mask_data_base64: Some(data),
         rotation: Some(rotation),
@@ -729,7 +729,12 @@ pub async fn generate_ai_subject_mask(
         started.elapsed().as_millis()
     );
     // The frame with the selection follows under its grant (G74/BRK4).
-    crate::memory_broker::after_answer(&app_handle, _reservation, "AI object selection");
+    crate::memory_broker::after_answer(
+        &app_handle,
+        Some(&path),
+        _reservation,
+        "AI object selection",
+    );
 
     Ok(AiSubjectMaskParameters {
         start_x: start_point.0,
@@ -1267,7 +1272,7 @@ async fn auto_mask(
         crate::ai_processing::fetch_low_peak_subject_in_background(app_handle);
     }
     if let Some(mask) = cached_mask(ai_state, kind, &key) {
-        settle_after_answer(app_handle, kind, origin, None);
+        settle_after_answer(app_handle, &loaded.path, kind, origin, None);
         return Ok(Some(mask));
     }
     if cancelled() {
@@ -1376,7 +1381,7 @@ async fn auto_mask(
     // that holds memory already (it would never end, G74/BRK2).
     let mut _run = kind.lock(ai_state).lock().await;
     if let Some(mask) = cached_mask(ai_state, kind, &key) {
-        settle_after_answer(app_handle, kind, origin, reservation);
+        settle_after_answer(app_handle, &loaded.path, kind, origin, reservation);
         return Ok(Some(mask));
     }
     if cancelled() {
@@ -1399,7 +1404,7 @@ async fn auto_mask(
         let turn = crate::ai_lifecycle::turn(asked.is_some()).await;
         _run = kind.lock(ai_state).lock().await;
         if let Some(mask) = cached_mask(ai_state, kind, &key) {
-            settle_after_answer(app_handle, kind, origin, reservation);
+            settle_after_answer(app_handle, &loaded.path, kind, origin, reservation);
             return Ok(Some(mask));
         }
         if cancelled() {
@@ -1556,7 +1561,7 @@ async fn auto_mask(
     // Not under the AI turn after the answer: a compile the frame with the
     // mask waits for would wait for it.
     drop(_turn);
-    settle_after_answer(app_handle, kind, origin, reservation);
+    settle_after_answer(app_handle, &loaded.path, kind, origin, reservation);
     Ok(Some(data))
 }
 
@@ -1580,6 +1585,7 @@ fn frame_rebuilds_after_answer(download: bool) -> bool {
 /// click, no frame follows it.
 fn settle_after_answer(
     app_handle: &tauri::AppHandle,
+    path: &str,
     kind: AutoMask,
     origin: Option<Origin>,
     reservation: Option<rawtonic_runtime::memory_budget::Reservation>,
@@ -1587,7 +1593,12 @@ fn settle_after_answer(
     let Some(origin) = origin.filter(|origin| answer_goes_into_a_layer(*origin)) else {
         return;
     };
-    crate::memory_broker::after_answer(app_handle, reservation, asked_label(kind, origin));
+    crate::memory_broker::after_answer(
+        app_handle,
+        Some(path),
+        reservation,
+        asked_label(kind, origin),
+    );
 }
 
 /// Whether the webview puts the answer of a request from `origin` into a
