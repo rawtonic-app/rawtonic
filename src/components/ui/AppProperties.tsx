@@ -766,6 +766,7 @@ export interface ImageFile {
   is_virtual_copy: boolean;
   is_cloud_placeholder: boolean;
   is_raw: boolean;
+  content_type?: string | null;
   group_id: string | null;
   /** The file is missing or on a disconnected drive; the library still holds
    * the photograph (it opens on its previews). */
@@ -883,6 +884,7 @@ export interface LoadImageResult {
   metadata: ImageMetadata;
   exif: { [key: string]: string };
   is_raw: boolean;
+  content_type?: string | null;
   /** AI Denoise amount the source was developed with (0 … 100). */
   ai_denoise: number;
   /** Its `aiDenoiseVersion` (1 when off). */

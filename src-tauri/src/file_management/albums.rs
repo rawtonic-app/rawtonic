@@ -621,6 +621,7 @@ fn album_images(paths: Vec<String>, app_handle: AppHandle) -> Result<Vec<ImageFi
             };
 
             Some(ImageFile {
+                content_type: crate::formats::raster_content_type(&source_path).map(str::to_owned),
                 path: virtual_path.clone(),
                 modified,
                 is_edited: metadata.is_edited,

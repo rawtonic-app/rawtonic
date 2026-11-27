@@ -444,6 +444,7 @@ export default function StudioWorkspace(props: Props) {
   );
   useCompareSession();
   const exportState = useProcessStore((s) => s.exportState);
+  const imageError = useProcessStore((s) => (selectedImage ? s.imageErrors[selectedImage.path] : undefined));
   const develop = activeView === 'editor';
   const imageList = useLibraryStore((s) => s.imageList);
   const externalPhoto =
@@ -1308,7 +1309,11 @@ export default function StudioWorkspace(props: Props) {
           e.currentTarget.focus({ preventScroll: true });
       }}
     >
-      {selectedImage ? (
+      {imageError ? (
+        <div className="studio-empty" role="alert">
+          {imageError}
+        </div>
+      ) : selectedImage ? (
         <>
           <MultiViewStage
             files={files}

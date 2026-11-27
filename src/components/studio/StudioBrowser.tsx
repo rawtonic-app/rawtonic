@@ -72,6 +72,7 @@ const Tile = memo(function Tile({
   stack?: StackMark;
 }) {
   const { t } = useTranslation();
+  const imageError = useProcessStore((s) => s.imageErrors[file.path]);
   const url = useProcessStore((s) => s.thumbnails[file.path]);
   const firstLoad = useRef({
     started: performanceDiagnosticsEnabled ? performance.now() : 0,
@@ -123,7 +124,9 @@ const Tile = memo(function Tile({
         title={label}
       >
         <span className="studio-photo-image">
-          {url ? (
+          {imageError ? (
+            <span role="alert">{imageError}</span>
+          ) : url ? (
             <CachedThumbnail
               sourcePath={file.path}
               src={url}
@@ -143,7 +146,9 @@ const Tile = memo(function Tile({
           ) : (
             <ImageIcon size={24} />
           )}
-          <span className="studio-photo-type">{file.is_raw ? 'RAW' : fileName.split('.').pop()?.toUpperCase()}</span>
+          <span className="studio-photo-type">
+            {file.is_raw ? 'RAW' : (file.content_type ?? fileName.split('.').pop()?.toUpperCase())}
+          </span>
           {file.is_edited && <SlidersHorizontal className="studio-photo-edited" size={12} />}
           <PhotoEyesBadge path={file.path} compact={film} />
           <PhotoCullBadge path={file.path} compact={film} />

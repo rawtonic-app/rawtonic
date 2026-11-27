@@ -1,3 +1,4 @@
+import { loadErrorText } from '../utils/loadError';
 import { useEffect, useRef } from 'react';
 import { UnlistenFn, listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
@@ -439,6 +440,9 @@ export function useTauriListeners({
 
     const acceptThumbnail = (payload: ThumbnailGeneratedPayload) => {
       const { path: emittedPath, thumbnailPath, previewPath, rating, is_edited, data } = payload;
+      useProcessStore.getState().setProcess((state) => ({
+        imageErrors: Object.fromEntries(Object.entries(state.imageErrors).filter(([path]) => path !== emittedPath))
+      }));
       // Batch operations can publish the canonical Windows path while the
       // grid was listed through its plain spelling. Update that visible tile.
       const images = useLibraryStore.getState().imageList;
@@ -587,6 +591,14 @@ export function useTauriListeners({
           useProcessStore
             .getState()
             .setProcess({ thumbnailProgress: { current: event.payload.current, total: event.payload.total } });
+      }),
+      listen<{ path: string; reason: string }>('thumbnail-generation-error', ({ payload }) => {
+        if (!isEffectActive) return;
+        useProcessStore
+          .getState()
+          .setProcess((state) => ({
+            imageErrors: { ...state.imageErrors, [payload.path]: loadErrorText(payload.reason, payload.path) }
+          }));
       }),
       listen('thumbnail-generation-complete', () => {
         if (isEffectActive) useProcessStore.getState().setProcess({ thumbnailProgress: { current: 0, total: 0 } });

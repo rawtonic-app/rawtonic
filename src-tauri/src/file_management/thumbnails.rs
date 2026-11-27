@@ -2374,6 +2374,7 @@ fn cache_or_make_thumbnail(
     });
     let made = made.and_then(|image| entry.save(path_str, &image, embedded, settings));
     if let Err(error) = made {
+        emit_thumbnail_cache_setup_error(app_handle, path_str, &format!("{error:#}"));
         log::warn!("Thumbnail of {path_str} not made: {error:#}");
         return None;
     }
