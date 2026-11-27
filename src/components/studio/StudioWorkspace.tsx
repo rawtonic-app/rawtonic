@@ -444,7 +444,9 @@ export default function StudioWorkspace(props: Props) {
   );
   useCompareSession();
   const exportState = useProcessStore((s) => s.exportState);
-  const imageError = useProcessStore((s) => (selectedImage ? s.imageErrors[selectedImage.path] : undefined));
+  const imageError = useProcessStore((s) =>
+    selectedImage && !selectedImage.isDecoded ? s.imageErrors[selectedImage.path] : undefined
+  );
   const develop = activeView === 'editor';
   const imageList = useLibraryStore((s) => s.imageList);
   const externalPhoto =
