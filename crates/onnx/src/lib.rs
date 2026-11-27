@@ -1211,7 +1211,7 @@ pub fn ensure_finite<'a>(values: impl IntoIterator<Item = &'a f32>) -> Result<()
 
 /// True for ONNX Runtime's error after a run was stopped on purpose
 /// (`RunOptions::terminate`): not a reason to leave the GPU.
-fn is_termination(error: &anyhow::Error) -> bool {
+pub fn is_termination(error: &anyhow::Error) -> bool {
     format!("{error:#}").contains("terminate flag")
 }
 

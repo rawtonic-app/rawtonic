@@ -1575,6 +1575,10 @@ async fn auto_mask_attempt(
         });
     let is_raw = loaded.is_raw;
     let run_options = options.clone();
+    // The run ended because its options were terminated (the guard's stop,
+    // or a cancel), not for another error.
+    let terminated = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let run_terminated = terminated.clone();
     let result = tokio::task::spawn_blocking(move || {
         let run = std::time::Instant::now();
         let qos = crate::ai_processing::thread_qos();
@@ -1594,6 +1598,9 @@ async fn auto_mask_attempt(
                 model.backend_name(),
             ),
         };
+        if mask.as_ref().is_err_and(rawtonic_onnx::is_termination) {
+            run_terminated.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
         let mask = mask.map_err(|e| e.to_string())?;
         let model_ms = run.elapsed().as_millis();
         let png = std::time::Instant::now();
@@ -1613,19 +1620,21 @@ async fn auto_mask_attempt(
     if cancelled() {
         return Err(task_cancelled());
     }
+    // Only a run the guard's stop ended waits and runs again; any other
+    // error stays the answer.
     if let (Some(at), Some(reservation)) = (tripped, reservation.as_ref())
-        && !matches!(result, Ok(Ok(_)))
+        && terminated.load(std::sync::atomic::Ordering::SeqCst)
     {
-        let next = crate::memory_broker::BROKER.stopped_short(
+        let short = crate::memory_broker::BROKER.stopped_short(
             reservation,
             crate::memory_pressure::reading().app.or(at.app),
         );
         log::info!(
-            "AI {} mask: run stopped with {} MB available, {} MB is kept for the system; it waits for memory and runs again (estimate now {} MB); {}",
+            "AI {} mask: run stopped with {} MB available, {} MB is kept for the system; it waits for memory and runs again (its estimates count {} MB more from now on); {}",
             kind.name(),
             at.available / MB,
             rawtonic_runtime::memory_budget::floor(at.total) / MB,
-            next / MB,
+            short / MB,
             crate::memory_pressure::memory_line()
         );
         *stopped_short = true;

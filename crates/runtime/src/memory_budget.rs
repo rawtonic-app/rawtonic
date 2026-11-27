@@ -510,6 +510,10 @@ struct Inner {
     asked_waiting: u32,
     /// Last measured peak growth per (label, plan).
     measured: Vec<(&'static str, Plan, u64)>,
+    /// What runs stopped by the run-time guard needed beyond their estimate
+    /// per label, added to later estimates of either plan
+    /// (`Broker::stopped_short`).
+    short_by: Vec<(&'static str, u64)>,
     ledger: Vec<LedgerEntry>,
 }
 
@@ -730,34 +734,39 @@ impl Broker {
     }
 
     /// `reservation`'s run was stopped by the run-time guard ([`guard_trips`])
-    /// with the app at `app_now`: the next request with its label and plan
-    /// is estimated at least at the larger of its estimate and what it grew
-    /// by, plus [`GUARD_MARGIN`] — each stop raises it, so a run that does
-    /// not fit waits for memory instead of starting and stopping again.
-    /// Its release records nothing after this. Returns that estimate.
+    /// with the app at `app_now`: every later request with its label (either
+    /// plan) needs what it grew by beyond its estimate plus [`GUARD_MARGIN`]
+    /// more than its own estimate. Added to the estimate of the retry, not
+    /// an absolute size: what the stopped run loaded and cached (the model,
+    /// the warped image) is not counted again by the retry's smaller
+    /// estimate (review r1). Each stop adds at least the margin, so a run
+    /// that does not fit waits for memory instead of starting and stopping
+    /// again. Its release records nothing after this. Returns the added
+    /// bytes now held for that label.
     pub fn stopped_short(&self, reservation: &Reservation, app_now: Option<u64>) -> u64 {
         self.with(|inner| {
             let Some(e) = inner.held.iter_mut().find(|e| e.held.id == reservation.id) else {
-                return reservation.estimate;
+                return 0;
             };
             let grown = match (e.held.app_at_start, app_now) {
                 (Some(start), Some(now)) => now.saturating_sub(start),
                 _ => 0,
             }
             .max(e.peak_growth);
-            let next = e.held.estimate.max(grown).saturating_add(GUARD_MARGIN);
+            let beyond = grown
+                .saturating_sub(reservation.estimate)
+                .saturating_add(GUARD_MARGIN);
             e.alone = false;
-            let (label, plan) = (e.label, e.plan);
-            let next = inner
-                .measured
+            let label = e.label;
+            let before = inner
+                .short_by
                 .iter()
-                .find(|(l, p, _)| *l == label && *p == plan)
-                .map_or(next, |(_, _, measured)| next.max(*measured));
-            inner
-                .measured
-                .retain(|(l, p, _)| !(*l == label && *p == plan));
-            inner.measured.push((label, plan, next));
-            next
+                .find(|(l, _)| *l == label)
+                .map_or(0, |(_, b)| *b);
+            let now = before.saturating_add(beyond);
+            inner.short_by.retain(|(l, _)| *l != label);
+            inner.short_by.push((label, now));
+            now
         })
     }
 
@@ -788,14 +797,21 @@ impl Broker {
     }
 
     /// The estimate for `label` with `plan`: `estimate`, or the last peak
-    /// measured for it when larger.
+    /// measured for it when larger, plus what runs of it stopped by the
+    /// run-time guard needed beyond theirs (`stopped_short`).
     pub fn corrected(&self, label: &'static str, plan: Plan, estimate: u64) -> u64 {
         self.with(|inner| {
-            inner
+            let measured = inner
                 .measured
                 .iter()
                 .find(|(l, p, _)| *l == label && *p == plan)
-                .map_or(estimate, |(_, _, measured)| estimate.max(*measured))
+                .map_or(estimate, |(_, _, m)| estimate.max(*m));
+            let short = inner
+                .short_by
+                .iter()
+                .find(|(l, _)| *l == label)
+                .map_or(0, |(_, b)| *b);
+            measured.saturating_add(short)
         })
     }
 
@@ -1631,28 +1647,41 @@ mod tests {
             available: 0,
             app: None
         }));
-        let next = b.stopped_short(&run, near.app);
-        assert_eq!(next, 2700 * MB + GUARD_MARGIN);
+        let short = b.stopped_short(&run, near.app);
+        // It grew 2700 MB of 2563 estimated: 137 MB beyond, + the margin.
+        assert_eq!(short, 137 * MB + GUARD_MARGIN);
         drop(run);
-        // Its release did not lower what the stop recorded.
+        // Its release did not record the stopped run's peak.
         assert_eq!(
             b.corrected("AI subject click", Plan::Reduced, 2563 * MB),
-            next
+            2563 * MB + short
         );
-        // The same room again: it waits (no plan fits) instead of running
-        // into the floor again.
+        // The same room again, the same cold estimate: it waits (no plan
+        // fits) instead of running into the floor again.
         let again = b.try_reserve(request, &|| start, false, Duration::from_secs(1), None);
-        assert!(matches!(again, Err(Wait::Memory { need, .. }) if need == next));
-        // Memory freed (the photographer closed another program): it runs.
-        let freed = reading(floor + next + 10 * MB, 3481 * MB);
+        assert!(matches!(again, Err(Wait::Memory { need, .. }) if need == 2563 * MB + short));
+        // The retry finds the model loaded and the warped image cached
+        // (review r1): its own estimate is the run's alone, 1100 MB, and
+        // the correction comes on top of that, not of the cold grant.
+        let warm = Request::new(Class::Asked, "AI subject click", 1400 * MB)
+            .reduced(1100 * MB)
+            .exclusive()
+            .only_when_it_fits();
+        let freed = reading(floor + 1100 * MB + short + 10 * MB, 3481 * MB + 1613 * MB);
         let later = b
-            .try_reserve(request, &|| freed, false, Duration::from_secs(60), None)
+            .try_reserve(warm, &|| freed, false, Duration::from_secs(60), None)
             .unwrap();
         assert_eq!(later.reservation.plan(), Plan::Reduced);
-        assert_eq!(later.reservation.estimate(), next);
-        // A second stop raises it again: no endless start and stop.
-        let again = b.stopped_short(&later.reservation, Some(3481 * MB + 100 * MB));
-        assert_eq!(again, next + GUARD_MARGIN);
+        assert_eq!(later.reservation.estimate(), 1100 * MB + short);
+        // The full plan counts it too.
+        assert_eq!(
+            b.corrected("AI subject click", Plan::Full, 1400 * MB),
+            1400 * MB + short
+        );
+        // A second stop within its estimate (others took the room) still
+        // adds the margin: no endless start and stop.
+        let again = b.stopped_short(&later.reservation, Some(3481 * MB + 1613 * MB + 100 * MB));
+        assert_eq!(again, short + GUARD_MARGIN);
     }
 
     #[test]
