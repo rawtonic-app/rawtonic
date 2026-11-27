@@ -1331,6 +1331,11 @@ fn preview_base(
             preparation_key,
         )?
     };
+    // A base built from the full decode, not served from a cache: the frame
+    // builds the caches a release let go (G74/BRK4).
+    if !interim {
+        crate::memory_broker::note_frame_base_built();
+    }
     develop
         .reusable_previews
         .lock()
@@ -3412,7 +3417,14 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             }
             let rendered = result.is_ok();
             if rendered && let Some(visible) = visible.as_mut() {
-                visible.rendered();
+                // Its caches are built only with a base built for it and
+                // no colour noise render input still to build (G74/BRK4).
+                visible.rendered(
+                    app_handle
+                        .state::<DevelopSession>()
+                        .color_noise_view
+                        .building(),
+                );
             }
             let region_sent = result
                 .as_ref()

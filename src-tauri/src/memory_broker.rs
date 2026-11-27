@@ -77,6 +77,21 @@ static FRAMES_ENDED_UP_TO: AtomicU64 = AtomicU64::new(0);
 static FRAME_CACHE_RELEASES: AtomicU64 = AtomicU64::new(1);
 static FRAME_CACHES_BUILT_AFTER: AtomicU64 = AtomicU64::new(0);
 
+/// Preview bases of the open photo built so far (not served from a cache,
+/// [`note_frame_base_built`]): a frame builds the caches again only when
+/// one was built while it ran. A frame served from the photo's kept base
+/// builds nothing: on the Lenovo such a frame (13–17 ms) right after an
+/// idle compile had let the caches go marked them built, the pending
+/// layer's grant left the frame out (3003 instead of 3717 MB) and the frame
+/// with the mask rebuilt them after the answer: the watchdog in 3 of 4
+/// runs at 7 GB (G74/BRK4, notes: benchmark-results/wbrk3-2026-11-27).
+static FRAME_BASES_BUILT: AtomicU64 = AtomicU64::new(0);
+
+/// Notes that a preview base of the open photo was built from its decode.
+pub(crate) fn note_frame_base_built() {
+    FRAME_BASES_BUILT.fetch_add(1, Ordering::SeqCst);
+}
+
 /// Notes that the open photo's frame caches were let go.
 pub(crate) fn note_frame_caches_dropped() {
     FRAME_CACHE_RELEASES.fetch_add(1, Ordering::SeqCst);
@@ -106,20 +121,29 @@ pub(crate) struct VisibleFrame {
     started: u64,
     /// `FRAME_CACHE_RELEASES` at its start.
     releases: u64,
+    /// `FRAME_BASES_BUILT` at its start.
+    bases: u64,
     rendered: bool,
+    /// Rendered with its caches all there: a base built while it ran and
+    /// no colour noise render input still to build after it.
+    built: bool,
 }
 
 impl VisibleFrame {
-    /// The frame was rendered.
-    pub(crate) fn rendered(&mut self) {
+    /// The frame was rendered; `more_to_build`: a build of its caches
+    /// follows it (the colour noise view's render input wanted).
+    pub(crate) fn rendered(&mut self, more_to_build: bool) {
         self.rendered = true;
+        self.built = FRAME_BASES_BUILT.load(Ordering::SeqCst) > self.bases && !more_to_build;
     }
 }
 
 impl Drop for VisibleFrame {
     fn drop(&mut self) {
         if self.rendered {
-            FRAME_CACHES_BUILT_AFTER.fetch_max(self.releases, Ordering::SeqCst);
+            if self.built {
+                FRAME_CACHES_BUILT_AFTER.fetch_max(self.releases, Ordering::SeqCst);
+            }
             FRAMES_ENDED_UP_TO.fetch_max(self.started, Ordering::SeqCst);
         }
     }
@@ -138,7 +162,9 @@ pub(crate) fn hold_visible_frame(pixels: u64) -> VisibleFrame {
         ),
         started: FRAMES_STARTED.fetch_add(1, Ordering::SeqCst) + 1,
         releases: FRAME_CACHE_RELEASES.load(Ordering::SeqCst),
+        bases: FRAME_BASES_BUILT.load(Ordering::SeqCst),
         rendered: false,
+        built: false,
     }
 }
 
@@ -153,26 +179,123 @@ fn frame_after_settled(started_before: u64) -> bool {
     FRAMES_ENDED_UP_TO.load(Ordering::SeqCst) > started_before && !visible_busy()
 }
 
-/// What happens after an AI mask run the photographer asked for is
-/// answered, under the run's own grant (G74/BRK3): the webview puts the mask
-/// in its layer, the frame with the mask renders and the recipe and its
-/// thumbnail are saved. When the run's reservation and its AI turn ended
-/// at the answer, idle shader compiles started at once and let the open
-/// photo's frame caches go (`memory_pressure::release_rebuildable_memory`),
-/// so the frame built them again beside the model still loaded and the
-/// saved thumbnail's own full-resolution warp: +2.4–3.7 GB, the Lenovo's
-/// watchdog in 2 of 2 pending-layer runs at 7 GB available (WBRK2). They
-/// are held here, on a task, until a frame started after the answer has
-/// ended and the photo is quiet (`ai_ahead::QUIET`), at most
+/// What happens after an AI mask the photographer asked for is answered,
+/// under the grant of its run (G74/BRK3, BRK4): the webview puts the mask in
+/// its layer, the frame with the mask renders (and, when the photo's caches
+/// were let go, builds them again: its base and the colour noise view's
+/// render input) and the recipe and its thumbnail are saved. When the
+/// run's reservation and its AI turn ended at the answer, idle shader
+/// compiles started at once and let the open photo's frame caches go
+/// (`memory_pressure::release_rebuildable_memory`), so the frame built them
+/// again beside the model still loaded and the saved thumbnail's own
+/// full-resolution warp: +2.4–3.7 GB, the Lenovo's watchdog in 2 of 2
+/// pending-layer runs at 7 GB available (WBRK2).
+///
+/// Every answer that goes into a layer comes here (one mechanism for all:
+/// Subject and Sky clicks and pending layers, object selections, Landscape
+/// and People), with its run's `reservation`, or None where the run held
+/// none (Landscape, People, a cached mask): then a hold of what is still to
+/// come is taken. Either way it counts only what the app grew by since and
+/// the frame when the caches are gone (once for a batch: a second selection
+/// answered with it does not count it again), is not exclusive (another
+/// selection of the photo may start beside it) and keeps speculative work,
+/// exports, the saved thumbnail and idle compiles back
+/// (`memory_pressure::guard_idle_compiles` reads `asked_active`). It is held
+/// on a task until a frame started after the answer has ended, the photo is
+/// quiet (`ai_ahead::QUIET`) and no colour noise build of it is wanted or
+/// running, at most [`AFTER_ANSWER_HOLD`], or until the photo is left.
+pub(crate) fn after_answer(
+    app: &tauri::AppHandle,
+    reservation: Option<rawtonic_runtime::memory_budget::Reservation>,
+    label: &'static str,
+) {
+    let Some(loaded) = crate::state::lock::lock_recover(
+        &app.state::<crate::app_state::AppState>()
+            .source
+            .original_image,
+    )
+    .clone() else {
+        return;
+    };
+    let pixels = u64::from(loaded.image.width()) * u64::from(loaded.image.height());
+    let held = answer_hold(
+        reservation,
+        label,
+        pixels,
+        crate::memory_pressure::reading().app,
+    );
+    let develop_app = app.clone();
+    let gone_app = app.clone();
+    let (path, image) = (loaded.path, loaded.image);
+    hold_after_answer(
+        held.reservation,
+        held.counts_frame,
+        move || {
+            develop_app
+                .state::<crate::state::develop::DevelopSession>()
+                .color_noise_view
+                .building()
+        },
+        move || {
+            !crate::state::lock::lock_recover(
+                &gone_app
+                    .state::<crate::app_state::AppState>()
+                    .source
+                    .original_image,
+            )
+            .as_ref()
+            .is_some_and(|now| now.path == path && Arc::ptr_eq(&now.image, &image))
+        },
+    );
+}
+
+/// What an answer holds after it ([`after_answer`]).
+struct AnswerHold {
+    reservation: rawtonic_runtime::memory_budget::Reservation,
+    /// It counts the frame with its mask (`frame_counted_by_an_answer`).
+    counts_frame: bool,
+}
+
+/// `reservation` settled to what the app grew by since its start (with the
+/// app at `app_now`) and what is still to come, or a new hold of that for an
+/// answer without one: the frame building the caches again when they are
+/// gone (`FRAME_BYTES_PER_PIXEL` × `pixels`), unless a held answer counts
+/// it already.
+fn answer_hold(
+    reservation: Option<rawtonic_runtime::memory_budget::Reservation>,
+    label: &'static str,
+    pixels: u64,
+    app_now: Option<u64>,
+) -> AnswerHold {
+    let counts_frame = frame_caches_dropped() && !frame_counted_by_an_answer();
+    let still_to_come = if counts_frame {
+        pixels.saturating_mul(FRAME_BYTES_PER_PIXEL)
+    } else {
+        0
+    };
+    let reservation = match reservation {
+        Some(reservation) => {
+            BROKER.settle(&reservation, still_to_come, app_now);
+            reservation
+        }
+        None => BROKER.hold(Class::Asked, label, still_to_come, app_now),
+    };
+    AnswerHold {
+        reservation,
+        counts_frame,
+    }
+}
+
+/// Holds `held` (a reservation, or in tests anything) on a task until a
+/// frame started after now has ended, the photo is quiet and `building`
+/// says no more of its caches are being built, at most
 /// [`AFTER_ANSWER_HOLD`], or until `gone` says the photo was left
 /// (`counts_frame`: `held` counts the frame, `frame_counted_by_an_answer`
-/// says so meanwhile). While
-/// held, speculative work does not start and idle compiles stay stopped
-/// (`memory_pressure::guard_idle_compiles` reads `asked_active`).
-pub(crate) fn hold_after_answer<T: Send + 'static>(
+/// says so meanwhile).
+fn hold_after_answer<T: HeldAnswer>(
     held: T,
-    label: &'static str,
     counts_frame: bool,
+    building: impl Fn() -> bool + Send + 'static,
     gone: impl Fn() -> bool + Send + 'static,
 ) {
     let started_before = FRAMES_STARTED.load(Ordering::SeqCst);
@@ -182,7 +305,7 @@ pub(crate) fn hold_after_answer<T: Send + 'static>(
     }
     tauri::async_runtime::spawn(async move {
         let why = loop {
-            if frame_after_settled(started_before) {
+            if frame_after_settled(started_before) && !building() {
                 break "the frame with the mask settled";
             }
             if gone() {
@@ -194,7 +317,8 @@ pub(crate) fn hold_after_answer<T: Send + 'static>(
             tokio::time::sleep(Duration::from_millis(100)).await;
         };
         log::info!(
-            "memory broker: {label} held {} ms after its answer ({why}); {}",
+            "memory broker: {} held {} ms after its answer ({why}); {}",
+            held.label(),
             start.elapsed().as_millis(),
             crate::memory_pressure::memory_line()
         );
@@ -203,6 +327,17 @@ pub(crate) fn hold_after_answer<T: Send + 'static>(
             FRAMES_COUNTED_BY_ANSWERS.fetch_sub(1, Ordering::SeqCst);
         }
     });
+}
+
+/// What [`hold_after_answer`] holds: its label for the log.
+trait HeldAnswer: Send + 'static {
+    fn label(&self) -> &'static str;
+}
+
+impl HeldAnswer for rawtonic_runtime::memory_budget::Reservation {
+    fn label(&self) -> &'static str {
+        rawtonic_runtime::memory_budget::Reservation::label(self)
+    }
 }
 
 /// Bytes per pixel a saved thumbnail of the open photo may add while it
@@ -645,6 +780,12 @@ mod tests {
         }
     }
 
+    impl HeldAnswer for Held {
+        fn label(&self) -> &'static str {
+            "test answer"
+        }
+    }
+
     async fn dropped_within(flag: &AtomicBool, limit: Duration) -> bool {
         let start = Instant::now();
         while start.elapsed() < limit {
@@ -656,10 +797,20 @@ mod tests {
         flag.load(Ordering::SeqCst)
     }
 
-    /// One test for the process-wide frame counters (G74/BRK3): what an AI
-    /// mask's answer holds lasts until a frame started after the answer has
-    /// ended, not one that was under way already; leaving the photo ends
-    /// it too. A settled frame builds the frame caches a release let go.
+    /// A frame of the open photo that builds a base, renders and leaves
+    /// nothing to build after it.
+    fn frame_building_its_caches() {
+        let mut frame = hold_visible_frame(1);
+        note_frame_base_built();
+        frame.rendered(false);
+    }
+
+    /// One test for the process-wide frame counters (G74/BRK3, BRK4): what
+    /// an AI mask's answer holds lasts until a frame started after the
+    /// answer has ended and no more of its caches are being built, not one
+    /// that was under way already; leaving the photo ends it too. Only a
+    /// frame that builds a base, with no colour noise render input still to
+    /// build, builds the frame caches a release let go.
     #[tokio::test]
     async fn an_answer_is_held_until_the_frame_with_its_mask_settles() {
         // The caches let go (an idle compile), then a frame builds them.
@@ -667,10 +818,18 @@ mod tests {
         assert!(frame_caches_dropped());
         let mut before = hold_visible_frame(1);
         let dropped = Arc::new(AtomicBool::new(false));
-        hold_after_answer(Held(dropped.clone()), "AI subject click", true, || false);
+        let building = Arc::new(AtomicBool::new(false));
+        let still_building = building.clone();
+        hold_after_answer(
+            Held(dropped.clone()),
+            true,
+            move || still_building.load(Ordering::SeqCst),
+            || false,
+        );
         assert!(frame_counted_by_an_answer());
         // The frame under way at the answer ends: it was not the mask's.
-        before.rendered();
+        note_frame_base_built();
+        before.rendered(false);
         drop(before);
         assert!(!frame_caches_dropped());
         assert!(!dropped_within(&dropped, Duration::from_millis(400)).await);
@@ -679,31 +838,77 @@ mod tests {
         drop(hold_visible_frame(1));
         assert!(frame_caches_dropped());
         assert!(!dropped_within(&dropped, Duration::from_millis(300)).await);
-        // The frame with the mask.
+        // The frame with the mask, served from the photo's kept base: it
+        // builds nothing, the caches stay gone (WBRK3: a 13–17 ms frame
+        // marked them built and the grant left the frame out, BRK4). Its
+        // colour noise render input is built after it: the answer stays
+        // held until that is done.
+        building.store(true, Ordering::SeqCst);
         let mut with_mask = hold_visible_frame(1);
         assert!(!dropped_within(&dropped, Duration::from_millis(300)).await);
-        with_mask.rendered();
+        with_mask.rendered(true);
         drop(with_mask);
-        assert!(!frame_caches_dropped());
+        assert!(frame_caches_dropped());
+        assert!(!dropped_within(&dropped, Duration::from_millis(400)).await);
+        building.store(false, Ordering::SeqCst);
         assert!(dropped_within(&dropped, Duration::from_secs(2)).await);
         // Its count of the frame goes with it.
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(!frame_counted_by_an_answer());
 
+        // A base built, but the colour noise input still to come: gone.
+        let mut base_only = hold_visible_frame(1);
+        note_frame_base_built();
+        base_only.rendered(true);
+        drop(base_only);
+        assert!(frame_caches_dropped());
+        // A frame that builds them.
+        frame_building_its_caches();
+        assert!(!frame_caches_dropped());
+
         // A frame under way at a release does not clear it (review r2).
         let mut under_way = hold_visible_frame(1);
         note_frame_caches_dropped();
-        under_way.rendered();
+        note_frame_base_built();
+        under_way.rendered(false);
         drop(under_way);
         assert!(frame_caches_dropped());
+
+        // An answer whose run reserved nothing (Landscape, People, a cached
+        // mask) holds what is still to come: the frame, with the caches
+        // gone (BRK4).
+        let held = answer_hold(None, "AI test selection", 1000, Some(0));
+        assert!(held.counts_frame);
+        let entry = BROKER
+            .held()
+            .into_iter()
+            .find(|h| h.id == held.reservation.id())
+            .expect("held in the broker");
+        assert_eq!(entry.class, Class::Asked);
+        assert_eq!(entry.estimate, 1000 * FRAME_BYTES_PER_PIXEL);
+        assert!(!entry.exclusive);
+        drop(held);
+        frame_building_its_caches();
+        let held = answer_hold(None, "AI test selection", 1000, Some(0));
+        assert!(!held.counts_frame);
+        let entry = BROKER
+            .held()
+            .into_iter()
+            .find(|h| h.id == held.reservation.id())
+            .expect("held in the broker");
+        assert_eq!(entry.estimate, 0);
+        drop(held);
 
         // Leaving the photo ends the hold at once.
         let left = Arc::new(AtomicBool::new(false));
         let gone = Arc::new(AtomicBool::new(false));
         let gone_now = gone.clone();
-        hold_after_answer(Held(left.clone()), "AI sky click", false, move || {
-            gone_now.load(Ordering::SeqCst)
-        });
+        hold_after_answer(
+            Held(left.clone()),
+            false,
+            || false,
+            move || gone_now.load(Ordering::SeqCst),
+        );
         assert!(!dropped_within(&left, Duration::from_millis(300)).await);
         gone.store(true, Ordering::SeqCst);
         assert!(dropped_within(&left, Duration::from_secs(2)).await);

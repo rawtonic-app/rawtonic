@@ -338,7 +338,7 @@ pub fn guard_idle_compiles(app_handle: &tauri::AppHandle) {
             return Err("an export runs".into());
         }
         // A request of the photographer runs, waits for memory or is held
-        // after its answer (`memory_broker::hold_after_answer`): the compile
+        // after its answer (`memory_broker::after_answer`): the compile
         // would let the open photo's frame caches go right before the frame
         // with the new mask builds them again (G74/BRK3, WBRK2).
         if crate::memory_broker::BROKER.asked_active() {

@@ -232,6 +232,9 @@ pub async fn generate_ai_landscape_mask(
         "AI landscape mask: answered after {} ms",
         started.elapsed().as_millis()
     );
+    // Its run reserves nothing: what follows the answer is held as any AI
+    // mask's (G74/BRK4).
+    crate::memory_broker::after_answer(&app_handle, None, "AI landscape selection");
     Ok(AiSkyMaskParameters {
         mask_data_base64: Some(data),
         rotation: Some(rotation),
@@ -725,6 +728,8 @@ pub async fn generate_ai_subject_mask(
         png_start.elapsed().as_millis(),
         started.elapsed().as_millis()
     );
+    // The frame with the selection follows under its grant (G74/BRK4).
+    crate::memory_broker::after_answer(&app_handle, _reservation, "AI object selection");
 
     Ok(AiSubjectMaskParameters {
         start_x: start_point.0,
@@ -1262,6 +1267,7 @@ async fn auto_mask(
         crate::ai_processing::fetch_low_peak_subject_in_background(app_handle);
     }
     if let Some(mask) = cached_mask(ai_state, kind, &key) {
+        settle_after_answer(app_handle, kind, origin, None);
         return Ok(Some(mask));
     }
     if cancelled() {
@@ -1364,7 +1370,7 @@ async fn auto_mask(
     // that holds memory already (it would never end, G74/BRK2).
     let mut _run = kind.lock(ai_state).lock().await;
     if let Some(mask) = cached_mask(ai_state, kind, &key) {
-        settle_after_answer(app_handle, &loaded, origin, reservation);
+        settle_after_answer(app_handle, kind, origin, reservation);
         return Ok(Some(mask));
     }
     if cancelled() {
@@ -1387,7 +1393,7 @@ async fn auto_mask(
         let turn = crate::ai_lifecycle::turn(asked.is_some()).await;
         _run = kind.lock(ai_state).lock().await;
         if let Some(mask) = cached_mask(ai_state, kind, &key) {
-            settle_after_answer(app_handle, &loaded, origin, reservation);
+            settle_after_answer(app_handle, kind, origin, reservation);
             return Ok(Some(mask));
         }
         if cancelled() {
@@ -1544,52 +1550,32 @@ async fn auto_mask(
     // Not under the AI turn after the answer: a compile the frame with the
     // mask waits for would wait for it.
     drop(_turn);
-    settle_after_answer(app_handle, &loaded, origin, reservation);
+    settle_after_answer(app_handle, kind, origin, reservation);
     Ok(Some(data))
 }
 
 /// What follows the answer of a click or a pending layer (the webview puts
 /// the mask in its layer: the frame with the mask, the saved thumbnail)
-/// stays under the run's grant until that frame settled
-/// (`memory_broker::hold_after_answer`, G74/BRK3). Not for the masking
-/// tools' run: its mask is kept for a click, no frame follows it.
+/// stays under the run's grant, or a hold of what is still to come when the
+/// mask was cached, until that frame settled (`memory_broker::after_answer`,
+/// G74/BRK3, BRK4). Not for the masking tools' run: its mask is kept for a
+/// click, no frame follows it.
 fn settle_after_answer(
     app_handle: &tauri::AppHandle,
-    loaded: &crate::state::source::LoadedImage,
+    kind: AutoMask,
     origin: Option<Origin>,
     reservation: Option<rawtonic_runtime::memory_budget::Reservation>,
 ) {
-    let Some(reservation) = reservation else {
+    let Some(origin) = origin.filter(|origin| answer_goes_into_a_layer(*origin)) else {
         return;
     };
-    if !matches!(origin, Some(Origin::Click | Origin::Pending)) {
-        return;
-    }
-    // Another selection of the photo may start beside it (the webview
-    // waits for a migrated photo's Subject and Sky together, review r1),
-    // and the grant counts what is still to come: the frame building the
-    // caches again when they are gone, once for such a batch (review r2).
-    let pixels = u64::from(loaded.image.width()) * u64::from(loaded.image.height());
-    let counts_frame = crate::memory_broker::frame_caches_dropped()
-        && !crate::memory_broker::frame_counted_by_an_answer();
-    let still_to_come = if counts_frame {
-        pixels.saturating_mul(crate::memory_broker::FRAME_BYTES_PER_PIXEL)
-    } else {
-        0
-    };
-    crate::memory_broker::BROKER.settle(
-        &reservation,
-        still_to_come,
-        crate::memory_pressure::reading().app,
-    );
-    let label = reservation.label();
-    let app = app_handle.clone();
-    let (path, image) = (loaded.path.clone(), loaded.image.clone());
-    crate::memory_broker::hold_after_answer(reservation, label, counts_frame, move || {
-        !lock_recover(&app.state::<AppState>().source.original_image)
-            .as_ref()
-            .is_some_and(|now| now.path == path && Arc::ptr_eq(&now.image, &image))
-    });
+    crate::memory_broker::after_answer(app_handle, reservation, asked_label(kind, origin));
+}
+
+/// Whether the webview puts the answer of a request from `origin` into a
+/// layer at once (a frame with the mask follows it).
+fn answer_goes_into_a_layer(origin: Origin) -> bool {
+    matches!(origin, Origin::Click | Origin::Pending)
 }
 
 /// Told when an AI mask run the photographer asked for runs its reduced
@@ -1930,21 +1916,14 @@ fn asked_request(e: &AskedEstimate) -> rawtonic_runtime::memory_budget::Request 
     use rawtonic_runtime::memory_budget::{
         ASKED_WAITS_FOR_VISIBLE, Class, PENDING_WAITS_FOR_VISIBLE, Request,
     };
-    let label = match (e.kind, e.origin) {
-        (AutoMask::Subject, Origin::Click) => "AI subject click",
-        (AutoMask::Subject, Origin::Tools) => "AI subject for the masking tools",
-        (AutoMask::Subject, Origin::Pending) => "AI subject pending layer",
-        (AutoMask::Sky, Origin::Click) => "AI sky click",
-        (AutoMask::Sky, Origin::Tools) => "AI sky for the masking tools",
-        (AutoMask::Sky, Origin::Pending) => "AI sky pending layer",
-    };
+    let label = asked_label(e.kind, e.origin);
     let wait = if e.origin == Origin::Pending {
         PENDING_WAITS_FOR_VISIBLE
     } else {
         ASKED_WAITS_FOR_VISIBLE
     };
     // After the answer the frame with the mask renders under the same grant
-    // (`memory_broker::hold_after_answer`): when the photo's frame caches
+    // (`memory_broker::after_answer`): when the photo's frame caches
     // are gone it builds them again (`FRAME_BYTES_PER_PIXEL`) beside what
     // the run keeps — the model and the warped image it cached. The run's
     // own memory is free by then, so the grant covers the larger of the two
@@ -1977,6 +1956,18 @@ fn asked_request(e: &AskedEstimate) -> rawtonic_runtime::memory_budget::Request 
         )
     };
     request.exclusive().visible_wait(wait).only_when_it_fits()
+}
+
+/// The memory budget's label of an AI mask run asked for.
+fn asked_label(kind: AutoMask, origin: Origin) -> &'static str {
+    match (kind, origin) {
+        (AutoMask::Subject, Origin::Click) => "AI subject click",
+        (AutoMask::Subject, Origin::Tools) => "AI subject for the masking tools",
+        (AutoMask::Subject, Origin::Pending) => "AI subject pending layer",
+        (AutoMask::Sky, Origin::Click) => "AI sky click",
+        (AutoMask::Sky, Origin::Tools) => "AI sky for the masking tools",
+        (AutoMask::Sky, Origin::Pending) => "AI sky pending layer",
+    }
 }
 
 /// Reserves the object encoder's load and run for a request of the
@@ -2857,6 +2848,24 @@ mod tests {
             warp_shared: false,
             frame_rebuilds: false,
         })
+    }
+
+    /// A pending layer's answer goes into its layer as a click's does, and
+    /// both are held for the frame that follows (G74/BRK4: one mechanism,
+    /// `memory_broker::after_answer`); the masking tools' run is not.
+    #[test]
+    fn pending_layers_and_clicks_are_held_after_their_answer() {
+        assert!(answer_goes_into_a_layer(Origin::Pending));
+        assert!(answer_goes_into_a_layer(Origin::Click));
+        assert!(!answer_goes_into_a_layer(Origin::Tools));
+        assert_eq!(
+            asked_label(AutoMask::Subject, Origin::Pending),
+            "AI subject pending layer"
+        );
+        assert_eq!(
+            asked_label(AutoMask::Sky, Origin::Pending),
+            "AI sky pending layer"
+        );
     }
 
     #[test]
