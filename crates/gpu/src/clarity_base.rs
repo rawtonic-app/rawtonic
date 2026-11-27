@@ -1,11 +1,13 @@
 //! Clarity version 4's large-scale base on a reduced grid
 //! (`shaders/clarity_base.wgsl`). Version 3 reads the mean log luminance of
-//! the large blur (index 3), computed at full resolution for every tile: a
-//! quarter of an export's GPU time (notes: benchmark-results/
-//! exp2-2026-11-26). Version 4 computes that field once per render on
+//! the large blur (index 3), computed at full resolution for every tile:
+//! 26 % of a 24 MP export's GPU time (notes: benchmark-results/
+//! exp2-2026-11-26). Version 4 computes that field once per input on
 //! blocks of F × F pixels and interpolates it into each tile's large blur,
-//! where the main shader reads it unchanged. Dehaze and Glow read the large
-//! blur's colour, which stays the full-resolution blur.
+//! where the main shader reads it unchanged (37-ARW batch: −37 % JPEG,
+//! −21 % TIFF export wall time, notes: benchmark-results/clr4-2026-11-27).
+//! Dehaze and Glow read the large blur's colour, which stays the
+//! full-resolution blur.
 
 use super::{CompileWeight, Roi, create_compute_pipeline, create_shader};
 use rawtonic_rawdecode::{gpu_submit, gpu_util};
@@ -36,20 +38,41 @@ struct Params {
     origin_y: u32,
     blocks_x: u32,
     blocks_y: u32,
-    pixel_radius: u32,
-    sigma: f32,
     radius: u32,
     flags: u32,
     tile_x: u32,
     tile_y: u32,
     tile_flags: u32,
+    _pad: [u32; 2],
 }
 
-/// One render's block field and the parameters it was made with.
+/// One input's block field, the parameters it was made with and the large
+/// blur's radius in pixels.
 #[derive(Clone)]
 pub(super) struct Field {
     view: wgpu::TextureView,
     params: Params,
+    pixel_radius: u32,
+}
+
+/// The weight of the block `i` blocks from a block's centre (`i` = 0 up to
+/// the radius in blocks): the large blur's taps (blur.wgsl: offsets up to
+/// `radius`, sigma `radius` / 2) that fall in it, summed. The field at block
+/// centres is then that blur's wherever the luminance is even within a
+/// block, and the blur's edge at its radius stays where it is (a Gaussian
+/// on the blocks doubled the mean difference from version 3).
+fn block_weights(radius: u32, step: u32, blocks: u32) -> Vec<f32> {
+    let sigma = f64::from(radius) / 2.0;
+    let half = f64::from(step - 1) / 2.0;
+    (0..=blocks)
+        .map(|offset| {
+            (0..step)
+                .map(|i| f64::from(offset * step + i) - half)
+                .filter(|d| d.abs() <= f64::from(radius))
+                .map(|d| (-(d * d) / (2.0 * sigma * sigma)).exp())
+                .sum::<f64>() as f32
+        })
+        .collect()
 }
 
 pub(super) struct ClarityBasePasses {
@@ -112,6 +135,16 @@ impl ClarityBasePasses {
                 texture_entry(0),
                 storage_entry(1, wgpu::TextureFormat::R32Float),
                 UNIFORM_ENTRY,
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let upsample_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -166,9 +199,8 @@ impl ClarityBasePasses {
         let origin_y = window.y / step;
         let blocks_x = (window.x + window.width).div_ceil(step) - origin_x;
         let blocks_y = (window.y + window.height).div_ceil(step) - origin_y;
-        // As blur.wgsl: sigma is half the radius. The blocks either side
-        // that hold a tap: offsets up to the radius from the block centre.
-        let sigma = radius as f32 / 2.0;
+        // The blocks either side that hold a tap: offsets up to the radius
+        // from the block centre.
         let blocks = (2 * radius + step - 1) / (2 * step);
         Params {
             step,
@@ -180,8 +212,6 @@ impl ClarityBasePasses {
             origin_y,
             blocks_x,
             blocks_y,
-            pixel_radius: radius,
-            sigma,
             radius: blocks,
             flags: u32::from(srgb) << 1,
             ..Default::default()
@@ -190,7 +220,7 @@ impl ClarityBasePasses {
 
     /// Whether `field` was made for these inputs.
     pub(super) fn matches(field: &Field, window: Roi, radius: u32, srgb: bool) -> bool {
-        field.params == Self::field_params(window, radius, srgb)
+        field.pixel_radius == radius && field.params == Self::field_params(window, radius, srgb)
     }
 
     /// The block field of `input` (the photo `window`).
@@ -204,13 +234,13 @@ impl ClarityBasePasses {
         srgb: bool,
     ) -> Field {
         let params = Self::field_params(window, radius, srgb);
-        let texture = |label| {
+        let texture = |label, width, height| {
             device
                 .create_texture(&wgpu::TextureDescriptor {
                     label: Some(label),
                     size: wgpu::Extent3d {
-                        width: params.blocks_x,
-                        height: params.blocks_y,
+                        width,
+                        height,
                         depth_or_array_layers: 1,
                     },
                     mip_level_count: 1,
@@ -223,9 +253,12 @@ impl ClarityBasePasses {
                 })
                 .create_view(&Default::default())
         };
-        let blocks = texture("Clarity Base Blocks");
-        let across = texture("Clarity Base Across");
-        let field = texture("Clarity Base Field");
+        let (bx, by) = (params.blocks_x, params.blocks_y);
+        // The blocks with an edge column and row on each side, the blocks'
+        // columns blurred along the rows (edge rows included), the field.
+        let blocks = texture("Clarity Base Blocks", bx + 2, by + 2);
+        let across = texture("Clarity Base Across", bx, by + 2);
+        let field = texture("Clarity Base Field", bx, by);
         let buffer = gpu_util::create_buffer_init(
             device,
             &wgpu::util::BufferInitDescriptor {
@@ -234,13 +267,34 @@ impl ClarityBasePasses {
                 usage: wgpu::BufferUsages::UNIFORM,
             },
         );
-        let mut encoder = device.create_command_encoder(&Default::default());
+        let weights = gpu_util::create_buffer_init(
+            device,
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Clarity Base Weights"),
+                contents: bytemuck::cast_slice(&block_weights(radius, params.step, params.radius)),
+                usage: wgpu::BufferUsages::STORAGE,
+            },
+        );
+        // One submission a pass: the reduction reads every input pixel once,
+        // each blur pass 2 × radius + 1 blocks per block.
         let passes = [
-            (&self.reduce, input, &blocks),
-            (&self.blur_h, &blocks, &across),
-            (&self.blur_v, &across, &field),
+            (
+                &self.reduce,
+                input,
+                &blocks,
+                (bx + 2, by + 2),
+                "clarity base blocks",
+            ),
+            (
+                &self.blur_h,
+                &blocks,
+                &across,
+                (bx, by + 2),
+                "clarity base blur",
+            ),
+            (&self.blur_v, &across, &field, (bx, by), "clarity base blur"),
         ];
-        for (pipeline, source, target) in passes {
+        for (pipeline, source, target, size, label) in passes {
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Clarity Base Field BG"),
                 layout: &self.field_bgl,
@@ -257,23 +311,31 @@ impl ClarityBasePasses {
                         binding: 2,
                         resource: buffer.as_entire_binding(),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: weights.as_entire_binding(),
+                    },
                 ],
             });
-            let mut pass = encoder.begin_compute_pass(&Default::default());
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.dispatch_workgroups(params.blocks_x.div_ceil(8), params.blocks_y.div_ceil(8), 1);
+            let mut encoder = device.create_command_encoder(&Default::default());
+            {
+                let mut pass = encoder.begin_compute_pass(&Default::default());
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, &bind_group, &[]);
+                pass.dispatch_workgroups(size.0.div_ceil(8), size.1.div_ceil(8), 1);
+            }
+            gpu_submit::submit(
+                device,
+                queue,
+                label,
+                u64::from(size.0) * u64::from(size.1),
+                Some(encoder.finish()),
+            );
         }
-        gpu_submit::submit(
-            device,
-            queue,
-            "clarity base field",
-            u64::from(params.blocks_x) * u64::from(params.blocks_y),
-            Some(encoder.finish()),
-        );
         Field {
             view: field,
             params,
+            pixel_radius: radius,
         }
     }
 

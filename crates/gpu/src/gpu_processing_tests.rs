@@ -19319,6 +19319,14 @@ fn chunk_test_profiles() -> Vec<(&'static str, serde_json::Value)> {
             "flare",
             json!({"flareAmount":60,"exposure":1.5,"contrast":20}),
         ),
+        // Clarity version 4's block field (`clarity_base`), alone and with
+        // Dehaze and Glow reading the large blur's colour, on a layer too.
+        ("clarity_v4", json!({"clarity":70,"clarityVersion":4})),
+        (
+            "clarity_v4_dehaze",
+            json!({"clarity":-50,"clarityVersion":4,"dehaze":30,"glowAmount":40,
+                "masks":[local_mask("local", json!({"clarity":60}))]}),
+        ),
     ]
 }
 
@@ -20197,6 +20205,67 @@ fn renders_over_the_texture_limit_match_whole_renders() {
     println!("{comparisons} windowed renders matched whole renders byte for byte");
 }
 
+/// Clarity version 4's block field from windows whose origins fall inside a
+/// block (`clarity_base`: the grid stays anchored at the photo's origin):
+/// byte for byte the whole render, alone and with Dehaze reading the large
+/// blur's colour.
+#[test]
+#[ignore = "requires a native GPU; Clarity version 4 over the texture limit from windows"]
+fn clarity_version_4_windows_match_whole_renders() {
+    let context = context();
+    // A short side of 2290: radius 85, 2-pixel blocks, an odd margin.
+    let (width, height) = (3100, 2290);
+    let source = chunk_test_source(width, height);
+    let limited = limited_context(&context, 2600);
+    for profile in [
+        json!({"clarity":70,"clarityVersion":4}),
+        json!({"clarity":-50,"clarityVersion":4,"dehaze":30}),
+    ] {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(2));
+        let margin = render_window_margin(&adjustments.uniforms, width, height);
+        let step = clarity_base::block_step((40.0f32 * height as f32 / 1080.0).ceil() as u32);
+        let whole_photo = Roi {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        let windows = plan_render_windows(width, height, whole_photo, 2600, margin).unwrap();
+        assert!(
+            windows
+                .iter()
+                .any(|(_, window)| window.x % step != 0 || window.y % step != 0),
+            "{profile}: some window starts inside a block (margin {margin}, step {step})"
+        );
+        for roi in [
+            None,
+            Some(Roi {
+                x: 1001,
+                y: 1500,
+                width: 2003,
+                height: 701,
+            }),
+        ] {
+            let render = |context: &GpuContext| {
+                chunk_test_render(
+                    context,
+                    &source,
+                    &profile,
+                    true,
+                    RenderOutputPrecision::SixteenBit,
+                    roi,
+                )
+                .unwrap()
+            };
+            let (whole, windowed) = (render(&context), render(&limited));
+            assert!(
+                whole.as_bytes() == windowed.as_bytes(),
+                "{profile} roi={roi:?}: the windowed render differs"
+            );
+        }
+    }
+}
+
 /// Clarity's large blur reaches 40 × short side / 1080 pixels: beyond the
 /// tiles' 128-pixel overlap above a 3456-pixel short side. From
 /// `renderVersion` 2 its vertical pass reads the whole radius at tile edges,
@@ -20528,7 +20597,10 @@ fn presence_version_3_cuts_rims_at_strong_edges() {
 /// Clarity version 4 takes its base's large-scale level from 4 × 4-pixel
 /// blocks at this size (`clarity_base::block_step`): it renders as version
 /// 3 (the version keys alone change nothing; Dehaze's colour is version
-/// 3's), and keeps version 3's rims at strong edges.
+/// 3's), keeps version 3's rims at strong edges, and beyond the photo's
+/// edge repeats the edge pixel as version 3's blur does: a one-pixel border
+/// five stops darker (a scan's border) weighs near the edge as it does
+/// there (repeating the edge block's mean moved the base by up to 1.6 EV).
 #[test]
 #[ignore = "requires a native GPU; Clarity version 4 against version 3"]
 fn clarity_version_4_renders_as_version_3() {
@@ -20539,66 +20611,78 @@ fn clarity_version_4_renders_as_version_3() {
         clarity_base::block_step((40.0f32 * height as f32 / 1080.0).ceil() as u32),
         4
     );
-    let source = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+    let texture = |x: u32, y: u32| 0.15 * ((x as f32 * 0.9).sin() * (y as f32 * 0.7).cos());
+    let grey = |ev: f32| {
+        let v = 2.0f32.powf(ev);
+        image::Rgb([v, v, v])
+    };
+    // Bands 3.5 EV apart with a narrow bright line in every dark band.
+    let edges = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
         let level = if (x / 400) % 2 == 0 { -4.5f32 } else { -1.0 };
-        // Fine texture, and a narrow bright line in every dark band.
-        let texture = 0.15 * ((x as f32 * 0.9).sin() * (y as f32 * 0.7).cos());
         let line = if x % 400 == 200 && (x / 400) % 2 == 0 {
             3.0
         } else {
             0.0
         };
-        let v = (2.0f32).powf(level + texture + line);
-        image::Rgb([v, v, v])
+        grey(level + texture(x, y) + line)
     }));
-    let render = |profile: serde_json::Value| {
-        let mut profile = profile;
-        profile["renderVersion"] = json!(3);
-        chunk_test_render(
-            &context,
-            &source,
-            &profile,
-            false,
-            RenderOutputPrecision::SixteenBit,
-            None,
-        )
-        .unwrap()
-        .into_rgb16()
-    };
-    let neutral = render(json!({}));
-    assert!(render(json!({"clarityVersion": 4})) == neutral);
-    assert!(
-        render(json!({"dehaze": 40, "clarityVersion": 4}))
-            == render(json!({"dehaze": 40, "clarityVersion": 3}))
-    );
-    for recipe in [
-        json!({"clarity": 100}),
-        json!({"clarity": 50}),
-        json!({"clarity": -100}),
-        json!({"clarity": 60, "dehaze": 30}),
-    ] {
-        let with = |version: u32| {
-            let mut r = recipe.clone();
-            r["clarityVersion"] = json!(version);
-            render(r)
+    let border = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        if x == 0 || y == 0 || x == width - 1 || y == height - 1 {
+            grey(-7.0)
+        } else {
+            grey(-2.0 + texture(x, y))
+        }
+    }));
+    for (name, source) in [("edges", &edges), ("border", &border)] {
+        let render = |profile: serde_json::Value| {
+            let mut profile = profile;
+            profile["renderVersion"] = json!(3);
+            chunk_test_render(
+                &context,
+                source,
+                &profile,
+                false,
+                RenderOutputPrecision::SixteenBit,
+                None,
+            )
+            .unwrap()
+            .into_rgb16()
         };
-        let (v3, v4) = (with(3), with(4));
-        let mut d: Vec<f64> = v3
-            .pixels()
-            .zip(v4.pixels())
-            .map(|(a, b)| (lstar_of_codes(&a.0) - lstar_of_codes(&b.0)).abs())
-            .collect();
-        let mean = d.iter().sum::<f64>() / d.len() as f64;
-        d.sort_by(f64::total_cmp);
-        let p999 = d[d.len() * 999 / 1000];
-        let max = d[d.len() - 1];
-        eprintln!(
-            "{recipe}: version 4 against 3: |dL*| mean {mean:.4}, p99.9 {p999:.3}, max {max:.3}"
-        );
+        let neutral = render(json!({}));
+        assert!(render(json!({"clarityVersion": 4})) == neutral);
         assert!(
-            mean < 0.03 && p999 < 0.25 && max < 0.5,
-            "{recipe}: |dL*| mean {mean:.4}, p99.9 {p999:.3}, max {max:.3}"
+            render(json!({"dehaze": 40, "clarityVersion": 4}))
+                == render(json!({"dehaze": 40, "clarityVersion": 3}))
         );
+        for recipe in [
+            json!({"clarity": 100}),
+            json!({"clarity": 50}),
+            json!({"clarity": -100}),
+            json!({"clarity": 60, "dehaze": 30}),
+        ] {
+            let with = |version: u32| {
+                let mut r = recipe.clone();
+                r["clarityVersion"] = json!(version);
+                render(r)
+            };
+            let (v3, v4) = (with(3), with(4));
+            let mut d: Vec<f64> = v3
+                .pixels()
+                .zip(v4.pixels())
+                .map(|(a, b)| (lstar_of_codes(&a.0) - lstar_of_codes(&b.0)).abs())
+                .collect();
+            let mean = d.iter().sum::<f64>() / d.len() as f64;
+            d.sort_by(f64::total_cmp);
+            let p999 = d[d.len() * 999 / 1000];
+            let max = d[d.len() - 1];
+            eprintln!(
+                "{name} {recipe}: version 4 against 3: |dL*| mean {mean:.4}, p99.9 {p999:.3}, max {max:.3}"
+            );
+            assert!(
+                mean < 0.03 && p999 < 0.25 && max < 0.5,
+                "{name} {recipe}: |dL*| mean {mean:.4}, p99.9 {p999:.3}, max {max:.3}"
+            );
+        }
     }
 }
 
