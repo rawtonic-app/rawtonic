@@ -59,23 +59,36 @@ pub fn raster_evidence(path: &Path) -> RasterEvidence {
         return RasterEvidence::Unknown;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let Ok(source) = RawSource::new_lazy(path) else {
+        let Ok(file) = std::fs::File::open(path) else {
             return RasterEvidence::Unknown;
         };
-        raster_evidence_inner(source.buf())
+        // Read only directory data, without mapping a removable source.
+        raster_evidence_reader(&mut std::io::BufReader::new(file))
     }))
     .unwrap_or(RasterEvidence::Unknown)
 }
 
+#[cfg(test)]
 fn raster_evidence_inner(bytes: &[u8]) -> RasterEvidence {
+    raster_evidence_reader(&mut std::io::Cursor::new(bytes))
+}
+
+fn raster_evidence_reader<R: std::io::Read + std::io::Seek>(reader: &mut R) -> RasterEvidence {
     use TiffCommonTag as Tag;
+    let mut bytes = [0; 12];
+    if reader.read_exact(&mut bytes).is_err() {
+        return RasterEvidence::Unknown;
+    }
     if !(bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*"))
         || bytes.get(8..12) == Some(b"IIII".as_slice())
         || bytes.get(8..12) == Some(b"CR\x02\0".as_slice())
     {
         return RasterEvidence::Unknown;
     }
-    let Ok(tiff) = GenericTiffReader::new_with_buffer(bytes, 0, 0, None) else {
+    if reader.seek(std::io::SeekFrom::Start(0)).is_err() {
+        return RasterEvidence::Unknown;
+    }
+    let Ok(tiff) = GenericTiffReader::new(reader, 0, 0, None, &[]) else {
         return RasterEvidence::Unknown;
     };
     let with_tag = |tag| {
