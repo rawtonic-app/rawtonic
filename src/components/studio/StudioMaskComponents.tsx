@@ -18,6 +18,7 @@ import { useEditorActions } from '../../hooks/useEditorActions';
 import { openMaskingTools } from '../../hooks/useAiMasking';
 import { useContextMenu } from '../../context/ContextMenuContext';
 import { useProcessStore } from '../../store/useProcessStore';
+import { aiMaskModeOf, computingLabelKey } from '../../utils/aiMaskMode';
 import { Mask, SubMaskMode, type SubMask } from '../panel/right/Masks';
 import {
   DEFAULT_COLOR_RANGE,
@@ -110,6 +111,8 @@ export default function StudioMaskComponents() {
   const { layer, components, activeMaskId, setEditor, setAdjustments, updateComponent, addComponent, paintOnLayer } =
     useMaskComponents();
   const aiTasks = useProcessStore((s) => s.activeAiTasks);
+  const aiMaskModes = useProcessStore((s) => s.aiMaskModes);
+  const photoPath = useEditorStore((s) => s.selectedImage?.path);
   const thumbnails = useMaskThumbnailStore((s) => s.components);
   const layerSolo = useEditorStore((s) => s.layerSolo);
   const altKey = formatKeyCode(
@@ -159,6 +162,8 @@ export default function StudioMaskComponents() {
     );
   };
   const busy = (sub: SubMask) => Boolean(aiTasks[sub.id]);
+  // Why a Subject or Sky component takes longer (G74/BRK3).
+  const busyLabel = (sub: SubMask) => t(computingLabelKey(aiMaskModeOf(sub.type, photoPath, aiMaskModes)));
   const componentLabel = (sub: SubMask) => maskComponentLabel(t, sub, Boolean(layer.invert));
 
   return (
@@ -208,7 +213,11 @@ export default function StudioMaskComponents() {
                   <EyeOff className="studio-solo-muted-indicator" size={10} aria-hidden="true" />
                 )}
                 <span className="studio-mask-component-label">{componentLabel(sub)}</span>
-                {busy(sub) && <span className="studio-mask-busy">· {t('studio.masks.computing')}</span>}
+                {busy(sub) && (
+                  <span className="studio-mask-busy" title={busyLabel(sub)}>
+                    · {busyLabel(sub)}
+                  </span>
+                )}
                 {!busy(sub) && detectionPending(sub) && (
                   <span
                     className="studio-mask-pending"

@@ -4781,6 +4781,7 @@
       },
       "colorSampleHint": "クリックで色を抽出、ドラッグで領域を抽出します。Shift で最大 5 つのサンプルを追加できます。",
       "computing": "計算中…",
+      "computingSlow": "低速モードで計算中（メモリ不足）…",
       "depth": {
         "falloff": "減衰",
         "farLimit": "遠側の限界",
@@ -4819,7 +4820,8 @@
       "objectFrameChanged": "この選択範囲を作成した後に、写真の回転、またはレンズ補正・変形が変更されました。Shift や Alt を押さずにクリックして選択し直してください。",
       "refine": "絞り込み",
       "refineAria": "カラー範囲の絞り込み",
-      "subtractTitle": "このレイヤーのマスクから減算"
+      "subtractTitle": "このレイヤーのマスクから減算",
+      "waitingForMemory": "メモリの空きを待機中…"
     },
     "metadata": {
       "appliesTo_other": "変更は {{count}} 枚の写真に適用されます。",

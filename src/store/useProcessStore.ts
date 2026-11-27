@@ -117,6 +117,13 @@ export interface AiTask {
   count: number;
 }
 
+/** Why an AI mask computing for a photo takes longer (G74/BRK3): it waits
+ * for memory to start, or runs the slower plan that fits in less memory. */
+export type AiMaskMode = 'waitingMemory' | 'slow';
+
+/** The key of a photo's Subject or Sky masks in `aiMaskModes`. */
+export const aiMaskModeKey = (kind: 'subject' | 'sky', path: string) => JSON.stringify([kind, path]);
+
 interface ProcessState {
   exportState: ExportState;
   /** The persistent export queue (running, waiting and resumable jobs). */
@@ -141,12 +148,16 @@ interface ProcessState {
   libraryToOpen: string | null;
   externalEditSession: ExternalEditSession | null;
   activeAiTasks: Record<string, AiTask>;
+  /** By `aiMaskModeKey`: Subject or Sky masks that wait for memory or run
+   * the slower low-memory plan. */
+  aiMaskModes: Record<string, AiMaskMode>;
 
   setProcess: (state: Partial<ProcessState> | ((state: ProcessState) => Partial<ProcessState>)) => void;
   setExportState: (updater: Partial<ExportState> | ((state: ExportState) => Partial<ExportState>)) => void;
   registerAiTask: (id: string, type: string) => void;
   unregisterAiTask: (id: string) => void;
   isAiTaskRunning: (id: string) => boolean;
+  setAiMaskMode: (key: string, mode: AiMaskMode | null) => void;
   /** `since`: `currentExportEventSeq()` when the read was asked for;
    * `read`: its `nextExportRead()`. */
   setExportItems: (job: string, items: ExportItem[], since?: number, read?: number) => void;
@@ -178,6 +189,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
   libraryToOpen: null,
   externalEditSession: null,
   activeAiTasks: {},
+  aiMaskModes: {},
 
   setProcess: (updater) => {
     set((prev) => {
@@ -237,6 +249,15 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
     }),
 
   isAiTaskRunning: (id) => !!get().activeAiTasks[id],
+
+  setAiMaskMode: (key, mode) =>
+    set((state) => {
+      if ((state.aiMaskModes[key] ?? null) === mode) return {};
+      const next = { ...state.aiMaskModes };
+      if (mode) next[key] = mode;
+      else delete next[key];
+      return { aiMaskModes: next };
+    }),
 
   // A reply can arrive after events that changed its photos: those keep the
   // event's state. Live stages survive a reload (the queue does not keep them).

@@ -5331,6 +5331,7 @@
       },
       "colorSampleHint": "Kliknij, aby pobrać kolor, przeciągnij, aby pobrać obszar; Shift dodaje do pięciu próbek.",
       "computing": "obliczanie…",
+      "computingSlow": "obliczanie w wolniejszym trybie (mało pamięci)…",
       "depth": {
         "falloff": "Przejście",
         "farLimit": "Granica daleka",
@@ -5369,7 +5370,8 @@
       "objectFrameChanged": "Od utworzenia tego zaznaczenia zdjęcie zostało obrócone albo zmieniono korekcję obiektywu lub przekształcenie. Kliknij bez Shift ani Alt, aby zaznaczyć ponownie.",
       "refine": "Dopracuj",
       "refineAria": "Dopracuj zakres koloru",
-      "subtractTitle": "Odejmij od maski tej warstwy"
+      "subtractTitle": "Odejmij od maski tej warstwy",
+      "waitingForMemory": "oczekiwanie na pamięć…"
     },
     "metadata": {
       "appliesTo_one": "Zmiany dotyczą {{count}} zdjęcia.",

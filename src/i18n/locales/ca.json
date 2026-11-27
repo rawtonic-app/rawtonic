@@ -5125,6 +5125,7 @@
       },
       "colorSampleHint": "Fes clic per agafar un color, arrossega per agafar una zona; Maj afegeix fins a cinc mostres.",
       "computing": "calculant…",
+      "computingSlow": "calculant en el mode més lent (poca memòria)…",
       "depth": {
         "falloff": "Transició",
         "farLimit": "Límit llunyà",
@@ -5163,7 +5164,8 @@
       "objectFrameChanged": "La foto s'ha girat, o se n'ha canviat l'objectiu o la transformació, des que es va fer aquesta selecció. Feu clic sense Maj ni Alt per tornar a seleccionar.",
       "refine": "Refina",
       "refineAria": "Refina el rang de color",
-      "subtractTitle": "Resta de la màscara d'aquesta capa"
+      "subtractTitle": "Resta de la màscara d'aquesta capa",
+      "waitingForMemory": "esperant memòria…"
     },
     "metadata": {
       "appliesTo_one": "Els canvis s'apliquen a {{count}} foto.",

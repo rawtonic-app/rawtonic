@@ -176,6 +176,20 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     add_to_thumbnail_queue(&app_handle.state::<ThumbnailState>(), 1, &app_handle);
 
     rawtonic_runtime::spawn_render_thread("saved-thumbnail", move || {
+        // The open photo's thumbnail renders from its full decode: after
+        // its frame and a request of the photographer, not beside them
+        // (G74/BRK3: beside the frame with a new Subject mask the two
+        // full-resolution warps took a 14 GB laptop past its watchdog).
+        if preloaded_image_option.is_some() {
+            let waited =
+                crate::memory_broker::wait_for_open_photo(crate::memory_broker::THUMBNAIL_WAIT);
+            if waited.as_millis() >= 100 {
+                log::info!(
+                    "Saved thumbnail of the open photo waited {} ms for its frame or a request of the photographer",
+                    waited.as_millis()
+                );
+            }
+        }
         let settings = crate::state::settings::current(&app_handle_clone);
 
         let thumb_cache_dir = match resolve_thumbnail_cache_dir(&app_handle_clone) {

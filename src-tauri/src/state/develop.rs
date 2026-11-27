@@ -202,6 +202,8 @@ impl DevelopSession {
     /// uploaded again (1.69–1.75 s instead of 0.76–0.85 s; notes:
     /// benchmark-results/tpx8-2026-11-22/REPORT.md).
     pub fn release_rebuildable(&self, keep_warp: bool) {
+        // The open photo's next settled frame builds them again (G74/BRK3).
+        crate::memory_broker::note_frame_caches_dropped();
         lock_recover(&self.decoded_image_cache).clear();
         lock_recover(&self.reusable_previews).clear();
         // Not `patch_cache`: the webview sends AI patch, mask and relight
@@ -223,6 +225,7 @@ impl DevelopSession {
         match scope {
             Scope::OtherPhoto => lock_recover(&self.patch_cache).clear(),
             Scope::Source => {
+                crate::memory_broker::note_frame_caches_dropped();
                 *lock_recover(&self.cached_preview) = None;
                 *lock_recover(&self.gpu_image_cache) = None;
                 *lock_recover(&self.full_warped_cache) = None;
@@ -234,6 +237,7 @@ impl DevelopSession {
                 self.color_noise_view.clear();
             }
             Scope::Decoder => {
+                crate::memory_broker::note_frame_caches_dropped();
                 lock_recover(&self.decoded_image_cache).clear();
                 *lock_recover(&self.gpu_image_cache) = None;
                 *lock_recover(&self.cached_preview) = None;

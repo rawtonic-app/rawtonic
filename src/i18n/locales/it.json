@@ -5125,6 +5125,7 @@
       },
       "colorSampleHint": "Fai clic per prelevare un colore, trascina per prelevare un'area; Maiusc aggiunge fino a cinque campioni.",
       "computing": "calcolo…",
+      "computingSlow": "calcolo nella modalità più lenta (poca memoria)…",
       "depth": {
         "falloff": "Transizione",
         "farLimit": "Limite lontano",
@@ -5163,7 +5164,8 @@
       "objectFrameChanged": "La foto è stata ruotata, o ne è cambiato l'obiettivo o la trasformazione, da quando è stata fatta questa selezione. Fai clic senza Maiusc né Alt per selezionare di nuovo.",
       "refine": "Rifinisci",
       "refineAria": "Rifinisci gamma colore",
-      "subtractTitle": "Sottrai dalla maschera di questo livello"
+      "subtractTitle": "Sottrai dalla maschera di questo livello",
+      "waitingForMemory": "in attesa di memoria…"
     },
     "metadata": {
       "appliesTo_one": "Le modifiche si applicano a {{count}} foto.",

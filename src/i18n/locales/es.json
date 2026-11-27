@@ -5125,6 +5125,7 @@
       },
       "colorSampleHint": "Haz clic para tomar un color, arrastra para tomar una zona; Mayús añade hasta cinco muestras.",
       "computing": "calculando…",
+      "computingSlow": "calculando en el modo más lento (poca memoria)…",
       "depth": {
         "falloff": "Transición",
         "farLimit": "Límite lejano",
@@ -5163,7 +5164,8 @@
       "objectFrameChanged": "La foto se ha girado, o se ha cambiado su objetivo o transformación, desde que se hizo esta selección. Haz clic sin Mayús ni Alt para volver a seleccionar.",
       "refine": "Refinar",
       "refineAria": "Refinar rango de color",
-      "subtractTitle": "Restar de la máscara de esta capa"
+      "subtractTitle": "Restar de la máscara de esta capa",
+      "waitingForMemory": "esperando memoria…"
     },
     "metadata": {
       "appliesTo_one": "Los cambios se aplican a {{count}} foto.",
