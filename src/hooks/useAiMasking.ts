@@ -121,26 +121,29 @@ export interface AiMaskMemoryWait {
   kind: 'subject' | 'sky';
 }
 const memoryWaitNotice = (kind: AiMaskMemoryWait['kind']) => `ai-mask-memory-wait-${kind}`;
-/** Waits for memory under way, by kind: the notice stays while any does. */
-const memoryWaits = new Map<AiMaskMemoryWait['kind'], number>();
+/** Waits for memory under way, by kind and photo. */
+const memoryWaits = new Map<string, number>();
+const waitKey = ({ path, kind }: AiMaskMemoryWait) => JSON.stringify([kind, path]);
 
 /** A mask waits for memory: the photographer is told when it is the open
- * photo's (one notice per kind while any such wait lasts). */
-export function noteAiMaskMemoryWait({ path, kind }: AiMaskMemoryWait) {
-  memoryWaits.set(kind, (memoryWaits.get(kind) ?? 0) + 1);
-  if (useEditorStore.getState().selectedImage?.path !== path) return;
-  notify.warn(i18n.t(kind === 'sky' ? 'editor.ai.memoryWaitSky' : 'editor.ai.memoryWaitSubject'), {
-    toastId: memoryWaitNotice(kind),
+ * photo's (one notice per kind while such a wait lasts). */
+export function noteAiMaskMemoryWait(wait: AiMaskMemoryWait) {
+  memoryWaits.set(waitKey(wait), (memoryWaits.get(waitKey(wait)) ?? 0) + 1);
+  if (useEditorStore.getState().selectedImage?.path !== wait.path) return;
+  notify.warn(i18n.t(wait.kind === 'sky' ? 'editor.ai.memoryWaitSky' : 'editor.ai.memoryWaitSubject'), {
+    toastId: memoryWaitNotice(wait.kind),
     source: 'ai'
   });
 }
 
 /** A wait for memory ended (the run started, was cancelled or its photo
- * changed): the notice goes with the last one of its kind. */
-export function noteAiMaskMemoryWaitEnd({ kind }: AiMaskMemoryWait) {
-  const left = Math.max(0, (memoryWaits.get(kind) ?? 0) - 1);
-  memoryWaits.set(kind, left);
-  if (left === 0) notify.dismiss(memoryWaitNotice(kind));
+ * changed): the notice goes when no wait of its kind for that photo is left. */
+export function noteAiMaskMemoryWaitEnd(wait: AiMaskMemoryWait) {
+  const left = Math.max(0, (memoryWaits.get(waitKey(wait)) ?? 0) - 1);
+  if (left === 0) {
+    memoryWaits.delete(waitKey(wait));
+    notify.dismiss(memoryWaitNotice(wait.kind));
+  } else memoryWaits.set(waitKey(wait), left);
 }
 
 /** Why the backend dropped the models (`ai_lifecycle::UnloadReason`). */

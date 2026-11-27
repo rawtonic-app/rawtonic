@@ -405,8 +405,14 @@ pub fn decide(request: &Request, situation: &Situation) -> Decision {
             if situation.visible_busy {
                 return Decision::Wait(Wait::Visible);
             }
-            let room = speculative_room(situation);
-            // Beside a waiting click the reserve is that click's own: none.
+            // Beside a waiting click it is that click's prerequisite: the
+            // click's own room, without the app's speculative share or the
+            // click reserve.
+            let room = if beside_waiting {
+                room
+            } else {
+                speculative_room(situation)
+            };
             let reserve = if beside_waiting { 0 } else { request.reserve };
             let need = request.need.saturating_add(reserve);
             if room < need {
@@ -1642,6 +1648,11 @@ mod tests {
         // starts, other speculative work still waits for the click.
         assert!(matches!(decide(&fetch, &s), Decision::Grant { .. }));
         assert_eq!(decide(&decode, &s), Decision::Wait(Wait::Asked));
+        // Review r2: the app at 6.6 GB of 15.86 (its speculative share
+        // leaves 537 MB), 4 GB available: the fetch still starts.
+        let mut s = situation(&none, reading(4 * GB, 6600 * MB));
+        s.asked_waiting = true;
+        assert!(matches!(decide(&fetch, &s), Decision::Grant { .. }));
         // Not while an asked run holds its reservation.
         let click = [Held {
             exclusive: true,

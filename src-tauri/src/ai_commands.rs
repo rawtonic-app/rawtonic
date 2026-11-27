@@ -1267,6 +1267,13 @@ async fn auto_mask(
             // Made again each attempt: a model loaded or a warped image
             // cached meanwhile lowers it.
             let request = || {
+                // The low-peak Subject file is this run's prerequisite on
+                // small CPU machines: its fetch is asked again while the run
+                // waits (it runs beside the wait, `serves_asked`; a fetch not
+                // admitted in time ends, and this starts it again).
+                if download && kind == AutoMask::Subject {
+                    crate::ai_processing::fetch_low_peak_subject_in_background(app_handle);
+                }
                 asked_request(&AskedEstimate {
                     kind,
                     origin,
@@ -1307,7 +1314,11 @@ async fn auto_mask(
                 cancelled()
                     || !lock_recover(&state.source.original_image)
                         .as_ref()
-                        .is_some_and(|now| Arc::ptr_eq(&now.image, &loaded.image))
+                        .is_some_and(|now| {
+                            // A virtual copy shares the decode: its path
+                            // (with the copy's suffix) tells them apart.
+                            now.path == loaded.path && Arc::ptr_eq(&now.image, &loaded.image)
+                        })
             };
             let admitted = admit_asked(request, &gone, &mut tell).await;
             if told {
