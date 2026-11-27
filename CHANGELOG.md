@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.21 — 2026-11-27
+
 The twenty-first alpha. New: AI Denoise for Fujifilm X-Trans photos and a much faster Fast quality for AI Denoise, a Develop preview that follows the monitor's colour profile on Windows and Linux, AI selections that wait for memory or use a slower low-memory mode on computers with 16 GB or less, where they used to run out of memory, faster exports with Clarity, Dim Surroundings, and a new Import dialog with one naming editor.
 
 ### Highlights
