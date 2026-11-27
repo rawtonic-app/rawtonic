@@ -789,7 +789,8 @@ export interface Adjustments extends Omit<RecipeKeys, HeldRecipeKey>, Required<P
    * `CLARITY_VERSION`): 2 = the medium-scale band against an edge-aware base
    * (fewer dark halos beside narrow bright edges); 3 = that base also follows
    * the small blur on the pixel's own side (no light halo beside strong dark
-   * edges); 1 or missing on recipes
+   * edges); 4 = version 3's response with its large-scale base from a reduced
+   * grid (faster exports); 1 or missing on recipes
    * that used Clarity before it = the band against a plain blur. Photo-wide
    * (layers follow it). */
   clarityVersion?: number;
@@ -1739,7 +1740,7 @@ export const withCarriedBlacksFor = <T extends Partial<Adjustments>>(
 export const KEYLESS_TONE_VERSION = 5;
 
 /** The Clarity response new edits start with (notes: parity-gaps/G06-presence.md). */
-export const CLARITY_VERSION = 3;
+export const CLARITY_VERSION = 4;
 
 /** The Temperature response new edits start with (notes: parity-gaps/G01-base-profiles.md). */
 export const TEMPERATURE_VERSION = 2;

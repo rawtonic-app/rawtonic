@@ -8090,8 +8090,13 @@ pub const CLARITY_VERSION_KEY: &str = "clarityVersion";
 /// (slider atlas: +0.9 L* over Camera Raw at +100); the small blur a few
 /// pixels away on the pixel's own side does not lean (task ATF9, notes:
 /// benchmark-results/atf9-clarity-texture-halo-2026-11-09).
+/// 4 (2026-11-27) takes the base's large-scale mean log luminance from a
+/// grid of 8 × 8-pixel blocks (fewer on small previews) interpolated
+/// bilinearly instead of the full-resolution large blur (gpu crate
+/// `clarity_base`): the same response, a quarter less export GPU time (task
+/// CLR4, notes: benchmark-results/clr4-2026-11-27).
 /// Recipes without the key keep version 1.
-pub const CLARITY_VERSION: u64 = 3;
+pub const CLARITY_VERSION: u64 = 4;
 
 /// The recipe's Clarity version, 1 when missing, never newer than this
 /// renderer knows.

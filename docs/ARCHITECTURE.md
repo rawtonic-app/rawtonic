@@ -613,7 +613,8 @@ parsers.
 equivalence tests).
 
 `gpu` (gpu_processing: GpuProcessor, shader variants + WGSL in `crates/gpu/src/shaders/`, readback, WgpuDisplay
-presentation, `GpuContext::headless`, GPU equivalence tests; `device_start`: the device with a backend fallback, Windows
+presentation, `GpuContext::headless`, GPU equivalence tests; `clarity_base`: Clarity version 4's block field, made once
+per input and interpolated into each tile's large blur, where the main shader reads it as version 3's; `device_start`: the device with a backend fallback, Windows
 Vulkan/DX12 and never OpenGL (`usable_backends`: wgpu's WGL backend panics on a context lock held over 1 s), every
 failure named, backends to leave out (`avoid`) and each step announced (`on_step`) for the app's start guard
 `src-tauri/src/gpu_start_guard.rs` (a flag naming backends and step while a windowed start's device starts and its first

@@ -35,6 +35,8 @@ mod preview_tests;
 
 #[path = "camera_cover.rs"]
 pub mod camera_cover;
+#[path = "clarity_base.rs"]
+mod clarity_base;
 #[path = "color_noise_view.rs"]
 pub mod color_noise_view;
 #[path = "effect_passes.rs"]
@@ -4748,6 +4750,8 @@ pub struct GpuProcessor {
     h_blur_pipeline: wgpu::ComputePipeline,
     v_blur_pipeline: wgpu::ComputePipeline,
     blur_params_buffer: wgpu::Buffer,
+    /// Clarity version 4's reduced-grid base (`clarity_base`).
+    clarity_base: clarity_base::ClarityBasePasses,
 
     flare_bgl_0: wgpu::BindGroupLayout,
     flare_bgl_1: wgpu::BindGroupLayout,
@@ -5694,6 +5698,8 @@ impl DisplayRenderState {
 #[derive(Default)]
 struct BlurCache {
     input: Option<wgpu::TextureView>,
+    /// Clarity version 4's block field of `input` (`clarity_base`).
+    clarity_field: Option<clarity_base::Field>,
     tiles: std::collections::VecDeque<BlurTile>,
     bytes: usize,
 }
@@ -5729,9 +5735,23 @@ struct BlurTile {
     /// and whether the input is sRGB-encoded (that luminance linearises it).
     geometry: [u32; 9],
     views: [Option<wgpu::TextureView>; 5],
+    /// What the large blur (`views[3]`) holds.
+    large: LargeBlur,
     /// The detail stage of this tile and the settings it was computed with.
     detail: Option<(DetailKey, wgpu::TextureView)>,
     bytes: usize,
+}
+
+/// What a tile's large blur holds: the full-resolution blur (Clarity up to
+/// version 3, Dehaze, Glow), or Clarity version 4's block field in alpha
+/// (`clarity_base`), with the full-resolution colour when Dehaze or Glow
+/// read it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum LargeBlur {
+    #[default]
+    Full,
+    Field,
+    FieldAndColour,
 }
 
 /// Everything the cached detail stage depends on besides the input and the
@@ -6133,6 +6153,31 @@ fn blur_rows_beyond(
         _ => 0,
     };
     (radius + beyond_tile).saturating_sub(TILE_OVERLAP)
+}
+
+/// Whether Clarity of version 4 is used on the photo or a layer: its base
+/// comes from the block field (`clarity_base`), not from the large blur.
+fn clarity_v4(adjustments: &AllAdjustments) -> bool {
+    ClarityVersion::from_uniform(adjustments.global.clarity_version).reduced_base()
+        && (adjustments.global.clarity != 0.0
+            || adjustments
+                .mask_adjustments
+                .iter()
+                .take(adjustments.mask_count as usize)
+                .any(|m| m.clarity != 0.0))
+}
+
+/// Whether Dehaze or Glow read the large blur's colour, on the photo or a
+/// layer (Clarity version 1 does too, but never beside version 4).
+fn large_blur_colour(adjustments: &AllAdjustments) -> bool {
+    let g = &adjustments.global;
+    g.dehaze != 0.0
+        || g.glow_amount > 0.0
+        || adjustments
+            .mask_adjustments
+            .iter()
+            .take(adjustments.mask_count as usize)
+            .any(|m| m.dehaze != 0.0 || m.glow_amount > 0.0)
 }
 
 fn required_blurs(adjustments: &AllAdjustments) -> [bool; 5] {
@@ -8867,6 +8912,7 @@ impl GpuProcessor {
             CompileWeight::Tiny,
         )?;
 
+        let clarity_base = clarity_base::ClarityBasePasses::new(device)?;
         let blur_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Blur Params Buffer"),
             size: std::mem::size_of::<BlurParams>() as u64,
@@ -9278,6 +9324,7 @@ impl GpuProcessor {
             h_blur_pipeline,
             v_blur_pipeline,
             blur_params_buffer,
+            clarity_base,
             flare_bgl_0,
             flare_bgl_1,
             flare_threshold_pipeline,
@@ -12609,6 +12656,54 @@ impl GpuProcessor {
         let largest_beyond = ((40.0 * scale).ceil() as u32 + reach)
             .max((8.0 * scale).ceil() as u32 + small_reach)
             .saturating_sub(TILE_OVERLAP);
+        // Clarity version 4 reads its base from the block field, made once
+        // for the input and kept with the blurs (`clarity_base`); Dehaze and
+        // Glow still need the large blur's colour at full resolution.
+        let large_colour = large_blur_colour(adjustments);
+        let clarity_field = if clarity_v4(adjustments) && blur_requirements[3] {
+            let large_radius = (40.0 * scale).ceil().max(1.0) as u32;
+            let srgb_input = adjustments.global.is_raw_image != 1;
+            let mut cache = blur_cache.lock().unwrap_or_else(|e| e.into_inner());
+            if cache.input.as_ref() != Some(input_texture_view) {
+                *cache = BlurCache {
+                    input: Some(input_texture_view.clone()),
+                    ..Default::default()
+                };
+            }
+            let field = match &cache.clarity_field {
+                Some(field)
+                    if !force_full_preparation
+                        && clarity_base::ClarityBasePasses::matches(
+                            field,
+                            window,
+                            large_radius,
+                            srgb_input,
+                        ) =>
+                {
+                    field.clone()
+                }
+                _ => self.clarity_base.field(
+                    device,
+                    queue,
+                    input_texture_view,
+                    window,
+                    large_radius,
+                    srgb_input,
+                ),
+            };
+            cache.clarity_field = Some(field.clone());
+            Some(field)
+        } else {
+            None
+        };
+        let wanted_large = match (&clarity_field, large_colour) {
+            (None, _) => LargeBlur::Full,
+            (Some(_), false) => LargeBlur::Field,
+            (Some(_), true) => LargeBlur::FieldAndColour,
+        };
+        // The large blur's colour before the field joins it (version 4 with
+        // Dehaze or Glow), as large as a tile's input region.
+        let mut large_colour_target: Option<wgpu::TextureView> = None;
         for tile_y in start_tile_y..end_tile_y {
             for tile_x in start_tile_x..end_tile_x {
                 let x_start_unclamped = tile_x * tile_size;
@@ -12727,6 +12822,7 @@ impl GpuProcessor {
                         BlurTile {
                             geometry,
                             views: Default::default(),
+                            large: LargeBlur::Full,
                             detail: None,
                             bytes: 0,
                         }
@@ -12735,7 +12831,11 @@ impl GpuProcessor {
                     if !blur_requirements[index] {
                         return None;
                     }
-                    if !force_full_preparation && let Some(view) = &tile.views[index] {
+                    let large = index == 3;
+                    if !force_full_preparation
+                        && let Some(view) = &tile.views[index]
+                        && (!large || tile.large == wanted_large)
+                    {
                         return Some(view.clone());
                     }
                     let output_view = tile.views[index].get_or_insert_with(|| {
@@ -12754,6 +12854,56 @@ impl GpuProcessor {
                             })
                             .create_view(&Default::default())
                     });
+                    let output_view = output_view.clone();
+                    let field = clarity_field.as_ref().filter(|_| large);
+                    if large {
+                        tile.large = wanted_large;
+                    }
+                    let upsample = |colour: Option<&wgpu::TextureView>| {
+                        if let Some(field) = field {
+                            self.clarity_base.upsample(
+                                device,
+                                queue,
+                                field,
+                                (input_x_start, input_y_start),
+                                (input_width, input_height),
+                                colour,
+                                &self.dummy_blur_view,
+                                &output_view,
+                            );
+                        }
+                    };
+                    if field.is_some() && !large_colour {
+                        upsample(None);
+                        return Some(output_view);
+                    }
+                    // Version 4 with Dehaze or Glow: the colour blur first,
+                    // without the mean log luminance the field replaces.
+                    let blur_target = if field.is_some() {
+                        large_colour_target
+                            .get_or_insert_with(|| {
+                                device
+                                    .create_texture(&wgpu::TextureDescriptor {
+                                        label: Some("Large blur colour"),
+                                        size: wgpu::Extent3d {
+                                            width: (tile_size + 2 * TILE_OVERLAP).min(width),
+                                            height: (tile_size + 2 * TILE_OVERLAP).min(height),
+                                            depth_or_array_layers: 1,
+                                        },
+                                        mip_level_count: 1,
+                                        sample_count: 1,
+                                        dimension: wgpu::TextureDimension::D2,
+                                        format: wgpu::TextureFormat::Rgba16Float,
+                                        usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                            | wgpu::TextureUsages::STORAGE_BINDING,
+                                        view_formats: &[],
+                                    })
+                                    .create_view(&Default::default())
+                            })
+                            .clone()
+                    } else {
+                        output_view.clone()
+                    };
                     let radius = (base_radius * scale).ceil().max(1.0) as u32;
                     // The vertical pass reads the rows the horizontal one
                     // blurred: beyond the overlap where the radius is larger.
@@ -12798,7 +12948,10 @@ impl GpuProcessor {
                         rows_above,
                         blurred_rows,
                         flags: u32::from(
-                            log_alpha && (index == 2 || index == 3 || (index == 1 && tonal_log)),
+                            log_alpha
+                                && (index == 2
+                                    || (index == 3 && field.is_none())
+                                    || (index == 1 && tonal_log)),
                         ) | (u32::from(adjustments.global.is_raw_image != 1) << 1)
                             | (u32::from(
                                 relative_log && (index == 2 || (index == 1 && tonal_log)),
@@ -12848,7 +13001,7 @@ impl GpuProcessor {
                             },
                             wgpu::BindGroupEntry {
                                 binding: 1,
-                                resource: wgpu::BindingResource::TextureView(output_view),
+                                resource: wgpu::BindingResource::TextureView(&blur_target),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 2,
@@ -12875,7 +13028,10 @@ impl GpuProcessor {
                         u64::from(input_width) * u64::from(blurred_rows),
                         Some(blur_encoder.finish()),
                     );
-                    Some(output_view.clone())
+                    if field.is_some() {
+                        upsample(Some(&blur_target));
+                    }
+                    Some(output_view)
                 };
 
                 let sharpness_blur = run_blur(0, 1.0);
@@ -14049,7 +14205,7 @@ const FLARE_WINDOW_ERROR: &str = "Light flare needs the whole photo on the GPU."
 /// Every input read of the shaders, by the photo's size and the recipe:
 /// - blurs (`run_blur`): each tile's blur covers the tile and `TILE_OVERLAP`
 ///   around it, the horizontal pass reads its radius further (largest base
-///   radius 40, Structure);
+///   radius 40, Structure), Clarity version 4's block field two blocks more;
 /// - Highlights' local contrast (`apply_highlights_adjustment`): 7.5 x scale;
 /// - Defringe (`apply_defringe`): up to 18 detail-scaled pixels (the
 ///   second detector, `apply_defringe2`, up to 16);
@@ -14074,7 +14230,15 @@ fn render_window_margin(adjustments: &AllAdjustments, width: u32, height: u32) -
     // As in `run_in_window` and the shader's `scale`.
     let blur_scale = short_side / 1080.0;
     let shader_scale = (short_side / 1080.0).max(0.1);
-    let blur = TILE_OVERLAP + (40.0 * blur_scale).ceil().max(1.0) as u32;
+    let large_radius = (40.0 * blur_scale).ceil().max(1.0) as u32;
+    // Clarity version 4's block field reads up to two blocks further
+    // (`clarity_base`: block averages and bilinear interpolation).
+    let field = if clarity_v4(adjustments) {
+        2 * clarity_base::block_step(large_radius)
+    } else {
+        0
+    };
+    let blur = TILE_OVERLAP + large_radius + field;
     // Full-resolution renders have detail scale 0 (1), previews less.
     let detail = global.detail_scale.max(1.0);
     let highlights = (7.5 * shader_scale).round().max(2.0) as u32;

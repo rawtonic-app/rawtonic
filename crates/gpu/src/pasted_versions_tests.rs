@@ -116,7 +116,7 @@ const CASES: &[Case] = &[
     Case {
         key: "clarityVersion",
         slider: "clarity",
-        pairs: &[(3, 1), (3, 2), (1, 3)],
+        pairs: &[(3, 1), (3, 2), (1, 3), (4, 3), (3, 4)],
         values: SIGNED,
         exact: &[],
     },

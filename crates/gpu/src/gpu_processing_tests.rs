@@ -20351,6 +20351,13 @@ fn clarity_version_2_joins_tiles_exactly() {
         (3, json!({"clarity": 80, "clarityVersion": 3})),
         (1, json!({"structure": 80, "structureVersion": 3})),
         (3, json!({"structure": 80, "structureVersion": 3})),
+        // Version 4's block field, also with Dehaze reading the colour.
+        (1, json!({"clarity": 80, "clarityVersion": 4})),
+        (3, json!({"clarity": 80, "clarityVersion": 4})),
+        (
+            3,
+            json!({"clarity": -80, "clarityVersion": 4, "dehaze": 30}),
+        ),
     ] {
         let mut profile = presence.clone();
         profile["renderVersion"] = json!(render_version);
@@ -20518,8 +20525,85 @@ fn presence_version_3_cuts_rims_at_strong_edges() {
     assert!(diff <= 1, "lowered Clarity renders as version 2: {diff}");
 }
 
+/// Clarity version 4 takes its base's large-scale level from 4 × 4-pixel
+/// blocks at this size (`clarity_base::block_step`): it renders as version
+/// 3 (the version keys alone change nothing; Dehaze's colour is version
+/// 3's), and keeps version 3's rims at strong edges.
 #[test]
-#[ignore = "requires a native GPU; Clarity and Structure version 3 against version 2: GPU time of a preview render per drag step"]
+#[ignore = "requires a native GPU; Clarity version 4 against version 3"]
+fn clarity_version_4_renders_as_version_3() {
+    let context = context();
+    // A short side of 3456: a large blur of radius 128, 4-pixel blocks.
+    let (width, height) = (3600u32, 3456u32);
+    assert_eq!(
+        clarity_base::block_step((40.0f32 * height as f32 / 1080.0).ceil() as u32),
+        4
+    );
+    let source = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let level = if (x / 400) % 2 == 0 { -4.5f32 } else { -1.0 };
+        // Fine texture, and a narrow bright line in every dark band.
+        let texture = 0.15 * ((x as f32 * 0.9).sin() * (y as f32 * 0.7).cos());
+        let line = if x % 400 == 200 && (x / 400) % 2 == 0 {
+            3.0
+        } else {
+            0.0
+        };
+        let v = (2.0f32).powf(level + texture + line);
+        image::Rgb([v, v, v])
+    }));
+    let render = |profile: serde_json::Value| {
+        let mut profile = profile;
+        profile["renderVersion"] = json!(3);
+        chunk_test_render(
+            &context,
+            &source,
+            &profile,
+            false,
+            RenderOutputPrecision::SixteenBit,
+            None,
+        )
+        .unwrap()
+        .into_rgb16()
+    };
+    let neutral = render(json!({}));
+    assert!(render(json!({"clarityVersion": 4})) == neutral);
+    assert!(
+        render(json!({"dehaze": 40, "clarityVersion": 4}))
+            == render(json!({"dehaze": 40, "clarityVersion": 3}))
+    );
+    for recipe in [
+        json!({"clarity": 100}),
+        json!({"clarity": 50}),
+        json!({"clarity": -100}),
+        json!({"clarity": 60, "dehaze": 30}),
+    ] {
+        let with = |version: u32| {
+            let mut r = recipe.clone();
+            r["clarityVersion"] = json!(version);
+            render(r)
+        };
+        let (v3, v4) = (with(3), with(4));
+        let mut d: Vec<f64> = v3
+            .pixels()
+            .zip(v4.pixels())
+            .map(|(a, b)| (lstar_of_codes(&a.0) - lstar_of_codes(&b.0)).abs())
+            .collect();
+        let mean = d.iter().sum::<f64>() / d.len() as f64;
+        d.sort_by(f64::total_cmp);
+        let p999 = d[d.len() * 999 / 1000];
+        let max = d[d.len() - 1];
+        eprintln!(
+            "{recipe}: version 4 against 3: |dL*| mean {mean:.4}, p99.9 {p999:.3}, max {max:.3}"
+        );
+        assert!(
+            mean < 0.03 && p999 < 0.25 && max < 0.5,
+            "{recipe}: |dL*| mean {mean:.4}, p99.9 {p999:.3}, max {max:.3}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; Clarity and Structure version 3 against version 2, Clarity 4 against 3: GPU time of a preview render per drag step"]
 fn presence_version_3_drag_render_time() {
     // As `tone_version_14_highlights_drag_render_time`, with Clarity or
     // Structure stepped up.
@@ -20532,13 +20616,15 @@ fn presence_version_3_drag_render_time() {
         height,
         &whites_v10_levels(width, height, true),
     );
-    for (tool, key) in [
-        ("clarity", "clarityVersion"),
-        ("structure", "structureVersion"),
+    // (Clarity: version 3 against 4, the block field.)
+    for (tool, key, first) in [
+        ("clarity", "clarityVersion", 2),
+        ("clarity", "clarityVersion", 3),
+        ("structure", "structureVersion", 2),
     ] {
         let mut times: [Vec<f64>; 2] = [Vec::new(), Vec::new()];
         for block in 0..24 {
-            let version = 2 + (block % 2) as u64;
+            let version = first + (block % 2) as u64;
             for step in 0..10 {
                 let mut recipe = json!({ key: version });
                 recipe[tool] = json!(20 + 8 * step);
@@ -20554,7 +20640,7 @@ fn presence_version_3_drag_render_time() {
                     ReadbackShader::Preview,
                 );
                 if step >= 2 && block >= 2 {
-                    times[(version - 2) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
+                    times[(version - first) as usize].push(start.elapsed().as_secs_f64() * 1000.0);
                 }
             }
         }
@@ -20562,7 +20648,7 @@ fn presence_version_3_drag_render_time() {
             t.sort_by(|a, b| a.partial_cmp(b).unwrap());
             eprintln!(
                 "{tool} version {}: p50 {:.2} ms, p90 {:.2} ms ({} renders)",
-                2 + k,
+                first + k as u64,
                 t[t.len() / 2],
                 t[t.len() * 9 / 10],
                 t.len()
