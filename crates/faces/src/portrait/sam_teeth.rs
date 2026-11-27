@@ -14,7 +14,11 @@
 //! It replaces the parser's outline only when it is clearly larger
 //! (`MIN_GROWTH`): where the parser saw the teeth, its outline stays.
 //! The prompt rule and the growth threshold were chosen on EYE2's tuning
-//! portraits and held on its hold-out (notes: benchmark-results/eys2-2026-11-24).
+//! portraits (notes: benchmark-results/eys2-2026-11-24). The positives are
+//! taken on the parser's grid; which cells are taken moves SAM's area by
+//! up to 0.24 × the parser's on the same photo (notes:
+//! benchmark-results/eys3-2026-11-27), so the growth threshold alone is not
+//! a robust switch (wip, not shipped).
 
 use anyhow::{Result, ensure};
 use ndarray::{Array2, Array3, Array4};
