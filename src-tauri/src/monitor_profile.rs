@@ -311,8 +311,10 @@ pub fn watch_outputs(app: &AppHandle) {
                         last.remove(label);
                         continue;
                     };
+                    // The first look too: the window may have moved before
+                    // it (an unchanged answer builds nothing).
                     let now = window_output(&window);
-                    if last.get(label).is_some_and(|before| *before != now) {
+                    if last.get(label) != Some(&now) {
                         refresh(&app, label);
                     }
                     last.insert(label.to_string(), now);
@@ -429,16 +431,36 @@ fn set_transform(
     // (and the main window's thumbnails) are converted (browser_colour.rs).
     // A change renders the main window's frame again, which the second
     // window mirrors.
-    if cfg!(target_os = "linux") {
+    #[cfg(target_os = "linux")]
+    {
         if crate::browser_colour::set(label, lut) {
             let _ = app.emit(
                 crate::browser_colour::CHANGED_EVENT,
                 crate::browser_colour::generation(),
             );
+            // Its own frames (a locked photograph, a 100 % region) too.
+            if label == crate::second_window::LABEL
+                && let Some(context) = context
+            {
+                crate::second_window::develop_again(app, context);
+            }
         }
-        return true;
+        true
     }
-    let _ = app;
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = app;
+        set_native_transform(context, label, lut)
+    }
+}
+
+/// Sets `lut` on window `label`'s native display; whether it has one.
+#[cfg(not(target_os = "linux"))]
+fn set_native_transform(
+    context: Option<&crate::gpu_processing::GpuContext>,
+    label: &str,
+    lut: Option<&rawtonic_display_profile::DisplayLut>,
+) -> bool {
     let Some(context) = context else {
         return false;
     };

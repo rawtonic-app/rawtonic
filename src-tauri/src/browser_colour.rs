@@ -33,6 +33,7 @@ use crate::state::lock::lock_recover;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub const SCHEME: &str = "rawtonic-thumb";
 /// Sent (with the new generation) when the transform changed.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub const CHANGED_EVENT: &str = "monitor-colour-changed";
 /// Quality of a converted thumbnail (the cached one is quality 75).
 const THUMBNAIL_QUALITY: u8 = 95;
@@ -50,6 +51,7 @@ struct Current {
 impl Current {
     /// Installs `lut` (None: no transform); whether it differs from the
     /// one installed (then the generation moves on).
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     fn set(&mut self, lut: Option<&DisplayLut>) -> bool {
         if self.lut.as_deref().map(|(l, _)| l) == lut {
             return false;
@@ -75,6 +77,7 @@ static SECOND: RwLock<Current> = RwLock::new(Current {
     lut: None,
 });
 
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn slot(label: &str) -> &'static RwLock<Current> {
     if label == crate::second_window::LABEL {
         &SECOND
@@ -94,6 +97,7 @@ fn second() -> Option<Arc<(DisplayLut, ByteConverter)>> {
 
 /// Installs `lut` for window `label`'s webview streams (None: no
 /// transform); whether it changed.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn set(label: &str, lut: Option<&DisplayLut>) -> bool {
     slot(label)
         .write()
@@ -116,6 +120,7 @@ pub fn second_frame(image: &image::RgbaImage) -> Cow<'_, image::RgbaImage> {
 }
 
 /// The installed transform's generation.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn generation() -> u64 {
     current().0
 }

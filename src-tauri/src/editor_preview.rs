@@ -2978,16 +2978,23 @@ fn process_preview_job(
             if pixel_roi.is_none()
                 && !crop_edit
                 && let Some(app) = app_handle
-                && crate::second_window::is_open()
+                && crate::second_window::takes_live_frames()
             {
                 // On a display with another profile it gets the frame
-                // converted into that one, encoded as the main one was.
+                // converted into that one, encoded as the main one was (a
+                // PNG, or a JPEG of the same quality).
                 let own = (!crate::browser_colour::second_matches_main()).then(|| {
-                    crate::preview_jpeg::encode_settled_like_as_is(
-                        &crate::browser_colour::second_frame(final_rgba_image),
-                        effective_scale,
-                        Some(jpeg_bytes.starts_with(b"\x89PNG")),
-                    )
+                    let converted = crate::browser_colour::second_frame(final_rgba_image);
+                    if jpeg_bytes.starts_with(b"\x89PNG") {
+                        crate::preview_jpeg::encode_settled_like_as_is(&converted, 1.0, Some(true))
+                    } else if is_interactive {
+                        crate::preview_jpeg::encode_rgbx_444_as_is(&converted, jpeg_quality)
+                    } else {
+                        crate::preview_jpeg::encode_rgbx_444_as_is(
+                            &converted,
+                            crate::preview_jpeg::settled_quality(effective_scale),
+                        )
+                    }
                 });
                 match own {
                     Some(Ok(bytes)) => crate::second_window::on_browser_frame(

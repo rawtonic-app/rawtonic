@@ -1433,6 +1433,52 @@ pub(crate) async fn after_device_recovered(app_handle: &tauri::AppHandle, contex
     schedule(app_handle);
 }
 
+/// Linux: the window's display profile changed (moved to another display,
+/// a profile set meanwhile): the frames it holds were converted into the
+/// old one, so its whole frame and zoomed region are dropped and the
+/// photograph it shows (a locked one too) is developed again.
+#[cfg(target_os = "linux")]
+pub(crate) fn develop_again(app_handle: &tauri::AppHandle, context: &GpuContext) {
+    if !OPEN.load(Ordering::SeqCst) {
+        return;
+    }
+    {
+        let mut guard = lock_recover(&INNER);
+        let Some(inner) = guard.as_mut() else { return };
+        inner.whole = None;
+        inner.region_failed = None;
+        if let Some(shown) = inner.shown.as_ref()
+            && let Some(display) = inner.display.as_mut()
+        {
+            display.remove_cell_region(&shown.path);
+        }
+        if let Some(shown) = inner.shown.take() {
+            let zoom = inner.zoom;
+            set_photo(
+                inner,
+                context,
+                &shown.path,
+                shown.recipe_key,
+                shown.recipe,
+                shown.shown,
+            );
+            inner.zoom = zoom;
+        }
+    }
+    emit_state(app_handle);
+    schedule(app_handle);
+}
+
+/// Whether the window takes the main window's live frames now (open, not
+/// locked).
+#[cfg(target_os = "linux")]
+pub(crate) fn takes_live_frames() -> bool {
+    is_open()
+        && lock_recover(&INNER)
+            .as_ref()
+            .is_some_and(|inner| !inner.locked)
+}
+
 /// The window is closing: its surface goes first, while the window lives.
 pub(crate) fn closing(app_handle: &tauri::AppHandle) {
     OPEN.store(false, Ordering::SeqCst);

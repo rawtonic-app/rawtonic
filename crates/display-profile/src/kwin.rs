@@ -90,11 +90,17 @@ fn parse(config: &str) -> Option<(Vec<Value>, Vec<Setup>)> {
 /// An output's logical size (its mode divided by its scale; rotated
 /// outputs either way round), if the configuration says.
 fn logical_size(output: &Value) -> Option<(f64, f64)> {
-    let mode = output.get("mode")?.get("cvt")?;
+    // KWin 6.5 writes `mode.width`/`height`, later ones a `cvt` timing.
+    let mode = output.get("mode")?;
     let scale = output.get("scale").and_then(Value::as_f64).unwrap_or(1.0);
-    let w = mode.get("hdisplay")?.as_f64()? / scale;
-    let h = mode.get("vdisplay")?.as_f64()? / scale;
-    Some((w, h))
+    let (w, h) = match mode.get("cvt") {
+        Some(cvt) => (
+            cvt.get("hdisplay")?.as_f64()?,
+            cvt.get("vdisplay")?.as_f64()?,
+        ),
+        None => (mode.get("width")?.as_f64()?, mode.get("height")?.as_f64()?),
+    };
+    Some((w / scale, h / scale))
 }
 
 /// Whether `setup` shows exactly `monitors`: the same positions, each
@@ -217,6 +223,29 @@ mod tests {
         assert_eq!(layout_output_converts(&c, &panel), None);
         let external = [((0, 0), (2649, 1490))];
         assert!(output_at(&c, &external, (0, 0)).unwrap().converts);
+    }
+
+    #[test]
+    fn kwin_6_5_mode_sizes_are_read_too() {
+        // Plasma 6.5 writes the mode as width/height.
+        let c = config(r#""ICC","iccProfilePath":"/p/wide.icc""#, r#""sRGB""#)
+            .replace(
+                r#""cvt":{"hdisplay":3840,"vdisplay":2160}"#,
+                r#""width":3840,"height":2160,"refreshRate":60000"#,
+            )
+            .replace(
+                r#""cvt":{"hdisplay":1920,"vdisplay":1080}"#,
+                r#""width":1920,"height":1080,"refreshRate":60000"#,
+            );
+        assert!(c.contains(r#""width":1920"#) && !c.contains("hdisplay\":1920,\"vdisplay\":1080"));
+        let panel = [((0, 0), (1920, 1080))];
+        assert_eq!(output_at(&c, &panel, (0, 0)).unwrap().connector, "eDP-1");
+        assert_eq!(layout_output_converts(&c, &panel), None);
+        assert!(
+            output_at(&c, &[((0, 0), (2649, 1490))], (0, 0))
+                .unwrap()
+                .converts
+        );
     }
 
     #[test]
