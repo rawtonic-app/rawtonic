@@ -52,6 +52,7 @@ git init -q --bare "$T/origin.git"
 git clone -q "$T/origin.git" "$T/main" 2>/dev/null
 mkdir "$T/main/scripts"
 cp "$SHIP" "$T/main/scripts/ship.sh"
+cp "$(dirname "$SHIP")/check_ship_reverts.py" "$T/main/scripts/check_ship_reverts.py"
 cp "$(dirname "$SHIP")/review.sh" "$T/main/scripts/review.sh"
 cp -R "$(dirname "$SHIP")/review" "$T/main/scripts/review"
 git -C "$T/main" add scripts
@@ -101,7 +102,8 @@ grep -q "uncommitted changes" "$T/out" || fail "dirty tree: no reason given"
 
 # 3. --no-merge opens the PR and leaves main alone.
 new_branch review
-ship review "$T/wt-review" --no-merge || fail "--no-merge exited $?"
+ship review "$T/wt-review" --no-merge --allow-revert 'photo settings' || fail "--no-merge exited $?"
+grep -q 'photo settings' "$T/gh-review.body" || fail "allow-revert missing from PR body"
 expect_last "$T/out" "ship: opened PR #7 (https://github.com/rawtonic-app/rawtonic/pull/7); not merged (--no-merge)"
 git -C "$T/origin.git" rev-parse -q --verify refs/heads/review >/dev/null || fail "--no-merge did not push the branch"
 [ "$(git -C "$T/origin.git" log --oneline main | wc -l)" -eq 1 ] || fail "--no-merge changed main"
