@@ -397,7 +397,7 @@ static THUMBNAIL_TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// for), until a newer save supersedes it or the photo is left.
 pub(crate) fn admit_open_photo_thumbnail(
     pixels: u64,
-    reuses_its_base: impl Fn() -> bool,
+    cached_base: impl Fn() -> Option<u64>,
     superseded: impl Fn() -> bool,
     left: impl Fn() -> bool,
 ) -> ThumbnailAdmission {
@@ -420,7 +420,7 @@ pub(crate) fn admit_open_photo_thumbnail(
             // meanwhile.
             if let Some(turn) = turn
                 && let Ok(granted) = BROKER.try_reserve(
-                    open_photo_thumbnail_request(pixels, reuses_its_base()),
+                    open_photo_thumbnail_request(pixels, cached_base()),
                     &crate::memory_pressure::reading,
                     false,
                     start.elapsed(),
@@ -440,18 +440,21 @@ pub(crate) fn admit_open_photo_thumbnail(
 
 /// The budget's request of a saved thumbnail of the open photo rendering
 /// from its full decode of `pixels` ([`admit_open_photo_thumbnail`]), or
-/// from the base its last render cached (`reuses_its_base`: it adds no
-/// full-resolution copy, +0 MB in 4 of 4 such renders in WBRK5; it still
-/// takes its turn after the frame and the photographer's requests).
-fn open_photo_thumbnail_request(pixels: u64, reuses_its_base: bool) -> Request {
+/// from the base of `cached_base` pixels its last render cached: no
+/// full-resolution copy (+0 MB in 4 of 4 such renders in WBRK5), but the
+/// flip, straighten and crop of that base, counted at the same bytes per
+/// pixel of the base (review r3: a tight crop keeps it at up to full
+/// resolution). Either takes its turn after the frame and the
+/// photographer's requests.
+fn open_photo_thumbnail_request(pixels: u64, cached_base: Option<u64>) -> Request {
     // Labels of their own: the broker corrects an estimate by its label's
     // measured peaks, and a rebuild's must not raise a cached render's
     // (review r2).
-    if reuses_its_base {
+    if let Some(base) = cached_base {
         Request::new(
             Class::Export,
             "saved thumbnail of the open photo from its cached base",
-            0,
+            base.min(pixels).saturating_mul(THUMBNAIL_BYTES_PER_PIXEL),
         )
     } else {
         Request::new(
@@ -989,7 +992,7 @@ mod tests {
         use rawtonic_runtime::memory_budget::Reading;
         let broker: &'static Broker = Box::leak(Box::new(Broker::new()));
         let pixels = 8688 * 5792;
-        let request = open_photo_thumbnail_request(pixels, false);
+        let request = open_photo_thumbnail_request(pixels, None);
         assert!(request.need >= 2021 * MB, "{} MB", request.need / MB);
         let after_the_hold = Reading {
             total: 15_859 * MB,
@@ -1009,7 +1012,7 @@ mod tests {
         assert!(
             broker
                 .try_reserve(
-                    open_photo_thumbnail_request(pixels, false),
+                    open_photo_thumbnail_request(pixels, None),
                     &|| freed,
                     false,
                     Duration::ZERO,
@@ -1020,7 +1023,7 @@ mod tests {
         // The rebuild measured its peak (+2021 MB as in WBRK5).
         let rebuild = broker
             .try_reserve(
-                open_photo_thumbnail_request(pixels, false),
+                open_photo_thumbnail_request(pixels, None),
                 &|| freed,
                 false,
                 Duration::ZERO,
@@ -1034,16 +1037,18 @@ mod tests {
         // from the base its last render cached: it adds no full-resolution
         // copy and renders at once (review r1), whatever a rebuild took
         // before (review r2).
+        let cached = open_photo_thumbnail_request(pixels, Some(1280 * 853));
+        assert!(cached.need < 50 * MB);
         assert!(
             broker
-                .try_reserve(
-                    open_photo_thumbnail_request(pixels, true),
-                    &|| after_the_hold,
-                    false,
-                    Duration::ZERO,
-                    None
-                )
+                .try_reserve(cached, &|| after_the_hold, false, Duration::ZERO, None)
                 .is_ok()
+        );
+        // A base a tight crop kept at full resolution is flipped and
+        // straightened at that size: counted as a rebuild (review r3).
+        assert_eq!(
+            open_photo_thumbnail_request(pixels, Some(pixels)).need,
+            open_photo_thumbnail_request(pixels, None).need
         );
     }
 

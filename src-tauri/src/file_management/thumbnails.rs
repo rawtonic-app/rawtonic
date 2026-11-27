@@ -754,35 +754,39 @@ fn base_reusable(
         && (!needs_mask_source || mask_source.is_some())
 }
 
-/// Whether the saved thumbnail of the open photo `path_str` will render from
-/// the base its last render cached rather than from the full decode (its
-/// retouched copy and warp at full resolution, `memory_broker::
-/// THUMBNAIL_BYTES_PER_PIXEL`): a save that changed no part of the base (an
-/// exposure or colour edit), or from the colour noise view's render input
-/// with the stored preview proxy (review r2: that render reads no full
-/// decode either). The four such renders in WBRK5 grew the app by 0 MB
-/// (G74/BRK6, review r1). Only these cases: a recipe that a new recipe's
-/// defaults complete or no cached base say no, and the render counts its
-/// full estimate.
-pub(crate) fn open_photo_thumbnail_reuses_its_base(path_str: &str, app_handle: &AppHandle) -> bool {
+/// The pixels of the base the saved thumbnail of the open photo `path_str`
+/// will render from when its last render cached one it can reuse (a save
+/// that changed no part of the base: an exposure or colour edit), instead
+/// of the full decode (its retouched copy and warp at full resolution,
+/// `memory_broker::THUMBNAIL_BYTES_PER_PIXEL`). The four such renders in
+/// WBRK5 grew the app by 0 MB (G74/BRK6, review r1); the render still
+/// flips, straightens and crops that base, which a tight crop keeps at up
+/// to full resolution (review r3), so the caller counts it by its own
+/// pixels. None, and the render counts its full estimate, for a recipe
+/// that a new recipe's defaults complete or without a reusable base; also
+/// for a render from the colour noise view's input, which reads the stored
+/// preview proxy first (review r3).
+pub(crate) fn open_photo_thumbnail_cached_base(
+    path_str: &str,
+    app_handle: &AppHandle,
+) -> Option<u64> {
     let (source_path, sidecar_path) = parse_virtual_path(path_str);
-    let Some(metadata) = thumbnail_metadata(&source_path, &sidecar_path) else {
-        return false;
-    };
+    let metadata = thumbnail_metadata(&source_path, &sidecar_path)?;
     let adjustments = &metadata.adjustments;
     if adjustments.is_null() || crate::image_processing::is_new_recipe(adjustments) {
-        return false;
+        return None;
     }
     let settings = crate::state::settings::current(app_handle);
-    let is_raw = is_raw_file(&source_path);
-    if colour_noise_input(path_str, adjustments, is_raw, &settings, app_handle).is_some()
-        && crate::preview_proxy::stands_for(
-            &source_path,
-            adjustments,
-            crate::preview_proxy::ProxyKind::Standard,
-        ) == Some(true)
+    if colour_noise_input(
+        path_str,
+        adjustments,
+        is_raw_file(&source_path),
+        &settings,
+        app_handle,
+    )
+    .is_some()
     {
-        return true;
+        return None;
     }
     let target_res = settings.medium_thumbnail_resolution.unwrap_or(1280);
     let crop: Option<Crop> =
@@ -796,7 +800,7 @@ pub(crate) fn open_photo_thumbnail_reuses_its_base(path_str: &str, app_handle: &
     let base_hash = crate::cache_utils::calculate_thumbnail_base_hash(adjustments);
     lock_recover(&app_handle.state::<ThumbnailState>().geometry_cache)
         .get(path_str)
-        .is_some_and(|entry| {
+        .filter(|entry| {
             base_reusable(
                 entry,
                 base_hash,
@@ -805,6 +809,7 @@ pub(crate) fn open_photo_thumbnail_reuses_its_base(path_str: &str, app_handle: &
                 needs_mask_source,
             )
         })
+        .map(|(_, base, ..)| u64::from(base.width()) * u64::from(base.height()))
 }
 
 /// The stored Standard proxy of the RAW `source` when it stands for a
