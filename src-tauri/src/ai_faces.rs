@@ -377,6 +377,9 @@ pub async fn generate_ai_people_mask(
     orientation_steps: u8,
     task_id: Option<String>,
     download: Option<bool>,
+    // The photo the mask is for (the webview sends it): what follows the
+    // answer is held only while it is open (G74/BRK4).
+    path: Option<String>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<AiPeopleMaskParameters, CommandError> {
@@ -420,7 +423,7 @@ pub async fn generate_ai_people_mask(
         return Err(crate::ai_commands::task_cancelled());
     }
     // What follows the answer is held as any AI mask's (G74/BRK4).
-    crate::memory_broker::after_answer(&app_handle, None, None, "AI people selection");
+    crate::memory_broker::after_answer(&app_handle, path.as_deref(), None, "AI people selection");
     Ok(AiPeopleMaskParameters {
         parts,
         person,
