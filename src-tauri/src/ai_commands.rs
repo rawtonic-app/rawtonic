@@ -1286,6 +1286,12 @@ async fn auto_mask(
                 if download && kind == AutoMask::Subject {
                     crate::ai_processing::fetch_low_peak_subject_in_background(app_handle);
                 }
+                // A usual model the fetched low-peak file supersedes goes
+                // first when no run holds it: its memory is room for the
+                // low-peak load this run counts (G74/FET1).
+                if kind == AutoMask::Subject {
+                    crate::ai_processing::settle_superseded_subject(app_handle, ai_state);
+                }
                 asked_request(&AskedEstimate {
                     kind,
                     origin,
@@ -2153,6 +2159,9 @@ async fn precompute(
             AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
             AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
         };
+        if kind == AutoMask::Subject {
+            crate::ai_processing::settle_superseded_subject(&app_handle, &ai_state);
+        }
         let need = crate::ai_ahead::estimated_peak(
             job,
             rawtonic_onnx::models_run_on_cpu_only(),
@@ -2470,6 +2479,9 @@ pub async fn warm_up_ai_mask_models(
             AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
             AutoMask::Sky => crate::ai_ahead::AheadJob::Sky,
         };
+        if kind == AutoMask::Subject {
+            crate::ai_processing::settle_superseded_subject(&app_handle, &ai_state);
+        }
         let need = crate::ai_ahead::estimated_peak(
             job,
             rawtonic_onnx::models_run_on_cpu_only(),

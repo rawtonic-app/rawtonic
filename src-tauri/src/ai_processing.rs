@@ -1558,37 +1558,63 @@ static LOW_PEAK_FETCH: std::sync::Mutex<LowPeakFetch> = std::sync::Mutex::new(Lo
 /// After a failed fetch, the next one waits this long.
 const LOW_PEAK_FETCH_RETRY: std::time::Duration = std::time::Duration::from_secs(600);
 
-/// Set when the background fetch has installed the low-peak Subject file:
-/// a cached usual ONNX model is superseded (`cached_subject`). The fetch
+/// The background fetch's ends that installed the low-peak Subject file
+/// (`fetched`) and those a missing file has cleared again (`cleared`): while
+/// `fetched` is ahead, a cached usual ONNX model is superseded. The fetch
 /// never touches a cached or loading model itself (G74/FET1: a fetch that
-/// ended while the usual model was being loaded left it cached for good).
-static USUAL_SUBJECT_SUPERSEDED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-
-/// The fetch's end: a cached usual model, or one being loaded, is
-/// superseded; the loader swaps it (`cached_subject`).
-fn low_peak_fetched(superseded: &std::sync::atomic::AtomicBool) {
-    superseded.store(true, std::sync::atomic::Ordering::SeqCst);
+/// ended while the usual model was being loaded left it cached for good);
+/// `settle_superseded_subject` swaps it. Counters, not a flag, so a check
+/// of the file that a newer fetch overtook cannot clear that fetch's mark.
+struct Superseded {
+    fetched: std::sync::atomic::AtomicU64,
+    cleared: std::sync::atomic::AtomicU64,
 }
 
-/// Under the Subject init lock: the cached model `slot` to serve, or `None`
-/// to load one. A usual ONNX model superseded by the fetched low-peak file
-/// (`low_peak_installed`: the loader would take it now) is dropped from the
-/// cache, so the load takes the new file, unless a run still holds it
-/// (`Arc::strong_count` beyond the cache and the caller's copy): then it
-/// serves this request too, so two Subject sessions never live at once, and
+impl Superseded {
+    const fn new() -> Self {
+        Self {
+            fetched: std::sync::atomic::AtomicU64::new(0),
+            cleared: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// The fetch's end: a cached usual model, or one being loaded, is
+    /// superseded.
+    fn mark(&self) {
+        self.fetched
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// The fetch ends seen, while they supersede a usual model.
+    fn pending(&self) -> Option<u64> {
+        let fetched = self.fetched.load(std::sync::atomic::Ordering::SeqCst);
+        (fetched > self.cleared.load(std::sync::atomic::Ordering::SeqCst)).then_some(fetched)
+    }
+
+    /// The low-peak file was found missing after the fetch ends `seen`
+    /// (`pending`): those no longer supersede; a later one still does.
+    fn clear(&self, seen: u64) {
+        self.cleared
+            .fetch_max(seen, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+static USUAL_SUBJECT_SUPERSEDED: Superseded = Superseded::new();
+
+/// The cached model `slot` stays, or (`None`) is dropped from the cache so
+/// that the next load takes the fetched low-peak file: a usual ONNX model
+/// that is `superseded` with the low-peak file installed goes unless a run
+/// still holds it (`Arc::strong_count` beyond the cache and this copy);
+/// then it keeps serving, so two Subject sessions never live at once, and
 /// a later request swaps it.
 fn cached_subject<M>(
     slot: &mut Option<Arc<M>>,
-    superseded: &std::sync::atomic::AtomicBool,
+    superseded: bool,
     usual: impl Fn(&M) -> bool,
-    low_peak_installed: impl FnOnce() -> bool,
+    low_peak_installed: bool,
 ) -> Option<Arc<M>> {
     let model = slot.clone()?;
-    if !usual(&model)
-        || !superseded.load(std::sync::atomic::Ordering::SeqCst)
-        || !low_peak_installed()
-    {
+    if !usual(&model) || !superseded || !low_peak_installed {
         return Some(model);
     }
     // The cache and `model` here; more is a run holding it.
@@ -1605,11 +1631,43 @@ fn usual_onnx(model: &SubjectModel) -> bool {
 }
 
 /// Whether the cached Subject model `model` is the usual graph the fetched
-/// low-peak file supersedes: the next load replaces it (`cached_subject`),
-/// so the memory budget counts that load and the low-peak plan, not the
-/// cached model (`model_loaded`, `subject_low_peak_ready`).
+/// low-peak file supersedes: the next load replaces it, so the memory
+/// budget counts that load and the low-peak plan, not the cached model
+/// (`model_loaded`, `subject_low_peak_ready`).
 pub(crate) fn subject_superseded(model: &SubjectModel) -> bool {
-    usual_onnx(model) && USUAL_SUBJECT_SUPERSEDED.load(std::sync::atomic::Ordering::SeqCst)
+    usual_onnx(model) && USUAL_SUBJECT_SUPERSEDED.pending().is_some()
+}
+
+/// Lets a cached usual Subject model the fetched low-peak file supersedes
+/// go when no run holds it (`cached_subject`), before a Subject request's
+/// admission (its memory counts for the new plan, G74/FET1) and in the
+/// loader. When the low-peak file is missing again, the usual model stays
+/// and counts as loaded again.
+pub(crate) fn settle_superseded_subject(app_handle: &tauri::AppHandle, ai_state: &AiState) {
+    let Some(seen) = USUAL_SUBJECT_SUPERSEDED.pending() else {
+        return;
+    };
+    let cached_usual = lock_recover(&ai_state.models)
+        .as_ref()
+        .and_then(|ai| ai.subject_model.as_deref().map(usual_onnx))
+        .unwrap_or(false);
+    if !cached_usual {
+        return;
+    }
+    // Looked at outside the models' lock.
+    let installed = get_models_dir(app_handle).is_ok_and(|dir| subject_onnx_to_load(&dir).low_peak);
+    if !installed {
+        USUAL_SUBJECT_SUPERSEDED.clear(seen);
+        return;
+    }
+    let released = lock_recover(&ai_state.models)
+        .as_mut()
+        .is_some_and(|ai| cached_subject(&mut ai.subject_model, true, usual_onnx, true).is_none());
+    if released {
+        log::info!(
+            "AI subject mask: usual model let go; the next load takes the fetched low-peak model"
+        );
+    }
 }
 
 /// For a Subject request that may download, on a machine that prefers the
@@ -1676,7 +1734,7 @@ pub(crate) fn fetch_low_peak_subject_in_background(app_handle: &tauri::AppHandle
         .await;
         let next = match result {
             Ok(()) => {
-                low_peak_fetched(&USUAL_SUBJECT_SUPERSEDED);
+                USUAL_SUBJECT_SUPERSEDED.mark();
                 log::info!(
                     "AI subject mask: low-peak model fetched; the next mask loads it once no run holds the usual one"
                 );
@@ -1765,10 +1823,8 @@ pub async fn get_or_init_subject_model_planned(
         fetch_low_peak_subject_in_background(app_handle);
     }
     // A usual model the fetched low-peak file supersedes goes to the lock
-    // (`cached_subject`), so no request takes it past a swap.
-    let superseded = || USUAL_SUBJECT_SUPERSEDED.load(std::sync::atomic::Ordering::SeqCst);
-    if let Some(model) = loaded().filter(|m| serves(m, reduced) && !(usual_onnx(m) && superseded()))
-    {
+    // (`settle_superseded_subject`), so no request takes it past a swap.
+    if let Some(model) = loaded().filter(|m| serves(m, reduced) && !subject_superseded(m)) {
         return Ok(Some(model));
     }
     let lock_wait = std::time::Instant::now();
@@ -1777,26 +1833,8 @@ pub async fn get_or_init_subject_model_planned(
         "AI subject mask: init lock wait {} ms",
         lock_wait.elapsed().as_millis()
     );
-    // Whether a load would take the low-peak file now (looked at only for
-    // a superseded usual model, outside the models' lock).
-    let low_peak_installed = loaded().is_some_and(|m| usual_onnx(&m) && superseded())
-        && get_models_dir(app_handle).is_ok_and(|dir| subject_onnx_to_load(&dir).low_peak);
-    let cached = lock_recover(&ai_state.models).as_mut().and_then(|ai| {
-        cached_subject(
-            &mut ai.subject_model,
-            &USUAL_SUBJECT_SUPERSEDED,
-            usual_onnx,
-            || low_peak_installed,
-        )
-    });
-    if cached.is_none() && low_peak_installed {
-        log::info!("AI subject mask: loading the fetched low-peak model in place of the usual one");
-    }
-    if cached.as_deref().is_some_and(subject_superseded) && !low_peak_installed {
-        // The low-peak file is gone again: the usual model stays, and the
-        // memory budget counts it as loaded again.
-        USUAL_SUBJECT_SUPERSEDED.store(false, std::sync::atomic::Ordering::SeqCst);
-    }
+    settle_superseded_subject(app_handle, ai_state);
+    let cached = loaded();
     if let Some(model) = cached {
         if serves(&model, reduced) {
             return Ok(Some(model));
@@ -5142,7 +5180,6 @@ mod download_tests {
 #[cfg(test)]
 mod model_fetch_tests {
     use std::sync::Arc;
-    use std::sync::atomic::AtomicBool;
     use std::time::{Duration, Instant};
 
     /// A stand-in for a loaded Subject model: the usual graph or the
@@ -5166,33 +5203,53 @@ mod model_fetch_tests {
     /// the interleaving is the race's, without sleeps.
     #[test]
     fn a_fetch_ending_during_the_usual_load_leaves_no_stale_cached_model() {
-        let superseded = AtomicBool::new(false);
+        let superseded = super::Superseded::new();
+        let pending = || superseded.pending().is_some();
         // The loader takes the init lock, finds no cached model and chooses
         // the usual file.
         let loading = Arc::new(Loaded::Usual);
         // Hook: the fetch ends now, mid-load.
-        super::low_peak_fetched(&superseded);
+        superseded.mark();
         // The loader keeps what it loaded and returns it to its run.
         let mut slot = Some(loading.clone());
         let run = loading;
-        // A request while that run holds the model: it serves (no second
-        // session) and stays cached.
-        let served = super::cached_subject(&mut slot, &superseded, usual, || true);
+        // A request (its admission or its load) while that run holds the
+        // model: it serves (no second session) and stays cached.
+        let served = super::cached_subject(&mut slot, pending(), usual, true);
         assert!(served.as_ref().is_some_and(|m| Arc::ptr_eq(m, &run)));
         assert!(slot.is_some());
         drop(served);
         drop(run);
-        // The next request after the run: the cache is emptied, so the
-        // load takes the fetched low-peak file.
-        assert!(super::cached_subject(&mut slot, &superseded, usual, || true).is_none());
+        // The next request after the run: the cache is emptied before its
+        // admission, so the budget counts the low-peak load and the load
+        // takes the fetched file.
+        assert!(super::cached_subject(&mut slot, pending(), usual, true).is_none());
         assert!(slot.is_none());
         slot = Some(Arc::new(Loaded::LowPeak));
         // The low-peak model serves from then on.
-        assert!(super::cached_subject(&mut slot, &superseded, usual, || true).is_some());
+        assert!(super::cached_subject(&mut slot, pending(), usual, true).is_some());
         // Without the low-peak file installed (removed later), the usual
         // model serves; it is never loaded again and again.
         let mut usual_slot = Some(Arc::new(Loaded::Usual));
-        assert!(super::cached_subject(&mut usual_slot, &superseded, usual, || false).is_some());
+        assert!(super::cached_subject(&mut usual_slot, pending(), usual, false).is_some());
+    }
+
+    /// A check that found the low-peak file missing clears only the fetch
+    /// ends it saw: one that ended meanwhile still supersedes the usual
+    /// model (review r2).
+    #[test]
+    fn a_missing_file_check_overtaken_by_a_fetch_keeps_that_fetch() {
+        let superseded = super::Superseded::new();
+        assert_eq!(superseded.pending(), None);
+        superseded.mark();
+        let seen = superseded.pending().unwrap();
+        // Hook: a newer fetch ends between the check and the clear.
+        superseded.mark();
+        superseded.clear(seen);
+        assert!(superseded.pending().is_some());
+        let seen = superseded.pending().unwrap();
+        superseded.clear(seen);
+        assert_eq!(superseded.pending(), None);
     }
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
