@@ -594,11 +594,9 @@ export function useTauriListeners({
       }),
       listen<{ path: string; reason: string }>('thumbnail-generation-error', ({ payload }) => {
         if (!isEffectActive) return;
-        useProcessStore
-          .getState()
-          .setProcess((state) => ({
-            imageErrors: { ...state.imageErrors, [payload.path]: loadErrorText(payload.reason, payload.path) }
-          }));
+        useProcessStore.getState().setProcess((state) => ({
+          imageErrors: { ...state.imageErrors, [payload.path]: loadErrorText(payload.reason, payload.path) }
+        }));
       }),
       listen('thumbnail-generation-complete', () => {
         if (isEffectActive) useProcessStore.getState().setProcess({ thumbnailProgress: { current: 0, total: 0 } });
