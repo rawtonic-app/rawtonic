@@ -913,6 +913,7 @@ mod tests {
         let mut tiff = TiffWriter::new(&mut damaged).unwrap();
         let offset = tiff.write_data(jpeg.get_ref()).unwrap();
         let mut ifd = tiff.new_directory();
+        ifd.add_tag(rawler::tags::TiffCommonTag::PhotometricInt, 32803_u16);
         ifd.add_tag(ExifTag::JPEGInterchangeFormat, offset);
         ifd.add_tag(
             ExifTag::JPEGInterchangeFormatLength,

@@ -3589,9 +3589,10 @@ mod source_preview_tests {
     /// A TIFF-based RAW container (as DNG, NEF, ARW…) whose only image is an
     /// embedded camera JPEG, with the camera's orientation in IFD0.
     fn raw_with_embedded_jpeg(jpeg: &[u8], orientation: u16) -> Vec<u8> {
-        let entries: [(u16, u16, u32); 4] = [
+        let entries: [(u16, u16, u32); 5] = [
             (259, 3, 7),
-            (273, 4, 8 + 2 + 4 * 12 + 4),
+            (262, 3, 32803), // TIFF/EP CFA marks this as a camera RAW.
+            (273, 4, 8 + 2 + 5 * 12 + 4),
             (274, 3, orientation as u32),
             (279, 4, jpeg.len() as u32),
         ];
