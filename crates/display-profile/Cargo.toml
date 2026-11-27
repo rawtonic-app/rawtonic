@@ -19,6 +19,8 @@ moxcms = "0.8"
 
 [dev-dependencies]
 png = { workspace = true }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
+tempfile = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_Devices_Display", "Win32_Graphics_Gdi", "Win32_UI_ColorSystem"] }

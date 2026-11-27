@@ -12,19 +12,24 @@
 //!   should then show for it (the transform the app builds from that
 //!   profile), to compare with a screenshot.
 //!
-//! Existing files are never written over: the run fails instead.
+//! Existing files are never written over: the run fails instead (each
+//! file is published whole, through rawtonic-fs's no-clobber step).
 //!
 //! On Linux, `--features system-lookup -- --lookup` prints what colord / X11 hold for the display
 //! instead.
 
 use std::io::Write;
 
-/// A new file at `path`; an existing one is an error, never truncated.
-fn create_new(path: &std::path::Path) -> std::io::Result<std::fs::File> {
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
+/// Writes `bytes` to a temporary file beside `path` and publishes it there
+/// without clobbering (rawtonic-fs): an existing file is an error, and a
+/// failed write leaves nothing behind.
+fn publish(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    let folder = path.parent().unwrap_or(std::path::Path::new("."));
+    let mut temp = tempfile::NamedTempFile::new_in(folder)?;
+    temp.write_all(bytes)?;
+    temp.as_file().sync_all()?;
+    rawtonic_fs::no_clobber::persist(temp, path)
+        .map(drop)
         .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", path.display())))
 }
 
@@ -80,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     ]));
     let icc = profile.encode()?;
-    create_new(&out.join("wide-test-monitor.icc"))?.write_all(&icc)?;
+    publish(&out.join("wide-test-monitor.icc"), &icc)?;
 
     let width = SIDE * PATCHES.len() as u32;
     let mut rgb = Vec::with_capacity((width * SIDE * 3) as usize);
@@ -91,13 +96,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let file = std::io::BufWriter::new(create_new(&out.join("patches.png"))?);
-    let mut encoder = png::Encoder::new(file, width, SIDE);
+    let mut png_bytes = Vec::new();
+    let mut encoder = png::Encoder::new(&mut png_bytes, width, SIDE);
     encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
     // Tagged sRGB, so every reader takes the values as sRGB.
     encoder.set_source_srgb(png::SrgbRenderingIntent::Perceptual);
-    encoder.write_header()?.write_image_data(&rgb)?;
+    let mut writer = encoder.write_header()?;
+    writer.write_image_data(&rgb)?;
+    writer.finish()?;
+    publish(&out.join("patches.png"), &png_bytes)?;
 
     let lut =
         rawtonic_display_profile::display_lut(rawtonic_display_profile::Encoding::Srgb, &icc)?
@@ -117,6 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             i as u32 * SIDE + SIDE / 2
         )?;
     }
+    publish(&out.join("expected.txt"), &expected)?;
     println!("wrote {}", out.display());
     Ok(())
 }

@@ -30,7 +30,9 @@ pub struct MonitorStatus {
     /// with HDR or Auto colour management); "converted": the preview is
     /// converted into `profile`; "srgb": shown as sRGB (an sRGB monitor, no
     /// profile, or one that cannot be used: see `notice`); "notApplied":
-    /// found, but not applied by Rawtonic on this system (Linux).
+    /// found, but not applied by Rawtonic on this system (Linux);
+    /// "rendererOff": `profile` would be used, but the native renderer is
+    /// off, so the webview's preview is not converted.
     pub mode: &'static str,
     /// The profile's name, if one was found.
     pub profile: Option<String>,
@@ -51,10 +53,16 @@ struct Applied {
     windows: HashMap<String, Shown>,
     /// Per window label: the status as installed (what Preferences shows).
     reported: HashMap<String, MonitorStatus>,
+    /// Per window label: what the last lookup found (the system's answer
+    /// and the chosen profile), so an unchanged one builds nothing.
+    inputs: HashMap<String, Inputs>,
     /// Per window label: the newest lookup started; an older one that
     /// finishes later is dropped.
     lookups: HashMap<String, u64>,
 }
+
+/// What a lookup found: the system's answer and the chosen profile.
+type Inputs = (SystemProfile, Option<(String, Result<Vec<u8>, String>)>);
 
 /// What a window was last given: the profile behind its transform (None:
 /// no transform) and its status.
@@ -67,6 +75,17 @@ impl Applied {
         let next = self.lookups.get(label).copied().unwrap_or(0) + 1;
         self.lookups.insert(label.to_string(), next);
         next
+    }
+
+    /// Notes what lookup `lookup` found for `label`; whether there is
+    /// anything to do (it is the newest lookup and found something new).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn found(&mut self, label: &str, lookup: u64, inputs: &Inputs) -> bool {
+        if !self.newest(label, lookup) || self.inputs.get(label) == Some(inputs) {
+            return false;
+        }
+        self.inputs.insert(label.to_string(), inputs.clone());
+        true
     }
 
     /// Whether lookup `lookup` is still the newest for `label`.
@@ -200,6 +219,7 @@ pub fn display_created(app: &AppHandle, label: &str) {
     if let Some(applied) = lock_recover(&APPLIED).as_mut() {
         applied.windows.remove(label);
         applied.reported.remove(label);
+        applied.inputs.remove(label);
     }
     refresh(app, label);
 }
@@ -240,16 +260,32 @@ fn apply(
     system: SystemProfile,
     chosen: Option<(String, Result<Vec<u8>, String>)>,
 ) {
+    // An unchanged answer (focus back, a move within one monitor) or an
+    // older lookup builds nothing.
+    let inputs = (system, chosen);
+    if !lock_recover(&APPLIED)
+        .get_or_insert_with(Applied::default)
+        .found(label, lookup, &inputs)
+    {
+        return;
+    }
+    let (system, chosen) = inputs;
     let (lut, icc, status) = resolve(system, chosen);
     // The profile behind the transform (None: no transform) and the status.
     let now = (icc.filter(|_| lut.is_some()), status.clone());
+    // Taken before APPLIED: `attach_display` holds the context while it
+    // notes a new display here (one lock order).
+    let context = {
+        use tauri::Manager;
+        app.state::<crate::state::gpu::GpuState>().context()
+    };
     // Held while installing, so lookups finishing together install in order.
     let mut applied = lock_recover(&APPLIED);
     let applied = applied.get_or_insert_with(Applied::default);
     if !applied.newest(label, lookup) || !applied.changed(label, now) {
         return;
     }
-    let installed = set_transform(app, label, lut.as_ref());
+    let installed = set_transform(context.as_ref(), label, lut.as_ref());
     let status = shown_status(status, lut.is_some(), installed);
     log::info!(
         "Monitor profile of window {label}: {} {:?} ({:?})",
@@ -268,7 +304,7 @@ fn apply(
 /// draws the preview, which Rawtonic does not convert.
 fn shown_status(mut status: MonitorStatus, converts: bool, installed: bool) -> MonitorStatus {
     if converts && !installed {
-        status.mode = "notApplied";
+        status.mode = "rendererOff";
         status.notice = Some(
             "The native renderer is off (Preferences > Processing): the webview draws the preview, which Rawtonic does not convert into this profile."
                 .into(),
@@ -280,17 +316,16 @@ fn shown_status(mut status: MonitorStatus, converts: bool, installed: bool) -> M
 /// Sets `lut` on window `label`'s native display; whether it has one.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn set_transform(
-    app: &AppHandle,
+    context: Option<&crate::gpu_processing::GpuContext>,
     label: &str,
     lut: Option<&rawtonic_display_profile::DisplayLut>,
 ) -> bool {
-    use tauri::Manager;
-    if label == crate::second_window::LABEL {
-        return crate::second_window::set_monitor_transform(app, lut);
-    }
-    let Some(context) = app.state::<crate::state::gpu::GpuState>().context() else {
+    let Some(context) = context else {
         return false;
     };
+    if label == crate::second_window::LABEL {
+        return crate::second_window::set_monitor_transform(context, lut);
+    }
     let mut display = lock_recover(&context.display);
     match display.as_mut() {
         Some(display) => {
@@ -421,8 +456,29 @@ mod tests {
         );
         assert_eq!(shown_status(status.clone(), true, true).mode, "converted");
         let off = shown_status(status, true, false);
-        assert_eq!(off.mode, "notApplied");
+        assert_eq!(off.mode, "rendererOff");
         assert!(off.notice.is_some());
+    }
+
+    #[test]
+    fn an_unchanged_lookup_builds_nothing() {
+        let mut applied = Applied::default();
+        let found = |icc: Vec<u8>| -> Inputs {
+            (
+                SystemProfile::Assigned {
+                    icc,
+                    location: "p.icc".into(),
+                },
+                None,
+            )
+        };
+        let first = applied.start("main");
+        assert!(applied.found("main", first, &found(p3())));
+        let again = applied.start("main");
+        assert!(!applied.found("main", again, &found(p3())));
+        let other = applied.start("main");
+        let adobe = ColorProfile::new_adobe_rgb().encode().unwrap();
+        assert!(applied.found("main", other, &found(adobe)));
     }
 
     #[test]

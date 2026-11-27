@@ -1516,12 +1516,9 @@ pub(crate) fn resized(
 /// Converts the window's frames into its monitor's profile from now on
 /// (`monitor_profile`; None: as they are); whether it has a native display.
 pub(crate) fn set_monitor_transform(
-    app_handle: &tauri::AppHandle,
+    context: &GpuContext,
     lut: Option<&rawtonic_display_profile::DisplayLut>,
 ) -> bool {
-    let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
-        return false;
-    };
     let mut guard = lock_recover(&INNER);
     #[cfg(not(target_os = "linux"))]
     if let Some(display) = guard.as_mut().and_then(|inner| inner.display.as_mut()) {

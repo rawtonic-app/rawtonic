@@ -5894,6 +5894,8 @@ dependencies = [
  "dbus",
  "moxcms",
  "png 0.18.1",
+ "rawtonic-fs",
+ "tempfile",
  "windows-sys 0.61.2",
  "x11-dl",
 ]

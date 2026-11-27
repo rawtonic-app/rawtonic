@@ -11,7 +11,7 @@ import { openDialog } from '../../utils/fileDialog';
 
 /** How the preview reaches the monitor (src-tauri/src/monitor_profile.rs `MonitorStatus`). */
 export interface MonitorStatus {
-  mode: 'system' | 'converted' | 'srgb' | 'notApplied';
+  mode: 'system' | 'converted' | 'srgb' | 'notApplied' | 'rendererOff';
   profile: string | null;
   location: string | null;
   fromOverride: boolean;
@@ -87,7 +87,9 @@ export default function MonitorProfileSettings({
         ? t('settings.monitorProfile.converted', { profile: name })
         : status.mode === 'notApplied'
           ? t('settings.monitorProfile.notApplied', { profile: name })
-          : t('settings.monitorProfile.srgb');
+          : status.mode === 'rendererOff'
+            ? t('settings.monitorProfile.rendererOff', { profile: name })
+            : t('settings.monitorProfile.srgb');
 
   return (
     <div className="pref-row">
