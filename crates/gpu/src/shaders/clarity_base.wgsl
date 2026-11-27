@@ -12,12 +12,14 @@
 //
 // Beyond the window's edges the full-resolution blur repeats the edge pixel
 // (its horizontal pass clamps the column, its vertical pass the row of the
-// horizontally blurred photo). The block texture therefore holds one more
-// column on each side, the edge pixel's column averaged over each block's
-// rows, and one more row on each side, the edge row averaged over each
-// block's columns (its corners the corner pixels): the blur reads those for
-// every block beyond the edge, so a thin dark border weighs as it does at
-// full resolution.
+// horizontally blurred photo). With blocks larger than a pixel the block
+// texture therefore holds one more column on each side (`pad`), the edge
+// pixel's column averaged over each block's rows, and one more row on each
+// side, the edge row averaged over each block's columns (its corners the
+// corner pixels): the blur reads those for every block beyond the edge, so
+// a thin dark border weighs as it does at full resolution. One-pixel blocks
+// need none (the edge block is the edge pixel), and a texture as wide as
+// the input may already be at the GPU's limit.
 
 struct ClarityBaseParams {
     // Block side F in photo pixels.
@@ -29,7 +31,8 @@ struct ClarityBaseParams {
     window_width: u32,
     window_height: u32,
     // First block of the field (window origin / F) and the field's size in
-    // blocks; the block texture has one more column and row on each side.
+    // blocks; the block texture has `pad` more columns and rows on each
+    // side.
     origin_x: u32,
     origin_y: u32,
     blocks_x: u32,
@@ -44,7 +47,9 @@ struct ClarityBaseParams {
     tile_x: u32,
     tile_y: u32,
     tile_flags: u32,
-    _pad0: u32,
+    // 1: the block texture holds the edge columns and rows, 0: it does not
+    // (one-pixel blocks).
+    pad: u32,
     _pad1: u32,
 }
 
@@ -73,17 +78,17 @@ fn log_luma(c: vec3<f32>) -> f32 {
 }
 
 // First pixel and pixel count of block texture column (or row) `index`
-// along one axis: the window's first pixel for index 0, its last for
-// `blocks + 1`, else block index − 1 from the field's origin.
+// along one axis: with `pad`, the window's first pixel for index 0 and its
+// last for `blocks + 1`; else block index − `pad` from the field's origin.
 fn block_span(index: u32, blocks: u32, origin: u32, lo: i32, hi: i32) -> vec2<i32> {
-    if (index == 0u) {
+    if (params.pad == 1u && index == 0u) {
         return vec2<i32>(lo, 1);
     }
-    if (index > blocks) {
+    if (params.pad == 1u && index > blocks) {
         return vec2<i32>(hi, 1);
     }
     let f = i32(params.step);
-    return vec2<i32>((i32(origin) + i32(index) - 1) * f, f);
+    return vec2<i32>((i32(origin) + i32(index) - i32(params.pad)) * f, f);
 }
 
 // The mean log luminance of each block, and of the edge columns and rows;
@@ -91,7 +96,7 @@ fn block_span(index: u32, blocks: u32, origin: u32, lo: i32, hi: i32) -> vec2<i3
 // repeats the photo's.
 @compute @workgroup_size(8, 8, 1)
 fn reduce_log(@builtin(global_invocation_id) id: vec3<u32>) {
-    if (id.x >= params.blocks_x + 2u || id.y >= params.blocks_y + 2u) {
+    if (id.x >= params.blocks_x + 2u * params.pad || id.y >= params.blocks_y + 2u * params.pad) {
         return;
     }
     let lo = vec2<i32>(i32(params.window_x), i32(params.window_y));
@@ -109,19 +114,20 @@ fn reduce_log(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 // Along the rows of the block texture: every block column (output column x
-// is block texture column x + 1) on every row, edge rows included; blocks
-// beyond the edge read the edge column.
+// is block texture column x + `pad`) on every row, edge rows included;
+// blocks beyond the edge read the edge column.
 @compute @workgroup_size(8, 8, 1)
 fn blur_horizontal(@builtin(global_invocation_id) id: vec3<u32>) {
-    if (id.x >= params.blocks_x || id.y >= params.blocks_y + 2u) {
+    if (id.x >= params.blocks_x || id.y >= params.blocks_y + 2u * params.pad) {
         return;
     }
     let radius = i32(params.radius);
-    let last = i32(params.blocks_x) + 1;
+    let pad = i32(params.pad);
+    let last = i32(params.blocks_x) - 1 + 2 * pad;
     var total = 0.0;
     var sum = 0.0;
     for (var offset = -radius; offset <= radius; offset = offset + 1) {
-        let x = clamp(i32(id.x) + 1 + offset, 0, last);
+        let x = clamp(i32(id.x) + pad + offset, 0, last);
         let w = weights[abs(offset)];
         total += textureLoad(source, vec2<i32>(x, i32(id.y)), 0).r * w;
         sum += w;
@@ -130,18 +136,19 @@ fn blur_horizontal(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 // Along the columns of the horizontal pass's output: every block (output
-// row y is its row y + 1); blocks beyond the edge read the edge row.
+// row y is its row y + `pad`); blocks beyond the edge read the edge row.
 @compute @workgroup_size(8, 8, 1)
 fn blur_vertical(@builtin(global_invocation_id) id: vec3<u32>) {
     if (id.x >= params.blocks_x || id.y >= params.blocks_y) {
         return;
     }
     let radius = i32(params.radius);
-    let last = i32(params.blocks_y) + 1;
+    let pad = i32(params.pad);
+    let last = i32(params.blocks_y) - 1 + 2 * pad;
     var total = 0.0;
     var sum = 0.0;
     for (var offset = -radius; offset <= radius; offset = offset + 1) {
-        let y = clamp(i32(id.y) + 1 + offset, 0, last);
+        let y = clamp(i32(id.y) + pad + offset, 0, last);
         let w = weights[abs(offset)];
         total += textureLoad(source, vec2<i32>(i32(id.x), y), 0).r * w;
         sum += w;

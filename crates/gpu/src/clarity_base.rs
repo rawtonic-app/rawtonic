@@ -43,7 +43,20 @@ struct Params {
     tile_x: u32,
     tile_y: u32,
     tile_flags: u32,
-    _pad: [u32; 2],
+    /// 1 when the block texture holds the edge columns and rows (blocks
+    /// larger than a pixel), else 0 (`block_texture_size`).
+    pad: u32,
+    _pad: u32,
+}
+
+impl Params {
+    /// The block texture's size: the field and, with `pad`, an edge column
+    /// and row on each side. One-pixel blocks need none (the edge block is
+    /// the edge pixel), so no texture is larger than the input, which may
+    /// already be at the GPU's limit (a 16 384-pixel panorama).
+    fn block_texture_size(&self) -> (u32, u32) {
+        (self.blocks_x + 2 * self.pad, self.blocks_y + 2 * self.pad)
+    }
 }
 
 /// One input's block field, the parameters it was made with and the large
@@ -214,6 +227,7 @@ impl ClarityBasePasses {
             blocks_y,
             radius: blocks,
             flags: u32::from(srgb) << 1,
+            pad: u32::from(step > 1),
             ..Default::default()
         }
     }
@@ -254,10 +268,11 @@ impl ClarityBasePasses {
                 .create_view(&Default::default())
         };
         let (bx, by) = (params.blocks_x, params.blocks_y);
-        // The blocks with an edge column and row on each side, the blocks'
-        // columns blurred along the rows (edge rows included), the field.
-        let blocks = texture("Clarity Base Blocks", bx + 2, by + 2);
-        let across = texture("Clarity Base Across", bx, by + 2);
+        let (px, py) = params.block_texture_size();
+        // The blocks (with the edge columns and rows), the blocks' columns
+        // blurred along the rows (edge rows included), the field.
+        let blocks = texture("Clarity Base Blocks", px, py);
+        let across = texture("Clarity Base Across", bx, py);
         let field = texture("Clarity Base Field", bx, by);
         let buffer = gpu_util::create_buffer_init(
             device,
@@ -282,14 +297,14 @@ impl ClarityBasePasses {
                 &self.reduce,
                 input,
                 &blocks,
-                (bx + 2, by + 2),
+                (px, py),
                 "clarity base blocks",
             ),
             (
                 &self.blur_h,
                 &blocks,
                 &across,
-                (bx, by + 2),
+                (bx, py),
                 "clarity base blur",
             ),
             (&self.blur_v, &across, &field, (bx, by), "clarity base blur"),
@@ -396,5 +411,46 @@ impl ClarityBasePasses {
             u64::from(size.0) * u64::from(size.1),
             Some(encoder.finish()),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// No texture of the field is larger than the input window it is made
+    /// from (which fits the GPU), panoramas at the texture limit included;
+    /// blocks larger than a pixel carry the edge columns and rows.
+    #[test]
+    fn field_textures_never_exceed_the_input() {
+        for (width, height) in [
+            (16_384, 1_500),
+            (1_500, 16_384),
+            (16_384, 16_384),
+            (6_000, 4_000),
+            (2_000, 1_000),
+            (3, 2),
+            (1, 1),
+        ] {
+            for (x, y) in [(0, 0), (1_001, 777)] {
+                let window = Roi {
+                    x,
+                    y,
+                    width,
+                    height,
+                };
+                let radius = (40.0f32 * width.min(height) as f32 / 1080.0)
+                    .ceil()
+                    .max(1.0) as u32;
+                let params = ClarityBasePasses::field_params(window, radius, false);
+                let (px, py) = params.block_texture_size();
+                assert!(
+                    px <= width.max(3) && py <= height.max(3),
+                    "{width} x {height} at {x}, {y}: {px} x {py} (step {})",
+                    params.step
+                );
+                assert_eq!(params.pad, u32::from(params.step > 1));
+            }
+        }
     }
 }

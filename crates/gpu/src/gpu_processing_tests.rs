@@ -20626,14 +20626,24 @@ fn clarity_version_4_renders_as_version_3() {
         };
         grey(level + texture(x, y) + line)
     }));
-    let border = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
-        if x == 0 || y == 0 || x == width - 1 || y == height - 1 {
-            grey(-7.0)
-        } else {
-            grey(-2.0 + texture(x, y))
-        }
-    }));
-    for (name, source) in [("edges", &edges), ("border", &border)] {
+    let border = |width: u32, height: u32| {
+        DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+            if x == 0 || y == 0 || x == width - 1 || y == height - 1 {
+                grey(-7.0)
+            } else {
+                grey(-2.0 + texture(x, y))
+            }
+        }))
+    };
+    // And one-pixel blocks (a short side of 1000: radius 38), whose block
+    // texture carries no edge columns.
+    assert_eq!(clarity_base::block_step(38), 1);
+    let (large_border, small_border) = (border(width, height), border(1500, 1000));
+    for (name, source) in [
+        ("edges", &edges),
+        ("border", &large_border),
+        ("border, one-pixel blocks", &small_border),
+    ] {
         let render = |profile: serde_json::Value| {
             let mut profile = profile;
             profile["renderVersion"] = json!(3);
