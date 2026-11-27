@@ -3000,7 +3000,7 @@
   },
   "studio": {
     "adjustment": {
-      "scrubHint": "Ziehen zum Anpassen · Doppelklick zum Zurücksetzen",
+      "scrubHint": "Ziehen zum Anpassen · Doppelklick zum Zurücksetzen · Namen gedrückt halten zeigt das Foto beim Standardwert",
       "trackHint": "Ziehen zum Anpassen; für feinere Schritte den Zeiger vom Regler weg bewegen · Alt (⌥): ein Zehntel · Doppelklick zum Zurücksetzen",
       "trackHintSharpenGrey": "Ziehen zum Anpassen; für feinere Schritte den Zeiger vom Regler weg bewegen · Alt (⌥) beim Ziehen halten: zeigt das Foto in Grau · Doppelklick zum Zurücksetzen",
       "trackHintSharpenMask": "Ziehen zum Anpassen; für feinere Schritte den Zeiger vom Regler weg bewegen · Alt (⌥) beim Ziehen halten: zeigt, was geschärft wird (weiß) · Doppelklick zum Zurücksetzen",
@@ -5241,7 +5241,10 @@
       "newPreset": "Neue Vorgabe",
       "newPresetTitle": "Aktuelle Einstellungen als Vorgabe speichern",
       "noFolder": "Kein Ordner",
+      "noThumbnail": "Keine Miniatur: dieses Preset ändert die RAW-Entwicklung oder den Zuschnitt; zum Ansehen anwenden",
       "renameAria": "{{name}} umbenennen",
+      "showGrid": "Als Miniaturen dieses Fotos zeigen",
+      "showList": "Als Liste zeigen",
       "sort": "Vorgaben sortieren",
       "sortTitle": "Ordner und Vorgaben A–Z sortieren",
       "style": "Stil",

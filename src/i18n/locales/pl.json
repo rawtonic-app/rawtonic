@@ -3313,7 +3313,7 @@
   },
   "studio": {
     "adjustment": {
-      "scrubHint": "Przeciągnij, aby dostosować · dwuklik resetuje",
+      "scrubHint": "Przeciągnij, aby dostosować · dwuklik resetuje · przytrzymaj nazwę, aby zobaczyć zdjęcie z wartością domyślną",
       "trackHint": "Przeciągnij, aby dostosować; odsuń wskaźnik od suwaka, by uzyskać drobniejsze kroki · Alt (⌥): jedna dziesiąta · dwuklik resetuje",
       "trackHintSharpenGrey": "Przeciągnij, aby dostosować; odsuń wskaźnik od suwaka, by uzyskać drobniejsze kroki · Alt (⌥) podczas przeciągania: pokazuje zdjęcie w szarości · dwuklik resetuje",
       "trackHintSharpenMask": "Przeciągnij, aby dostosować; odsuń wskaźnik od suwaka, by uzyskać drobniejsze kroki · Alt (⌥) podczas przeciągania: pokazuje, co jest wyostrzane (biel) · dwuklik resetuje",
@@ -5670,7 +5670,10 @@
       "newPreset": "Nowy preset",
       "newPresetTitle": "Zapisz bieżące ustawienia jako preset",
       "noFolder": "Bez folderu",
+      "noThumbnail": "Brak miniatury: ten preset zmienia wywołanie RAW lub kadrowanie; zastosuj go, aby go zobaczyć",
       "renameAria": "Zmień nazwę: {{name}}",
+      "showGrid": "Pokaż jako miniatury tego zdjęcia",
+      "showList": "Pokaż jako listę",
       "sort": "Sortuj presety",
       "sortTitle": "Sortuj foldery i presety A–Z",
       "style": "Styl",

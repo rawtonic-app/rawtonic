@@ -246,6 +246,7 @@ export function StudioFindDust() {
             min={0}
             max={100}
             defaultValue={50}
+            peek={false}
             onChange={(sensitivity) => setEditor({ spotVisualize: { ...visualize, sensitivity } })}
           />
           <p className="studio-hint" role="status">
@@ -569,6 +570,7 @@ export default function StudioSpotControls() {
               step={1}
               defaultValue={60}
               unit=" px"
+              peek={false}
               onChange={(size) => set({ size })}
             />
           )}
@@ -588,6 +590,7 @@ export default function StudioSpotControls() {
             step={1}
             defaultValue={60}
             unit=" px"
+            peek={false}
             onChange={(size) => set({ size })}
           />
           {shown.mode !== 'remove' && (
@@ -599,6 +602,7 @@ export default function StudioSpotControls() {
                 min={0}
                 max={100}
                 defaultValue={0}
+                peek={false}
                 onChange={(feather) => set({ feather })}
               />
               <AdjustmentControl
@@ -608,6 +612,7 @@ export default function StudioSpotControls() {
                 min={0}
                 max={100}
                 defaultValue={100}
+                peek={false}
                 onChange={(opacity) => set({ opacity })}
               />
             </>
@@ -675,6 +680,7 @@ export default function StudioSpotControls() {
           min={0}
           max={100}
           defaultValue={50}
+          peek={false}
           onChange={(sensitivity) => setVisualize({ sensitivity })}
         />
       )}

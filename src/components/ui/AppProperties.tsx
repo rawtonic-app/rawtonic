@@ -350,6 +350,8 @@ export enum Invokes {
   SnapshotThumbnail = 'snapshot_thumbnail',
   ProfileThumbnails = 'profile_thumbnails',
   CancelProfileThumbnails = 'cancel_profile_thumbnails',
+  PresetThumbnails = 'preset_thumbnails',
+  CancelPresetThumbnails = 'cancel_preset_thumbnails',
   SessionAlbumAdd = 'session_album_add',
   SessionAllTextMetadata = 'session_all_text_metadata',
   SessionAlbumPaths = 'session_album_paths',
@@ -586,6 +588,8 @@ export interface AppSettings {
   toolLayout?: ToolLayout;
   /** Ids of the favourite presets and styles, in the order starred. */
   favoritePresets?: string[];
+  /** The presets panel as a list (missing) or a grid of the open photo with each preset. */
+  presetLayout?: 'list' | 'grid';
   /** Preferences → Develop defaults (src/utils/developDefaults.ts). */
   developDefaults?: DevelopDefaults;
   /** The brush's last size, hardness, opacity and flow. */

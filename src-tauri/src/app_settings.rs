@@ -766,6 +766,10 @@ pub struct AppSettings {
     /// Ids of the favourite presets and styles, in the order starred.
     #[serde(default)]
     pub favorite_presets: Option<Vec<String>>,
+    /// The presets panel as a list (missing) or as a grid of the open
+    /// photograph with each preset (`"grid"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset_layout: Option<String>,
     /// The default develop settings of photographs without an edit
     /// (Preferences → Develop defaults; `rawtonic_engine::develop_defaults`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1006,6 +1010,7 @@ impl Default for AppSettings {
             crop_shade: None,
             tool_layout: None,
             favorite_presets: None,
+            preset_layout: None,
             develop_defaults: None,
             brush_defaults: None,
             sort_criteria: None,

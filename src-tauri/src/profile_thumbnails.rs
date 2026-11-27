@@ -1,8 +1,9 @@
-//! The profile browser's tiles: the open photograph with each camera
-//! profile, look or black-and-white mix, rendered small from the preview
-//! base the shown frame was built from (never from the file, never a
-//! fabricated preview). One call renders a batch of tiles on one downscaled
-//! base; a newer batch or closing the browser cancels the rest.
+//! The profile browser's and the presets panel's tiles: the open photograph
+//! with each camera profile, look, black-and-white mix or preset/style,
+//! rendered small from the preview base the shown frame was built from
+//! (never from the file, never a fabricated preview). One call renders a
+//! batch of tiles on one downscaled base; a newer batch of the same browser
+//! or closing it cancels the rest.
 
 use crate::adjustment_utils::normalize_editor_recipe;
 use crate::app_state::AppState;
@@ -26,7 +27,10 @@ use tauri::Manager;
 const MAX_TILE: u32 = 384;
 
 /// The newest batch asked for or cancelled; older batches stop between tiles.
+/// One counter per browser, so the profile browser and the presets panel
+/// never cancel each other's tiles.
 static LATEST: AtomicU64 = AtomicU64::new(0);
+static LATEST_PRESETS: AtomicU64 = AtomicU64::new(0);
 
 /// The downscaled base of the last batch: (preview base address, transform
 /// hash, tile edge) → base. Hovering and the next rows reuse it.
@@ -96,10 +100,55 @@ pub async fn profile_thumbnails(
 ) -> Result<tauri::ipc::Response, String> {
     LATEST.fetch_max(generation, Ordering::SeqCst);
     tauri::async_runtime::spawn_blocking(move || {
-        render_tiles(&app_handle, &path, adjustments, &variants, size, generation)
+        render_tiles(
+            &app_handle,
+            &path,
+            adjustments,
+            &variants,
+            size,
+            (&LATEST, generation),
+        )
     })
     .await
     .map_err(|error| format!("Profile thumbnail task failed: {error}"))?
+    .map(tauri::ipc::Response::new)
+}
+
+/// Stops preset tile batches older than or equal to `generation` (the panel
+/// closed, scrolled or another photograph opened).
+#[tauri::command]
+pub fn cancel_preset_thumbnails(generation: u64) {
+    cancel(&LATEST_PRESETS, generation);
+}
+
+/// The presets panel's grid: as `profile_thumbnails`, with `variants` each
+/// a preset's or style's changes to `adjustments` (its hover preview's
+/// recipe, `null` removing a key). A preset's own layers get their own
+/// masks; a tile whose geometry differs from the shown frame's (a preset
+/// with a crop) is not rendered (length 0) rather than drawn on the wrong
+/// base.
+#[tauri::command]
+pub async fn preset_thumbnails(
+    path: String,
+    adjustments: Value,
+    variants: Vec<Value>,
+    size: u32,
+    generation: u64,
+    app_handle: tauri::AppHandle,
+) -> Result<tauri::ipc::Response, String> {
+    LATEST_PRESETS.fetch_max(generation, Ordering::SeqCst);
+    tauri::async_runtime::spawn_blocking(move || {
+        render_tiles(
+            &app_handle,
+            &path,
+            adjustments,
+            &variants,
+            size,
+            (&LATEST_PRESETS, generation),
+        )
+    })
+    .await
+    .map_err(|error| format!("Preset thumbnail task failed: {error}"))?
     .map(tauri::ipc::Response::new)
 }
 
@@ -109,10 +158,14 @@ fn render_tiles(
     mut recipe: Value,
     variants: &[Value],
     size: u32,
-    generation: u64,
+    (latest, generation): (&AtomicU64, u64),
 ) -> Result<Vec<u8>, String> {
     #[cfg(feature = "performance-profiling")]
-    let _stage = crate::performance::PerformanceStage::new("profile_thumbnails");
+    let _stage = crate::performance::PerformanceStage::new(if std::ptr::eq(latest, &LATEST) {
+        "profile_thumbnails"
+    } else {
+        "preset_thumbnails"
+    });
     let state = app_handle.state::<AppState>();
     let develop = app_handle.state::<DevelopSession>();
     let gpu = app_handle.state::<crate::state::gpu::GpuState>();
@@ -153,18 +206,44 @@ fn render_tiles(
     )?;
     let tm_override = resolve_tonemapper_override_from_handle(app_handle, loaded_image.is_raw);
     let mut tiles = Vec::with_capacity(variants.len());
+    let masks_key = rawtonic_recipe::masks::MASKS.name();
     for variant in variants {
-        if cancelled(&LATEST, generation) {
+        if cancelled(latest, generation) {
             tiles.push(None);
             continue;
         }
         let mut tile = tile_recipe(&recipe, variant);
         normalize_editor_recipe(&develop, &mut tile);
+        // Drawn on the shown frame's base only: another crop or rotation
+        // would need its own.
+        if calculate_transform_hash(&tile) != transform_hash {
+            tiles.push(None);
+            continue;
+        }
+        // A preset's layers joined to the photo's: their own masks.
+        let own_masks;
+        let (tile_definitions, tile_bitmaps) = if tile.get(masks_key) == recipe.get(masks_key) {
+            (&mask_definitions, &mask_bitmaps)
+        } else {
+            let definitions = mask_definitions_from_json(&tile);
+            let bitmaps = preview_mask_bitmaps(
+                &state,
+                &develop,
+                &tile,
+                &definitions,
+                (&loaded_image, source_scale, full_dims),
+                (width, height),
+                small_scale,
+                unscaled_crop_offset,
+            )?;
+            own_masks = (definitions, bitmaps);
+            (&own_masks.0, &own_masks.1)
+        };
         let mut probe = get_all_adjustments_with_masks(
             &tile,
             loaded_image.is_raw,
             tm_override,
-            &mask_definitions,
+            tile_definitions,
             &rawtonic_engine::recipe_versions::RecipeVersions::of(&tile, loaded_image.is_raw),
         );
         crate::baseline_exposure::apply_base_look(
@@ -186,7 +265,7 @@ fn render_tiles(
             small_hash,
             RenderRequest {
                 adjustments: probe,
-                mask_bitmaps: &mask_bitmaps,
+                mask_bitmaps: tile_bitmaps,
                 lut,
                 roi: None,
             },
@@ -237,6 +316,35 @@ mod tests {
             calculate_transform_hash(&look),
             calculate_transform_hash(&recipe)
         );
+    }
+
+    #[test]
+    fn a_preset_with_a_crop_is_not_drawn_on_the_shown_base() {
+        // A preset tile whose geometry differs from the frame's is skipped
+        // (`render_tiles` compares the transform hashes).
+        let recipe = json!({"exposure": 1, "rotation": 0.0});
+        let tone = tile_recipe(&recipe, &json!({"contrast": 20, "exposure": null}));
+        assert_eq!(
+            calculate_transform_hash(&tone),
+            calculate_transform_hash(&recipe)
+        );
+        let crop = tile_recipe(
+            &recipe,
+            &json!({"crop": {"x": 0, "y": 0, "width": 50, "height": 50}}),
+        );
+        assert_ne!(
+            calculate_transform_hash(&crop),
+            calculate_transform_hash(&recipe)
+        );
+    }
+
+    #[test]
+    fn the_two_browsers_cancel_only_their_own_batches() {
+        LATEST.fetch_max(10, Ordering::SeqCst);
+        LATEST_PRESETS.fetch_max(3, Ordering::SeqCst);
+        cancel_preset_thumbnails(3);
+        assert!(cancelled(&LATEST_PRESETS, 3));
+        assert!(!cancelled(&LATEST, 10));
     }
 
     #[test]

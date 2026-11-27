@@ -3157,7 +3157,7 @@
   },
   "studio": {
     "adjustment": {
-      "scrubHint": "Trascina per regolare · doppio clic per ripristinare",
+      "scrubHint": "Trascina per regolare · doppio clic per ripristinare · tieni premuto il nome per vedere la foto al valore predefinito",
       "trackHint": "Trascina per regolare; allontana il puntatore dal cursore per passi più fini · Alt (⌥): un decimo · doppio clic per ripristinare",
       "trackHintSharpenGrey": "Trascina per regolare; allontana il puntatore dal cursore per passi più fini · Alt (⌥) durante il trascinamento: mostra la foto in grigio · doppio clic per ripristinare",
       "trackHintSharpenMask": "Trascina per regolare; allontana il puntatore dal cursore per passi più fini · Alt (⌥) durante il trascinamento: mostra cosa viene reso nitido (bianco) · doppio clic per ripristinare",
@@ -5456,7 +5456,10 @@
       "newPreset": "Nuovo predefinito",
       "newPresetTitle": "Salva le impostazioni attuali come predefinito",
       "noFolder": "Nessuna cartella",
+      "noThumbnail": "Nessuna miniatura: questo preset cambia lo sviluppo del RAW o il ritaglio; applicalo per vederlo",
       "renameAria": "Rinomina {{name}}",
+      "showGrid": "Mostra come miniature di questa foto",
+      "showList": "Mostra come elenco",
       "sort": "Ordina predefiniti",
       "sortTitle": "Ordina cartelle e predefiniti dalla A alla Z",
       "style": "Stile",

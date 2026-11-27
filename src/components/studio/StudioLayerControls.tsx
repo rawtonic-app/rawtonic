@@ -248,6 +248,7 @@ export default function StudioLayerControls({
             value={brushSettings?.size ?? DEFAULT_BRUSH_SIZE}
             defaultValue={DEFAULT_BRUSH_SIZE}
             unit="px"
+            peek={false}
             onChange={setBrushSize}
           />
           {/* Capture One's brush: hardness shapes the tip (50% coverage at
@@ -260,6 +261,7 @@ export default function StudioLayerControls({
             max={100}
             value={brushSettings?.hardness ?? 50}
             defaultValue={50}
+            peek={false}
             onChange={(hardness) => setBrush({ hardness })}
           />
           <AdjustmentControl
@@ -268,6 +270,7 @@ export default function StudioLayerControls({
             max={100}
             value={brushSettings?.opacity ?? 100}
             defaultValue={100}
+            peek={false}
             onChange={(opacity) => setBrush({ opacity })}
           />
           <AdjustmentControl
@@ -276,6 +279,7 @@ export default function StudioLayerControls({
             max={100}
             value={brushSettings?.flow ?? 100}
             defaultValue={100}
+            peek={false}
             onChange={(flow) => setBrush({ flow })}
           />
           {/* Lightroom's and Capture One's Auto Mask, measured in Camera Raw

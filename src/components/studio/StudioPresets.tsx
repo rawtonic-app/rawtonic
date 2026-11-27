@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { openDialog, saveDialog } from '../../utils/fileDialog';
-import { ArrowDownAZ, Check, ChevronRight, FolderInput, FolderPlus, Plus, Sparkles, Star } from 'lucide-react';
+import {
+  ArrowDownAZ,
+  Check,
+  ChevronRight,
+  FolderInput,
+  FolderPlus,
+  LayoutGrid,
+  List,
+  Plus,
+  Sparkles,
+  Star
+} from 'lucide-react';
 import { notify } from '../../activity/notify';
 import { useTranslation } from 'react-i18next';
 import { panelsShowReady, useEditorStore } from '../../store/useEditorStore';
@@ -24,6 +35,7 @@ import { appliedStyleOf, revertStyle, withStyleAmount } from '../../utils/applie
 import { presetPreview, presetValues, toolPresetToSave } from './toolPresets';
 import { presetDefaultItems } from './developDefaultsMenus';
 import { noteTool } from '../contribute/usageStats';
+import { contentKey, usePresetThumbnails, type PresetTile } from './presetThumbnails';
 
 type Entry = { folder: { id: string; name: string; builtin?: boolean } | null; presets: Preset[] };
 
@@ -83,6 +95,39 @@ function applyTargets() {
   const open = useEditorStore.getState().selectedImage?.path;
   const selected = useLibraryStore.getState().multiSelectedPaths;
   return selected.length > 1 ? selected : open ? [open] : [];
+}
+
+/** The open photo with `preset` as its hover preview and grid tile show it:
+ * a style in place of the applied one (the applied one as it is), a tool
+ * preset over the current settings. Null for a preset that needs the RAW
+ * developed again (or new detections). */
+export function presetPreviewOf(
+  preset: Preset,
+  current: Adjustments,
+  image: { path: string; isRaw?: boolean }
+): Adjustments | null {
+  if (isStyle(preset) && appliedStyleOf(current)?.id === preset.id) return current;
+  const reverted = isStyle(preset) ? revertStyle(current) : null;
+  const base = reverted?.removed ? normalizeLoadedAdjustments(reverted.recipe, Boolean(image.isRaw)) : reverted?.recipe;
+  return presetPreview(
+    current,
+    preset.adjustments,
+    Boolean(image.isRaw),
+    base && { base, style: true },
+    openPasteTarget(image.path, base ?? current, Boolean(base))
+  );
+}
+
+/** A preset's version for its cached tiles: its settings' content. */
+const presetVersions = new WeakMap<object, string>();
+function presetVersion(preset: Preset): string {
+  const adjustments = preset.adjustments as object;
+  let version = presetVersions.get(adjustments);
+  if (!version) {
+    version = contentKey(preset.adjustments);
+    presetVersions.set(adjustments, version);
+  }
+  return version;
 }
 
 function NewPresetForm({
@@ -207,20 +252,8 @@ export default function StudioPresets() {
       const { selectedImage: image, adjustments: current, setEditor } = useEditorStore.getState();
       if (!image?.isReady) return;
       // A style shows in place of the applied one; the applied one as it is.
-      const applied = appliedStyleOf(current);
-      if (isStyle(preset) && applied?.id === preset.id) return endPreview();
-      const reverted = isStyle(preset) ? revertStyle(current) : null;
-      const base = reverted?.removed
-        ? normalizeLoadedAdjustments(reverted.recipe, Boolean(image.isRaw))
-        : reverted?.recipe;
-      // No preview for a preset that needs the RAW developed again.
-      const previewed = presetPreview(
-        current,
-        preset.adjustments,
-        Boolean(image.isRaw),
-        base && { base, style: true },
-        openPasteTarget(image.path, base ?? current, Boolean(base))
-      );
+      if (isStyle(preset) && appliedStyleOf(current)?.id === preset.id) return endPreview();
+      const previewed = presetPreviewOf(preset, current, image);
       if (!previewed) return endPreview();
       previewing.current = true;
       setEditor({ previewOverride: previewed });
@@ -293,6 +326,36 @@ export default function StudioPresets() {
   }, [appliedStyle, presets, builtins]);
   // Controls keep their look while the next photograph loads.
   const panelsReady = useEditorStore(panelsShowReady);
+  // List (default) or a grid of the open photo with each preset; remembered.
+  const layout = useSettingsStore((s) => (s.appSettings?.presetLayout === 'grid' ? 'grid' : 'list'));
+  const setLayout = (next: 'list' | 'grid') => {
+    const { appSettings, handleSettingsChange } = useSettingsStore.getState();
+    if (appSettings) void handleSettingsChange({ ...appSettings, presetLayout: next });
+  };
+  const [panelOpen, setPanelOpen] = useState(false);
+  const imagePath = selectedImage?.path;
+  const imageIsRaw = Boolean(selectedImage?.isRaw);
+  const gridTiles = useMemo<PresetTile[]>(() => {
+    const tiles = new Map<string, PresetTile>();
+    for (const group of groups) {
+      if (group.folder && !query.trim() && collapsed.has(group.folder.id)) continue;
+      for (const preset of group.presets)
+        if (!tiles.has(preset.id))
+          tiles.set(preset.id, {
+            key: preset.id,
+            version: presetVersion(preset),
+            previewOf: (recipe) =>
+              imagePath ? presetPreviewOf(preset, recipe, { path: imagePath, isRaw: imageIsRaw }) : null
+          });
+    }
+    return [...tiles.values()];
+  }, [groups, query, collapsed, imagePath, imageIsRaw]);
+  const thumbnails = usePresetThumbnails(
+    layout === 'grid' && panelOpen,
+    imagePath,
+    gridTiles,
+    `${gridTiles.map((tile) => tile.key).join('|')}#${renaming ?? ''}`
+  );
 
   const apply = (preset: Preset) => {
     endPreview();
@@ -519,13 +582,104 @@ export default function StudioPresets() {
     } else if (e.key === 'Escape') setRenaming(null);
   };
 
+  const presetEntry = (preset: Preset, key: string, tile: boolean) => {
+    if (renaming === preset.id && renamingIn === key)
+      return (
+        <input
+          key={preset.id}
+          className="studio-metadata-input"
+          aria-label={t('studio.presets.renameAria', { name: preset.name })}
+          defaultValue={preset.name}
+          autoFocus
+          onKeyDown={(e) => renameKeys(e, preset)}
+          onBlur={() => setRenaming(null)}
+        />
+      );
+    const applied = isStyle(preset) && appliedStyle?.id === preset.id;
+    const hint = applied
+      ? t('studio.presets.appliedStyle')
+      : preset.builtin
+        ? t('studio.presets.appliesBuiltin')
+        : preset.presetType === 'tool'
+          ? t('studio.presets.appliesSaved')
+          : t('studio.presets.appliesAll');
+    const name = presetName(t, preset);
+    const favourite = favoriteIds.includes(preset.id);
+    const thumbnail = tile ? thumbnails.get(preset.id) : undefined;
+    return (
+      <div
+        key={preset.id}
+        className={tile ? 'studio-preset-cell' : 'studio-preset-row'}
+        data-preset-tile={tile ? preset.id : undefined}
+      >
+        <button
+          className={`${tile ? 'studio-preset-tile' : `studio-preset ${key ? 'is-nested' : ''}`} ${applied ? 'is-applied' : ''}`}
+          disabled={!panelsReady}
+          aria-pressed={isStyle(preset) ? applied : undefined}
+          aria-label={tile ? name : undefined}
+          title={tile ? `${name}\n${hint}` : hint}
+          onClick={() => apply(preset)}
+          onContextMenu={(e) => menu(e, preset, key)}
+          onMouseEnter={() => startPreview(preset)}
+          onMouseLeave={endPreview}
+        >
+          {tile && (
+            <span
+              className={`studio-preset-thumb ${thumbnail === false ? 'is-unavailable' : ''}`}
+              title={thumbnail === false ? t('studio.presets.noThumbnail') : undefined}
+            >
+              {thumbnail ? <img src={thumbnail} alt="" draggable={false} /> : null}
+            </span>
+          )}
+          {tile ? (
+            <span className="studio-preset-tile-name">
+              {isStyle(preset) && <Sparkles size={10} aria-label={t('studio.presets.style')} />}
+              <span>{name}</span>
+            </span>
+          ) : (
+            <>
+              {isStyle(preset) && <Sparkles size={10} aria-label={t('studio.presets.style')} />}
+              <span>{name}</span>
+            </>
+          )}
+          {applied && <Check size={11} className="studio-preset-applied-mark" data-applied-mark aria-hidden />}
+        </button>
+        {/* Lightroom's favourites: shown on hover, always once on. */}
+        <button
+          type="button"
+          className={`studio-preset-star ${favourite ? 'is-on' : ''}`}
+          aria-pressed={favourite}
+          aria-label={t(favourite ? 'studio.presets.favoriteRemove' : 'studio.presets.favoriteAdd')}
+          title={t(favourite ? 'studio.presets.favoriteRemove' : 'studio.presets.favoriteAdd')}
+          onClick={() => toggleFavorite(preset)}
+        >
+          <Star size={11} fill={favourite ? 'currentColor' : 'none'} />
+        </button>
+      </div>
+    );
+  };
+
   return (
     <ToolGroup
       title="Styles & presets"
       label={t('studio.presets.title')}
       open={false}
+      onOpenChange={setPanelOpen}
       actions={
         <>
+          <button
+            type="button"
+            title={t(layout === 'grid' ? 'studio.presets.showList' : 'studio.presets.showGrid')}
+            aria-label={t(layout === 'grid' ? 'studio.presets.showList' : 'studio.presets.showGrid')}
+            onClick={(e) => {
+              e.preventDefault();
+              const details = e.currentTarget.closest('details');
+              if (details) details.open = true;
+              setLayout(layout === 'grid' ? 'list' : 'grid');
+            }}
+          >
+            {layout === 'grid' ? <List size={12} /> : <LayoutGrid size={12} />}
+          </button>
           <button
             type="button"
             title={t('studio.presets.importButtonTitle')}
@@ -785,66 +939,12 @@ export default function StudioPresets() {
                   </button>
                 )
               )}
-              {open &&
-                group.presets.map((preset) =>
-                  renaming === preset.id && renamingIn === key ? (
-                    <input
-                      key={preset.id}
-                      className="studio-metadata-input"
-                      aria-label={t('studio.presets.renameAria', { name: preset.name })}
-                      defaultValue={preset.name}
-                      autoFocus
-                      onKeyDown={(e) => renameKeys(e, preset)}
-                      onBlur={() => setRenaming(null)}
-                    />
-                  ) : (
-                    <div key={preset.id} className="studio-preset-row">
-                      <button
-                        className={`studio-preset ${group.folder ? 'is-nested' : ''} ${isStyle(preset) && appliedStyle?.id === preset.id ? 'is-applied' : ''}`}
-                        disabled={!panelsReady}
-                        aria-pressed={isStyle(preset) ? appliedStyle?.id === preset.id : undefined}
-                        title={
-                          isStyle(preset) && appliedStyle?.id === preset.id
-                            ? t('studio.presets.appliedStyle')
-                            : preset.builtin
-                              ? t('studio.presets.appliesBuiltin')
-                              : preset.presetType === 'tool'
-                                ? t('studio.presets.appliesSaved')
-                                : t('studio.presets.appliesAll')
-                        }
-                        onClick={() => apply(preset)}
-                        onContextMenu={(e) => menu(e, preset, key)}
-                        onMouseEnter={() => startPreview(preset)}
-                        onMouseLeave={endPreview}
-                      >
-                        {isStyle(preset) && <Sparkles size={10} aria-label={t('studio.presets.style')} />}
-                        <span>{presetName(t, preset)}</span>
-                        {isStyle(preset) && appliedStyle?.id === preset.id && (
-                          <Check size={11} className="studio-preset-applied-mark" data-applied-mark aria-hidden />
-                        )}
-                      </button>
-                      {/* Lightroom's favourites: shown on hover, always once on. */}
-                      <button
-                        type="button"
-                        className={`studio-preset-star ${favoriteIds.includes(preset.id) ? 'is-on' : ''}`}
-                        aria-pressed={favoriteIds.includes(preset.id)}
-                        aria-label={t(
-                          favoriteIds.includes(preset.id)
-                            ? 'studio.presets.favoriteRemove'
-                            : 'studio.presets.favoriteAdd'
-                        )}
-                        title={t(
-                          favoriteIds.includes(preset.id)
-                            ? 'studio.presets.favoriteRemove'
-                            : 'studio.presets.favoriteAdd'
-                        )}
-                        onClick={() => toggleFavorite(preset)}
-                      >
-                        <Star size={11} fill={favoriteIds.includes(preset.id) ? 'currentColor' : 'none'} />
-                      </button>
-                    </div>
-                  )
-                )}
+              {open && layout === 'list' && group.presets.map((preset) => presetEntry(preset, key, false))}
+              {open && layout === 'grid' && group.presets.length > 0 && (
+                <div className="studio-preset-tiles">
+                  {group.presets.map((preset) => presetEntry(preset, key, true))}
+                </div>
+              )}
             </div>
           );
         })}

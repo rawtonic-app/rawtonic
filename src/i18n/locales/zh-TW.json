@@ -2901,7 +2901,7 @@
   },
   "studio": {
     "adjustment": {
-      "scrubHint": "拖曳以調整 · 按兩下重設",
+      "scrubHint": "拖曳以調整 · 按兩下重設 · 按住名稱可查看預設值下的相片",
       "trackHint": "拖曳以調整；將指標移離滑桿可更細緻調整 · Alt (⌥)：十分之一 · 按兩下重設",
       "trackHintSharpenGrey": "拖曳以調整；將指標移離滑桿可更細緻調整 · 拖曳時按住 Alt (⌥)：以灰階顯示照片 · 按兩下重設",
       "trackHintSharpenMask": "拖曳以調整；將指標移離滑桿可更細緻調整 · 拖曳時按住 Alt (⌥)：顯示被銳化的部分（白色） · 按兩下重設",
@@ -5096,7 +5096,10 @@
       "newPreset": "新增預設",
       "newPresetTitle": "將目前設定儲存為預設",
       "noFolder": "無資料夾",
+      "noThumbnail": "無縮圖：此預設集會改變 RAW 沖印或裁切；套用後即可查看",
       "renameAria": "重新命名 {{name}}",
+      "showGrid": "以此相片的縮圖顯示",
+      "showList": "以清單顯示",
       "sort": "排序預設",
       "sortTitle": "依 A–Z 排序資料夾和預設",
       "style": "樣式",

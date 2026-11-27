@@ -3157,7 +3157,7 @@
   },
   "studio": {
     "adjustment": {
-      "scrubHint": "Arraste para ajustar · clique duplo para redefinir",
+      "scrubHint": "Arraste para ajustar · clique duplo para redefinir · mantenha o nome pressionado para ver a foto com o valor padrão",
       "trackHint": "Arraste para ajustar; afaste o ponteiro do controle para passos mais finos · Alt (⌥): um décimo · clique duplo para redefinir",
       "trackHintSharpenGrey": "Arraste para ajustar; afaste o ponteiro do controle para passos mais finos · Alt (⌥) ao arrastar: mostra a foto em cinza · clique duplo para redefinir",
       "trackHintSharpenMask": "Arraste para ajustar; afaste o ponteiro do controle para passos mais finos · Alt (⌥) ao arrastar: mostra o que é nitidificado (branco) · clique duplo para redefinir",
@@ -5456,7 +5456,10 @@
       "newPreset": "Nova predefinição",
       "newPresetTitle": "Salvar as configurações atuais como predefinição",
       "noFolder": "Sem pasta",
+      "noThumbnail": "Sem miniatura: esta predefinição altera a revelação do RAW ou o recorte; aplique-a para vê-la",
       "renameAria": "Renomear {{name}}",
+      "showGrid": "Mostrar como miniaturas desta foto",
+      "showList": "Mostrar como lista",
       "sort": "Ordenar predefinições",
       "sortTitle": "Ordenar pastas e predefinições de A a Z",
       "style": "Estilo",

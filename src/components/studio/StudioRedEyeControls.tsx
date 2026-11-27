@@ -66,6 +66,7 @@ export default function StudioRedEyeControls() {
         min={0}
         max={100}
         defaultValue={50}
+        peek={false}
         onChange={(pupilSize) => set({ pupilSize })}
       />
       <AdjustmentControl
@@ -75,6 +76,7 @@ export default function StudioRedEyeControls() {
         min={0}
         max={100}
         defaultValue={50}
+        peek={false}
         onChange={(darken) => set({ darken })}
       />
       {shown.kind === 'pet' && (
