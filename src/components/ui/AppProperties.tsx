@@ -884,7 +884,6 @@ export interface LoadImageResult {
   metadata: ImageMetadata;
   exif: { [key: string]: string };
   is_raw: boolean;
-  content_type?: string | null;
   /** AI Denoise amount the source was developed with (0 … 100). */
   ai_denoise: number;
   /** Its `aiDenoiseVersion` (1 when off). */
