@@ -1604,6 +1604,14 @@ fn usual_onnx(model: &SubjectModel) -> bool {
     model.on_onnx() && !model.low_peak()
 }
 
+/// Whether the cached Subject model `model` is the usual graph the fetched
+/// low-peak file supersedes: the next load replaces it (`cached_subject`),
+/// so the memory budget counts that load and the low-peak plan, not the
+/// cached model (`model_loaded`, `subject_low_peak_ready`).
+pub(crate) fn subject_superseded(model: &SubjectModel) -> bool {
+    usual_onnx(model) && USUAL_SUBJECT_SUPERSEDED.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// For a Subject request that may download, on a machine that prefers the
 /// low-peak graph (`subject_onnx_file`) with only the usual one installed
 /// (installed before this graph existed): fetches the low-peak file in the
@@ -1717,6 +1725,7 @@ pub(crate) fn subject_low_peak_ready(
     if let Some(model) = lock_recover(&ai_state.models)
         .as_ref()
         .and_then(|state| state.subject_model.clone())
+        .filter(|model| !subject_superseded(model))
     {
         return model.low_peak();
     }
@@ -1782,6 +1791,11 @@ pub async fn get_or_init_subject_model_planned(
     });
     if cached.is_none() && low_peak_installed {
         log::info!("AI subject mask: loading the fetched low-peak model in place of the usual one");
+    }
+    if cached.as_deref().is_some_and(subject_superseded) && !low_peak_installed {
+        // The low-peak file is gone again: the usual model stays, and the
+        // memory budget counts it as loaded again.
+        USUAL_SUBJECT_SUPERSEDED.store(false, std::sync::atomic::Ordering::SeqCst);
     }
     if let Some(model) = cached {
         if serves(&model, reduced) {
@@ -5188,6 +5202,7 @@ mod model_fetch_tests {
     /// `FET1_BYTES` reserved up front as for the announced length, then
     /// written), and prints the process's peak resident memory before and
     /// after (`getrusage`). One mode per process.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[tokio::test]
     #[ignore]
     async fn measure_model_download_peak_memory() {

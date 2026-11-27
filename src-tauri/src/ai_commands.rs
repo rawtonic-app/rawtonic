@@ -1172,12 +1172,17 @@ impl Network {
     }
 }
 
-/// Whether the network for `kind` is loaded.
+/// Whether the network for `kind` is loaded. Not a usual Subject model the
+/// fetched low-peak file supersedes: the run's load replaces it (G74/FET1),
+/// so its estimate counts that load.
 fn model_loaded(ai_state: &AiState, kind: AutoMask) -> bool {
     lock_recover(&ai_state.models)
         .as_ref()
         .is_some_and(|ai| match kind {
-            AutoMask::Subject => ai.subject_model.is_some(),
+            AutoMask::Subject => ai
+                .subject_model
+                .as_deref()
+                .is_some_and(|model| !crate::ai_processing::subject_superseded(model)),
             AutoMask::Sky => ai.sky_model.is_some(),
         })
 }
