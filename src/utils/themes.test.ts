@@ -117,6 +117,19 @@ for (const shade of SHADES) {
         4.5
       );
       expect(contrast(palette['--app-button-text'], palette['--app-accent'])).toBeGreaterThanOrEqual(4.5);
+      // Inherited dialogs use the app accent for links, focus rings and
+      // accent text: readable on their surfaces, and a ring on hover fills.
+      for (const bg of ['bg-primary', 'bg-secondary', 'surface'])
+        expect(contrast(palette['--app-accent'], palette[`--app-${bg}`]), `app accent / ${bg}`).toBeGreaterThanOrEqual(
+          4.5
+        );
+      expect(contrast(palette['--app-accent'], palette['--app-card-active'])).toBeGreaterThanOrEqual(3);
+      // Expanded stack badges and selection tints carry text.
+      const mix = palette['--studio-accent-tint'].match(/color-mix\(in srgb, (#\w+) (\d+)%, (#\w+)\)/)!;
+      const share = Number(mix[2]) / 100;
+      const [a, b] = [rgb(mix[1]), rgb(mix[3])];
+      const tint = `rgb(${a.map((c, i) => Math.round(c * share + b[i] * (1 - share))).join(', ')})`;
+      expect(contrast(role('text'), tint), 'text / accent tint').toBeGreaterThanOrEqual(4.5);
       for (const fg of ['warning', 'error', 'success'])
         for (const bg of ['inset', 'bg', 'raised'])
           expect(contrast(role(fg), role(bg)), `${fg} / ${bg}`).toBeGreaterThanOrEqual(4.5);

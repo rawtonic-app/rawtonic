@@ -895,10 +895,12 @@
 .adjustment-control.is-active input.adjustment-value {
   color: var(--studio-shade-text);
 }
+/* Same size while dragged (the pointer maths use one thumb width); the ring
+   and the white fill mark the drag. */
 .adjustment-control.is-active .adjustment-track::-webkit-slider-thumb {
-  width: 13px;
-  height: 13px;
-  margin-top: -5.5px;
+  width: 12px;
+  height: 12px;
+  margin-top: -5px;
   background: var(--studio-shade-text);
   box-shadow: 0 0 0 2px rgb(var(--studio-rgb-accent) / 0.6);
 }
@@ -2052,12 +2054,16 @@
 .studio-photo:not(.is-selected):hover {
   background: var(--studio-shade-raised);
 }
+/* Selected: a lighter cell with a grey frame. The photo being edited (also
+   inside a selection) gets the accent frame at double weight, so it stays
+   distinct by weight as well as by colour. */
 .studio-photo.is-selected {
   background: var(--studio-shade-hover);
-  border-color: var(--studio-accent);
+  border-color: var(--studio-shade-line);
 }
 .studio-photo.is-current {
   border-color: var(--studio-accent);
+  box-shadow: inset 0 0 0 1px var(--studio-accent);
 }
 .studio-photo-open {
   display: flex !important;
@@ -2161,15 +2167,15 @@
   min-height: 18px !important;
   padding: 0 5px !important;
   border-radius: 2px;
-  background: rgb(var(--studio-rgb-accent) / 0.902) !important;
-  color: var(--studio-accent) !important;
+  background: var(--studio-accent-tint) !important;
+  color: var(--studio-shade-text) !important;
   font-size: 10px;
   line-height: 16px;
   font-variant-numeric: tabular-nums;
 }
 .studio-photo.is-stack-collapsed .studio-photo-stack {
-  background: #2f5b80 !important;
-  color: #fff !important;
+  background: var(--studio-accent-fill) !important;
+  color: var(--studio-on-accent) !important;
 }
 .studio-photo.is-stacked:not(.is-stack-collapsed) {
   background: var(--studio-shade-raised);

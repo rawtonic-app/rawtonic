@@ -17,9 +17,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe('professional adjustment control', () => {
-  // A track 109 px wide: 100 px of thumb travel (9 px thumb), at 0 the
-  // thumb's centre sits at 4.5 + 50 = 54.5.
-  const box = { left: 0, top: 0, width: 109, height: 20 } as DOMRect;
+  // A track 112 px wide from x = -1.5: 100 px of thumb travel (12 px thumb), at 0 the
+  // thumb's centre sits at -1.5 + 6 + 50 = 54.5.
+  const box = { left: -1.5, top: 0, width: 112, height: 20 } as DOMRect;
   const exposure = (change = vi.fn()) => {
     render(<AdjustmentControl label="Exposure" value={0} min={-5} max={5} step={0.01} onChange={change} />);
     const slider = screen.getByRole('slider', { name: 'Exposure' }) as HTMLInputElement;
@@ -305,7 +305,12 @@ describe('professional adjustment control', () => {
     const change = vi.fn();
     render(<AdjustmentControl label="Exposure" value={0} min={-5} max={5} step={0.01} onChange={change} />);
     const slider = screen.getByRole('slider', { name: 'Exposure' }) as HTMLInputElement;
-    vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 109, height: 20 } as DOMRect);
+    vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue({
+      left: -1.5,
+      top: 0,
+      width: 112,
+      height: 20
+    } as DOMRect);
     slider.setPointerCapture = vi.fn();
     const field = screen.getByRole('textbox');
     field.focus();
@@ -631,7 +636,7 @@ describe('Lightroom keyboard steps and travel', () => {
   });
 
   it('a track shorter than the minimum travel drags as if it had that length', () => {
-    const box = { left: 0, top: 0, width: 109, height: 20 } as DOMRect; // 100 px of travel
+    const box = { left: -1.5, top: 0, width: 112, height: 20 } as DOMRect; // 100 px of travel
     const drag = (minTravel?: number) => {
       const change = vi.fn();
       const { unmount } = render(<AdjustmentControl label="Hue" value={0} minTravel={minTravel} onChange={change} />);

@@ -513,10 +513,10 @@
   --app-bg-secondary: #1c1c1c;
   --app-surface: #303030;
   --app-card-active: #3c3c3c;
-  --app-button-text: #ffffff;
+  --app-button-text: #0f1b29;
   --app-text-primary: #e6e6e6;
   --app-text-secondary: #a6a6a6;
-  --app-accent: #3e6ea3;
+  --app-accent: #8cb3dc;
   --app-border-color: #3c3c3c;
   --app-hover-color: #e6e6e6;
   --studio-shade-ink: #0c0c0c;
@@ -562,10 +562,10 @@
   --app-bg-secondary: #2c2c2c;
   --app-surface: #424242;
   --app-card-active: #4e4e4e;
-  --app-button-text: #ffffff;
+  --app-button-text: #0f1b29;
   --app-text-primary: #f0f0f0;
   --app-text-secondary: #c4c4c4;
-  --app-accent: #3a68a0;
+  --app-accent: #9cc0e6;
   --app-border-color: #4e4e4e;
   --app-hover-color: #f0f0f0;
   --studio-shade-ink: #1a1a1a;
@@ -611,10 +611,10 @@
   --app-bg-secondary: #444444;
   --app-surface: #5c5c5c;
   --app-card-active: #696969;
-  --app-button-text: #10233a;
+  --app-button-text: #0f1b29;
   --app-text-primary: #ffffff;
   --app-text-secondary: #ececec;
-  --app-accent: #9cc3ee;
+  --app-accent: #cfe2f7;
   --app-border-color: #696969;
   --app-hover-color: #ffffff;
   --studio-shade-ink: #2c2c2c;
@@ -647,7 +647,7 @@
   --studio-accent-fill: #9cc3ee;
   --studio-accent-fill-hover: #b0d0f2;
   --studio-on-accent: #10233a;
-  --studio-accent-tint: color-mix(in srgb, #9cc3ee 38%, #444444);
+  --studio-accent-tint: color-mix(in srgb, #9cc3ee 25%, #444444);
   --studio-shade-pressed-rgb: 111 159 214;
   --studio-shade-pressed-alpha: 0.4;
   --studio-shade-warning: #ffdf85;

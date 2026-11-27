@@ -70,7 +70,9 @@ afterEach(() => cleanup());
 const row = (path: string) => screen.getAllByTitle(path)[0].parentElement!;
 const openMenu = (path: string) => fireEvent.contextMenu(row(path));
 /** The newest menu's item (closing menus fade out). */
-const item = (name: RegExp | string) => screen.getAllByRole('menuitem', { name }).at(-1)!;
+// Sort and role entries are radio items (the current one is checked).
+const item = (name: RegExp | string) =>
+  [...screen.queryAllByRole('menuitem', { name }), ...screen.queryAllByRole('menuitemradio', { name })].at(-1)!;
 const shownFolders = () =>
   [...document.querySelectorAll('.studio-folder > button:last-child')].map((button) => button.getAttribute('title'));
 

@@ -43,8 +43,8 @@ export interface AdjustmentControlProps {
   onInteraction?(active: boolean): void;
 }
 
-/** The thumb's width in the stylesheet (`.adjustment-track` thumb, 9 px). */
-const THUMB = 9;
+/** The thumb's width in the stylesheet (`.adjustment-track` thumb, 12 px at rest). */
+const THUMB = 12;
 /** A press this close to the thumb's centre grabs it without a jump. */
 const GRAB = 8;
 // Recognize a following click while its history entry is still pending.
