@@ -33,6 +33,8 @@ def main():
     for raw_path in sorted(direct - allowed):
         path = raw_path.decode(errors="surrogateescape")
         current = blob("HEAD", path)
+        if current == blob("origin/main", path):
+            continue
         for merge in merges:
             revision = merge.decode()
             before = blob(revision + "^1", path)
