@@ -73,6 +73,20 @@ it.each([
   }
 });
 
+it('keeps the token search usable when neither side has room', () => {
+  vi.stubGlobal('innerHeight', 100);
+  try {
+    render(<Editor />);
+    const toggle = screen.getByRole('button', { name: 'Add a naming token' });
+    vi.spyOn(toggle.parentElement!, 'getBoundingClientRect').mockReturnValue(DOMRect.fromRect({ y: 0, height: 100 }));
+    openTokens();
+    const popup = screen.getByRole('dialog', { name: 'Add a naming token' });
+    expect(parseFloat(popup.style.maxHeight)).toBeGreaterThanOrEqual(80);
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 it('adds a token by double-click or Enter at the text cursor, not by a single click', () => {
   render(<Editor initial="ab" />);
   const text = texts()[0];

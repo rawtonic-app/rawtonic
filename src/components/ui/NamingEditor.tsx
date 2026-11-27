@@ -612,7 +612,8 @@ function TokenPicker({
       const above = rect.top - top - 4;
       const preferred = Math.min(380, window.innerHeight * 0.6);
       const opensAbove = below < preferred && above > below;
-      const height = Math.max(0, Math.min(preferred, opensAbove ? above : below));
+      // Keep the search row reachable even in a very short clipping parent.
+      const height = Math.max(80, Math.min(preferred, opensAbove ? above : below));
       setPlacement((previous) =>
         previous.above === opensAbove && previous.height === height ? previous : { above: opensAbove, height }
       );
