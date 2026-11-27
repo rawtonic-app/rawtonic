@@ -214,7 +214,15 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
             (Some(image), Some(ticket)) => {
                 let started = std::time::Instant::now();
                 let decode = preloaded_image_option.clone();
+                // Only a RAW renders from its stored preview once its photo is
+                // left; any other file would be decoded and warped in full
+                // again, outside this admission (review r3): it keeps its
+                // decode and waits its turn.
+                let from_preview = is_raw_file(parse_virtual_path(&path_clone).0);
                 let left = || {
+                    if !from_preview {
+                        return false;
+                    }
                     let state = app_handle_clone.state::<AppState>();
                     !crate::state::lock::lock_recover(&state.source.original_image)
                         .as_ref()

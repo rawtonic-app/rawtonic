@@ -69,16 +69,17 @@ static FRAMES_ENDED_UP_TO: AtomicU64 = AtomicU64::new(0);
 /// Subject mask on a 14 GB laptop, where the frame before had built them
 /// once (WBRK2 pending-layer runs, notes: benchmark-results/
 /// brk3-2026-11-27).
-static FRAME_CACHES_DROPPED: AtomicBool = AtomicBool::new(true);
-/// Counts the releases of the frame caches: a frame clears
-/// `FRAME_CACHES_DROPPED` only when none came after its start (one under
-/// way at a release built the caches before it, review r2).
-static FRAME_CACHE_RELEASES: AtomicU64 = AtomicU64::new(0);
+///
+/// Releases of the frame caches so far, and the newest release a rendered
+/// frame built them again after: they are gone while the second is behind
+/// the first (one atomic each, so a frame under way at a release never
+/// clears it, review r2/r3).
+static FRAME_CACHE_RELEASES: AtomicU64 = AtomicU64::new(1);
+static FRAME_CACHES_BUILT_AFTER: AtomicU64 = AtomicU64::new(0);
 
 /// Notes that the open photo's frame caches were let go.
 pub(crate) fn note_frame_caches_dropped() {
     FRAME_CACHE_RELEASES.fetch_add(1, Ordering::SeqCst);
-    FRAME_CACHES_DROPPED.store(true, Ordering::SeqCst);
 }
 
 /// Answers held after their answer that count the frame with their mask
@@ -93,7 +94,7 @@ pub(crate) fn frame_counted_by_an_answer() -> bool {
 
 /// Whether the open photo's next settled frame builds its caches again.
 pub(crate) fn frame_caches_dropped() -> bool {
-    FRAME_CACHES_DROPPED.load(Ordering::SeqCst)
+    FRAME_CACHES_BUILT_AFTER.load(Ordering::SeqCst) < FRAME_CACHE_RELEASES.load(Ordering::SeqCst)
 }
 
 /// A settled frame of the open photo's full decode while it runs: its hold
@@ -118,9 +119,7 @@ impl VisibleFrame {
 impl Drop for VisibleFrame {
     fn drop(&mut self) {
         if self.rendered {
-            if FRAME_CACHE_RELEASES.load(Ordering::SeqCst) == self.releases {
-                FRAME_CACHES_DROPPED.store(false, Ordering::SeqCst);
-            }
+            FRAME_CACHES_BUILT_AFTER.fetch_max(self.releases, Ordering::SeqCst);
             FRAMES_ENDED_UP_TO.fetch_max(self.started, Ordering::SeqCst);
         }
     }
