@@ -1157,6 +1157,40 @@ mod tests {
         );
     }
 
+    #[test]
+    fn clearing_folder_keywords_reduces_a_legacy_exif_copy() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("photo.tiff");
+        // A little-endian TIFF with an ImageDescription set to "Original".
+        let tiff = b"II*\0\x08\0\0\0\x01\0\x0e\x01\x02\0\x09\0\0\0\x1a\0\0\0\0\0\0\0Original\0";
+        rawtonic_fs::atomic_write(&source, tiff).unwrap();
+        let own = crate::exif_processing::original_exif(&source).unwrap();
+        assert_eq!(
+            own.get("ImageDescription").map(String::as_str),
+            Some("Original")
+        );
+
+        let sidecar = crate::exif_processing::get_primary_sidecar_path(&source);
+        crate::session_bridge::write_editor_sidecar(
+            &sidecar,
+            r#"{"version":1,"rating":3,"tags":["dog"],"adjustments":{},"exif":{"ImageDescription":"\"Original\"","Artist":"Ana"}}"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            clear_tags_under(temp.path(), |_| false, false, false).unwrap(),
+            1
+        );
+        let changed = crate::exif_processing::load_sidecar(&sidecar);
+        assert_eq!(changed.tags, None);
+        assert_eq!(changed.rating, 3);
+        assert_eq!(changed.exif, None);
+        assert_eq!(
+            changed.exif_overrides.unwrap(),
+            HashMap::from([("Artist".into(), "Ana".into())])
+        );
+    }
+
     /// A keyword batch whose save failed for some photographs reports exactly
     /// those paths (`SaveFailure.failed`), as the other batch writes do, so
     /// only they are marked failed; the others have the keyword.
