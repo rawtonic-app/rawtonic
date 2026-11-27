@@ -1291,7 +1291,13 @@ fn preview_base(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(&loaded_image.image, cache_key, build_dim);
+    let releases = crate::memory_broker::frame_cache_releases();
     if let Some(preview) = reusable {
+        // Every release empties the reusable bases: this one is there
+        // (G74/BRK4).
+        if !interim {
+            crate::memory_broker::note_frame_base_built(releases);
+        }
         return Ok(preview);
     }
     let preview = if source_scale < 1.0 {
@@ -1334,7 +1340,7 @@ fn preview_base(
     // A base built from the full decode, not served from a cache: the frame
     // builds the caches a release let go (G74/BRK4).
     if !interim {
-        crate::memory_broker::note_frame_base_built();
+        crate::memory_broker::note_frame_base_built(releases);
     }
     develop
         .reusable_previews
@@ -3417,14 +3423,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             }
             let rendered = result.is_ok();
             if rendered && let Some(visible) = visible.as_mut() {
-                // Its caches are built only with a base built for it and
-                // no colour noise render input still to build (G74/BRK4).
-                visible.rendered(
-                    app_handle
-                        .state::<DevelopSession>()
-                        .color_noise_view
-                        .building(),
-                );
+                visible.rendered();
             }
             let region_sent = result
                 .as_ref()

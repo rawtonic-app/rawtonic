@@ -77,26 +77,30 @@ static FRAMES_ENDED_UP_TO: AtomicU64 = AtomicU64::new(0);
 static FRAME_CACHE_RELEASES: AtomicU64 = AtomicU64::new(1);
 static FRAME_CACHES_BUILT_AFTER: AtomicU64 = AtomicU64::new(0);
 
-/// Preview bases of the open photo built so far (not served from a cache,
-/// [`note_frame_base_built`]): a frame builds the caches again only when
-/// one was built while it ran. A frame served from the photo's kept base
-/// builds nothing: on the Lenovo such a frame (13–17 ms) right after an
-/// idle compile had let the caches go marked them built, the pending
-/// layer's grant left the frame out (3003 instead of 3717 MB) and the frame
-/// with the mask rebuilt them after the answer: the watchdog in 3 of 4
-/// runs at 7 GB (G74/BRK4, notes: benchmark-results/wbrk3-2026-11-27).
-static FRAME_BASES_BUILT: AtomicU64 = AtomicU64::new(0);
-
-/// The newest release a rendered frame built a base after: with the colour
-/// noise view's render input built after that frame, the next frame (its
-/// refresh, served from that base) builds the caches (review of the first
-/// laptop run: the refresh frame never counted, the frame was counted for
-/// every request).
+/// The newest release a preview base of the open photo was built from its
+/// full decode after ([`note_frame_base_built`], not served from a cache):
+/// a frame builds the caches again only when a base was built since the
+/// release it saw. A frame served from the photo's kept base builds
+/// nothing: on the Lenovo such a frame (13–17 ms) right after an idle
+/// compile had let the caches go marked them built, the pending layer's
+/// grant left the frame out (3003 instead of 3717 MB) and the frame with
+/// the mask rebuilt them after the answer: the watchdog in 3 of 4 runs at
+/// 7 GB (G74/BRK4, notes: benchmark-results/wbrk3-2026-11-27).
 static FRAME_BASE_BUILT_AFTER: AtomicU64 = AtomicU64::new(0);
 
-/// Notes that a preview base of the open photo was built from its decode.
-pub(crate) fn note_frame_base_built() {
-    FRAME_BASES_BUILT.fetch_add(1, Ordering::SeqCst);
+/// Releases of the frame caches so far, for a base build starting now
+/// ([`note_frame_base_built`]).
+pub(crate) fn frame_cache_releases() -> u64 {
+    FRAME_CACHE_RELEASES.load(Ordering::SeqCst)
+}
+
+/// Notes that a preview base of the open photo was built from its full
+/// decode, by a build that started with `releases` (`frame_cache_releases`
+/// then): a release during the build is not covered. Also for a base found
+/// in the reusable bases, which every release empties (the next photo's
+/// base built ahead of a step).
+pub(crate) fn note_frame_base_built(releases: u64) {
+    FRAME_BASE_BUILT_AFTER.fetch_max(releases, Ordering::SeqCst);
 }
 
 /// Notes that the open photo's frame caches were let go.
@@ -128,36 +132,22 @@ pub(crate) struct VisibleFrame {
     started: u64,
     /// `FRAME_CACHE_RELEASES` at its start.
     releases: u64,
-    /// `FRAME_BASES_BUILT` at its start.
-    bases: u64,
     rendered: bool,
-    /// A base built while it ran.
-    built_base: bool,
-    /// No colour noise render input still to build after it.
-    nothing_to_build: bool,
 }
 
 impl VisibleFrame {
-    /// The frame was rendered; `more_to_build`: a build of its caches
-    /// follows it (the colour noise view's render input wanted).
-    pub(crate) fn rendered(&mut self, more_to_build: bool) {
+    /// The frame was rendered.
+    pub(crate) fn rendered(&mut self) {
         self.rendered = true;
-        self.built_base = FRAME_BASES_BUILT.load(Ordering::SeqCst) > self.bases;
-        self.nothing_to_build = !more_to_build;
     }
 }
 
 impl Drop for VisibleFrame {
     fn drop(&mut self) {
         if self.rendered {
-            // Built after the newest release it saw at its start: by it, or
-            // by an earlier frame that started after that release.
-            if self.built_base {
-                FRAME_BASE_BUILT_AFTER.fetch_max(self.releases, Ordering::SeqCst);
-            }
-            if self.nothing_to_build
-                && FRAME_BASE_BUILT_AFTER.load(Ordering::SeqCst) >= self.releases
-            {
+            // Its base built (or found built) after the newest release it
+            // saw at its start, by it or by an earlier frame.
+            if FRAME_BASE_BUILT_AFTER.load(Ordering::SeqCst) >= self.releases {
                 FRAME_CACHES_BUILT_AFTER.fetch_max(self.releases, Ordering::SeqCst);
             }
             FRAMES_ENDED_UP_TO.fetch_max(self.started, Ordering::SeqCst);
@@ -178,10 +168,7 @@ pub(crate) fn hold_visible_frame(pixels: u64) -> VisibleFrame {
         ),
         started: FRAMES_STARTED.fetch_add(1, Ordering::SeqCst) + 1,
         releases: FRAME_CACHE_RELEASES.load(Ordering::SeqCst),
-        bases: FRAME_BASES_BUILT.load(Ordering::SeqCst),
         rendered: false,
-        built_base: false,
-        nothing_to_build: false,
     }
 }
 
@@ -818,16 +805,16 @@ mod tests {
     /// nothing to build after it.
     fn frame_building_its_caches() {
         let mut frame = hold_visible_frame(1);
-        note_frame_base_built();
-        frame.rendered(false);
+        note_frame_base_built(frame_cache_releases());
+        frame.rendered();
     }
 
     /// One test for the process-wide frame counters (G74/BRK3, BRK4): what
     /// an AI mask's answer holds lasts until a frame started after the
     /// answer has ended and no more of its caches are being built, not one
     /// that was under way already; leaving the photo ends it too. Only a
-    /// frame that builds a base, with no colour noise render input still to
-    /// build, builds the frame caches a release let go.
+    /// frame whose base was built (or found built) after the release it saw
+    /// builds the frame caches a release let go.
     #[tokio::test]
     async fn an_answer_is_held_until_the_frame_with_its_mask_settles() {
         // The caches let go (an idle compile), then a frame builds them.
@@ -845,8 +832,8 @@ mod tests {
         );
         assert!(frame_counted_by_an_answer());
         // The frame under way at the answer ends: it was not the mask's.
-        note_frame_base_built();
-        before.rendered(false);
+        note_frame_base_built(frame_cache_releases());
+        before.rendered();
         drop(before);
         assert!(!frame_caches_dropped());
         assert!(!dropped_within(&dropped, Duration::from_millis(400)).await);
@@ -863,7 +850,7 @@ mod tests {
         building.store(true, Ordering::SeqCst);
         let mut with_mask = hold_visible_frame(1);
         assert!(!dropped_within(&dropped, Duration::from_millis(300)).await);
-        with_mask.rendered(true);
+        with_mask.rendered();
         drop(with_mask);
         assert!(frame_caches_dropped());
         assert!(!dropped_within(&dropped, Duration::from_millis(400)).await);
@@ -873,16 +860,12 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(!frame_counted_by_an_answer());
 
-        // A base built, but the colour noise input still to come: gone;
-        // the frame rendered once it is in (from that base) builds them.
-        let mut base_only = hold_visible_frame(1);
-        note_frame_base_built();
-        base_only.rendered(true);
-        drop(base_only);
-        assert!(frame_caches_dropped());
-        let mut refresh = hold_visible_frame(1);
-        refresh.rendered(false);
-        drop(refresh);
+        // A base built ahead of the frames (or an earlier frame's) since
+        // the release: the next rendered frame builds the caches.
+        note_frame_base_built(frame_cache_releases());
+        let mut served = hold_visible_frame(1);
+        served.rendered();
+        drop(served);
         assert!(!frame_caches_dropped());
         // A frame that builds them.
         note_frame_caches_dropped();
@@ -891,9 +874,10 @@ mod tests {
 
         // A frame under way at a release does not clear it (review r2).
         let mut under_way = hold_visible_frame(1);
+        let build = frame_cache_releases();
         note_frame_caches_dropped();
-        note_frame_base_built();
-        under_way.rendered(false);
+        note_frame_base_built(build);
+        under_way.rendered();
         drop(under_way);
         assert!(frame_caches_dropped());
 
