@@ -6,14 +6,21 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'macos' }));
 
-import { forMonitorTransform, setMonitorTransform, setThumbnailPlatformForTests, thumbnailFileUrl } from './thumbnailUrl';
+import {
+  forMonitorTransform,
+  setMonitorTransform,
+  setThumbnailPlatformForTests,
+  thumbnailFileUrl
+} from './thumbnailUrl';
 
 describe('thumbnailFileUrl', () => {
   afterEach(() => setThumbnailPlatformForTests(null));
 
   it('uses the asset protocol where the system matches images to the display', () => {
     setThumbnailPlatformForTests(false);
-    expect(thumbnailFileUrl('C:\\cache\\a_small.jpg')).toBe(`asset://localhost/${encodeURIComponent('C:/cache/a_small.jpg')}`);
+    expect(thumbnailFileUrl('C:\\cache\\a_small.jpg')).toBe(
+      `asset://localhost/${encodeURIComponent('C:/cache/a_small.jpg')}`
+    );
   });
 
   it('goes through the converting scheme on Linux and Windows and names the monitor transform', () => {

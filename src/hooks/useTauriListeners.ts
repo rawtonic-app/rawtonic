@@ -19,7 +19,12 @@ import { useActivityStore } from '../store/useActivityStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { GPU_DEVICE_LOST, GPU_DEVICE_RECOVERED } from '../utils/gpuRecovery';
-import { forMonitorTransform, MONITOR_COLOUR_CHANGED, setMonitorTransform, thumbnailFileUrl } from '../utils/thumbnailUrl';
+import {
+  forMonitorTransform,
+  MONITOR_COLOUR_CHANGED,
+  setMonitorTransform,
+  thumbnailFileUrl
+} from '../utils/thumbnailUrl';
 import { followPathMoves } from '../utils/pathKeyedState';
 import { libraryImageIndex, libraryImagePath } from '../utils/libraryIndex';
 import { setMergeStateFor } from './useProductivityActions';
