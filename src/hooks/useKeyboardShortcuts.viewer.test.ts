@@ -501,3 +501,22 @@ it('cycles Space in the pixels of the crop the viewer fits, and Z goes fit ↔ t
   expect(props.handleZoomChange).toHaveBeenLastCalledWith(0, true);
   useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, crop: null }, zoom: 1 });
 });
+
+it('steps Space on from 2× fit to 100 % when the photograph fits at a few percent', () => {
+  // 8000 px wide in a 160 px cell at 1×: fit 2 %, 2× fit 4 %.
+  useUIStore.setState({ activeView: 'editor', activePanel: Panel.Adjustments });
+  useEditorStore.setState({
+    originalSize: { width: 8000, height: 5000 },
+    baseRenderSize: { width: 160, height: 100, offsetX: 0, offsetY: 0, containerWidth: 160, containerHeight: 100 },
+    zoom: 1
+  });
+  press('Space');
+  expect(props.handleZoomChange).toHaveBeenLastCalledWith(0.04);
+  useEditorStore.setState({ zoom: 2 });
+  press('Space');
+  expect(props.handleZoomChange).toHaveBeenLastCalledWith(1.0);
+  useEditorStore.setState({ zoom: 50 });
+  press('Space');
+  expect(props.handleZoomChange).toHaveBeenLastCalledWith(0, true);
+  useEditorStore.setState({ zoom: 1 });
+});

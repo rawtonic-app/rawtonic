@@ -19,7 +19,9 @@ import {
   rememberedZoomLevel,
   ZOOM_LEVELS,
   zoomLevelLabel,
-  zoomToggleTarget
+  zoomToggleTarget,
+  drawsSharpPixels,
+  zoomFrame
 } from './viewerDisplay';
 
 describe('zoom floor', () => {
@@ -245,5 +247,28 @@ describe('cropSelectionOnScreen', () => {
     const box: [number, number, number, number] = [0, 0, 300, 200];
     expect(cropSelectionOnScreen(box, { width: 3, height: 2 }, null)).toEqual(box);
     expect(cropSelectionOnScreen(box, { width: 3, height: 2 }, { x: 0, y: 0, width: 0, height: 0 })).toEqual(box);
+  });
+});
+
+describe('zoom frame and sharp pixels (ZOOM-Z)', () => {
+  it('counts the crop, or in the crop tool the whole frame in its box', () => {
+    const base = { width: 1500, height: 1000, offsetX: 0, offsetY: 0 };
+    const crop = { crop: { width: 3000, height: 2000 } };
+    expect(zoomFrame({ width: 6000, height: 4000 }, crop, base, false)).toEqual({
+      image: { width: 3000, height: 2000 },
+      fitted: { width: 1500, height: 1000 }
+    });
+    const cropping = zoomFrame({ width: 6000, height: 4000 }, crop, base, true);
+    expect(cropping.image).toEqual({ width: 6000, height: 4000 });
+    expect(cropping.fitted.width).toBeLessThan(1500);
+  });
+
+  it('draws sharp pixels from 200 %, never at fit', () => {
+    // A large photograph: 200 % is transform 8.
+    expect(drawsSharpPixels(7.9, 8)).toBe(false);
+    expect(drawsSharpPixels(8, 8)).toBe(true);
+    // A small one fitted at 250 %: fit stays smooth, a chosen 200 % (0.8) is sharp.
+    expect(drawsSharpPixels(1, 0.8)).toBe(false);
+    expect(drawsSharpPixels(0.8, 0.8)).toBe(true);
   });
 });

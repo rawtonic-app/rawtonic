@@ -56,6 +56,8 @@ import { isFullPreviewZoom, isOneToOne, snapToDevicePixel } from '../../utils/pi
 import {
   MAX_ZOOM_LEVEL,
   MIN_VIEWER_ZOOM,
+  drawsSharpPixels,
+  zoomFrame,
   SURROUNDINGS_OPACITY,
   cropModeBox,
   cropSelectionOnScreen,
@@ -572,18 +574,21 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     }
 
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    const scaleFor100Percent = 1 / imageRenderSize.scale;
+    // The transform's scale at 100 %, for what the viewer fits: the crop, or
+    // in the crop tool the whole frame in its box (as handleZoomChange).
+    const { image, fitted } = zoomFrame(originalSize, adjustments, imageRenderSize, isCropping);
+    const scaleFor100Percent =
+      image.width > 0 && fitted.width > 0 ? image.width / fitted.width : 1 / imageRenderSize.scale;
 
     // Up to the zoom menu's 1600 %; from 200 % (two device px per
-    // photograph px) the pixels are drawn sharp (nearest), on the native
-    // display and in the browser preview alike; never at fit (a small
-    // photograph fitted above 200 % stays smooth).
+    // photograph px) the pixels are drawn sharp (nearest), but never at fit
+    // (`drawsSharpPixels`).
     return {
       minScale,
       maxScale: Math.max(20, (MAX_ZOOM_LEVEL / dpr) * scaleFor100Percent),
-      pixelatedScale: Math.max(1.01, (2.0 / dpr) * scaleFor100Percent)
+      pixelatedScale: (2.0 / dpr) * scaleFor100Percent
     };
-  }, [selectedImage, imageRenderSize.scale, originalSize, targetZoom]);
+  }, [selectedImage, imageRenderSize, originalSize, targetZoom, adjustments, isCropping]);
 
   const minScaleRef = useRef(transformConfig.minScale);
   const maxScaleRef = useRef(transformConfig.maxScale);
@@ -1911,7 +1916,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         lastCropSelectionRef.current = selectionKey;
         isInvoking = true;
 
-        const isZoomedIn = scale >= pixelatedScaleRef.current - 1e-3;
+        const isZoomedIn = drawsSharpPixels(scale, pixelatedScaleRef.current);
 
         invoke(Invokes.UpdateWgpuTransform, {
           payload: {
@@ -2691,7 +2696,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
   const isZoomActionActive = !isPanningDisabled;
   // Sharp pixels from 200 % (pixelatedScale), as on the native display.
-  const isMaxZoom = transformState.scale >= pixelatedScaleRef.current - 1e-3;
+  const isMaxZoom = drawsSharpPixels(transformState.scale, pixelatedScaleRef.current);
 
   let cursorStyle = 'default';
   if (isPanningState && isMiddleMousePanning.current) {

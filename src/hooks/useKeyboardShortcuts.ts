@@ -591,13 +591,13 @@ export const useKeyboardShortcuts = ({
       cycle_zoom: zoomAction('cycle', (s) => {
         // (The Library grid's Space opens the loupe: see the builtins.)
         // Fit, 2× fit (below 100 %), 100 %, in what the viewer fits.
-        const shown = shownZoom(s);
-        const currentPercent = Math.round(shown.current * 100);
-        const fitPercent = Math.round(shown.fit * 100);
-        const doubleFitPercent = fitPercent * 2;
-        if (Math.abs(currentPercent - fitPercent) < 5) {
-          handleZoomChange(doubleFitPercent < 100 ? doubleFitPercent / 100 : 1.0);
-        } else if (Math.abs(currentPercent - doubleFitPercent) < 5 && doubleFitPercent < 100) {
+        // The stage is read from the viewer's transform (1 = fit), so a
+        // photograph that fits at a few percent still steps on.
+        const doubleFit = shownZoom(s).fit * 2;
+        const zoom = s.editor.zoom > 0 ? s.editor.zoom : 1;
+        if (Math.abs(zoom - 1) < 0.02) {
+          handleZoomChange(doubleFit < 1 ? doubleFit : 1.0);
+        } else if (Math.abs(zoom - 2) < 0.04 && doubleFit < 1) {
           handleZoomChange(1.0);
         } else {
           handleZoomChange(0, true);

@@ -279,6 +279,16 @@ export function zoomFrame(
 }
 
 /**
+ * Whether the viewer draws the photograph's pixels sharp (nearest): from
+ * 200 % (`pixelatedScale`, the transform's scale there) but never at fit,
+ * so a small photograph fitted above 200 % stays smooth while a chosen
+ * 200 % below its fit is sharp.
+ */
+export function drawsSharpPixels(scale: number, pixelatedScale: number): boolean {
+  return scale >= pixelatedScale - 1e-3 && Math.abs(scale - 1) > 1e-3;
+}
+
+/**
  * The zoom menu's levels (1 = 100 %, one image pixel per screen pixel), as
  * Lightroom's Navigator lists them: 1:4 … 1:1 … 16:1, those below fit too
  * (the photograph is then shown smaller than fit, centred). Fit is its own
