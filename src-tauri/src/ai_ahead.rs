@@ -79,15 +79,18 @@ const MB: u64 = 1_000_000;
 ///   800 MB loaded.
 /// - Object encoding (SAM 2.1 encoder, ONNX Runtime on the CPU): +0.16–0.76
 ///   GB → 1000 MB cold, 600 MB loaded.
-/// - The low-peak Subject model's fetch: the download is held in memory whole
-///   and written from it (`fetch_model`): its 470 MB plus half → 700 MB.
+/// - The low-peak Subject model's fetch: streamed to disk piece by piece
+///   (`ai_processing::VerifiedDownload`, G74/FET1): +3.3 MB peak resident
+///   for the 470 MB file and for a 1.13 GB one over local HTTP (notes:
+///   benchmark-results/fet1-2026-11-27; it was the whole file before) → 64 MB,
+///   room for TLS and connection buffers on a real line.
 pub fn estimated_peak(job: AheadJob, on_cpu: bool, loaded: bool) -> u64 {
     let (model, run) = match (job, on_cpu) {
         (AheadJob::Subject, true) => (1000, 3700),
         (AheadJob::Subject, false) => (500, 4200),
         (AheadJob::Sky, _) => (400, 800),
         (AheadJob::ObjectEncoding, _) => (400, 600),
-        (AheadJob::ModelFetch, _) => (0, 700),
+        (AheadJob::ModelFetch, _) => (0, 64),
     };
     if loaded { run * MB } else { (model + run) * MB }
 }
@@ -288,18 +291,18 @@ mod tests {
     #[test]
     fn the_model_fetch_waits_for_memory_and_a_mask_run_and_leaves_the_click_reserve() {
         let need = estimated_peak(AheadJob::ModelFetch, true, false);
-        assert_eq!(need, 700 * MB);
+        assert_eq!(need, 64 * MB);
         let fetch = request(AheadJob::ModelFetch, need, 2 * GB);
         assert!(!fetch.exclusive, "it runs beside a job made ahead");
         let none: [Held; 0] = [];
-        // WREV1's Lenovo with the model loaded, 4.3 GB available: 2.7 GB
-        // room covers the fetch and the 2 GB click reserve; 3.5 GB does not.
+        // WREV1's Lenovo with the model loaded, 3.7 GB available: 2.1 GB
+        // room covers the fetch and the 2 GB click reserve; 3.6 GB does not.
         assert!(matches!(
-            decide(&fetch, &situation(&none, lenovo(4300 * MB, 3 * GB))),
+            decide(&fetch, &situation(&none, lenovo(3700 * MB, 3 * GB))),
             Decision::Grant { .. }
         ));
         assert!(matches!(
-            decide(&fetch, &situation(&none, lenovo(3500 * MB, 3 * GB))),
+            decide(&fetch, &situation(&none, lenovo(3600 * MB, 3 * GB))),
             Decision::Wait(Wait::Memory { .. })
         ));
         // A Subject click's run holds it, whatever the memory.
