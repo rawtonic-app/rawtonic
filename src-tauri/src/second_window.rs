@@ -1397,12 +1397,12 @@ pub(crate) async fn after_device_recovered(app_handle: &tauri::AppHandle, contex
     #[cfg(target_os = "linux")]
     let display: Option<View> = None;
     bases().clear();
+    let surface_made = display.is_some();
     {
         let mut guard = lock_recover(&INNER);
         let Some(inner) = guard.as_mut() else { return };
         if let Some(display) = display {
             inner.display = Some(display);
-            crate::monitor_profile::display_created(app_handle, LABEL);
         }
         inner.device = Some(Arc::clone(&context.device));
         inner.whole = None;
@@ -1424,6 +1424,10 @@ pub(crate) async fn after_device_recovered(app_handle: &tauri::AppHandle, contex
                 display.set_multi_view_zoom(zoom);
             }
         }
+    }
+    // After INNER is let go: installing a transform takes it again.
+    if surface_made {
+        crate::monitor_profile::display_created(app_handle, LABEL);
     }
     emit_state(app_handle);
     schedule(app_handle);
@@ -1510,21 +1514,23 @@ pub(crate) fn resized(
 }
 
 /// Converts the window's frames into its monitor's profile from now on
-/// (`monitor_profile`; None: as they are).
+/// (`monitor_profile`; None: as they are); whether it has a native display.
 pub(crate) fn set_monitor_transform(
     app_handle: &tauri::AppHandle,
     lut: Option<&rawtonic_display_profile::DisplayLut>,
-) {
+) -> bool {
     let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
-        return;
+        return false;
     };
     let mut guard = lock_recover(&INNER);
     #[cfg(not(target_os = "linux"))]
     if let Some(display) = guard.as_mut().and_then(|inner| inner.display.as_mut()) {
         display.set_monitor_transform(&context.device, &context.queue, lut);
+        return true;
     }
     #[cfg(target_os = "linux")]
     let _ = (&mut guard, context, lut);
+    false
 }
 
 /// Draws the window again (it was covered: a covered window's frame is

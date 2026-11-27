@@ -27,9 +27,9 @@ use std::fmt;
 
 use moxcms::{ColorProfile, DataColorSpace, Layout, RenderingIntent, TransformOptions};
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "system-lookup"))]
 pub mod linux;
-#[cfg(windows)]
+#[cfg(all(windows, feature = "system-lookup"))]
 pub mod windows;
 
 /// Grid points per axis of the display transform's table. 65³ with the

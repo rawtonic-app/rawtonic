@@ -49,6 +49,11 @@ struct Applied {
     /// Per window label: the profile bytes last turned into its transform
     /// (None: no transform) and its status.
     windows: HashMap<String, Shown>,
+    /// Per window label: the status as installed (what Preferences shows).
+    reported: HashMap<String, MonitorStatus>,
+    /// Per window label: the newest lookup started; an older one that
+    /// finishes later is dropped.
+    lookups: HashMap<String, u64>,
 }
 
 /// What a window was last given: the profile behind its transform (None:
@@ -56,6 +61,19 @@ struct Applied {
 type Shown = (Option<Vec<u8>>, MonitorStatus);
 
 impl Applied {
+    /// Starts a lookup for window `label`: its number.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn start(&mut self, label: &str) -> u64 {
+        let next = self.lookups.get(label).copied().unwrap_or(0) + 1;
+        self.lookups.insert(label.to_string(), next);
+        next
+    }
+
+    /// Whether lookup `lookup` is still the newest for `label`.
+    fn newest(&self, label: &str, lookup: u64) -> bool {
+        self.lookups.get(label).copied().unwrap_or(0) == lookup
+    }
+
     /// Notes `now` for window `label`; whether it differs from what the
     /// window was last given (so the transform is set again).
     fn changed(&mut self, label: &str, now: Shown) -> bool {
@@ -102,6 +120,16 @@ fn resolve(
         format!("{name} cannot be used ({error}); the preview is shown as sRGB.")
     };
     let (icc, location, from_override) = match (chosen, system) {
+        // Windows converts sRGB windows itself (HDR, Auto colour
+        // management): values converted here would be converted twice.
+        (Some((path, _)), SystemProfile::ManagedBySystem) => {
+            let notice = "The chosen profile is not used while Windows manages this display's colours (HDR or Auto colour management).".to_string();
+            return (
+                None,
+                None,
+                status_of(None, Some(path), true, "system", Some(notice)),
+            );
+        }
         (Some((path, Ok(icc))), _) => (icc, path, true),
         (Some((path, Err(why))), _) => {
             let notice = format!(
@@ -171,6 +199,7 @@ fn chosen(app: &AppHandle) -> Option<(String, Result<Vec<u8>, String>)> {
 pub fn display_created(app: &AppHandle, label: &str) {
     if let Some(applied) = lock_recover(&APPLIED).as_mut() {
         applied.windows.remove(label);
+        applied.reported.remove(label);
     }
     refresh(app, label);
 }
@@ -187,59 +216,88 @@ pub fn refresh(app: &AppHandle, label: &str) {
         };
         let Ok(hwnd) = window.hwnd() else { return };
         let hwnd = hwnd.0 as isize;
+        let lookup = lock_recover(&APPLIED)
+            .get_or_insert_with(Applied::default)
+            .start(label);
         let (app, label) = (app.clone(), label.to_string());
         tauri::async_runtime::spawn_blocking(move || {
             let monitor = rawtonic_display_profile::windows::monitor_of(hwnd);
             let system = rawtonic_display_profile::windows::profile_of_monitor(monitor);
-            apply(&app, &label, system, chosen(&app));
+            apply(&app, &label, lookup, system, chosen(&app));
         });
     }
     #[cfg(not(windows))]
     let _ = (app, label);
 }
 
-/// Applies what [`resolve`] makes of `system` and `chosen` to window `label`.
+/// Applies what [`resolve`] makes of `system` and `chosen` to window
+/// `label`, unless a newer lookup than `lookup` was started meanwhile.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn apply(
     app: &AppHandle,
     label: &str,
+    lookup: u64,
     system: SystemProfile,
     chosen: Option<(String, Result<Vec<u8>, String>)>,
 ) {
     let (lut, icc, status) = resolve(system, chosen);
     // The profile behind the transform (None: no transform) and the status.
     let now = (icc.filter(|_| lut.is_some()), status.clone());
-    if !lock_recover(&APPLIED)
-        .get_or_insert_with(Applied::default)
-        .changed(label, now)
-    {
+    // Held while installing, so lookups finishing together install in order.
+    let mut applied = lock_recover(&APPLIED);
+    let applied = applied.get_or_insert_with(Applied::default);
+    if !applied.newest(label, lookup) || !applied.changed(label, now) {
         return;
     }
+    let installed = set_transform(app, label, lut.as_ref());
+    let status = shown_status(status, lut.is_some(), installed);
     log::info!(
         "Monitor profile of window {label}: {} {:?} ({:?})",
         status.mode,
         status.profile,
         status.location
     );
-    set_transform(app, label, lut.as_ref());
+    applied.reported.insert(label.to_string(), status.clone());
     if label == "main" {
         let _ = app.emit(STATUS_EVENT, &status);
     }
 }
 
+/// The status of a transform that `converts` (or not) once set on the
+/// window: without a native display (the native renderer off) the webview
+/// draws the preview, which Rawtonic does not convert.
+fn shown_status(mut status: MonitorStatus, converts: bool, installed: bool) -> MonitorStatus {
+    if converts && !installed {
+        status.mode = "notApplied";
+        status.notice = Some(
+            "The native renderer is off (Preferences > Processing): the webview draws the preview, which Rawtonic does not convert into this profile."
+                .into(),
+        );
+    }
+    status
+}
+
+/// Sets `lut` on window `label`'s native display; whether it has one.
 #[cfg_attr(not(windows), allow(dead_code))]
-fn set_transform(app: &AppHandle, label: &str, lut: Option<&rawtonic_display_profile::DisplayLut>) {
+fn set_transform(
+    app: &AppHandle,
+    label: &str,
+    lut: Option<&rawtonic_display_profile::DisplayLut>,
+) -> bool {
     use tauri::Manager;
     if label == crate::second_window::LABEL {
-        crate::second_window::set_monitor_transform(app, lut);
-        return;
+        return crate::second_window::set_monitor_transform(app, lut);
     }
     let Some(context) = app.state::<crate::state::gpu::GpuState>().context() else {
-        return;
+        return false;
     };
     let mut display = lock_recover(&context.display);
-    if let Some(display) = display.as_mut() {
-        display.set_monitor_transform(&context.device, &context.queue, lut);
+    match display.as_mut() {
+        Some(display) => {
+            display.set_monitor_transform(&context.device, &context.queue, lut);
+            true
+        }
+        None => false,
     }
 }
 
@@ -264,7 +322,7 @@ fn main_status() -> MonitorStatus {
     if icc.is_some() {
         status.mode = "notApplied";
         status.notice = Some(
-            "On Linux the webview shows the preview as sRGB: Rawtonic does not convert it into this profile; the desktop may."
+            "The first display's profile (with several displays the window's may differ). On Linux the webview shows the preview as sRGB: Rawtonic does not convert it into this profile; the desktop may."
                 .into(),
         );
     }
@@ -275,8 +333,8 @@ fn main_status() -> MonitorStatus {
 fn main_status() -> MonitorStatus {
     lock_recover(&APPLIED)
         .as_ref()
-        .and_then(|applied| applied.windows.get("main"))
-        .map(|(_, status)| status.clone())
+        .and_then(|applied| applied.reported.get("main"))
+        .cloned()
         .unwrap_or_else(|| status_of(None, None, false, "srgb", None))
 }
 
@@ -342,6 +400,42 @@ mod tests {
     }
 
     #[test]
+    fn a_chosen_profile_waits_while_windows_manages_colour() {
+        let (lut, _, status) = resolve(
+            SystemProfile::ManagedBySystem,
+            Some(("/x/p3.icc".into(), Ok(p3()))),
+        );
+        assert!(lut.is_none());
+        assert_eq!(status.mode, "system");
+        assert!(status.from_override && status.notice.is_some());
+    }
+
+    #[test]
+    fn a_transform_without_a_native_display_is_reported_as_not_applied() {
+        let (_, _, status) = resolve(
+            SystemProfile::Assigned {
+                icc: p3(),
+                location: "p3.icc".into(),
+            },
+            None,
+        );
+        assert_eq!(shown_status(status.clone(), true, true).mode, "converted");
+        let off = shown_status(status, true, false);
+        assert_eq!(off.mode, "notApplied");
+        assert!(off.notice.is_some());
+    }
+
+    #[test]
+    fn an_older_lookup_finishing_late_is_dropped() {
+        let mut applied = Applied::default();
+        let first = applied.start("main");
+        let second = applied.start("main");
+        assert!(!applied.newest("main", first));
+        assert!(applied.newest("main", second));
+        assert!(applied.newest("second-view", 0));
+    }
+
+    #[test]
     fn a_wide_gamut_profile_converts() {
         let (lut, icc, status) = resolve(
             SystemProfile::Assigned {
@@ -359,7 +453,7 @@ mod tests {
     #[test]
     fn the_chosen_profile_wins_over_the_system() {
         let (lut, _, status) = resolve(
-            SystemProfile::ManagedBySystem,
+            SystemProfile::NoneAssigned,
             Some(("/x/p3.icc".into(), Ok(p3()))),
         );
         assert!(lut.is_some());

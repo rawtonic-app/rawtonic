@@ -2532,7 +2532,7 @@
       "choose": "选择 ICC 配置文件…",
       "chosen": "在偏好设置中选择：{{path}}",
       "converted": "预览被转换为 {{profile}}。",
-      "description": "照片通过系统分配给显示器的颜色配置文件显示，与 Lightroom 和 Capture One 相同。它从不改变导出。",
+      "description": "照片通过系统分配给显示器的颜色配置文件显示。它从不改变导出。",
       "notApplied": "系统配置文件为 {{profile}}。",
       "pickTitle": "选择显示器的 ICC 配置文件",
       "refused": "无法使用此配置文件：{{reason}}",

@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import MonitorProfileSettings, { type MonitorStatus } from './MonitorProfileSettings';
 
+const invoke = vi.hoisted(() => vi.fn());
+vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(() => Promise.resolve(() => undefined)) }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -22,6 +24,15 @@ const status = (over: Partial<MonitorStatus>): MonitorStatus => ({
 
 describe('MonitorProfileSettings', () => {
   afterEach(cleanup);
+
+  it('asks the app once, not on every render', async () => {
+    invoke.mockReset();
+    invoke.mockResolvedValue(status({ mode: 'converted', profile: 'Studio EIZO', overrideAvailable: true }));
+    render(<MonitorProfileSettings />);
+    expect((await screen.findByTestId('monitor-profile-summary')).textContent).toContain('Studio EIZO');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
 
   it('names the profile the preview is converted into', async () => {
     render(

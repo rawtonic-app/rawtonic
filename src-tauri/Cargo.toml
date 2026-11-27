@@ -42,7 +42,7 @@ rawtonic-engine = { path = "../crates/engine", version = "0.1.0" }
 rawtonic-merge = { path = "../crates/merge", version = "0.1.0" }
 rawtonic-export = { path = "../crates/export", version = "0.1.0" }
 rawtonic-gpu = { path = "../crates/gpu", version = "0.1.0" }
-rawtonic-display-profile = { path = "../crates/display-profile", version = "0.1.0" }
+rawtonic-display-profile = { path = "../crates/display-profile", version = "0.1.0", features = ["system-lookup"] }
 rawtonic-rawdecode = { path = "../crates/rawdecode", version = "0.1.0" }
 rawtonic-raw-format = { path = "../crates/raw-format", version = "0.1.0" }
 rawtonic-denoise = { path = "../crates/denoise", version = "0.1.0" }

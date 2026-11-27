@@ -2772,7 +2772,7 @@
       "choose": "Choisir un profil ICC…",
       "chosen": "Choisi dans les préférences : {{path}}",
       "converted": "L'aperçu est converti en {{profile}}.",
-      "description": "Les photos sont affichées à travers le profil colorimétrique que votre système attribue au moniteur, comme dans Lightroom et Capture One. Les exports n'en sont jamais modifiés.",
+      "description": "Les photos sont affichées à travers le profil colorimétrique que votre système attribue au moniteur. Les exports n'en sont jamais modifiés.",
       "notApplied": "Le profil du système est {{profile}}.",
       "pickTitle": "Choisir le profil ICC du moniteur",
       "refused": "Ce profil ne peut pas être utilisé : {{reason}}",

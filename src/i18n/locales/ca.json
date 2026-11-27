@@ -2772,7 +2772,7 @@
       "choose": "Tria un perfil ICC…",
       "chosen": "Triat a les Preferències: {{path}}",
       "converted": "La previsualització es converteix a {{profile}}.",
-      "description": "Les fotos es mostren a través del perfil de color que el sistema assigna al monitor, com al Lightroom i al Capture One. Mai no canvia les exportacions.",
+      "description": "Les fotos es mostren a través del perfil de color que el sistema assigna al monitor. Mai no canvia les exportacions.",
       "notApplied": "El perfil del sistema és {{profile}}.",
       "pickTitle": "Tria el perfil ICC del monitor",
       "refused": "Aquest perfil no es pot fer servir: {{reason}}",

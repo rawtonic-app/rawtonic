@@ -5,6 +5,12 @@ edition.workspace = true
 license.workspace = true
 description = "The monitor's ICC profile: where each OS keeps it, and the display transform from the preview's encoding into it. No desktop dependencies."
 
+[features]
+default = []
+# Where Windows and Linux keep the monitor's profile (the desktop app only:
+# the Linux lookup links libdbus, which a headless build need not have).
+system-lookup = ["dep:windows-sys", "dep:dbus", "dep:x11-dl"]
+
 [lints]
 workspace = true
 
@@ -15,8 +21,8 @@ moxcms = "0.8"
 png = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Devices_Display", "Win32_Graphics_Gdi", "Win32_UI_ColorSystem"] }
+windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_Devices_Display", "Win32_Graphics_Gdi", "Win32_UI_ColorSystem"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-dbus = "0.9"
-x11-dl = "2.21"
+dbus = { version = "0.9", optional = true }
+x11-dl = { version = "2.21", optional = true }

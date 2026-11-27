@@ -2630,7 +2630,7 @@
       "choose": "Choose ICC profile…",
       "chosen": "Chosen in Preferences: {{path}}",
       "converted": "The preview is converted into {{profile}}.",
-      "description": "Photographs are shown through the colour profile your system assigns to the monitor, as in Lightroom and Capture One. Exports are never changed by it.",
+      "description": "Photographs are shown through the colour profile your system assigns to the monitor. Exports are never changed by it.",
       "notApplied": "The system profile is {{profile}}.",
       "pickTitle": "Choose the monitor's ICC profile",
       "refused": "This profile cannot be used: {{reason}}",

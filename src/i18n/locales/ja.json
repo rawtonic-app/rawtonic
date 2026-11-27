@@ -2532,7 +2532,7 @@
       "choose": "ICC プロファイルを選択…",
       "chosen": "環境設定で選択: {{path}}",
       "converted": "プレビューは {{profile}} に変換されます。",
-      "description": "Lightroom や Capture One と同じく、写真はシステムがモニターに割り当てたカラープロファイルを通して表示されます。書き出しには影響しません。",
+      "description": "写真はシステムがモニターに割り当てたカラープロファイルを通して表示されます。書き出しには影響しません。",
       "notApplied": "システムのプロファイルは {{profile}} です。",
       "pickTitle": "モニターの ICC プロファイルを選択",
       "refused": "このプロファイルは使用できません: {{reason}}",

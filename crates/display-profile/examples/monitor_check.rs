@@ -12,10 +12,21 @@
 //!   should then show for it (the transform the app builds from that
 //!   profile), to compare with a screenshot.
 //!
-//! On Linux, `-- --lookup` prints what colord / X11 hold for the display
+//! Existing files are never written over: the run fails instead.
+//!
+//! On Linux, `--features system-lookup -- --lookup` prints what colord / X11 hold for the display
 //! instead.
 
 use std::io::Write;
+
+/// A new file at `path`; an existing one is an error, never truncated.
+fn create_new(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", path.display())))
+}
 
 const PATCHES: [[u8; 3]; 10] = [
     [255, 0, 0],
@@ -36,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nth(1)
         .ok_or("usage: monitor_check OUT | --lookup")?;
     if arg == "--lookup" {
-        #[cfg(target_os = "linux")]
+        #[cfg(all(target_os = "linux", feature = "system-lookup"))]
         {
             let found = rawtonic_display_profile::linux::profile_of_output(None);
             match &found {
@@ -52,8 +63,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 other => println!("{other:?}"),
             }
         }
-        #[cfg(not(target_os = "linux"))]
-        println!("--lookup is for Linux; Windows looks up the profile of a window's monitor");
+        #[cfg(not(all(target_os = "linux", feature = "system-lookup")))]
+        println!(
+            "--lookup is for Linux with --features system-lookup; Windows looks up the profile of a window's monitor"
+        );
         return Ok(());
     }
     let out = std::path::PathBuf::from(arg);
@@ -67,7 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
     ]));
     let icc = profile.encode()?;
-    std::fs::write(out.join("wide-test-monitor.icc"), &icc)?;
+    create_new(&out.join("wide-test-monitor.icc"))?.write_all(&icc)?;
 
     let width = SIDE * PATCHES.len() as u32;
     let mut rgb = Vec::with_capacity((width * SIDE * 3) as usize);
@@ -78,7 +91,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    let file = std::io::BufWriter::new(std::fs::File::create(out.join("patches.png"))?);
+    let file = std::io::BufWriter::new(create_new(&out.join("patches.png"))?);
     let mut encoder = png::Encoder::new(file, width, SIDE);
     encoder.set_color(png::ColorType::Rgb);
     encoder.set_depth(png::BitDepth::Eight);
@@ -89,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lut =
         rawtonic_display_profile::display_lut(rawtonic_display_profile::Encoding::Srgb, &icc)?
             .ok_or("the test profile converts nothing")?;
-    let mut expected = std::fs::File::create(out.join("expected.txt"))?;
+    let mut expected = create_new(&out.join("expected.txt"))?;
     writeln!(
         expected,
         "patch\tx_centre\tsRGB\tdisplay value with wide-test-monitor.icc"

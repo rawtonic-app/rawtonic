@@ -19,21 +19,25 @@ export interface MonitorStatus {
   overrideAvailable: boolean;
 }
 
+const loadStatusFromApp = () => invoke<MonitorStatus>(Invokes.MonitorProfileStatus);
+const chooseInApp = (path: string | null) => invoke<MonitorStatus>(Invokes.MonitorProfileChoose, { path });
+const pickProfile = async (title: string) => {
+  const picked = await openDialog({
+    title,
+    purpose: 'monitor-profile',
+    multiple: false,
+    filters: [{ name: 'ICC', extensions: ['icc', 'icm'] }]
+  });
+  return typeof picked === 'string' ? picked : null;
+};
+
 /** Preferences > Interface > Display colour: which monitor profile the
- * preview is shown through (the system's, as Lightroom and Capture One do),
+ * preview is shown through (the system's),
  * and on Windows an ICC profile chosen instead. */
 export default function MonitorProfileSettings({
-  status: loadStatus = () => invoke<MonitorStatus>(Invokes.MonitorProfileStatus),
-  choose = (path: string | null) => invoke<MonitorStatus>(Invokes.MonitorProfileChoose, { path }),
-  pick = async (title: string) => {
-    const picked = await openDialog({
-      title,
-      purpose: 'monitor-profile',
-      multiple: false,
-      filters: [{ name: 'ICC', extensions: ['icc', 'icm'] }]
-    });
-    return typeof picked === 'string' ? picked : null;
-  }
+  status: loadStatus = loadStatusFromApp,
+  choose = chooseInApp,
+  pick = pickProfile
 }: {
   /** Tests replace the app's calls. */
   status?(): Promise<MonitorStatus>;
