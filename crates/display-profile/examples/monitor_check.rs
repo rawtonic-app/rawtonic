@@ -110,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lut =
         rawtonic_display_profile::display_lut(rawtonic_display_profile::Encoding::Srgb, &icc)?
             .ok_or("the test profile converts nothing")?;
-    let mut expected = create_new(&out.join("expected.txt"))?;
+    let mut expected = Vec::new();
     writeln!(
         expected,
         "patch\tx_centre\tsRGB\tdisplay value with wide-test-monitor.icc"
