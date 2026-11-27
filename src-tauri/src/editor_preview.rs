@@ -2990,10 +2990,13 @@ fn process_preview_job(
                     } else if is_interactive {
                         crate::preview_jpeg::encode_rgbx_444_as_is(&converted, jpeg_quality)
                     } else {
-                        crate::preview_jpeg::encode_rgbx_444_as_is(
-                            &converted,
-                            crate::preview_jpeg::settled_quality(effective_scale),
-                        )
+                        // As the main encode chose (a full zoom: 100 % quality).
+                        let quality = if _browser_full_zoom {
+                            crate::preview_jpeg::ONE_TO_ONE_QUALITY
+                        } else {
+                            crate::preview_jpeg::settled_quality(effective_scale)
+                        };
+                        crate::preview_jpeg::encode_rgbx_444_as_is(&converted, quality)
                     }
                 });
                 match own {
