@@ -16,7 +16,8 @@ def changed(base):
 
 def blob(revision, path):
     # ls-tree also represents an absent file, so deletions are checked too.
-    return git("--literal-pathspecs", "ls-tree", "-z", revision, "--", path)
+    entry = git("--literal-pathspecs", "ls-tree", "-z", revision, "--", path)
+    return entry.split(b"\t", 1)[0].split()[-1] if entry else b""
 
 
 def main():
