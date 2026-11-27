@@ -1313,13 +1313,7 @@ async fn auto_mask(
                         &loaded,
                         js_adjustments,
                     ),
-                    // Also when this run lets them go itself (below: an
-                    // installed model on the CPU, review r1).
-                    // Not when an answer held for its frame counts that
-                    // frame already (a migrated photo's Subject and Sky).
-                    frame_rebuilds: (crate::memory_broker::frame_caches_dropped()
-                        || (!download && rawtonic_onnx::models_run_on_cpu_only()))
-                        && !crate::memory_broker::frame_counted_by_an_answer(),
+                    frame_rebuilds: frame_rebuilds_after_answer(download),
                 })
             };
             // Not started while no plan fits: the photographer is told once
@@ -1356,7 +1350,19 @@ async fn auto_mask(
                 let _ = app_handle.emit(MEMORY_WAIT_END_EVENT, notice.clone());
             }
             match admitted {
-                Ok(reservation) => Some(reservation),
+                Ok(reservation) => {
+                    log::info!(
+                        "AI {} mask: granted {} MB; the frame after its answer {}",
+                        kind.name(),
+                        reservation.estimate() / MB,
+                        if frame_rebuilds_after_answer(download) {
+                            "builds the photo's frame caches again (counted)"
+                        } else {
+                            "reuses the photo's frame caches"
+                        }
+                    );
+                    Some(reservation)
+                }
                 Err(_) if !cancelled() && asked.is_some() => {
                     return Err(CommandError::new(ErrorCode::Stale, PHOTO_CHANGED));
                 }
@@ -1552,6 +1558,18 @@ async fn auto_mask(
     drop(_turn);
     settle_after_answer(app_handle, kind, origin, reservation);
     Ok(Some(data))
+}
+
+/// Whether the frame with an asked run's mask builds the open photo's frame
+/// caches again after its answer (`AskedEstimate::frame_rebuilds`): they
+/// were let go and no frame built them since (`memory_broker::
+/// frame_caches_dropped`), or this run lets them go itself (an installed
+/// model on the CPU, BRK3 review r1); not when an answer held for its frame
+/// counts that frame already (a migrated photo's Subject and Sky).
+fn frame_rebuilds_after_answer(download: bool) -> bool {
+    (crate::memory_broker::frame_caches_dropped()
+        || (!download && rawtonic_onnx::models_run_on_cpu_only()))
+        && !crate::memory_broker::frame_counted_by_an_answer()
 }
 
 /// What follows the answer of a click or a pending layer (the webview puts
