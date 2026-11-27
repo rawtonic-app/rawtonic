@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- When memory is short, a Subject selection that a photo opens with now counts what its run, the photo's redraw with the new mask and the saved thumbnail that follows really take on a 14 GB Windows laptop (measured on a 50 MP RAW): the selection waits with "waiting for memory…" and computes once there is room, and the thumbnail of the open photo is saved once there is room for it (or when you go to another photo), instead of taking the system below the memory Rawtonic keeps free right after the mask appeared. Where the faster mode no longer fits, a selection computes in the slower low-memory mode. The masks themselves are unchanged.
+
 ## 0.1.0-alpha.21 — 2026-11-27
 
 The twenty-first alpha. New: AI Denoise for Fujifilm X-Trans photos and a much faster Fast quality for AI Denoise, a Develop preview that follows the monitor's colour profile on Windows and Linux, AI selections that wait for memory or use a slower low-memory mode on computers with 16 GB or less, where they used to run out of memory, faster exports with Clarity, Dim Surroundings, and a new Import dialog with one naming editor.

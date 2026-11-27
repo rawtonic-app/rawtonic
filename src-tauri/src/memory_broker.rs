@@ -52,9 +52,12 @@ pub(crate) fn click_reserve(app: &tauri::AppHandle) -> u64 {
 /// of the photo: the Lenovo's new-layer frame of a 51 MP RAF (8256x6192, a
 /// Subject click's own frame) grew the app by 1877–2130 MB in 8 of 8 runs,
 /// the first Develop frame by 1.3–2.5 GB (WBRK1, notes: benchmark-results/
-/// brk2-2026-11-27): 2130 MB / 51.1 MP → 42 bytes. Most frames reuse their
-/// caches and add nothing; the hold lasts only while the frame runs.
-pub(crate) const FRAME_BYTES_PER_PIXEL: u64 = 42;
+/// brk2-2026-11-27): 2130 MB / 51.1 MP → 42 bytes. The frame with a
+/// pending layer's mask, building the caches again after the answer of a
+/// 50 MP CR2 (8688x5792), grew it by 2251–2410 MB in 4 of 4 runs (WBRK5,
+/// G74/BRK6): 2410 MB / 50.3 MP → 48 bytes. Most frames reuse their caches
+/// and add nothing; the hold lasts only while the frame runs.
+pub(crate) const FRAME_BYTES_PER_PIXEL: u64 = 48;
 
 /// Settled frames of the open photo's full decode started so far, and the
 /// newest start number among those that ended ([`VisibleFrame`]): an AI
@@ -351,9 +354,14 @@ impl HeldAnswer for rawtonic_runtime::memory_budget::Reservation {
 }
 
 /// Bytes per pixel a saved thumbnail of the open photo may add while it
-/// renders from the full decode: its retouched copy and warp, 12 bytes each
-/// (+1.2 GB at 50 MP when the caches were gone, WBRK2).
-pub(crate) const THUMBNAIL_BYTES_PER_PIXEL: u64 = 24;
+/// renders from the full decode: its retouched copy and warp and the render
+/// from them. The thumbnails that rendered from the decode after a
+/// pending layer's or a click's answer peaked at +1561–2021 MB (the
+/// broker's samples of the app) for 50.3–51.1 MP in 4 of 4 runs (WBRK5),
+/// and one took the Lenovo below the floor from a grant of 24 bytes per
+/// pixel (1207 MB, room 1543 MB; G74/BRK6): 2021 MB / 50.3 MP → 40 bytes,
+/// rounded up.
+pub(crate) const THUMBNAIL_BYTES_PER_PIXEL: u64 = 42;
 
 /// What became of a saved thumbnail of the open photo asking to render
 /// from its full decode ([`admit_open_photo_thumbnail`]).
@@ -390,11 +398,7 @@ pub(crate) fn admit_open_photo_thumbnail(
     left: impl Fn() -> bool,
 ) -> ThumbnailAdmission {
     let start = Instant::now();
-    let request = Request::new(
-        Class::Export,
-        "saved thumbnail of the open photo",
-        pixels.saturating_mul(THUMBNAIL_BYTES_PER_PIXEL),
-    );
+    let request = open_photo_thumbnail_request(pixels);
     loop {
         if superseded() {
             return ThumbnailAdmission::Superseded;
@@ -426,6 +430,16 @@ pub(crate) fn admit_open_photo_thumbnail(
         }
         std::thread::sleep(Duration::from_millis(100));
     }
+}
+
+/// The budget's request of a saved thumbnail of the open photo rendering
+/// from its full decode of `pixels` ([`admit_open_photo_thumbnail`]).
+fn open_photo_thumbnail_request(pixels: u64) -> Request {
+    Request::new(
+        Class::Export,
+        "saved thumbnail of the open photo",
+        pixels.saturating_mul(THUMBNAIL_BYTES_PER_PIXEL),
+    )
 }
 
 /// Whether the open photo's full-resolution decode or a frame of it is under
@@ -548,9 +562,21 @@ const GUARD_POLL: Duration = Duration::from_millis(100);
 /// processes included; the Lenovo harness's 1 s sampler reads the same in
 /// MiB, 0.954 of the log's MB in 1081 pairs, WBRK2–4).
 pub(crate) struct RunGuard {
-    /// Ended (the run is over), and the memory it stopped the run at.
-    state: Arc<std::sync::Mutex<(bool, Option<rawtonic_runtime::memory_budget::Reading>)>>,
+    label: &'static str,
+    /// Ended (the run is over), the memory it stopped the run at, and the
+    /// lowest available memory it read (logged at the end: WBRK5 saw no stop
+    /// and could not tell a guard that read high memory from one that did
+    /// not run, G74/BRK6).
+    state: Arc<std::sync::Mutex<GuardState>>,
 }
+
+/// [`RunGuard`]'s state: ended, the reading it stopped the run at, the
+/// lowest reading.
+type GuardState = (
+    bool,
+    Option<rawtonic_runtime::memory_budget::Reading>,
+    Option<rawtonic_runtime::memory_budget::Reading>,
+);
 
 impl RunGuard {
     pub(crate) fn start(label: &'static str, stop: impl Fn() + Send + 'static) -> Self {
@@ -563,7 +589,7 @@ impl RunGuard {
         poll: Duration,
         stop: impl Fn() + Send + 'static,
     ) -> Self {
-        let state = Arc::new(std::sync::Mutex::new((false, None)));
+        let state = Arc::new(std::sync::Mutex::new((false, None, None)));
         let thread_state = state.clone();
         let _ = std::thread::Builder::new()
             .name("memory-run-guard".into())
@@ -574,6 +600,11 @@ impl RunGuard {
                         let mut state = crate::state::lock::lock_recover(&thread_state);
                         if state.0 {
                             return;
+                        }
+                        if state.2.is_none_or(|lowest: rawtonic_runtime::memory_budget::Reading| {
+                            now.available < lowest.available
+                        }) {
+                            state.2 = Some(now);
                         }
                         if rawtonic_runtime::memory_budget::guard_trips(&now) {
                             state.1 = Some(now);
@@ -593,7 +624,7 @@ impl RunGuard {
                     std::thread::sleep(poll);
                 }
             });
-        Self { state }
+        Self { label, state }
     }
 
     /// Ends the guard after the run: the memory it stopped the run at, if
@@ -601,6 +632,16 @@ impl RunGuard {
     pub(crate) fn finish(self) -> Option<rawtonic_runtime::memory_budget::Reading> {
         let mut state = crate::state::lock::lock_recover(&self.state);
         state.0 = true;
+        if let Some(lowest) = state.2 {
+            log::info!(
+                "memory broker: {} guard ended; lowest {} MB available during the run (it stops a run below {} MB)",
+                self.label,
+                lowest.available / MB,
+                (rawtonic_runtime::memory_budget::floor(lowest.total)
+                    + rawtonic_runtime::memory_budget::GUARD_MARGIN)
+                    / MB,
+            );
+        }
         state.1
     }
 }
@@ -915,6 +956,47 @@ mod tests {
         low.store(true, Ordering::SeqCst);
         std::thread::sleep(Duration::from_millis(30));
         assert!(!stopped.load(Ordering::SeqCst));
+    }
+
+    /// WBRK5 S4_P7000_r2 (G74/BRK6): after a pending layer's hold the saved
+    /// thumbnail of the open 50 MP CR2 was granted 1207 MB with 1543 MB of
+    /// room (3168 MB available, app 4798 MB) and took the Lenovo from 3168
+    /// to 1500 MB available, below the floor, in about a second; the
+    /// thumbnails that rendered from the decode peaked at +1561–2021 MB.
+    /// It waits now until the room for that is there.
+    #[test]
+    fn a_saved_thumbnail_of_the_open_photo_waits_for_room_for_its_measured_peak() {
+        use rawtonic_runtime::memory_budget::Reading;
+        let broker: &'static Broker = Box::leak(Box::new(Broker::new()));
+        let pixels = 8688 * 5792;
+        let request = open_photo_thumbnail_request(pixels);
+        assert!(request.need >= 2021 * MB, "{} MB", request.need / MB);
+        let after_the_hold = Reading {
+            total: 15_859 * MB,
+            available: 3168 * MB,
+            app: Some(4798 * MB),
+        };
+        assert!(matches!(
+            broker.try_reserve(request, &|| after_the_hold, false, Duration::ZERO, None),
+            Err(Wait::Memory { .. })
+        ));
+        // Once the room is there (the model unloaded, another photo's
+        // caches gone), it renders.
+        let freed = Reading {
+            available: 4000 * MB,
+            ..after_the_hold
+        };
+        assert!(
+            broker
+                .try_reserve(
+                    open_photo_thumbnail_request(pixels),
+                    &|| freed,
+                    false,
+                    Duration::ZERO,
+                    None
+                )
+                .is_ok()
+        );
     }
 
     /// Something held after an answer: tells when it is dropped.
