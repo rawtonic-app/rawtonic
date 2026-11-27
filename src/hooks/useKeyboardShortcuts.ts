@@ -7,7 +7,7 @@ import i18n from 'i18next';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
 import { buildComboMap, eventCode, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
-import { MAX_ZOOM_LEVEL, shownImageSize, zoomToggleTarget } from '../utils/viewerDisplay';
+import { MAX_ZOOM_LEVEL, zoomFrame, zoomToggleTarget } from '../utils/viewerDisplay';
 import { rememberZoomLevel } from '../utils/zoomLevel';
 import { readFilmstripDock } from '../utils/filmstripDock';
 import { runAutoStraighten } from '../utils/autoStraighten';
@@ -189,11 +189,19 @@ interface ShortcutState {
   process: ReturnType<typeof useProcessStore.getState>;
 }
 
-/** The zoom shown, 1 = 100 % of what the viewer fits (the crop when there is one). */
-function shownZoomPercent(editor: ShortcutState['editor']): number {
+/** Fit and the zoom shown, 1 = 100 % of what the viewer fits (the crop, or
+ * in the crop tool the whole frame), as handleZoomChange counts them. */
+function shownZoom(s: ShortcutState): { fit: number; current: number } {
   const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-  const shown = shownImageSize(editor.originalSize, editor.adjustments);
-  return shown.width > 0 && editor.displaySize?.width > 0 ? (editor.displaySize.width * dpr) / shown.width : 1.0;
+  const { image, fitted } = zoomFrame(
+    s.editor.originalSize,
+    s.editor.adjustments,
+    s.editor.baseRenderSize,
+    s.ui.activePanel === Panel.Crop
+  );
+  if (!(image.width > 0 && fitted.width > 0)) return { fit: 1, current: 1 };
+  const fit = (fitted.width * dpr) / image.width;
+  return { fit, current: fit * (s.editor.zoom > 0 ? s.editor.zoom : 1) };
 }
 
 function toggleScopes(s: ShortcutState): void {
@@ -573,32 +581,19 @@ export const useKeyboardShortcuts = ({
         }
       },
       zoom_in_step: zoomAction('stepIn', (s) => {
-        const currentPercent = shownZoomPercent(s.editor);
+        const currentPercent = shownZoom(s).current;
         handleZoomChange(Math.min(currentPercent + 0.1, MAX_ZOOM_LEVEL));
       }),
       zoom_out_step: zoomAction('stepOut', (s) => {
-        const currentPercent = shownZoomPercent(s.editor);
+        const currentPercent = shownZoom(s).current;
         handleZoomChange(Math.max(currentPercent - 0.1, 0.1));
       }),
       cycle_zoom: zoomAction('cycle', (s) => {
         // (The Library grid's Space opens the loupe: see the builtins.)
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const { originalSize, displaySize, baseRenderSize } = s.editor;
-        const currentPercent =
-          originalSize?.width > 0 && displaySize?.width > 0
-            ? Math.round(((displaySize.width * dpr) / originalSize.width) * 100)
-            : 100;
-        let fitPercent = 100;
-
-        if (originalSize?.width > 0 && baseRenderSize?.width > 0) {
-          const originalAspect = originalSize.width / originalSize.height;
-          const baseAspect = baseRenderSize.width / baseRenderSize.height;
-          fitPercent =
-            originalAspect > baseAspect
-              ? Math.round(((baseRenderSize.width * dpr) / originalSize.width) * 100)
-              : Math.round(((baseRenderSize.height * dpr) / originalSize.height) * 100);
-        }
-
+        // Fit, 2× fit (below 100 %), 100 %, in what the viewer fits.
+        const shown = shownZoom(s);
+        const currentPercent = Math.round(shown.current * 100);
+        const fitPercent = Math.round(shown.fit * 100);
         const doubleFitPercent = fitPercent * 2;
         if (Math.abs(currentPercent - fitPercent) < 5) {
           handleZoomChange(doubleFitPercent < 100 ? doubleFitPercent / 100 : 1.0);
@@ -609,11 +604,11 @@ export const useKeyboardShortcuts = ({
         }
       }),
       zoom_in: zoomAction('in', (s) => {
-        const currentPercent = shownZoomPercent(s.editor);
+        const currentPercent = shownZoom(s).current;
         handleZoomChange(Math.min(currentPercent * 1.2, MAX_ZOOM_LEVEL));
       }),
       zoom_out: zoomAction('out', (s) => {
-        const currentPercent = shownZoomPercent(s.editor);
+        const currentPercent = shownZoom(s).current;
         handleZoomChange(Math.max(currentPercent / 1.2, 0.1));
       }),
       zoom_fit: zoomAction('fit', () => handleZoomChange(0, true)),

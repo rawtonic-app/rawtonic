@@ -475,3 +475,29 @@ it('runs the View command and honours a rebound surroundings shortcut', () => {
   expect(useUIStore.getState().surroundings).toBe('black');
   press('Escape');
 });
+
+it('cycles Space in the pixels of the crop the viewer fits, and Z goes fit ↔ the remembered level (ZOOM-Z)', () => {
+  // 6000×4000 cropped to 3000×2000 in a 1500×1000 viewer at 1×: fit is 50 %.
+  useUIStore.setState({ activeView: 'editor', activePanel: Panel.Adjustments });
+  useEditorStore.setState({
+    originalSize: { width: 6000, height: 4000 },
+    adjustments: {
+      ...useEditorStore.getState().adjustments,
+      crop: { unit: 'px', x: 0, y: 0, width: 3000, height: 2000 }
+    },
+    baseRenderSize: { width: 1500, height: 1000, offsetX: 0, offsetY: 0, containerWidth: 1500, containerHeight: 1000 },
+    zoom: 1
+  });
+  press('Space');
+  // 2× fit is 100 %: Space goes there, not to a doubled full-frame fit.
+  expect(props.handleZoomChange).toHaveBeenLastCalledWith(1.0);
+  press('KeyZ');
+  expect(props.handleZoomChange).toHaveBeenLastCalledWith(1, false, true);
+  useSettingsStore.setState((s) => ({ appSettings: { ...s.appSettings!, viewerZoomLevel: 0.25 } }));
+  press('KeyZ');
+  expect(props.handleZoomChange).toHaveBeenLastCalledWith(0.25, false, true);
+  useEditorStore.setState({ zoom: 0.5 });
+  press('KeyZ');
+  expect(props.handleZoomChange).toHaveBeenLastCalledWith(0, true);
+  useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, crop: null }, zoom: 1 });
+});

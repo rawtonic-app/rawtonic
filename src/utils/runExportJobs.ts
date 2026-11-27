@@ -253,7 +253,7 @@ export async function runExportJobs(
         const { id } = job.recipe;
         changeRecipes((current) => current.map((r) => (r.id === id ? { ...r, lastExportPath: destination.path } : r)));
       }
-      replay.push({ ...job, draft: replayableDraft(job.draft, destination) });
+      replay.push({ ...job, draft: replayableDraft(job.draft, destination, session) });
       asked.push({
         paths,
         displayLabel: exportJobLabel(

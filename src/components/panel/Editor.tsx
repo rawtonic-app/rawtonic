@@ -407,7 +407,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           offsetX: size.offsetX || 0,
           offsetY: size.offsetY || 0,
           containerWidth: size.containerWidth || 0,
-          containerHeight: size.containerHeight || 0
+          containerHeight: size.containerHeight || 0,
+          margin: size.margin ?? 0
         };
         setEditor({ baseRenderSize: newSize });
       }
@@ -552,7 +553,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           offsetX: size.offsetX,
           offsetY: size.offsetY,
           containerWidth: imageContainerRef.current?.clientWidth || 0,
-          containerHeight: imageContainerRef.current?.clientHeight || 0
+          containerHeight: imageContainerRef.current?.clientHeight || 0,
+          margin: size.margin ?? 0
         },
         size.scale
       );
@@ -572,12 +574,14 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     const scaleFor100Percent = 1 / imageRenderSize.scale;
 
-    // Up to the zoom menu's 1600 %; from 200 % the pixels are drawn sharp
-    // (nearest), as before at the earlier 200 % limit.
+    // Up to the zoom menu's 1600 %; from 200 % (two device px per
+    // photograph px) the pixels are drawn sharp (nearest), on the native
+    // display and in the browser preview alike; never at fit (a small
+    // photograph fitted above 200 % stays smooth).
     return {
       minScale,
       maxScale: Math.max(20, (MAX_ZOOM_LEVEL / dpr) * scaleFor100Percent),
-      pixelatedScale: Math.max(20, (2.0 / dpr) * scaleFor100Percent)
+      pixelatedScale: Math.max(1.01, (2.0 / dpr) * scaleFor100Percent)
     };
   }, [selectedImage, imageRenderSize.scale, originalSize, targetZoom]);
 
@@ -1907,7 +1911,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         lastCropSelectionRef.current = selectionKey;
         isInvoking = true;
 
-        const isZoomedIn = scale >= pixelatedScaleRef.current - 0.5;
+        const isZoomedIn = scale >= pixelatedScaleRef.current - 1e-3;
 
         invoke(Invokes.UpdateWgpuTransform, {
           payload: {
@@ -2686,8 +2690,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }
 
   const isZoomActionActive = !isPanningDisabled;
-  // The browser preview draws sharp pixels from 200 %, as the native display does.
-  const isMaxZoom = transformState.scale >= pixelatedScaleRef.current - 0.5;
+  // Sharp pixels from 200 % (pixelatedScale), as on the native display.
+  const isMaxZoom = transformState.scale >= pixelatedScaleRef.current - 1e-3;
 
   let cursorStyle = 'default';
   if (isPanningState && isMiddleMousePanning.current) {

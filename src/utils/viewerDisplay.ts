@@ -253,6 +253,32 @@ export function shownImageSize(
 }
 
 /**
+ * What a zoom level is relative to: `image`, the image px the viewer fits
+ * (`shownImageSize`), and `fitted`, their size in CSS px at fit (transform
+ * scale 1). The crop tool places the whole turned frame in its own box
+ * (`cropModeBox`) instead of the crop's fitted size (`base`).
+ */
+export function zoomFrame(
+  original: { width: number; height: number },
+  adjustments: { crop?: { width: number; height: number } | null; orientationSteps?: number },
+  base: { width: number; height: number; offsetX: number; offsetY: number; margin?: number },
+  cropping: boolean
+): { image: { width: number; height: number }; fitted: { width: number; height: number } } {
+  if (!cropping) {
+    return { image: shownImageSize(original, adjustments), fitted: { width: base.width, height: base.height } };
+  }
+  const image = shownImageSize(original, { orientationSteps: adjustments.orientationSteps });
+  const fitted = cropModeBox(
+    base.width + 2 * base.offsetX,
+    base.height + 2 * base.offsetY,
+    image.width,
+    image.height,
+    base.margin ?? 0
+  );
+  return { image, fitted };
+}
+
+/**
  * The zoom menu's levels (1 = 100 %, one image pixel per screen pixel), as
  * Lightroom's Navigator lists them: 1:4 … 1:1 … 16:1, those below fit too
  * (the photograph is then shown smaller than fit, centred). Fit is its own

@@ -26,10 +26,15 @@ const libraryKey = (library: string | null) => library ?? '';
 
 /** Where a queued export went, as a draft that goes there again without a
  * picker: a folder picked (or the folder of a file named for one photo)
- * becomes the draft's folder; the Output folder and the originals' folders
- * stay as they are. */
-export function replayableDraft(draft: RecipeDraft, destination: { path: string; isFile: boolean }): RecipeDraft {
-  if (draft.where === 'output' || draft.where === 'original' || draft.folder) return draft;
+ * becomes the draft's folder; the Output folder of a library and the
+ * originals' folders stay as they are. */
+export function replayableDraft(
+  draft: RecipeDraft,
+  destination: { path: string; isFile: boolean },
+  library: string | null
+): RecipeDraft {
+  // Output without a library open asked for a folder: that one is kept.
+  if ((draft.where === 'output' && library) || draft.where === 'original' || draft.folder) return draft;
   // A drive's or the POSIX root stays a root (E:\ or /), never E: or ''.
   const folder = destination.isFile ? dirname(destination.path) : destination.path;
   return folder ? { ...draft, where: 'choose', folder } : draft;

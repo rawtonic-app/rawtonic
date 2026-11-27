@@ -20,19 +20,24 @@ beforeEach(() => {
 
 it('repeats a picked folder, or the folder of a file named for one photo, without asking again', () => {
   const choose = { ...DEFAULT_RECIPE_DRAFT, where: 'choose' as const };
-  expect(replayableDraft(choose, { path: '/out/web', isFile: false })).toMatchObject({
+  expect(replayableDraft(choose, { path: '/out/web', isFile: false }, '/jobs/A')).toMatchObject({
     where: 'choose',
     folder: '/out/web'
   });
-  expect(replayableDraft(choose, { path: 'C:\\out\\a.jpg', isFile: true }).folder).toBe('C:\\out');
+  expect(replayableDraft(choose, { path: 'C:\\out\\a.jpg', isFile: true }, '/jobs/A').folder).toBe('C:\\out');
   // A file at a drive's root or the POSIX root: the root itself, not "E:" or "".
-  expect(replayableDraft(choose, { path: 'E:\\proof.jpg', isFile: true }).folder).toBe('E:\\');
-  expect(replayableDraft(choose, { path: '/proof.jpg', isFile: true }).folder).toBe('/');
+  expect(replayableDraft(choose, { path: 'E:\\proof.jpg', isFile: true }, null).folder).toBe('E:\\');
+  expect(replayableDraft(choose, { path: '/proof.jpg', isFile: true }, null).folder).toBe('/');
   // The Output folder and the originals' folders are found again each time.
   const output = { ...DEFAULT_RECIPE_DRAFT, where: 'output' as const };
-  expect(replayableDraft(output, { path: '/jobs/A/Output', isFile: false })).toBe(output);
+  expect(replayableDraft(output, { path: '/jobs/A/Output', isFile: false }, '/jobs/A')).toBe(output);
+  // Output with no library open asked for a folder: that one is repeated.
+  expect(replayableDraft(output, { path: '/picked', isFile: false }, null)).toMatchObject({
+    where: 'choose',
+    folder: '/picked'
+  });
   const fixed = { ...choose, folder: '/fixed' };
-  expect(replayableDraft(fixed, { path: '/fixed', isFile: false })).toBe(fixed);
+  expect(replayableDraft(fixed, { path: '/fixed', isFile: false }, '/jobs/A')).toBe(fixed);
 });
 
 it('keeps the last export of each library, at most 20, and is unavailable before the first', () => {
