@@ -55,9 +55,12 @@ pub(crate) fn click_reserve(app: &tauri::AppHandle) -> u64 {
 /// brk2-2026-11-27): 2130 MB / 51.1 MP → 42 bytes. The frame with a
 /// pending layer's mask, building the caches again after the answer of a
 /// 50 MP CR2 (8688x5792), grew it by 2251–2410 MB in 4 of 4 runs (WBRK5,
-/// G74/BRK6): 2410 MB / 50.3 MP → 48 bytes. Most frames reuse their caches
-/// and add nothing; the hold lasts only while the frame runs.
-pub(crate) const FRAME_BYTES_PER_PIXEL: u64 = 48;
+/// G74/BRK6), and the system's available memory fell by up to 4469 MB from
+/// the layer's grant through that frame, 2465 MB beyond the 2004 MB the
+/// layer keeps at its answer (`ai_commands`: model, warp and what the run
+/// keeps): 2465 MB / 50.3 MP → 49 bytes, rounded up. Most frames reuse
+/// their caches and add nothing; the hold lasts only while the frame runs.
+pub(crate) const FRAME_BYTES_PER_PIXEL: u64 = 50;
 
 /// Settled frames of the open photo's full decode started so far, and the
 /// newest start number among those that ended ([`VisibleFrame`]): an AI
@@ -394,11 +397,11 @@ static THUMBNAIL_TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// for), until a newer save supersedes it or the photo is left.
 pub(crate) fn admit_open_photo_thumbnail(
     pixels: u64,
+    reuses_its_base: impl Fn() -> bool,
     superseded: impl Fn() -> bool,
     left: impl Fn() -> bool,
 ) -> ThumbnailAdmission {
     let start = Instant::now();
-    let request = open_photo_thumbnail_request(pixels);
     loop {
         if superseded() {
             return ThumbnailAdmission::Superseded;
@@ -412,9 +415,12 @@ pub(crate) fn admit_open_photo_thumbnail(
                 Err(std::sync::TryLockError::Poisoned(e)) => Some(e.into_inner()),
                 Err(std::sync::TryLockError::WouldBlock) => None,
             };
+            // Asked at each attempt with the turn (the sidecar is read):
+            // the Library's thumbnails may push the cached base out
+            // meanwhile.
             if let Some(turn) = turn
                 && let Ok(granted) = BROKER.try_reserve(
-                    request,
+                    open_photo_thumbnail_request(pixels, reuses_its_base()),
                     &crate::memory_pressure::reading,
                     false,
                     start.elapsed(),
@@ -433,13 +439,17 @@ pub(crate) fn admit_open_photo_thumbnail(
 }
 
 /// The budget's request of a saved thumbnail of the open photo rendering
-/// from its full decode of `pixels` ([`admit_open_photo_thumbnail`]).
-fn open_photo_thumbnail_request(pixels: u64) -> Request {
-    Request::new(
-        Class::Export,
-        "saved thumbnail of the open photo",
-        pixels.saturating_mul(THUMBNAIL_BYTES_PER_PIXEL),
-    )
+/// from its full decode of `pixels` ([`admit_open_photo_thumbnail`]), or
+/// from the base its last render cached (`reuses_its_base`: it adds no
+/// full-resolution copy, +0 MB in 4 of 4 such renders in WBRK5; it still
+/// takes its turn after the frame and the photographer's requests).
+fn open_photo_thumbnail_request(pixels: u64, reuses_its_base: bool) -> Request {
+    let need = if reuses_its_base {
+        0
+    } else {
+        pixels.saturating_mul(THUMBNAIL_BYTES_PER_PIXEL)
+    };
+    Request::new(Class::Export, "saved thumbnail of the open photo", need)
 }
 
 /// Whether the open photo's full-resolution decode or a frame of it is under
@@ -969,7 +979,7 @@ mod tests {
         use rawtonic_runtime::memory_budget::Reading;
         let broker: &'static Broker = Box::leak(Box::new(Broker::new()));
         let pixels = 8688 * 5792;
-        let request = open_photo_thumbnail_request(pixels);
+        let request = open_photo_thumbnail_request(pixels, false);
         assert!(request.need >= 2021 * MB, "{} MB", request.need / MB);
         let after_the_hold = Reading {
             total: 15_859 * MB,
@@ -989,8 +999,22 @@ mod tests {
         assert!(
             broker
                 .try_reserve(
-                    open_photo_thumbnail_request(pixels),
+                    open_photo_thumbnail_request(pixels, false),
                     &|| freed,
+                    false,
+                    Duration::ZERO,
+                    None
+                )
+                .is_ok()
+        );
+        // A save that leaves the base as it was (an exposure edit) renders
+        // from the base its last render cached: it adds no full-resolution
+        // copy and renders at once (review r1).
+        assert!(
+            broker
+                .try_reserve(
+                    open_photo_thumbnail_request(pixels, true),
+                    &|| after_the_hold,
                     false,
                     Duration::ZERO,
                     None

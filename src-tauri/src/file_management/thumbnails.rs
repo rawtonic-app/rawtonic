@@ -708,6 +708,70 @@ fn generate_thumbnail_with_source(
     )
 }
 
+/// Whether a thumbnail base cached for a photo (`entry`) serves a render of
+/// the recipe whose base hash is `base_hash`: the same base, enough
+/// resolution for its crop at `target_res`, and the mask source when the
+/// recipe's masks need one.
+fn base_reusable(
+    entry: &crate::state::thumbnails::ThumbnailGeometryEntry,
+    base_hash: u64,
+    crop: Option<&Crop>,
+    target_res: u32,
+    needs_mask_source: bool,
+) -> bool {
+    let (cached_hash, _, scale, mask_source, _) = entry;
+    let sufficient_resolution = crop
+        .filter(|c| c.width > 0.0 && c.height > 0.0)
+        .is_none_or(|c| {
+            (c.width as f32 * *scale).max(c.height as f32 * *scale) >= target_res as f32 * 0.95
+        });
+    *cached_hash == base_hash
+        && sufficient_resolution
+        && (!needs_mask_source || mask_source.is_some())
+}
+
+/// Whether the saved thumbnail of the open photo `path_str` will render from
+/// the base its last render cached rather than from the full decode (its
+/// retouched copy and warp at full resolution, `memory_broker::
+/// THUMBNAIL_BYTES_PER_PIXEL`): a save that changed no part of the base (an
+/// exposure or colour edit). The four such renders in WBRK5 grew the app
+/// by 0 MB (G74/BRK6, review r1). Only the plain case: a recipe that a new
+/// recipe's defaults complete or no cached base say no, and the render
+/// counts its full estimate. (A render from the colour noise view's input
+/// reads the stored preview proxy, not the full decode, either way.)
+pub(crate) fn open_photo_thumbnail_reuses_its_base(path_str: &str, app_handle: &AppHandle) -> bool {
+    let (source_path, sidecar_path) = parse_virtual_path(path_str);
+    let Some(metadata) = thumbnail_metadata(&source_path, &sidecar_path) else {
+        return false;
+    };
+    let adjustments = &metadata.adjustments;
+    if adjustments.is_null() || crate::image_processing::is_new_recipe(adjustments) {
+        return false;
+    }
+    let settings = crate::state::settings::current(app_handle);
+    let target_res = settings.medium_thumbnail_resolution.unwrap_or(1280);
+    let crop: Option<Crop> =
+        serde_json::from_value(adjustments[geometry::CROP.name()].clone()).ok();
+    let needs_mask_source = adjustments
+        .get(masks::MASKS.name())
+        .and_then(|m| serde_json::from_value::<Vec<MaskDefinition>>(m.clone()).ok())
+        .unwrap_or_default()
+        .iter()
+        .any(MaskDefinition::requires_warped_image);
+    let base_hash = crate::cache_utils::calculate_thumbnail_base_hash(adjustments);
+    lock_recover(&app_handle.state::<ThumbnailState>().geometry_cache)
+        .get(path_str)
+        .is_some_and(|entry| {
+            base_reusable(
+                entry,
+                base_hash,
+                crop.as_ref(),
+                target_res,
+                needs_mask_source,
+            )
+        })
+}
+
 /// The stored Standard proxy of the RAW `source` when it stands for a
 /// photograph shown with `adjustments` in its own effective frame.
 fn stored_proxy(
@@ -968,31 +1032,20 @@ fn develop_thumbnail_with_source(
             Option<(u32, u32)>,
         )> = {
             let cache = lock_recover(&thumbnails.geometry_cache);
-            if let Some((cached_hash, img, scale, mask_source, decoded_size)) = cache.get(cache_key)
-            {
-                let mut sufficient_resolution = true;
-                if let Some(c) = &crop_data
-                    && c.width > 0.0
-                    && c.height > 0.0
-                {
-                    let final_crop_max_dim =
-                        (c.width as f32 * *scale).max(c.height as f32 * *scale);
-                    if final_crop_max_dim < (target_res as f32 * 0.95) {
-                        sufficient_resolution = false;
-                    }
-                }
-
-                if *cached_hash == base_cache_hash
-                    && sufficient_resolution
-                    && (!needs_mask_source || mask_source.is_some())
-                {
-                    Some((Arc::clone(img), *scale, mask_source.clone(), *decoded_size))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+            cache
+                .get(cache_key)
+                .filter(|entry| {
+                    base_reusable(
+                        entry,
+                        base_cache_hash,
+                        crop_data.as_ref(),
+                        target_res,
+                        needs_mask_source,
+                    )
+                })
+                .map(|(_, img, scale, mask_source, decoded_size)| {
+                    (Arc::clone(img), *scale, mask_source.clone(), *decoded_size)
+                })
         };
 
         let (processing_base_arc, total_scale, mask_source, decoded_size) = if let Some(cached) =
