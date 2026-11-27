@@ -122,7 +122,7 @@ const CONVERTED: Record<string, { args: string; ok: string }> = {
     ok: `AiSkyMaskParameters`
   },
   generate_ai_people_mask: {
-    args: `js_adjustments: serde_json::Value, parts: Vec<String>, person: Option<usize>, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, task_id: Option<String>, download: Option<bool>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
+    args: `js_adjustments: serde_json::Value, parts: Vec<String>, person: Option<usize>, rotation: f32, flip_horizontal: bool, flip_vertical: bool, orientation_steps: u8, task_id: Option<String>, download: Option<bool>, path: Option<String>, state: tauri::State<'_, AppState>, app_handle: tauri::AppHandle`,
     ok: `AiPeopleMaskParameters`
   },
   generate_ai_sky_mask: {

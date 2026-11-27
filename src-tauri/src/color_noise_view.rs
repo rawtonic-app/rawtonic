@@ -244,6 +244,16 @@ impl ColorNoiseView {
         !lock_recover(&self.builds).wanted.is_empty()
     }
 
+    /// Whether a render input is wanted or being built: the frame it was
+    /// wanted for has more of its caches to come (the full-resolution warp
+    /// and edge-fringe bands, +1.07–1.68 GB on a Radeon 680M laptop,
+    /// WTPX5B), which an AI mask's answer stays held for
+    /// (`memory_broker::after_answer`, G74/BRK4).
+    pub(crate) fn building(&self) -> bool {
+        let builds = lock_recover(&self.builds);
+        builds.running || !builds.wanted.is_empty()
+    }
+
     /// Wants a render input; one wanted for the same photograph and setting
     /// merges with it: the larger size, and the edit's frame to render
     /// again whichever asked last (a before asks for none).

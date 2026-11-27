@@ -548,6 +548,11 @@ pub struct Granted {
 }
 
 impl Reservation {
+    /// Its entry among the reservations held (`Broker::held`).
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
     pub fn plan(&self) -> Plan {
         self.plan
     }
