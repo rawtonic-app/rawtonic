@@ -51,6 +51,9 @@ fn output_of(data: &Value) -> Option<KwinOutput> {
 /// A layout's enabled outputs: index into the outputs, logical position.
 type Setup = Vec<(usize, (i64, i64))>;
 
+/// A monitor as the desktop shows it: logical position and size.
+pub type Monitor = ((i32, i32), (i32, i32));
+
 /// The outputs of `config` and its layouts ("setups").
 fn parse(config: &str) -> Option<(Vec<Value>, Vec<Setup>)> {
     let root: Value = serde_json::from_str(config).ok()?;
@@ -84,29 +87,42 @@ fn parse(config: &str) -> Option<(Vec<Value>, Vec<Setup>)> {
     Some((outputs, setups))
 }
 
-/// The output at logical `position` when the desktop shows `monitors`
-/// (every monitor's logical position): the one layout of KWin's whose
-/// enabled outputs sit exactly there. `None` when no layout or several
-/// differing ones fit (the window's output is then unknown).
-pub fn output_at(
-    config: &str,
-    monitors: &[(i32, i32)],
-    position: (i32, i32),
-) -> Option<KwinOutput> {
+/// An output's logical size (its mode divided by its scale; rotated
+/// outputs either way round), if the configuration says.
+fn logical_size(output: &Value) -> Option<(f64, f64)> {
+    let mode = output.get("mode")?.get("cvt")?;
+    let scale = output.get("scale").and_then(Value::as_f64).unwrap_or(1.0);
+    let w = mode.get("hdisplay")?.as_f64()? / scale;
+    let h = mode.get("vdisplay")?.as_f64()? / scale;
+    Some((w, h))
+}
+
+/// Whether `setup` shows exactly `monitors`: the same positions, each
+/// output of the size the desktop gives the monitor there (±2 px).
+fn fits(outputs: &[Value], setup: &Setup, monitors: &[Monitor]) -> bool {
+    setup.len() == monitors.len()
+        && monitors.iter().all(|&((x, y), (w, h))| {
+            setup.iter().any(|(index, at)| {
+                *at == (x as i64, y as i64)
+                    && outputs
+                        .get(*index)
+                        .and_then(logical_size)
+                        .is_none_or(|(ow, oh)| {
+                            let near = |a: f64, b: i32| (a - b as f64).abs() <= 2.0;
+                            (near(ow, w) && near(oh, h)) || (near(ow, h) && near(oh, w))
+                        })
+            })
+        })
+}
+
+/// The output at logical `position` when the desktop shows `monitors`: the
+/// layouts of KWin's that fit them must agree on it. `None` when none fits
+/// or they disagree (the window's output is then unknown).
+pub fn output_at(config: &str, monitors: &[Monitor], position: (i32, i32)) -> Option<KwinOutput> {
     let (outputs, setups) = parse(config)?;
-    let mut wanted: Vec<(i64, i64)> = monitors
-        .iter()
-        .map(|&(x, y)| (x as i64, y as i64))
-        .collect();
-    wanted.sort_unstable();
     let at = (position.0 as i64, position.1 as i64);
     let mut found: Option<usize> = None;
-    for setup in setups {
-        let mut positions: Vec<(i64, i64)> = setup.iter().map(|(_, p)| *p).collect();
-        positions.sort_unstable();
-        if positions != wanted {
-            continue;
-        }
+    for setup in setups.iter().filter(|s| fits(&outputs, s, monitors)) {
         let Some((index, _)) = setup.iter().find(|(_, p)| *p == at) else {
             continue;
         };
@@ -119,69 +135,105 @@ pub fn output_at(
     outputs.get(found?).and_then(output_of)
 }
 
-/// Whether KWin converts sRGB windows into any configured output itself
-/// (used when the window's output is unknown: converting there could be
-/// converting twice).
-pub fn any_output_converts(config: &str) -> Option<KwinOutput> {
-    let (outputs, _) = parse(config)?;
-    outputs.iter().filter_map(output_of).find(|o| o.converts)
+/// An output KWin converts sRGB windows into itself among the layouts that
+/// fit `monitors` (used when the window's output is unknown: converting
+/// there could be converting twice). Displays of other layouts (one
+/// undocked, say) do not count.
+pub fn layout_output_converts(config: &str, monitors: &[Monitor]) -> Option<KwinOutput> {
+    let (outputs, setups) = parse(config)?;
+    setups
+        .iter()
+        .filter(|s| fits(&outputs, s, monitors))
+        .flatten()
+        .filter_map(|(index, _)| outputs.get(*index).and_then(output_of))
+        .find(|o| o.converts)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn config(first: &str, second: &str) -> String {
+    /// DP-1 4K at 1.45 (2649 × 1490), HDMI-A-1 1920 × 1200, eDP-1 a laptop
+    /// panel 1920 × 1080; layouts: DP-1 + HDMI-A-1, DP-1 alone, eDP-1
+    /// alone (undocked), HDMI-A-1 + eDP-1.
+    fn config(dp: &str, hdmi: &str) -> String {
+        let mode =
+            |w: u32, h: u32| format!(r#""mode":{{"cvt":{{"hdisplay":{w},"vdisplay":{h}}}}}"#);
         format!(
             r#"[{{"name":"outputs","data":[
-                {{"connectorName":"DP-1","colorProfileSource":{first},"highDynamicRange":false}},
-                {{"connectorName":"HDMI-A-1","colorProfileSource":{second},"highDynamicRange":false}},
-                {{"connectorName":"DP-2","colorProfileSource":"sRGB"}}]}},
+                {{"connectorName":"DP-1","colorProfileSource":{dp},"highDynamicRange":false,"scale":1.45,{}}},
+                {{"connectorName":"HDMI-A-1","colorProfileSource":{hdmi},"highDynamicRange":false,"scale":1,{}}},
+                {{"connectorName":"eDP-1","colorProfileSource":"sRGB","scale":1,{}}}]}},
               {{"name":"setups","data":[
                 {{"outputs":[{{"enabled":true,"outputIndex":0,"position":{{"x":0,"y":0}}}},
                              {{"enabled":true,"outputIndex":1,"position":{{"x":2649,"y":0}}}}]}},
                 {{"outputs":[{{"enabled":true,"outputIndex":0,"position":{{"x":0,"y":0}}}}]}},
+                {{"outputs":[{{"enabled":true,"outputIndex":2,"position":{{"x":0,"y":0}}}}]}},
                 {{"outputs":[{{"enabled":true,"outputIndex":1,"position":{{"x":0,"y":0}}}},
-                             {{"enabled":true,"outputIndex":2,"position":{{"x":1920,"y":0}}}}]}}]}}]"#
+                             {{"enabled":true,"outputIndex":2,"position":{{"x":1920,"y":0}}}}]}}]}}]"#,
+            mode(3840, 2160),
+            mode(1920, 1200),
+            mode(1920, 1080)
         )
     }
+
+    const TWO: [Monitor; 2] = [((0, 0), (2649, 1490)), ((2649, 0), (1920, 1200))];
 
     #[test]
     fn the_window_output_is_found_by_the_layout() {
         let c = config(r#""sRGB""#, r#""ICC","iccProfilePath":"/p/wide.icc""#);
-        let two = [(0, 0), (2649, 0)];
-        let first = output_at(&c, &two, (0, 0)).unwrap();
+        let first = output_at(&c, &TWO, (0, 0)).unwrap();
         assert_eq!((first.connector.as_str(), first.converts), ("DP-1", false));
-        let second = output_at(&c, &two, (2649, 0)).unwrap();
+        let second = output_at(&c, &TWO, (2649, 0)).unwrap();
         assert_eq!(second.connector, "HDMI-A-1");
         assert!(second.converts);
         assert_eq!(second.source, "ICC /p/wide.icc");
         // The other two-display layout: (0, 0) is HDMI-A-1 there.
+        let other = [((0, 0), (1920, 1200)), ((1920, 0), (1920, 1080))];
+        assert_eq!(output_at(&c, &other, (0, 0)).unwrap().connector, "HDMI-A-1");
+        // A layout KWin does not know: unknown, never a guess.
         assert_eq!(
-            output_at(&c, &[(0, 0), (1920, 0)], (0, 0))
-                .unwrap()
-                .connector,
+            output_at(
+                &c,
+                &[((0, 0), (2649, 1490)), ((100, 0), (800, 600))],
+                (0, 0)
+            ),
+            None
+        );
+        assert_eq!(
+            layout_output_converts(&c, &TWO).unwrap().connector,
             "HDMI-A-1"
         );
-        assert_eq!(output_at(&c, &[(0, 0)], (0, 0)).unwrap().connector, "DP-1");
-        // A layout KWin does not know: unknown, never a guess.
-        assert_eq!(output_at(&c, &[(0, 0), (100, 0)], (0, 0)), None);
-        assert_eq!(any_output_converts(&c).unwrap().connector, "HDMI-A-1");
+    }
+
+    #[test]
+    fn undocked_the_panel_is_told_from_the_external_display_by_its_size() {
+        // The external DP-1 managed by KWin (ICC); undocked, the panel
+        // alone at (0, 0) as DP-1 was alone: not managed, not mistaken.
+        let c = config(r#""ICC","iccProfilePath":"/p/wide.icc""#, r#""sRGB""#);
+        let panel = [((0, 0), (1920, 1080))];
+        let alone = output_at(&c, &panel, (0, 0)).unwrap();
+        assert_eq!((alone.connector.as_str(), alone.converts), ("eDP-1", false));
+        assert_eq!(layout_output_converts(&c, &panel), None);
+        let external = [((0, 0), (2649, 1490))];
+        assert!(output_at(&c, &external, (0, 0)).unwrap().converts);
     }
 
     #[test]
     fn edid_and_hdr_are_colour_managed_srgb_and_an_empty_icc_are_not() {
         let c = config(r#""EDID""#, r#""ICC","iccProfilePath":"""#);
-        let two = [(0, 0), (2649, 0)];
-        assert!(output_at(&c, &two, (0, 0)).unwrap().converts);
-        assert!(!output_at(&c, &two, (2649, 0)).unwrap().converts);
+        assert!(output_at(&c, &TWO, (0, 0)).unwrap().converts);
+        assert!(!output_at(&c, &TWO, (2649, 0)).unwrap().converts);
         let hdr = c.replacen(
             r#""highDynamicRange":false"#,
             r#""highDynamicRange":true"#,
             2,
         );
-        assert_eq!(output_at(&hdr, &two, (2649, 0)).unwrap().source, "HDR");
-        assert_eq!(any_output_converts(&config(r#""sRGB""#, r#""sRGB""#)), None);
-        assert_eq!(output_at("not json", &two, (0, 0)), None);
+        assert_eq!(output_at(&hdr, &TWO, (2649, 0)).unwrap().source, "HDR");
+        assert_eq!(
+            layout_output_converts(&config(r#""sRGB""#, r#""sRGB""#), &TWO),
+            None
+        );
+        assert_eq!(output_at("not json", &TWO, (0, 0)), None);
     }
 }

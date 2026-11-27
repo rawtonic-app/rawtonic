@@ -265,9 +265,9 @@ fn start(args: Vec<String>) {
         |_context, request, responder| scope_images::serve(request, responder),
     );
 
-    // Thumbnails through the monitor profile (browser_colour.rs): the
-    // webviews of Linux and Windows show images as device values.
-    #[cfg(any(target_os = "linux", windows))]
+    // Thumbnails through the monitor profile (browser_colour.rs): WebKitGTK
+    // shows images as device values.
+    #[cfg(target_os = "linux")]
     {
         builder = builder.register_asynchronous_uri_scheme_protocol(
             browser_colour::SCHEME,
@@ -455,6 +455,7 @@ fn start(args: Vec<String>) {
             #[cfg(target_os = "linux")]
             if !is_headless {
                 monitor_profile::refresh(app.handle(), "main");
+                monitor_profile::watch_outputs(app.handle());
             }
             let startup_state = app.state::<state::startup::StartupState>();
 

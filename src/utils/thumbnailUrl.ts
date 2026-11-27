@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 /**
- * The URL a cached thumbnail is shown from. On Linux and Windows it goes
- * through the app's `rawtonic-thumb` scheme, which converts it into the
- * monitor profile (src-tauri/src/browser_colour.rs: WebKitGTK and WebView2
- * show images as device values); on macOS the asset protocol serves the
- * file and ColorSync matches it to the display. The `mp` query names the monitor transform the
+ * The URL a cached thumbnail is shown from. On Linux it goes through the
+ * app's `rawtonic-thumb` scheme, which converts it into the monitor profile
+ * (src-tauri/src/browser_colour.rs: WebKitGTK shows images as device
+ * values); elsewhere the asset protocol serves the file (macOS: ColorSync
+ * matches it to the display; Windows: whether WebView2 does is open, WMCM1). The `mp` query names the monitor transform the
  * URL was made for, so a new one (`monitor-colour-changed`) loads the
  * thumbnails again instead of the webview's cached copies.
  */
@@ -21,7 +21,7 @@ let generation = 0;
 function throughScheme() {
   if (converting === null) {
     try {
-      converting = ['linux', 'windows'].includes(platform());
+      converting = platform() === 'linux';
     } catch {
       converting = false;
     }

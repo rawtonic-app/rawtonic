@@ -66,7 +66,16 @@ pub(crate) fn encode_settled_like(
     lossless: Option<bool>,
 ) -> Result<Vec<u8>, String> {
     // The monitor profile (Linux: nothing after the webview converts it).
-    let image = &*crate::browser_colour::frame(image);
+    encode_settled_like_as_is(&crate::browser_colour::frame(image), scale, lossless)
+}
+
+/// [`encode_settled_like`] of `image`'s values as they are (already in the
+/// monitor profile of the window showing it).
+pub(crate) fn encode_settled_like_as_is(
+    image: &image::RgbaImage,
+    scale: f32,
+    lossless: Option<bool>,
+) -> Result<Vec<u8>, String> {
     match lossless.unwrap_or_else(|| settled_lossless(scale)) {
         true => encode_png_rgb(image),
         false if lossless.is_some() => encode_rgbx_444_as_is(image, ONE_TO_ONE_QUALITY),

@@ -2,18 +2,16 @@
 //! notes: benchmark-results/mcm2-2026-11-27/REPORT.md).
 //!
 //! WebKitGTK shows images as device values: nothing between the app and
-//! the display converts them (nor does WebView2 on Windows for the
-//! thumbnails, WMCM1). So the streams of photographs the webview shows are
-//! converted here, each in one place, with the main window's display
-//! transform (`monitor_profile.rs`, the same 65³ table the Windows present
-//! pass samples):
+//! the display converts them. So the streams of photographs the webview
+//! shows are converted here, each in one place, with the display transform
+//! of the window showing them (`monitor_profile.rs`, the same 65³ table the
+//! Windows present pass samples):
 //!
-//! - Linux: Develop's frames (and multi-view cells, the second window's)
-//!   as they are encoded for the webview ([`frame`], called by
-//!   `preview_jpeg`; Windows draws Develop natively, converted there);
+//! - Develop's frames and multi-view cells as they are encoded for the
+//!   webview ([`frame`], called by `preview_jpeg`); the second window's
+//!   with its own display's transform ([`second_frame`]);
 //! - the Library's thumbnails (grid, filmstrip, Loupe), served through the
-//!   `rawtonic-thumb` scheme instead of the asset protocol ([`serve`]), on
-//!   Linux and Windows.
+//!   `rawtonic-thumb` scheme instead of the asset protocol ([`serve`]).
 //!
 //! Without a transform (an sRGB display, no profile, the compositor
 //! colour-managing the window itself) frames are encoded from the
@@ -32,7 +30,7 @@ use rayon::prelude::*;
 use crate::state::lock::lock_recover;
 
 /// The scheme Linux thumbnails are served by.
-#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub const SCHEME: &str = "rawtonic-thumb";
 /// Sent (with the new generation) when the transform changed.
 pub const CHANGED_EVENT: &str = "monitor-colour-changed";
@@ -66,19 +64,55 @@ impl Current {
     }
 }
 
+/// The main window's transform (its frames, the Library's thumbnails).
 static CURRENT: RwLock<Current> = RwLock::new(Current {
     generation: 0,
     lut: None,
 });
+/// The second window's (its frames; it may be on another display).
+static SECOND: RwLock<Current> = RwLock::new(Current {
+    generation: 0,
+    lut: None,
+});
+
+fn slot(label: &str) -> &'static RwLock<Current> {
+    if label == crate::second_window::LABEL {
+        &SECOND
+    } else {
+        &CURRENT
+    }
+}
 
 fn current() -> (u64, Option<Arc<(DisplayLut, ByteConverter)>>) {
     CURRENT.read().unwrap_or_else(|e| e.into_inner()).get()
 }
 
-/// Installs `lut` for every webview stream (None: no transform); whether it
-/// changed.
-pub fn set(lut: Option<&DisplayLut>) -> bool {
-    CURRENT.write().unwrap_or_else(|e| e.into_inner()).set(lut)
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn second() -> Option<Arc<(DisplayLut, ByteConverter)>> {
+    SECOND.read().unwrap_or_else(|e| e.into_inner()).get().1
+}
+
+/// Installs `lut` for window `label`'s webview streams (None: no
+/// transform); whether it changed.
+pub fn set(label: &str, lut: Option<&DisplayLut>) -> bool {
+    slot(label)
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .set(lut)
+}
+
+/// Whether the second window converts as the main window does (then it
+/// shows the main window's encoded frames as they are).
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn second_matches_main() -> bool {
+    current().1.as_deref().map(|(l, _)| l) == second().as_deref().map(|(l, _)| l)
+}
+
+/// A frame for the second window's webview: `image` converted into its
+/// display's profile.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn second_frame(image: &image::RgbaImage) -> Cow<'_, image::RgbaImage> {
+    frame_with(second().as_deref().map(|(_, c)| c), image)
 }
 
 /// The installed transform's generation.
@@ -203,7 +237,7 @@ fn requested_path(uri: &tauri::http::Uri) -> Option<std::path::PathBuf> {
 }
 
 /// Serves a thumbnail request off the main thread.
-#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn serve(
     app: tauri::AppHandle,
     request: tauri::http::Request<Vec<u8>>,

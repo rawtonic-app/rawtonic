@@ -265,12 +265,6 @@ pub fn refresh(app: &AppHandle, label: &str) {
     #[cfg(target_os = "linux")]
     {
         use tauri::Manager;
-        // One transform for every webview stream: the main window's
-        // display's (a second window on another display shows its frames
-        // through it too; notes: mcm2 REPORT, Open).
-        if label != "main" {
-            return;
-        }
         let Some(window) = app.get_webview_window(label) else {
             return;
         };
@@ -297,6 +291,39 @@ pub fn refresh(app: &AppHandle, label: &str) {
     let _ = (app, label);
 }
 
+/// Wayland tells a window no move, and GTK 3 no output change when the
+/// scale stays the same: every 2 s each window's monitor is read again, and
+/// a window that is on another monitor (or whose desktop layout changed)
+/// looks its profile up again.
+#[cfg(target_os = "linux")]
+pub fn watch_outputs(app: &AppHandle) {
+    let app = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("monitor-output-watch".into())
+        .spawn(move || {
+            use tauri::Manager;
+            let mut last: HashMap<String, rawtonic_display_profile::linux::WindowOutput> =
+                HashMap::new();
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                for label in ["main", crate::second_window::LABEL] {
+                    let Some(window) = app.get_webview_window(label) else {
+                        last.remove(label);
+                        continue;
+                    };
+                    let now = window_output(&window);
+                    if last.get(label).is_some_and(|before| *before != now) {
+                        refresh(&app, label);
+                    }
+                    last.insert(label.to_string(), now);
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        log::warn!("Monitor output watch not started: {error}");
+    }
+}
+
 /// Where `window` is: its monitor's position (logical and device px) and
 /// the logical position of every monitor. Read on the main thread (GTK).
 #[cfg(target_os = "linux")]
@@ -304,6 +331,13 @@ fn window_output(window: &tauri::WebviewWindow) -> rawtonic_display_profile::lin
     let logical = |m: &tauri::Monitor| {
         let at = m.position().to_logical::<f64>(m.scale_factor());
         (at.x.round() as i32, at.y.round() as i32)
+    };
+    let rect = |m: &tauri::Monitor| {
+        let size = m.size().to_logical::<f64>(m.scale_factor());
+        (
+            logical(m),
+            (size.width.round() as i32, size.height.round() as i32),
+        )
     };
     let current = window.current_monitor().ok().flatten();
     rawtonic_display_profile::linux::WindowOutput {
@@ -313,7 +347,7 @@ fn window_output(window: &tauri::WebviewWindow) -> rawtonic_display_profile::lin
             .available_monitors()
             .unwrap_or_default()
             .iter()
-            .map(logical)
+            .map(rect)
             .collect(),
     }
 }
@@ -391,20 +425,20 @@ fn set_transform(
     label: &str,
     lut: Option<&rawtonic_display_profile::DisplayLut>,
 ) -> bool {
-    // The webview's thumbnails (Linux, Windows: WebView2 does not match
-    // images to the display, WMCM1) and on Linux its frames: the main
-    // window's transform.
-    if label == "main" && cfg!(any(target_os = "linux", windows)) && crate::browser_colour::set(lut)
-    {
-        let _ = app.emit(
-            crate::browser_colour::CHANGED_EVENT,
-            crate::browser_colour::generation(),
-        );
-    }
-    // Linux has no native display: the webview is the display.
+    // Linux has no native display: the webview is the display; its frames
+    // (and the main window's thumbnails) are converted (browser_colour.rs).
+    // A change renders the main window's frame again, which the second
+    // window mirrors.
     if cfg!(target_os = "linux") {
+        if crate::browser_colour::set(label, lut) {
+            let _ = app.emit(
+                crate::browser_colour::CHANGED_EVENT,
+                crate::browser_colour::generation(),
+            );
+        }
         return true;
     }
+    let _ = app;
     let Some(context) = context else {
         return false;
     };

@@ -2980,14 +2980,34 @@ fn process_preview_job(
                 && let Some(app) = app_handle
                 && crate::second_window::is_open()
             {
-                crate::second_window::on_browser_frame(
-                    app,
-                    context,
-                    &loaded_image.path,
-                    &jpeg_bytes,
-                    final_rgba_image.dimensions(),
-                    tool_view,
-                );
+                // On a display with another profile it gets the frame
+                // converted into that one, encoded as the main one was.
+                let own = (!crate::browser_colour::second_matches_main()).then(|| {
+                    crate::preview_jpeg::encode_settled_like_as_is(
+                        &crate::browser_colour::second_frame(final_rgba_image),
+                        effective_scale,
+                        Some(jpeg_bytes.starts_with(b"\x89PNG")),
+                    )
+                });
+                match own {
+                    Some(Ok(bytes)) => crate::second_window::on_browser_frame(
+                        app,
+                        context,
+                        &loaded_image.path,
+                        &bytes,
+                        final_rgba_image.dimensions(),
+                        tool_view,
+                    ),
+                    Some(Err(error)) => log::warn!("Second window frame not encoded: {error}"),
+                    None => crate::second_window::on_browser_frame(
+                        app,
+                        context,
+                        &loaded_image.path,
+                        &jpeg_bytes,
+                        final_rgba_image.dimensions(),
+                        tool_view,
+                    ),
+                }
             }
             // A settled region at 100 %: the second window develops its own
             // frames of the new recipe.

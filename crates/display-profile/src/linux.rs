@@ -26,8 +26,9 @@ const COLORD: &str = "org.freedesktop.ColorManager";
 const TIMEOUT: Duration = Duration::from_millis(500);
 
 /// colord's default profile of the display named `output` (a connector
-/// such as `eDP-1`), else of its first display. `Err` when colord is not
-/// reachable.
+/// such as `eDP-1`; none if colord does not know it, so that display's own
+/// X11 profile is looked at next), or with no name of its first display.
+/// `Err` when colord is not reachable.
 fn colord_profile(output: Option<&str>) -> Result<Option<String>, String> {
     let connection = Connection::new_system().map_err(|e| e.to_string())?;
     let manager = connection.with_proxy(COLORD, "/org/freedesktop/ColorManager", TIMEOUT);
@@ -43,6 +44,7 @@ fn colord_profile(output: Option<&str>) -> Result<Option<String>, String> {
     });
     let device = match by_name {
         Some(device) => device,
+        None if output.is_some() => return Ok(None),
         None => {
             let (devices,): (Vec<Path<'static>>,) = manager
                 .method_call(COLORD, "GetDevicesByKind", ("display",))
@@ -159,12 +161,12 @@ fn x11_profile(monitor: usize) -> Option<Vec<u8>> {
 }
 
 /// Where a window is: its monitor's position (logical and device px) and
-/// every monitor's logical position (the desktop's layout).
+/// every monitor's logical position and size (the desktop's layout).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WindowOutput {
     pub logical: Option<(i32, i32)>,
     pub physical: Option<(i32, i32)>,
-    pub monitors: Vec<(i32, i32)>,
+    pub monitors: Vec<crate::kwin::Monitor>,
 }
 
 /// What the desktop says about the colours of the display a window is on,
@@ -184,11 +186,12 @@ pub fn profile_of_window(window: &WindowOutput) -> (SystemProfile, Option<String
             let output = window
                 .logical
                 .and_then(|at| crate::kwin::output_at(&config, &window.monitors, at));
-            // The window's output unknown: if KWin manages any display,
-            // converting could be converting twice.
+            // The window's output unknown: if KWin manages a display of a
+            // layout it keeps for these monitors, converting could be
+            // converting twice.
             let managing = match &output {
                 Some(output) => output.converts.then(|| output.clone()),
-                None => crate::kwin::any_output_converts(&config),
+                None => crate::kwin::layout_output_converts(&config, &window.monitors),
             };
             if managing.is_some() {
                 return (

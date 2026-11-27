@@ -90,8 +90,13 @@ fn keep(jpeg: Vec<u8>) -> Uuid {
 /// left 7 (the export's own 8-bit rounding: 6). The region's own development
 /// still differs from the main window's with colour noise reduction on
 /// (docs/benchmark-results/swc2-second-window-regions-2026-11-20/REPORT.md).
+/// Converted into this window's display profile (`browser_colour`).
 pub(super) fn encode(rgba: &image::RgbaImage) -> Result<Vec<u8>, String> {
-    crate::preview_jpeg::encode_settled_like(rgba, 1.0, Some(true))
+    crate::preview_jpeg::encode_settled_like_as_is(
+        &crate::browser_colour::second_frame(rgba),
+        1.0,
+        Some(true),
+    )
 }
 
 pub(crate) struct BrowserView {
