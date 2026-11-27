@@ -174,6 +174,8 @@ pub struct Request {
     /// leaves no click reserve then (G74/BRK2 review: a click waiting for
     /// memory blocked the download that would have let it fit).
     pub serves_asked: bool,
+    /// Bytes both plans need beyond their corrected estimates (`more`).
+    pub more: u64,
 }
 
 impl Request {
@@ -188,6 +190,7 @@ impl Request {
             visible_wait: ASKED_WAITS_FOR_VISIBLE,
             fits_only: false,
             serves_asked: false,
+            more: 0,
         }
     }
 
@@ -202,10 +205,11 @@ impl Request {
     }
 
     /// Both plans need `bytes` more (a retry after the run-time guard
-    /// stopped the run, `Broker::stopped_short`).
+    /// stopped the run, `Broker::stopped_short`): added after the
+    /// measured-peak correction (`Broker::corrected`), so a larger measured
+    /// peak does not swallow it (review r3).
     pub fn more(mut self, bytes: u64) -> Self {
-        self.need = self.need.saturating_add(bytes);
-        self.reduced = self.reduced.map(|r| r.saturating_add(bytes));
+        self.more = self.more.saturating_add(bytes);
         self
     }
 
@@ -819,9 +823,14 @@ impl Broker {
         cancel: Option<Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<Granted, Wait> {
         let mut request = request;
-        request.need = self.corrected(request.label, Plan::Full, request.need);
+        request.need = self
+            .corrected(request.label, Plan::Full, request.need)
+            .saturating_add(request.more);
         if let Some(reduced) = request.reduced {
-            request.reduced = Some(self.corrected(request.label, Plan::Reduced, reduced));
+            request.reduced = Some(
+                self.corrected(request.label, Plan::Reduced, reduced)
+                    .saturating_add(request.more),
+            );
         }
         let reading = read();
         let decided = {
@@ -1684,6 +1693,44 @@ mod tests {
             b.corrected("AI subject click", Plan::Full, 1400 * MB),
             1400 * MB
         );
+    }
+
+    /// A peak measured earlier (a Sky mask that grew 1200 MB alone) does not
+    /// swallow a retry's backoff: the backoff comes on top of the
+    /// corrected estimate (review r3).
+    #[test]
+    fn a_retry_backoff_comes_on_top_of_a_measured_peak() {
+        let b = broker();
+        let floor = floor(LENOVO);
+        let first = b
+            .try_reserve(
+                Request::new(Class::Asked, "AI sky click", 800 * MB),
+                &|| reading(floor + 4 * GB, 3 * GB),
+                false,
+                Duration::ZERO,
+                None,
+            )
+            .unwrap();
+        b.observe(3 * GB + 1200 * MB);
+        drop(first);
+        assert_eq!(b.corrected("AI sky click", Plan::Full, 800 * MB), 1200 * MB);
+        let retry = Request::new(Class::Asked, "AI sky click", 800 * MB)
+            .only_when_it_fits()
+            .more(GUARD_MARGIN);
+        let room = reading(floor + 1300 * MB, 3 * GB);
+        assert_eq!(
+            b.try_reserve(retry, &|| room, false, Duration::from_secs(1), None)
+                .map(|g| g.reservation.estimate()),
+            Err(Wait::Memory {
+                room: 1300 * MB,
+                need: 1200 * MB + GUARD_MARGIN
+            })
+        );
+        let freed = reading(floor + 1600 * MB, 3 * GB);
+        let granted = b
+            .try_reserve(retry, &|| freed, false, Duration::from_secs(2), None)
+            .unwrap();
+        assert_eq!(granted.reservation.estimate(), 1200 * MB + GUARD_MARGIN);
     }
 
     #[test]
