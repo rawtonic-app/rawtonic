@@ -49,25 +49,37 @@ export function chooseZoomLevel(onZoom: ZoomHandler, level: number): void {
   onZoom(level, false, true);
 }
 
-/** The zoom menu's entries: Fit and every level (ZOOM_LEVELS), below fit too. */
-export function ZoomPresetOptions() {
+/**
+ * The viewer bar's zoom menu: Fit and every level (ZOOM_LEVELS), below fit
+ * too. It hands the focus back after a choice, so Z, Space and the other
+ * plain keys reach the viewer again (a focused select keeps them).
+ */
+export function ZoomSelect({ onZoom }: { onZoom: ZoomHandler }) {
   const { t } = useTranslation();
   return (
-    <>
+    <select
+      className="studio-zoom-select"
+      aria-label={t('studio.workspace.viewer.zoom')}
+      title={t('studio.workspace.viewer.zoom')}
+      value=""
+      onChange={(e) => {
+        const { value } = e.target;
+        e.currentTarget.blur();
+        if (value === 'fit') onZoom(1, true);
+        else if (value) chooseZoomLevel(onZoom, Number(value));
+      }}
+    >
+      <option value="" disabled>
+        {t('studio.workspace.viewer.zoom')}
+      </option>
       <option value="fit">{t('studio.workspace.viewer.fit')}</option>
       {ZOOM_LEVELS.map((level) => (
         <option key={level} value={String(level)}>
           {zoomLevelLabel(level)}
         </option>
       ))}
-    </>
+    </select>
   );
-}
-
-/** The zoom select's choice: `fit`, else a level. */
-export function onZoomSelect(onZoom: ZoomHandler, value: string): void {
-  if (value === 'fit') onZoom(1, true);
-  else if (value) chooseZoomLevel(onZoom, Number(value));
 }
 
 /** ISO, shutter speed, aperture and focal length under the photograph. */

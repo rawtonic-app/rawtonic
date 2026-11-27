@@ -73,9 +73,8 @@ import {
   ProofMarginButton,
   ViewerCaptureInfo,
   ViewerOverflowMenu,
-  ZoomPresetOptions,
-  chooseZoomLevel,
-  onZoomSelect
+  ZoomSelect,
+  chooseZoomLevel
 } from './ViewerControls';
 import { useFitOneRow } from '../../hooks/useFitOneRow';
 import { CameraPreviewButton } from './CameraPreview';
@@ -1542,18 +1541,7 @@ export default function StudioWorkspace(props: Props) {
                   >
                     100%
                   </button>
-                  <select
-                    className="studio-zoom-select"
-                    aria-label={t('studio.workspace.viewer.zoom')}
-                    title={t('studio.workspace.viewer.zoom')}
-                    value=""
-                    onChange={(e) => onZoomSelect(onZoom, e.target.value)}
-                  >
-                    <option value="" disabled>
-                      {t('studio.workspace.viewer.zoom')}
-                    </option>
-                    <ZoomPresetOptions />
-                  </select>
+                  <ZoomSelect onZoom={onZoom} />
                   <ViewerOverflowMenu onZoom={onZoom} />
                   <button
                     aria-label={t('studio.workspace.loupe.fullScreen')}
