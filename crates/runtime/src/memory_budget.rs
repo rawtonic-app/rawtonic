@@ -688,11 +688,18 @@ impl Broker {
     /// it (an AI mask's frame, G74/BRK3): it stays counted and keeps
     /// speculative work and exports back, but no longer holds back another
     /// exclusive request of its class (a second selection of the same
-    /// photo the webview waits for before it shows either).
-    pub fn settle(&self, reservation: &Reservation) {
+    /// photo the webview waits for before it shows either), and counts only
+    /// `still_to_come` beyond what the app grew by since it started (with
+    /// the app at `app_now`): the work's own peak is over.
+    pub fn settle(&self, reservation: &Reservation, still_to_come: u64, app_now: Option<u64>) {
         self.with(|inner| {
             if let Some(e) = inner.held.iter_mut().find(|e| e.held.id == reservation.id) {
                 e.held.exclusive = false;
+                let grown = match (e.held.app_at_start, app_now) {
+                    (Some(start), Some(now)) => now.saturating_sub(start),
+                    _ => 0,
+                };
+                e.held.estimate = grown.saturating_add(still_to_come);
             }
         });
     }
@@ -1697,31 +1704,36 @@ mod tests {
     }
 
     /// G74/BRK3: an AI mask answered and held while its frame renders
-    /// counts and keeps speculative work back, but a second selection of
-    /// the same photo (the webview applies a migrated photo's Subject and
-    /// Sky together) starts beside it.
+    /// keeps speculative work back and counts only what is still to come
+    /// (the frame), so a second selection of the same photo (the webview
+    /// applies a migrated photo's Subject and Sky together) starts beside
+    /// it where the two whole estimates would not fit.
     #[test]
     fn a_settled_answer_counts_but_lets_the_next_request_start() {
         let b: &'static Broker = Box::leak(Box::new(Broker::new()));
-        let r = reading(8 * GB, 3 * GB);
+        let start = reading(6 * GB, 3 * GB);
         let subject = b
             .try_reserve(
-                Request::new(Class::Asked, "subject", 2 * GB).exclusive(),
-                &|| r,
+                Request::new(Class::Asked, "subject", 3 * GB).exclusive(),
+                &|| start,
                 false,
                 Duration::ZERO,
                 None,
             )
             .expect("fits");
-        let sky = || Request::new(Class::Asked, "sky", GB).exclusive();
+        let sky = || Request::new(Class::Asked, "sky", 1500 * MB).exclusive();
         assert_eq!(
-            b.try_reserve(sky(), &|| r, false, Duration::ZERO, None)
+            b.try_reserve(sky(), &|| start, false, Duration::ZERO, None)
                 .unwrap_err(),
             Wait::Exclusive
         );
-        b.settle(&subject.reservation);
+        // Answered: the app kept 1.6 GB of it (model, warp), the frame of
+        // 1 GB is still to come.
+        let r = reading(4400 * MB, 4600 * MB);
+        b.settle(&subject.reservation, GB, r.app);
         assert!(b.asked_active(), "held after its answer");
-        // Room 8 − 1.59 − 2 (still counted) = 4.4 GB: the next one starts.
+        // Room 4.4 − 1.59 − 1 (the frame) = 1.81 GB ≥ 1.5: Sky starts. With
+        // Subject's whole 3 GB still counted (1.4 GB unspent) it would not.
         let second = b
             .try_reserve(sky(), &|| r, false, Duration::ZERO, None)
             .expect("starts");

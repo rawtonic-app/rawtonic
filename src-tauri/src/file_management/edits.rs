@@ -197,37 +197,62 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
 
     add_to_thumbnail_queue(&app_handle.state::<ThumbnailState>(), 1, &app_handle);
 
+    // Taken now, in the order of the saves.
+    let ticket = preloaded_image_option
+        .is_some()
+        .then(|| open_photo_thumbnail_ticket(&path));
+
     rawtonic_runtime::spawn_render_thread("saved-thumbnail", move || {
+        let mut preloaded_image_option = preloaded_image_option;
         // The open photo's thumbnail renders from its full decode: after
-        // its frame and a request of the photographer, not beside them, and
-        // counted while it renders (G74/BRK3: beside the frame with a new
-        // Subject mask the two full-resolution warps took a 14 GB laptop
-        // past its watchdog). Saves meanwhile come to one render: the
-        // newest one's.
-        let _thumbnail = match preloaded_image_option.as_deref() {
-            Some(image) => {
-                let ticket = open_photo_thumbnail_ticket(&path_clone);
-                let waited = crate::memory_broker::wait_for_open_photo(|| {
-                    !is_newest_open_photo_thumbnail(&path_clone, ticket)
-                });
-                if !is_newest_open_photo_thumbnail(&path_clone, ticket) {
-                    increment_thumbnail_progress(
-                        &app_handle_clone.state::<ThumbnailState>(),
-                        &app_handle_clone,
-                    );
-                    return;
-                }
-                if waited.as_millis() >= 100 {
-                    log::info!(
-                        "Saved thumbnail of the open photo waited {} ms for its frame or a request of the photographer",
-                        waited.as_millis()
-                    );
-                }
-                Some(crate::memory_broker::hold_open_photo_thumbnail(
+        // its frame and a request of the photographer, not beside them, one
+        // at a time and counted while it renders (G74/BRK3: beside the frame
+        // with a new Subject mask the two full-resolution warps took a 14 GB
+        // laptop past its watchdog). Saves meanwhile come to one render, the
+        // newest one's; once the photo is left it renders as any other.
+        let _admitted = match (preloaded_image_option.as_deref(), ticket) {
+            (Some(image), Some(ticket)) => {
+                let started = std::time::Instant::now();
+                let decode = preloaded_image_option.clone();
+                let left = || {
+                    let state = app_handle_clone.state::<AppState>();
+                    !crate::state::lock::lock_recover(&state.source.original_image)
+                        .as_ref()
+                        .is_some_and(|now| {
+                            now.path == path_clone
+                                && decode
+                                    .as_ref()
+                                    .is_some_and(|d| std::sync::Arc::ptr_eq(&now.image, d))
+                        })
+                };
+                match crate::memory_broker::admit_open_photo_thumbnail(
                     u64::from(image.width()) * u64::from(image.height()),
-                ))
+                    || !is_newest_open_photo_thumbnail(&path_clone, ticket),
+                    left,
+                ) {
+                    crate::memory_broker::ThumbnailAdmission::Admitted(reservation, turn) => {
+                        if started.elapsed().as_millis() >= 100 {
+                            log::info!(
+                                "Saved thumbnail of the open photo waited {} ms for its frame, a request of the photographer or memory",
+                                started.elapsed().as_millis()
+                            );
+                        }
+                        Some((reservation, turn))
+                    }
+                    crate::memory_broker::ThumbnailAdmission::Superseded => {
+                        increment_thumbnail_progress(
+                            &app_handle_clone.state::<ThumbnailState>(),
+                            &app_handle_clone,
+                        );
+                        return;
+                    }
+                    crate::memory_broker::ThumbnailAdmission::Left => {
+                        preloaded_image_option = None;
+                        None
+                    }
+                }
             }
-            None => None,
+            _ => None,
         };
         let settings = crate::state::settings::current(&app_handle_clone);
 

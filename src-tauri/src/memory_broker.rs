@@ -70,10 +70,25 @@ static FRAMES_ENDED_UP_TO: AtomicU64 = AtomicU64::new(0);
 /// once (WBRK2 pending-layer runs, notes: benchmark-results/
 /// brk3-2026-11-27).
 static FRAME_CACHES_DROPPED: AtomicBool = AtomicBool::new(true);
+/// Counts the releases of the frame caches: a frame clears
+/// `FRAME_CACHES_DROPPED` only when none came after its start (one under
+/// way at a release built the caches before it, review r2).
+static FRAME_CACHE_RELEASES: AtomicU64 = AtomicU64::new(0);
 
 /// Notes that the open photo's frame caches were let go.
 pub(crate) fn note_frame_caches_dropped() {
+    FRAME_CACHE_RELEASES.fetch_add(1, Ordering::SeqCst);
     FRAME_CACHES_DROPPED.store(true, Ordering::SeqCst);
+}
+
+/// Answers held after their answer that count the frame with their mask
+/// ([`hold_after_answer`]): a second selection of the photo answered with
+/// it (a migrated photo's Subject and Sky) does not count it again.
+static FRAMES_COUNTED_BY_ANSWERS: AtomicU64 = AtomicU64::new(0);
+
+/// Whether a held answer already counts the frame with its mask.
+pub(crate) fn frame_counted_by_an_answer() -> bool {
+    FRAMES_COUNTED_BY_ANSWERS.load(Ordering::SeqCst) > 0
 }
 
 /// Whether the open photo's next settled frame builds its caches again.
@@ -88,6 +103,8 @@ pub(crate) fn frame_caches_dropped() -> bool {
 pub(crate) struct VisibleFrame {
     _hold: rawtonic_runtime::memory_budget::Reservation,
     started: u64,
+    /// `FRAME_CACHE_RELEASES` at its start.
+    releases: u64,
     rendered: bool,
 }
 
@@ -101,7 +118,9 @@ impl VisibleFrame {
 impl Drop for VisibleFrame {
     fn drop(&mut self) {
         if self.rendered {
-            FRAME_CACHES_DROPPED.store(false, Ordering::SeqCst);
+            if FRAME_CACHE_RELEASES.load(Ordering::SeqCst) == self.releases {
+                FRAME_CACHES_DROPPED.store(false, Ordering::SeqCst);
+            }
             FRAMES_ENDED_UP_TO.fetch_max(self.started, Ordering::SeqCst);
         }
     }
@@ -119,6 +138,7 @@ pub(crate) fn hold_visible_frame(pixels: u64) -> VisibleFrame {
             crate::memory_pressure::reading().app,
         ),
         started: FRAMES_STARTED.fetch_add(1, Ordering::SeqCst) + 1,
+        releases: FRAME_CACHE_RELEASES.load(Ordering::SeqCst),
         rendered: false,
     }
 }
@@ -145,16 +165,22 @@ fn frame_after_settled(started_before: u64) -> bool {
 /// watchdog in 2 of 2 pending-layer runs at 7 GB available (WBRK2). They
 /// are held here, on a task, until a frame started after the answer has
 /// ended and the photo is quiet (`ai_ahead::QUIET`), at most
-/// [`AFTER_ANSWER_HOLD`], or until `gone` says the photo was left. While
+/// [`AFTER_ANSWER_HOLD`], or until `gone` says the photo was left
+/// (`counts_frame`: `held` counts the frame, `frame_counted_by_an_answer`
+/// says so meanwhile). While
 /// held, speculative work does not start and idle compiles stay stopped
 /// (`memory_pressure::guard_idle_compiles` reads `asked_active`).
 pub(crate) fn hold_after_answer<T: Send + 'static>(
     held: T,
     label: &'static str,
+    counts_frame: bool,
     gone: impl Fn() -> bool + Send + 'static,
 ) {
     let started_before = FRAMES_STARTED.load(Ordering::SeqCst);
     let start = Instant::now();
+    if counts_frame {
+        FRAMES_COUNTED_BY_ANSWERS.fetch_add(1, Ordering::SeqCst);
+    }
     tauri::async_runtime::spawn(async move {
         let why = loop {
             if frame_after_settled(started_before) {
@@ -174,6 +200,9 @@ pub(crate) fn hold_after_answer<T: Send + 'static>(
             crate::memory_pressure::memory_line()
         );
         drop(held);
+        if counts_frame {
+            FRAMES_COUNTED_BY_ANSWERS.fetch_sub(1, Ordering::SeqCst);
+        }
     });
 }
 
@@ -182,35 +211,77 @@ pub(crate) fn hold_after_answer<T: Send + 'static>(
 /// (+1.2 GB at 50 MP when the caches were gone, WBRK2).
 pub(crate) const THUMBNAIL_BYTES_PER_PIXEL: u64 = 24;
 
-/// Waits (blocking) while the open photo's decode or a frame of it is under
-/// way or a request of the photographer runs, waits or is held after its
-/// answer, or until `superseded` (a newer save of the photo renders the
-/// thumbnail instead): the saved thumbnail of the open photo warps the full
-/// decode when the frame caches are gone, and beside the frame with a new
-/// mask the two warps came to +2.4–3.7 GB (WBRK2). One after the other,
-/// the peak is the larger one. No time limit (review r1: one that ran out
-/// started the warp beside the work it waited for); the thumbnail only
-/// shows later. Gives how long it waited.
-pub(crate) fn wait_for_open_photo(superseded: impl Fn() -> bool) -> Duration {
-    let start = Instant::now();
-    while (visible_busy() || BROKER.asked_active()) && !superseded() {
-        std::thread::sleep(Duration::from_millis(100));
-    }
-    start.elapsed()
+/// What became of a saved thumbnail of the open photo asking to render
+/// from its full decode ([`admit_open_photo_thumbnail`]).
+pub(crate) enum ThumbnailAdmission {
+    /// It renders now, counted in the budget, alone.
+    Admitted(
+        rawtonic_runtime::memory_budget::Reservation,
+        std::sync::MutexGuard<'static, ()>,
+    ),
+    /// A newer save of the photo renders it instead.
+    Superseded,
+    /// The photo is no longer the open one: it renders as any other
+    /// photo's (its preview, not the decode).
+    Left,
 }
 
-/// Holds the open photo's saved thumbnail's possible growth
-/// (`THUMBNAIL_BYTES_PER_PIXEL` × `pixels`) while it renders, so a request
-/// decided meanwhile counts it.
-pub(crate) fn hold_open_photo_thumbnail(
+/// One saved thumbnail of the open photo renders from its full decode at a
+/// time.
+static THUMBNAIL_TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Admits a saved thumbnail of the open photo (`pixels` of its full decode)
+/// to render from that decode: one at a time, not while the open photo's
+/// decode or a frame of it is under way, and as export-class work
+/// (`Class::Export`) of `THUMBNAIL_BYTES_PER_PIXEL`: not while a request of
+/// the photographer runs, waits or is held after its answer, and only with
+/// room for it. Beside the frame with a new mask the frame's and the
+/// thumbnail's full-resolution warps came to +2.4–3.7 GB (WBRK2); one after
+/// the other the peak is the larger one. It waits as long as it takes
+/// (review r1: a time limit started the warp beside the work it waited
+/// for), until a newer save supersedes it or the photo is left.
+pub(crate) fn admit_open_photo_thumbnail(
     pixels: u64,
-) -> rawtonic_runtime::memory_budget::Reservation {
-    BROKER.hold(
-        Class::Visible,
+    superseded: impl Fn() -> bool,
+    left: impl Fn() -> bool,
+) -> ThumbnailAdmission {
+    let start = Instant::now();
+    let request = Request::new(
+        Class::Export,
         "saved thumbnail of the open photo",
         pixels.saturating_mul(THUMBNAIL_BYTES_PER_PIXEL),
-        crate::memory_pressure::reading().app,
-    )
+    );
+    loop {
+        if superseded() {
+            return ThumbnailAdmission::Superseded;
+        }
+        if left() {
+            return ThumbnailAdmission::Left;
+        }
+        if !visible_busy() {
+            let turn = match THUMBNAIL_TURN.try_lock() {
+                Ok(turn) => Some(turn),
+                Err(std::sync::TryLockError::Poisoned(e)) => Some(e.into_inner()),
+                Err(std::sync::TryLockError::WouldBlock) => None,
+            };
+            if let Some(turn) = turn
+                && let Ok(granted) = BROKER.try_reserve(
+                    request,
+                    &crate::memory_pressure::reading,
+                    false,
+                    start.elapsed(),
+                    None,
+                )
+            {
+                if start.elapsed() >= Duration::from_millis(100) {
+                    log_grant(&granted, start.elapsed());
+                }
+                ensure_sampler();
+                return ThumbnailAdmission::Admitted(granted.reservation, turn);
+            }
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// Whether the open photo's full-resolution decode or a frame of it is under
@@ -597,7 +668,8 @@ mod tests {
         assert!(frame_caches_dropped());
         let mut before = hold_visible_frame(1);
         let dropped = Arc::new(AtomicBool::new(false));
-        hold_after_answer(Held(dropped.clone()), "AI subject click", || false);
+        hold_after_answer(Held(dropped.clone()), "AI subject click", true, || false);
+        assert!(frame_counted_by_an_answer());
         // The frame under way at the answer ends: it was not the mask's.
         before.rendered();
         drop(before);
@@ -615,12 +687,22 @@ mod tests {
         drop(with_mask);
         assert!(!frame_caches_dropped());
         assert!(dropped_within(&dropped, Duration::from_secs(2)).await);
+        // Its count of the frame goes with it.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!frame_counted_by_an_answer());
+
+        // A frame under way at a release does not clear it (review r2).
+        let mut under_way = hold_visible_frame(1);
+        note_frame_caches_dropped();
+        under_way.rendered();
+        drop(under_way);
+        assert!(frame_caches_dropped());
 
         // Leaving the photo ends the hold at once.
         let left = Arc::new(AtomicBool::new(false));
         let gone = Arc::new(AtomicBool::new(false));
         let gone_now = gone.clone();
-        hold_after_answer(Held(left.clone()), "AI sky click", move || {
+        hold_after_answer(Held(left.clone()), "AI sky click", false, move || {
             gone_now.load(Ordering::SeqCst)
         });
         assert!(!dropped_within(&left, Duration::from_millis(300)).await);

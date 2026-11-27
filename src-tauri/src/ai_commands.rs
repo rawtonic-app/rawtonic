@@ -1298,8 +1298,11 @@ async fn auto_mask(
                     ),
                     // Also when this run lets them go itself (below: an
                     // installed model on the CPU, review r1).
-                    frame_rebuilds: crate::memory_broker::frame_caches_dropped()
-                        || (!download && rawtonic_onnx::models_run_on_cpu_only()),
+                    // Not when an answer held for its frame counts that
+                    // frame already (a migrated photo's Subject and Sky).
+                    frame_rebuilds: (crate::memory_broker::frame_caches_dropped()
+                        || (!download && rawtonic_onnx::models_run_on_cpu_only()))
+                        && !crate::memory_broker::frame_counted_by_an_answer(),
                 })
             };
             // Not started while no plan fits: the photographer is told once
@@ -1552,12 +1555,26 @@ fn settle_after_answer(
         return;
     }
     // Another selection of the photo may start beside it (the webview
-    // waits for a migrated photo's Subject and Sky together, review r1).
-    crate::memory_broker::BROKER.settle(&reservation);
+    // waits for a migrated photo's Subject and Sky together, review r1),
+    // and the grant counts what is still to come: the frame building the
+    // caches again when they are gone, once for such a batch (review r2).
+    let pixels = u64::from(loaded.image.width()) * u64::from(loaded.image.height());
+    let counts_frame = crate::memory_broker::frame_caches_dropped()
+        && !crate::memory_broker::frame_counted_by_an_answer();
+    let still_to_come = if counts_frame {
+        pixels.saturating_mul(crate::memory_broker::FRAME_BYTES_PER_PIXEL)
+    } else {
+        0
+    };
+    crate::memory_broker::BROKER.settle(
+        &reservation,
+        still_to_come,
+        crate::memory_pressure::reading().app,
+    );
     let label = reservation.label();
     let app = app_handle.clone();
     let (path, image) = (loaded.path.clone(), loaded.image.clone());
-    crate::memory_broker::hold_after_answer(reservation, label, move || {
+    crate::memory_broker::hold_after_answer(reservation, label, counts_frame, move || {
         !lock_recover(&app.state::<AppState>().source.original_image)
             .as_ref()
             .is_some_and(|now| now.path == path && Arc::ptr_eq(&now.image, &image))
