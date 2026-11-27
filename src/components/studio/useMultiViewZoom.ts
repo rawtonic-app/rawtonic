@@ -7,6 +7,7 @@ import { useEditorStore } from '../../store/useEditorStore';
 import { useMultiViewStore, type CellZoomKey } from '../../store/useMultiViewStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { Invokes } from '../ui/AppProperties';
+import { rememberedZoomLevel } from '../../utils/viewerDisplay';
 import type { TransformWrapperHandle } from '../panel/Editor';
 import {
   cycleCellZoom,
@@ -330,6 +331,12 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
         switch (kind) {
           case 'cycle':
             return cycleCellZoom(zoom, pointer, area, size, dpr);
+          case 'toggle': {
+            // Z: fit ↔ the level chosen last; a cell never goes below fit.
+            if (zoom) return null;
+            const level = rememberedZoomLevel(useSettingsStore.getState().appSettings?.viewerZoomLevel);
+            return level > scale ? zoomCell(null, level / scale, pointer, area, size, dpr) : null;
+          }
           case 'fit':
             return null;
           case 'actual':

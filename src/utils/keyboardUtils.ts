@@ -175,6 +175,13 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     defaultCombo: ['Space'],
     section: 'view'
   },
+  // Lightroom's zoom toggle: fit ↔ the zoom level chosen last (100 % first).
+  {
+    action: 'zoom_toggle',
+    description: 'settings.keybinds.actions.zoom_toggle',
+    defaultCombo: ['KeyZ'],
+    section: 'view'
+  },
   {
     action: 'zoom_in',
     description: 'settings.keybinds.actions.zoom_in',
@@ -471,6 +478,14 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     description: 'settings.keybinds.actions.toggle_export',
     // Lightroom's export; E is the eraser.
     defaultCombo: ['ctrl', 'shift', 'KeyE'],
+    section: 'panels'
+  },
+  // Lightroom's Export with Previous: the last export's recipes and
+  // settings for the selection, without the dialog.
+  {
+    action: 'export_previous',
+    description: 'settings.keybinds.actions.export_previous',
+    defaultCombo: ['ctrl', 'shift', 'alt', 'KeyE'],
     section: 'panels'
   },
   // Lightroom's panel keys; Tab and Shift+Tab act only while no field or

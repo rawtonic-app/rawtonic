@@ -82,8 +82,7 @@ beforeEach(() => {
       copyPasteSettings: {
         mode: PasteMode.Merge,
         includedAdjustments: ['exposure'],
-        knownAdjustments: [],
-        autoSync: false
+        knownAdjustments: []
       }
     } as unknown as AppSettings,
     handleSettingsChange
@@ -281,8 +280,7 @@ it('leaves the processing versions out of quick copies when preferences list the
       copyPasteSettings: {
         mode: PasteMode.Merge,
         includedAdjustments: ['exposure', 'toneVersion', 'sharpenVersion'],
-        knownAdjustments: [],
-        autoSync: false
+        knownAdjustments: []
       }
     } as unknown as AppSettings
   });
@@ -311,8 +309,7 @@ it("Previous takes a never-edited RAW's settings as the editor showed them", asy
       copyPasteSettings: {
         mode: PasteMode.Merge,
         includedAdjustments: ['lensCorrectionMode', 'lensDistortionParams'],
-        knownAdjustments: [],
-        autoSync: false
+        knownAdjustments: []
       }
     } as unknown as AppSettings,
     // A RAW by its extension (A is not in the shown list).
@@ -354,8 +351,7 @@ it('Previous frames drawn masks with the size the previous photo was shown at', 
       copyPasteSettings: {
         mode: PasteMode.Merge,
         includedAdjustments: ['masks'],
-        knownAdjustments: [],
-        autoSync: false
+        knownAdjustments: []
       }
     } as unknown as AppSettings
   });

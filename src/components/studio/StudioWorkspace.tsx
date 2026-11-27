@@ -73,7 +73,9 @@ import {
   ProofMarginButton,
   ViewerCaptureInfo,
   ViewerOverflowMenu,
-  ZoomPresetOptions
+  ZoomPresetOptions,
+  chooseZoomLevel,
+  onZoomSelect
 } from './ViewerControls';
 import { useFitOneRow } from '../../hooks/useFitOneRow';
 import { CameraPreviewButton } from './CameraPreview';
@@ -161,7 +163,7 @@ interface Props {
   onCopy(path?: string, options?: { quick?: boolean }): void;
   onPaste(paths?: string[]): void;
   onReset(paths?: string[]): void;
-  onZoom(value: number, fit?: boolean): void;
+  onZoom(value: number, fit?: boolean, belowFit?: boolean): void;
   requestThumbnails(paths: string[]): void;
   settings: ReactNode;
   externalEditBar?: ReactNode;
@@ -1536,7 +1538,7 @@ export default function StudioWorkspace(props: Props) {
                   <button
                     className="studio-viewer-fit"
                     title={withShortcut(t('studio.workspace.viewer.actualPixels'), '.')}
-                    onClick={() => onZoom(1)}
+                    onClick={() => chooseZoomLevel(onZoom, 1)}
                   >
                     100%
                   </button>
@@ -1545,16 +1547,14 @@ export default function StudioWorkspace(props: Props) {
                     aria-label={t('studio.workspace.viewer.zoom')}
                     title={t('studio.workspace.viewer.zoom')}
                     value=""
-                    onChange={(e) => {
-                      if (e.target.value) onZoom(Number(e.target.value));
-                    }}
+                    onChange={(e) => onZoomSelect(onZoom, e.target.value)}
                   >
                     <option value="" disabled>
                       {t('studio.workspace.viewer.zoom')}
                     </option>
                     <ZoomPresetOptions />
                   </select>
-                  <ViewerOverflowMenu onZoom={(value, fit) => onZoom(value, fit)} />
+                  <ViewerOverflowMenu onZoom={onZoom} />
                   <button
                     aria-label={t('studio.workspace.loupe.fullScreen')}
                     title={withShortcut(t('studio.workspace.loupe.fullScreen'), hint('toggle_fullscreen'))}
@@ -1817,7 +1817,7 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                   <button
                     title={withShortcut(t('studio.workspace.viewer.actualPixels'), '.')}
-                    onClick={() => onZoom(1)}
+                    onClick={() => chooseZoomLevel(onZoom, 1)}
                   >
                     100%
                   </button>

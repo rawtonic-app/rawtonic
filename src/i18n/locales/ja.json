@@ -283,6 +283,7 @@
       "dock_filmstrip_left": "フィルムストリップを写真の左に",
       "dock_filmstrip_right": "フィルムストリップを写真の右に",
       "edit_with": "このアプリケーションで編集…",
+      "export_previous": "前回の設定で書き出し",
       "find_duplicates": "重複を検索…",
       "flag_pick": "採用",
       "flag_reject": "除外",
@@ -356,7 +357,8 @@
       "zoom_100": "100 %表示",
       "zoom_fit": "ウインドウに合わせる",
       "zoom_in": "拡大",
-      "zoom_out": "縮小"
+      "zoom_out": "縮小",
+      "zoom_toggle": "ズーム切り替え"
     },
     "menus": {
       "app": "{{app}}",
@@ -2424,6 +2426,7 @@
         "dock_filmstrip_bottom": "フィルムストリップを写真の下に",
         "dock_filmstrip_left": "フィルムストリップを写真の左に",
         "dock_filmstrip_right": "フィルムストリップを写真の右に",
+        "export_previous": "前回の設定で書き出し",
         "focus_search": "検索フィールドにフォーカス",
         "import_photos": "写真を読み込む",
         "mask_background": "新規レイヤー: 背景",
@@ -2503,7 +2506,8 @@
         "zoom_in": "ズームイン",
         "zoom_in_step": "段階的にズームイン",
         "zoom_out": "ズームアウト",
-        "zoom_out_step": "段階的にズームアウト"
+        "zoom_out_step": "段階的にズームアウト",
+        "zoom_toggle": "ズーム切り替え（全体 ↔ 最後のズーム倍率）"
       },
       "sections": {
         "editing": "編集",
@@ -3690,6 +3694,11 @@
         "legend": "この書き出し",
         "quality": "画質 {{quality}}",
         "sizeLimit": "≤ {{kb}} KB"
+      },
+      "previous": {
+        "none": "繰り返す書き出しはまだありません",
+        "noSelection": "書き出す写真を選択してください",
+        "repeats": "前回の書き出しを繰り返します：{{recipes}}"
       },
       "progress": {
         "cancelling": "キャンセル中…",

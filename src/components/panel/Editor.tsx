@@ -54,6 +54,7 @@ import BrowserBeforePane from './editor/BrowserBeforePane';
 import { compositeWhileMoving } from '../../utils/layerWhileMoving';
 import { isFullPreviewZoom, isOneToOne, snapToDevicePixel } from '../../utils/pixelSnap';
 import {
+  MAX_ZOOM_LEVEL,
   MIN_VIEWER_ZOOM,
   SURROUNDINGS_OPACITY,
   cropModeBox,
@@ -560,24 +561,30 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   );
 
   const transformConfig = useMemo(() => {
+    // Never smaller than fit (with the proof margin when it is on), but for
+    // a zoom menu level below it (handleZoomChange): gestures from there
+    // zoom in, never further out.
+    const minScale = targetZoom > 0 && targetZoom < MIN_VIEWER_ZOOM ? targetZoom : MIN_VIEWER_ZOOM;
     if (!selectedImage || !imageRenderSize.scale || !originalSize) {
-      return { minScale: MIN_VIEWER_ZOOM, maxScale: 20 };
+      return { minScale, maxScale: 20, pixelatedScale: 20 };
     }
 
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     const scaleFor100Percent = 1 / imageRenderSize.scale;
 
-    const maxScale = (2.0 / dpr) * scaleFor100Percent;
-
-    // Never smaller than fit (with the proof margin when it is on).
+    // Up to the zoom menu's 1600 %; from 200 % the pixels are drawn sharp
+    // (nearest), as before at the earlier 200 % limit.
     return {
-      minScale: MIN_VIEWER_ZOOM,
-      maxScale: Math.max(20, maxScale)
+      minScale,
+      maxScale: Math.max(20, (MAX_ZOOM_LEVEL / dpr) * scaleFor100Percent),
+      pixelatedScale: Math.max(20, (2.0 / dpr) * scaleFor100Percent)
     };
-  }, [selectedImage, imageRenderSize.scale, originalSize]);
+  }, [selectedImage, imageRenderSize.scale, originalSize, targetZoom]);
 
   const minScaleRef = useRef(transformConfig.minScale);
   const maxScaleRef = useRef(transformConfig.maxScale);
+  const pixelatedScaleRef = useRef(transformConfig.pixelatedScale);
+  pixelatedScaleRef.current = transformConfig.pixelatedScale;
 
   useEffect(() => {
     minScaleRef.current = transformConfig.minScale;
@@ -1900,7 +1907,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         lastCropSelectionRef.current = selectionKey;
         isInvoking = true;
 
-        const isZoomedIn = scale >= maxScaleRef.current - 0.5;
+        const isZoomedIn = scale >= pixelatedScaleRef.current - 0.5;
 
         invoke(Invokes.UpdateWgpuTransform, {
           payload: {

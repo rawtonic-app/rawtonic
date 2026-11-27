@@ -31,7 +31,6 @@ export interface CopyPasteSettings {
   mode: PasteMode;
   includedAdjustments: Array<string>;
   knownAdjustments: Array<string>;
-  autoSync: boolean;
 }
 
 export enum BasicAdjustment {

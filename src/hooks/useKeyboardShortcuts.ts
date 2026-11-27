@@ -7,6 +7,8 @@ import i18n from 'i18next';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
 import { buildComboMap, eventCode, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
+import { MAX_ZOOM_LEVEL, zoomToggleTarget } from '../utils/viewerDisplay';
+import { rememberZoomLevel } from '../utils/zoomLevel';
 import { readFilmstripDock } from '../utils/filmstripDock';
 import { runAutoStraighten } from '../utils/autoStraighten';
 import { cropEditCancelled } from '../utils/cropGesture';
@@ -176,7 +178,7 @@ interface KeyboardShortcutsProps {
   handleMoveToSelects?(): void;
   handleImageSelect(path: string, openInEditor?: boolean): void;
   handlePasteFiles(str: string): void;
-  handleZoomChange(zoomValue: number, fitToWindow?: boolean): void;
+  handleZoomChange(zoomValue: number, fitToWindow?: boolean, belowFit?: boolean): void;
 }
 
 interface ShortcutState {
@@ -569,7 +571,7 @@ export const useKeyboardShortcuts = ({
           s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
             ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
             : 1.0;
-        handleZoomChange(Math.min(currentPercent + 0.1, 2.0));
+        handleZoomChange(Math.min(currentPercent + 0.1, MAX_ZOOM_LEVEL));
       }),
       zoom_out_step: zoomAction('stepOut', (s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
@@ -613,7 +615,7 @@ export const useKeyboardShortcuts = ({
           s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
             ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
             : 1.0;
-        handleZoomChange(Math.min(currentPercent * 1.2, 2.0));
+        handleZoomChange(Math.min(currentPercent * 1.2, MAX_ZOOM_LEVEL));
       }),
       zoom_out: zoomAction('out', (s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
@@ -624,7 +626,16 @@ export const useKeyboardShortcuts = ({
         handleZoomChange(Math.max(currentPercent / 1.2, 0.1));
       }),
       zoom_fit: zoomAction('fit', () => handleZoomChange(0, true)),
-      zoom_100: zoomAction('actual', () => handleZoomChange(1.0)),
+      zoom_100: zoomAction('actual', () => {
+        rememberZoomLevel(1);
+        handleZoomChange(1.0);
+      }),
+      // Lightroom's Z: fit ↔ the level chosen last.
+      zoom_toggle: zoomAction('toggle', (s) => {
+        const target = zoomToggleTarget(s.editor.zoom, s.settings.appSettings?.viewerZoomLevel);
+        if (target === 'fit') handleZoomChange(0, true);
+        else handleZoomChange(target, false, true);
+      }),
       toggle_zoom_lock: {
         shouldFire: () => useMultiViewStore.getState().active,
         execute: (e) => {

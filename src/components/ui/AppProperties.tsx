@@ -8,6 +8,7 @@ import type { FilmstripDock } from '../../utils/filmstripDock';
 import type { ImportMetadataPreset } from '../session/IngestMetadata';
 import type { MetadataSelection } from '../../utils/librarySearch';
 import type { CameraCrops } from '../../utils/cameraCrop';
+import type { LastExport } from '../../utils/exportPrevious';
 import type { DevelopDefaults, PhotoDefaults } from '../../utils/developDefaults';
 import type { InterfaceShade } from '../../utils/themes';
 
@@ -626,6 +627,8 @@ export interface AppSettings {
   /** Records the one-time migration disabling the old Linux GPU optimization default. */
   linuxGpuOptimizationMigratedV1?: boolean | null;
   exportPresets?: ExportPreset[];
+  /** Export with Previous: the last export queued per library (utils/exportPrevious). */
+  lastExports?: Record<string, LastExport>;
   importMetadataPresets?: ImportMetadataPreset[];
   myLenses?: MyLens[];
   customAspectRatios?: CustomAspectRatio[];
@@ -653,6 +656,8 @@ export interface AppSettings {
   viewerBackground?: string;
   /** Develop viewer: fit leaves a proof margin around the photograph (Alt+X). */
   viewerProofMargin?: boolean;
+  /** The zoom level Z goes to from fit (utils/viewerDisplay ZOOM_LEVELS); None: 100 %. */
+  viewerZoomLevel?: number;
   /** Proof margin size in % of the viewer's shorter side. */
   viewerProofMarginPercent?: number;
   /** Develop viewer bar: R, G, B under the pointer (View menu). */
@@ -827,6 +832,8 @@ export interface Option {
   onRightClick?(): void;
   /** The command's key, shown at the row's right ("Ctrl+Shift+E", "P"). */
   shortcut?: string | null;
+  /** The row's tooltip, also while it is disabled (why it is). */
+  title?: string;
   submenu?: Option[];
   type?: string;
 }

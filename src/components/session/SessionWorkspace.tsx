@@ -1770,18 +1770,28 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
     setImportAfterCreate(true);
     setForm('create');
   };
+  /** The name a new library gets: the one typed, else for a catalog the
+   * name its field shows ("Photo library", as Lightroom and Capture One open
+   * into a default catalog); a session's field shows only an example. */
+  const libraryName = (asCatalog: boolean) =>
+    name.trim() || (asCatalog ? t('session.create.catalogPlaceholder') : '');
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
     setError('');
     const asCatalog = catalog || importAfterCreate;
+    const chosenName = libraryName(asCatalog);
+    if (!chosenName) {
+      setBusy(false);
+      return;
+    }
     try {
-      const directory = await join(parent, name.trim() + (asCatalog ? '.catalog' : ''));
+      const directory = await join(parent, chosenName + (asCatalog ? '.catalog' : ''));
       const created = await switchLibraryAfterSaves(async () => {
         await navigate(
           await invoke<SessionSummary>(Invokes.SessionCreate, {
             directory,
-            name: name.trim(),
+            name: chosenName,
             catalog: asCatalog
           })
         );
@@ -2881,7 +2891,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
               {catalog || importAfterCreate ? t('session.create.catalogName') : t('session.create.name')}
               <input
                 autoFocus
-                required
+                required={!(catalog || importAfterCreate)}
                 maxLength={160}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -2931,7 +2941,7 @@ export default function SessionWorkspace({ onNavigate, onSelectAlbum, nativeTitl
               <button
                 type="submit"
                 className="session-action session-primary"
-                disabled={busy || !name.trim() || !parent}
+                disabled={busy || !libraryName(catalog || importAfterCreate) || !parent}
               >
                 {busy ? <LoaderCircle size={16} className="animate-spin" /> : <FolderPlus size={16} />}
                 {catalog || importAfterCreate ? t('session.create.createCatalog') : t('session.create.createSession')}

@@ -297,6 +297,7 @@
       "dock_filmstrip_left": "Filmstreifen links vom Foto",
       "dock_filmstrip_right": "Filmstreifen rechts vom Foto",
       "edit_with": "Bearbeiten mit…",
+      "export_previous": "Mit vorherigen Einstellungen exportieren",
       "find_duplicates": "Duplikate suchen…",
       "flag_pick": "Markieren",
       "flag_reject": "Ablehnen",
@@ -370,7 +371,8 @@
       "zoom_100": "Zoom 100 %",
       "zoom_fit": "Ganzes Bild",
       "zoom_in": "Einzoomen",
-      "zoom_out": "Auszoomen"
+      "zoom_out": "Auszoomen",
+      "zoom_toggle": "Zoom umschalten"
     },
     "menus": {
       "app": "{{app}}",
@@ -2522,6 +2524,7 @@
         "dock_filmstrip_bottom": "Filmstreifen unter dem Foto",
         "dock_filmstrip_left": "Filmstreifen links vom Foto",
         "dock_filmstrip_right": "Filmstreifen rechts vom Foto",
+        "export_previous": "Mit vorherigen Einstellungen exportieren",
         "focus_search": "Suchfeld fokussieren",
         "import_photos": "Fotos importieren",
         "mask_background": "Neue Ebene: Hintergrund",
@@ -2601,7 +2604,8 @@
         "zoom_in": "Vergrößern",
         "zoom_in_step": "Vergrößern (schrittweise)",
         "zoom_out": "Verkleinern",
-        "zoom_out_step": "Verkleinern (schrittweise)"
+        "zoom_out_step": "Verkleinern (schrittweise)",
+        "zoom_toggle": "Zoom umschalten (Einpassen ↔ letzte Zoomstufe)"
       },
       "sections": {
         "editing": "Bearbeitung",
@@ -3796,6 +3800,11 @@
         "legend": "Dieser Export",
         "quality": "Qualität {{quality}}",
         "sizeLimit": "≤ {{kb}} KB"
+      },
+      "previous": {
+        "none": "Noch kein Export zum Wiederholen",
+        "noSelection": "Fotos zum Exportieren auswählen",
+        "repeats": "Wiederholt den letzten Export: {{recipes}}"
       },
       "progress": {
         "cancelling": "Wird abgebrochen…",

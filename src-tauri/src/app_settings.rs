@@ -289,8 +289,8 @@ pub struct CopyPasteSettings {
     pub included_adjustments: HashSet<String>,
     #[serde(default)]
     pub known_adjustments: HashSet<String>,
-    #[serde(default)]
-    pub auto_sync: bool,
+    // `autoSync` (never read) was dropped; older files that hold it still
+    // load, since unknown keys are ignored here.
 }
 
 impl Default for CopyPasteSettings {
@@ -299,7 +299,6 @@ impl Default for CopyPasteSettings {
             mode: PasteMode::Merge,
             included_adjustments: default_included_adjustments(),
             known_adjustments: all_available_adjustments(),
-            auto_sync: false,
         }
     }
 }
@@ -819,6 +818,10 @@ pub struct AppSettings {
     pub subfolder_views: Option<BTreeMap<String, bool>>,
     #[serde(default = "default_export_presets")]
     pub export_presets: Vec<ExportPreset>,
+    /// Export with Previous: the last export queued per library folder
+    /// ("" for none), as the frontend wrote it (src/utils/exportPrevious.ts).
+    #[serde(default)]
+    pub last_exports: Option<serde_json::Map<String, serde_json::Value>>,
     #[serde(default)]
     pub import_metadata_presets: Vec<rawtonic_ingest::metadata::MetadataPreset>,
     #[serde(default)]
@@ -852,6 +855,10 @@ pub struct AppSettings {
     /// Fit leaves a proof margin around the photograph (X).
     #[serde(default)]
     pub viewer_proof_margin: Option<bool>,
+    /// The zoom level Z goes to from fit (1 = 100 %, src/utils/viewerDisplay.ts
+    /// ZOOM_LEVELS); None: 100 %.
+    #[serde(default)]
+    pub viewer_zoom_level: Option<f64>,
     /// Proof margin size in % of the viewer's shorter side; None: 6.
     #[serde(default)]
     pub viewer_proof_margin_percent: Option<f32>,
@@ -1025,6 +1032,7 @@ impl Default for AppSettings {
             library_view_mode: Some("flat".to_string()),
             subfolder_views: None,
             export_presets: default_export_presets(),
+            last_exports: None,
             import_metadata_presets: Vec::new(),
             my_lenses: Some(Vec::new()),
             high_res_zoom_multiplier: Some(1.0),
@@ -1043,6 +1051,7 @@ impl Default for AppSettings {
             editor_neutral_grey_bg: None,
             viewer_background: None,
             viewer_proof_margin: Some(false),
+            viewer_zoom_level: None,
             viewer_proof_margin_percent: None,
             pointer_readout: None,
             show_wb_loupe: None,
@@ -1566,6 +1575,23 @@ mod tests {
                 .included_adjustments
                 .contains("lutVersion")
         );
+    }
+
+    /// `autoSync` was never read: settings files that still hold it load
+    /// with their copy settings, and a save no longer writes it.
+    #[test]
+    fn an_old_auto_sync_key_still_loads_and_is_not_written_back() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        fs::write(
+            &path,
+            br#"{"copyPasteSettings":{"mode":"replace","includedAdjustments":["exposure"],"autoSync":true}}"#,
+        )
+        .unwrap();
+        let settings = load_settings_file(&path).unwrap();
+        assert!(matches!(settings.copy_paste_settings.mode, PasteMode::Replace));
+        let written = serde_json::to_value(&settings.copy_paste_settings).unwrap();
+        assert!(written.get("autoSync").is_none());
     }
 
     #[test]

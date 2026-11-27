@@ -723,6 +723,25 @@ it('never zooms out below fit from the keys, the zoom menu or the 100 % button',
   expect(useEditorStore.getState().zoom).toBe(1);
 });
 
+it('shows a zoom menu level below fit smaller than fit, and goes up to 1600 % (ZOOM-Z)', () => {
+  // Fit is 25 % (6000×4000 in 1500×1000 on a 1× screen).
+  useEditorStore.setState({
+    originalSize: { width: 6000, height: 4000 },
+    baseRenderSize: { width: 1500, height: 1000, offsetX: 0, offsetY: 0, containerWidth: 1500, containerHeight: 1000 },
+    zoom: 1
+  });
+  const { result } = renderHook(useEditorActions);
+  act(() => result.current.handleZoomChange(0.125, false, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(0.5);
+  // A level above fit is not changed by the flag.
+  act(() => result.current.handleZoomChange(0.5, false, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(2);
+  act(() => result.current.handleZoomChange(16, false, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(64);
+  act(() => result.current.handleZoomChange(40));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(64);
+});
+
 it('fits a large photograph in a small view (a multi view cell) without zooming it in', () => {
   // 8192×5464 in a 268×179 cell: fit is about 3.3 % per CSS px, under the
   // old 10 % (5 % per CSS px at 2×) floor that zoomed the primary in to 1.5.

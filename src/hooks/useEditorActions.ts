@@ -89,7 +89,7 @@ import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerLibrarySwitchReset, registerQuitCheck, registerQuitFlush } from '../utils/quit';
 import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/sliderDraft';
 import { saveFailure } from './useLibraryActions';
-import { clampViewerZoom } from '../utils/viewerDisplay';
+import { clampViewerZoom, MAX_ZOOM_LEVEL } from '../utils/viewerDisplay';
 import { noteTool } from '../components/contribute/usageStats';
 import {
   recipeBatchAction,
@@ -1976,7 +1976,9 @@ export function useEditorActions() {
     [applyAdjustmentsToPaths]
   );
 
-  const handleZoomChange = useCallback((zoomValue: number, fitToWindow: boolean = false) => {
+  /** `belowFit`: a zoom menu level, which may show the photograph smaller
+   * than fit (Lightroom's 1:4); every other zoom stops at fit. */
+  const handleZoomChange = useCallback((zoomValue: number, fitToWindow: boolean = false, belowFit = false) => {
     const { originalSize, baseRenderSize, adjustments } = useEditorStore.getState();
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     let targetZoomPercent: number;
@@ -2009,7 +2011,7 @@ export function useEditorActions() {
     // No lower bound here but fit (below): a large photograph in a small
     // view (a multi view cell) fits at well under 10 %, and a floor there
     // zoomed it in past its cell.
-    targetZoomPercent = Math.min(2.0, targetZoomPercent);
+    targetZoomPercent = Math.min(MAX_ZOOM_LEVEL, targetZoomPercent);
 
     let transformZoom = 1.0;
     if (
@@ -2026,9 +2028,13 @@ export function useEditorActions() {
         transformZoom = (targetZoomPercent * effectiveOriginalHeight) / baseRenderSize.height;
       }
     }
-    // Never below fit (zoom 1, with the proof margin when it is on).
+    // Never below fit (zoom 1, with the proof margin when it is on) but
+    // for a zoom menu level below it.
     const { zoomRequests } = useEditorStore.getState();
-    useEditorStore.getState().setEditor({ zoom: clampViewerZoom(transformZoom), zoomRequests: zoomRequests + 1 });
+    const floor = belowFit && !fitToWindow ? Math.min(1, Math.max(transformZoom, 0.01)) : undefined;
+    useEditorStore
+      .getState()
+      .setEditor({ zoom: clampViewerZoom(transformZoom, floor), zoomRequests: zoomRequests + 1 });
   }, []);
 
   return {

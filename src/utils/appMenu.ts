@@ -88,6 +88,7 @@ export const MENU_LAYOUT: TopMenu[] = [
       c('find_duplicates'),
       'separator',
       c('toggle_export'),
+      c('export_previous'),
       { dynamic: 'recipes' },
       c('proof_sheet'),
       'separator',
@@ -224,7 +225,8 @@ export const MENU_LAYOUT: TopMenu[] = [
       c('zoom_in'),
       c('zoom_out'),
       c('zoom_fit'),
-      c('zoom_100')
+      c('zoom_100'),
+      c('zoom_toggle')
     ]
   },
   {

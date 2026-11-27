@@ -69,7 +69,7 @@ interface MultiViewState {
 }
 
 /** A zoom key aimed at the cell under the pointer. */
-export type CellZoomKey = 'in' | 'out' | 'stepIn' | 'stepOut' | 'cycle' | 'fit' | 'actual';
+export type CellZoomKey = 'in' | 'out' | 'stepIn' | 'stepOut' | 'cycle' | 'fit' | 'actual' | 'toggle';
 
 export const useMultiViewStore = create<MultiViewState>((set, get) => ({
   enabled: stored(ENABLED_KEY),

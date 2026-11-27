@@ -291,7 +291,7 @@ function MenuItem({ option, path, hideContextMenu }: MenuItemProps) {
   }
 
   return (
-    <div onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} className="relative">
+    <div onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave} className="relative" title={option.title}>
       <button
         className={clsx(
           'rawtonic-menu-item',

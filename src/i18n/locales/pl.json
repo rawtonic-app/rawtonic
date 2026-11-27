@@ -331,6 +331,7 @@
       "dock_filmstrip_left": "Pasek klatek po lewej od zdjęcia",
       "dock_filmstrip_right": "Pasek klatek po prawej od zdjęcia",
       "edit_with": "Edytuj za pomocą…",
+      "export_previous": "Eksportuj z poprzednimi ustawieniami",
       "find_duplicates": "Znajdź duplikaty…",
       "flag_pick": "Wybierz",
       "flag_reject": "Odrzuć",
@@ -404,7 +405,8 @@
       "zoom_100": "Powiększenie 100 %",
       "zoom_fit": "Dopasuj do okna",
       "zoom_in": "Powiększ",
-      "zoom_out": "Pomniejsz"
+      "zoom_out": "Pomniejsz",
+      "zoom_toggle": "Przełącz powiększenie"
     },
     "menus": {
       "app": "{{app}}",
@@ -2805,6 +2807,7 @@
         "dock_filmstrip_bottom": "Pasek klatek pod zdjęciem",
         "dock_filmstrip_left": "Pasek klatek po lewej od zdjęcia",
         "dock_filmstrip_right": "Pasek klatek po prawej od zdjęcia",
+        "export_previous": "Eksportuj z poprzednimi ustawieniami",
         "focus_search": "Przejdź do pola wyszukiwania",
         "import_photos": "Importuj zdjęcia",
         "mask_background": "Nowa warstwa: Tło",
@@ -2884,7 +2887,8 @@
         "zoom_in": "Przybliż",
         "zoom_in_step": "Przybliż (krokowo)",
         "zoom_out": "Oddal",
-        "zoom_out_step": "Oddal (krokowo)"
+        "zoom_out_step": "Oddal (krokowo)",
+        "zoom_toggle": "Przełącz powiększenie (Dopasuj ↔ ostatni poziom powiększenia)"
       },
       "sections": {
         "editing": "Edycja",
@@ -4123,6 +4127,11 @@
         "legend": "Ten eksport",
         "quality": "jakość {{quality}}",
         "sizeLimit": "≤ {{kb}} KB"
+      },
+      "previous": {
+        "none": "Nie ma jeszcze eksportu do powtórzenia",
+        "noSelection": "Zaznacz zdjęcia do eksportu",
+        "repeats": "Powtarza ostatni eksport: {{recipes}}"
       },
       "progress": {
         "cancelling": "Anulowanie…",

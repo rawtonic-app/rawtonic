@@ -50,13 +50,15 @@ import {
   PencilSparkles,
   Ruler,
   SunMedium,
-  Clock
+  Clock,
+  Repeat
 } from 'lucide-react';
 import { notify } from '../activity/notify';
 import { reportUnresolvedXmp, resolveXmpConflicts } from '../components/session/SessionXmpStatus';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
 import { loadBuiltinPresets, presetName, useBuiltinPresets } from '../utils/builtinPresets';
 import { useTranslation } from 'react-i18next';
+import i18n from 'i18next';
 import { changeLibraryAlbums } from '../components/studio/libraryAlbums';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { canUndo, canRedo, getUndoLabel, getRedoLabel, undo, redo } from '../utils/appUndo';
@@ -88,6 +90,7 @@ import {
 } from '../utils/adjustments';
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
+import { exportPreviousState, exportWithPrevious, lastExportSummary } from '../utils/exportPrevious';
 import { EditWithSubMenu, OpenWithSubMenu, editWithOptions, openWithOptions } from '../components/studio/OpenWithMenus';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
 import { isCurrentEditorImage, recipeWrite, useEditorActions } from './useEditorActions';
@@ -141,6 +144,21 @@ export interface UseAppContextMenusProps {
   handleShowMissing?: () => void;
   /** After Locate Photo / Locate Folder (else the view is refreshed). */
   handleRelinked?: (report: RelinkReport) => Promise<void>;
+}
+
+/** Export with Previous for `paths` (Lightroom's ⌥⇧⌘E): greyed out, saying
+ * why, before the library's first export; else its tooltip names the
+ * recipes it repeats. */
+function exportPreviousItem(paths: string[]): Option {
+  const state = exportPreviousState(paths);
+  return {
+    icon: Repeat,
+    label: i18n.t('appMenu.items.export_previous'),
+    shortcut: menuKey('export_previous'),
+    disabled: !state.enabled,
+    title: state.enabled ? lastExportSummary() : state.hint,
+    onClick: () => void exportWithPrevious(paths)
+  };
 }
 
 /** The photographs the menu bar's photo commands act on: the one open in
@@ -449,6 +467,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           icon: FileInput,
           onClick: () => setPanel(Panel.Export)
         },
+        exportPreviousItem([selectedImage.path]),
         ...openWithItems([selectedImage.path]),
         { type: OPTION_SEPARATOR },
         {
@@ -931,11 +950,13 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
                 onClick: () => props.handleImageSelect(finalSelection[0])
               },
               { icon: FileInput, label: exportLabel, shortcut: menuKey('toggle_export'), onClick: onExportClick },
+              exportPreviousItem(finalSelection),
               ...openWithItems(finalSelection),
               { type: OPTION_SEPARATOR }
             ]
           : [
               { icon: FileInput, label: exportLabel, shortcut: menuKey('toggle_export'), onClick: onExportClick },
+              exportPreviousItem(finalSelection),
               ...openWithItems(finalSelection),
               { type: OPTION_SEPARATOR }
             ]),

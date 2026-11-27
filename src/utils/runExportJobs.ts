@@ -18,6 +18,7 @@ import { joinPath } from './path';
 import { usableSessionFolder } from './sessionFolders';
 import { askAboutExistingFiles } from './askAboutExistingFiles';
 import { sourceOf } from '../entities/photo/photoRef';
+import { rememberLastExport, replayableDraft } from './exportPrevious';
 
 /** The library an export is submitted from, as `export_images` takes it:
  * always stated, so an export from no library never takes one opened later. */
@@ -225,6 +226,8 @@ export async function runExportJobs(
     // Queued together, the recipes run as one export: each photograph is
     // developed once for all of them.
     const asked: Record<string, unknown>[] = [];
+    // For Export with Previous: each job as it went, its folder included.
+    const replay: PlannedExport[] = [];
     for (const job of planned) {
       const destination = await destinationFor(
         job.draft,
@@ -250,6 +253,7 @@ export async function runExportJobs(
         const { id } = job.recipe;
         changeRecipes((current) => current.map((r) => (r.id === id ? { ...r, lastExportPath: destination.path } : r)));
       }
+      replay.push({ ...job, draft: replayableDraft(job.draft, destination) });
       asked.push({
         paths,
         displayLabel: exportJobLabel(
@@ -288,6 +292,8 @@ export async function runExportJobs(
           progress: { current: 0, total: paths.length * started }
         });
       await invoke(Invokes.ExportImagesBatch, { requests });
+      // Save As names one file: not an export to repeat for others.
+      if (!saveAs) rememberLastExport(session, replay);
       noteTool('export');
       if (paths.length > 1) noteTool('batchExport');
     }

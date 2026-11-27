@@ -208,13 +208,14 @@ export function fitInViewer(
 }
 
 /**
- * The viewer never shows the photograph smaller than fit: zoom 1 is fit (with
- * the proof margin when it is on), as in Capture One.
+ * Zoom 1 is fit (with the proof margin when it is on). Gestures and the zoom
+ * keys never go below it, as in Capture One; only a zoom menu level below fit
+ * does (`ZOOM_LEVELS`), as in Lightroom.
  */
 export const MIN_VIEWER_ZOOM = 1;
 
-export function clampViewerZoom(zoom: number): number {
-  return Number.isFinite(zoom) ? Math.max(MIN_VIEWER_ZOOM, zoom) : MIN_VIEWER_ZOOM;
+export function clampViewerZoom(zoom: number, floor: number = MIN_VIEWER_ZOOM): number {
+  return Number.isFinite(zoom) ? Math.max(floor, zoom) : MIN_VIEWER_ZOOM;
 }
 
 /**
@@ -234,12 +235,34 @@ export function fitZoomValue(
   return perPixel * dpr;
 }
 
-export const ZOOM_PRESETS = [0.25, 0.5, 1, 2, 4] as const;
+/**
+ * The zoom menu's levels (1 = 100 %, one image pixel per screen pixel), as
+ * Lightroom's Navigator lists them: 1:4 … 1:1 … 16:1, those below fit too
+ * (the photograph is then shown smaller than fit, centred). Fit is its own
+ * entry beside them.
+ */
+export const ZOOM_LEVELS = [0.25, 1 / 3, 0.5, 2 / 3, 1, 2, 4, 8, 16] as const;
 
-/** The zoom menu's entries that are not smaller than fit. */
-export function zoomPresetsAboveFit(fit: number | null): number[] {
-  if (fit === null || !Number.isFinite(fit)) return [...ZOOM_PRESETS];
-  return ZOOM_PRESETS.filter((preset) => preset >= fit * (1 - 1e-3));
+/** The largest zoom: 1600 %. */
+export const MAX_ZOOM_LEVEL = 16;
+
+/** A level's label: 25 %, 33 %, 50 %, 66 %, 100 % … (cut, not rounded, as
+ * Lightroom's 1:3 and 2:3 read 33 % and 66 %). */
+export function zoomLevelLabel(level: number): string {
+  return `${Math.floor(level * 100 + 1e-6)}%`;
+}
+
+/** The level Z returns to from fit: the one chosen last (`viewerZoomLevel`),
+ * 100 % before any or for a value that is not a level. */
+export function rememberedZoomLevel(stored: number | null | undefined): number {
+  const level = ZOOM_LEVELS.find((l) => stored !== null && stored !== undefined && Math.abs(l - stored) < 1e-3);
+  return level ?? 1;
+}
+
+/** Z (Lightroom's zoom toggle): at fit (`zoom` 1, the viewer's transform
+ * scale) it goes to the remembered level, anywhere else back to fit. */
+export function zoomToggleTarget(zoom: number, stored: number | null | undefined): 'fit' | number {
+  return Math.abs(zoom - 1) < 0.01 ? rememberedZoomLevel(stored) : 'fit';
 }
 
 export interface ScreenRect {
