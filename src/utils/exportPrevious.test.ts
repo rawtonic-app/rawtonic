@@ -25,6 +25,9 @@ it('repeats a picked folder, or the folder of a file named for one photo, withou
     folder: '/out/web'
   });
   expect(replayableDraft(choose, { path: 'C:\\out\\a.jpg', isFile: true }).folder).toBe('C:\\out');
+  // A file at a drive's root or the POSIX root: the root itself, not "E:" or "".
+  expect(replayableDraft(choose, { path: 'E:\\proof.jpg', isFile: true }).folder).toBe('E:\\');
+  expect(replayableDraft(choose, { path: '/proof.jpg', isFile: true }).folder).toBe('/');
   // The Output folder and the originals' folders are found again each time.
   const output = { ...DEFAULT_RECIPE_DRAFT, where: 'output' as const };
   expect(replayableDraft(output, { path: '/jobs/A/Output', isFile: false })).toBe(output);

@@ -2686,7 +2686,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }
 
   const isZoomActionActive = !isPanningDisabled;
-  const isMaxZoom = transformState.scale >= maxScaleRef.current - 0.5;
+  // The browser preview draws sharp pixels from 200 %, as the native display does.
+  const isMaxZoom = transformState.scale >= pixelatedScaleRef.current - 0.5;
 
   let cursorStyle = 'default';
   if (isPanningState && isMiddleMousePanning.current) {

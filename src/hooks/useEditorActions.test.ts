@@ -742,6 +742,30 @@ it('shows a zoom menu level below fit smaller than fit, and goes up to 1600 % (Z
   expect(useEditorStore.getState().zoom).toBeCloseTo(64);
 });
 
+it('zooms relative to the crop the viewer fits, and Zoom Out below fit never enlarges (ZOOM-Z)', () => {
+  // 6000×4000 cropped to 3000×2000, fitted to 1500×1000 at 1×: fit is 50 %.
+  useEditorStore.setState({
+    originalSize: { width: 6000, height: 4000 },
+    adjustments: {
+      ...useEditorStore.getState().adjustments,
+      crop: { unit: 'px', x: 0, y: 0, width: 3000, height: 2000 }
+    },
+    baseRenderSize: { width: 1500, height: 1000, offsetX: 0, offsetY: 0, containerWidth: 1500, containerHeight: 1000 },
+    zoom: 1
+  });
+  const { result } = renderHook(useEditorActions);
+  act(() => result.current.handleZoomChange(1, false, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(2);
+  act(() => result.current.handleZoomChange(0.25, false, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(0.5);
+  // Zoom Out from 25 % (below fit) asks for less: it stays, never jumps to fit.
+  act(() => result.current.handleZoomChange(0.25 / 1.2));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(0.5);
+  act(() => result.current.handleZoomChange(0, true));
+  expect(useEditorStore.getState().zoom).toBe(1);
+  useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, crop: null } });
+});
+
 it('fits a large photograph in a small view (a multi view cell) without zooming it in', () => {
   // 8192×5464 in a 268×179 cell: fit is about 3.3 % per CSS px, under the
   // old 10 % (5 % per CSS px at 2×) floor that zoomed the primary in to 1.5.

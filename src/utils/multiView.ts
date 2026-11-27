@@ -6,6 +6,7 @@
 import { COPYABLE_ADJUSTMENT_KEYS, sameAdjustmentValue, type Adjustments } from './adjustments';
 import { formatAperture, formatFocalLength, formatIso, formatShutter, parseExposureTime } from './captureInfo';
 import { isCopy, sourceFileName } from '../entities/photo/photoRef';
+import { MAX_ZOOM_LEVEL } from './viewerDisplay';
 
 /** At most this many cells; with more photographs selected the last cell
  * says how many more there are (Capture One shows 12). */
@@ -381,9 +382,9 @@ export function fitScaleOf(
   return Math.min(area.width / shown.width, area.height / shown.height) * dpr;
 }
 
-/** Most a cell zooms in: 200 % (two device px per photograph px), as the
- * editor's own zoom. */
-export const MAX_CELL_ZOOM = 2;
+/** Most a cell zooms in: 1600 % (sixteen device px per photograph px), as
+ * the editor's own zoom (`MAX_ZOOM_LEVEL`). */
+export const MAX_CELL_ZOOM = MAX_ZOOM_LEVEL;
 
 /** `zoom` with its centre kept where the cell shows only photograph (no
  * empty margin beside a photograph larger than the cell). */

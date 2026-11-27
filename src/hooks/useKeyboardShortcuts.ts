@@ -7,7 +7,7 @@ import i18n from 'i18next';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
 import { buildComboMap, eventCode, fieldOwnsKey, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
-import { MAX_ZOOM_LEVEL, zoomToggleTarget } from '../utils/viewerDisplay';
+import { MAX_ZOOM_LEVEL, shownImageSize, zoomToggleTarget } from '../utils/viewerDisplay';
 import { rememberZoomLevel } from '../utils/zoomLevel';
 import { readFilmstripDock } from '../utils/filmstripDock';
 import { runAutoStraighten } from '../utils/autoStraighten';
@@ -187,6 +187,13 @@ interface ShortcutState {
   ui: ReturnType<typeof useUIStore.getState>;
   settings: ReturnType<typeof useSettingsStore.getState>;
   process: ReturnType<typeof useProcessStore.getState>;
+}
+
+/** The zoom shown, 1 = 100 % of what the viewer fits (the crop when there is one). */
+function shownZoomPercent(editor: ShortcutState['editor']): number {
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  const shown = shownImageSize(editor.originalSize, editor.adjustments);
+  return shown.width > 0 && editor.displaySize?.width > 0 ? (editor.displaySize.width * dpr) / shown.width : 1.0;
 }
 
 function toggleScopes(s: ShortcutState): void {
@@ -566,19 +573,11 @@ export const useKeyboardShortcuts = ({
         }
       },
       zoom_in_step: zoomAction('stepIn', (s) => {
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const currentPercent =
-          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-            : 1.0;
+        const currentPercent = shownZoomPercent(s.editor);
         handleZoomChange(Math.min(currentPercent + 0.1, MAX_ZOOM_LEVEL));
       }),
       zoom_out_step: zoomAction('stepOut', (s) => {
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const currentPercent =
-          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-            : 1.0;
+        const currentPercent = shownZoomPercent(s.editor);
         handleZoomChange(Math.max(currentPercent - 0.1, 0.1));
       }),
       cycle_zoom: zoomAction('cycle', (s) => {
@@ -610,19 +609,11 @@ export const useKeyboardShortcuts = ({
         }
       }),
       zoom_in: zoomAction('in', (s) => {
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const currentPercent =
-          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-            : 1.0;
+        const currentPercent = shownZoomPercent(s.editor);
         handleZoomChange(Math.min(currentPercent * 1.2, MAX_ZOOM_LEVEL));
       }),
       zoom_out: zoomAction('out', (s) => {
-        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-        const currentPercent =
-          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-            : 1.0;
+        const currentPercent = shownZoomPercent(s.editor);
         handleZoomChange(Math.max(currentPercent / 1.2, 0.1));
       }),
       zoom_fit: zoomAction('fit', () => handleZoomChange(0, true)),

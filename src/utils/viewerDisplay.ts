@@ -236,6 +236,23 @@ export function fitZoomValue(
 }
 
 /**
+ * The size, in image pixels, of what the viewer fits: the crop when there is
+ * one (as the viewer fits it), else the photograph turned by its orientation.
+ * Zoom levels are relative to it (100 % = one of its pixels per screen pixel).
+ */
+export function shownImageSize(
+  original: { width: number; height: number },
+  adjustments: { crop?: { width: number; height: number } | null; orientationSteps?: number }
+): { width: number; height: number } {
+  const { crop } = adjustments;
+  if (crop && crop.width > 0 && crop.height > 0) return { width: crop.width, height: crop.height };
+  const swapped = (adjustments.orientationSteps || 0) % 2 === 1;
+  return swapped
+    ? { width: original.height, height: original.width }
+    : { width: original.width, height: original.height };
+}
+
+/**
  * The zoom menu's levels (1 = 100 %, one image pixel per screen pixel), as
  * Lightroom's Navigator lists them: 1:4 … 1:1 … 16:1, those below fit too
  * (the photograph is then shown smaller than fit, centred). Fit is its own

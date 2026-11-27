@@ -4,6 +4,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { runExportJobs, type PlannedExport } from './runExportJobs';
 import type { RecipeDraft } from './exportRecipes';
+import { dirname } from './path';
 
 /**
  * Lightroom's Export with Previous (⌥⇧⌘E): the recipes and settings of the
@@ -29,7 +30,8 @@ const libraryKey = (library: string | null) => library ?? '';
  * stay as they are. */
 export function replayableDraft(draft: RecipeDraft, destination: { path: string; isFile: boolean }): RecipeDraft {
   if (draft.where === 'output' || draft.where === 'original' || draft.folder) return draft;
-  const folder = destination.isFile ? destination.path.replace(/[\\/][^\\/]*$/, '') : destination.path;
+  // A drive's or the POSIX root stays a root (E:\ or /), never E: or ''.
+  const folder = destination.isFile ? dirname(destination.path) : destination.path;
   return folder ? { ...draft, where: 'choose', folder } : draft;
 }
 

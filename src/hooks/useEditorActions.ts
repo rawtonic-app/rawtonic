@@ -89,7 +89,7 @@ import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerLibrarySwitchReset, registerQuitCheck, registerQuitFlush } from '../utils/quit';
 import { draftFor, flushSliderDraft, renderDraft, updateDraft } from '../utils/sliderDraft';
 import { saveFailure } from './useLibraryActions';
-import { clampViewerZoom, MAX_ZOOM_LEVEL } from '../utils/viewerDisplay';
+import { clampViewerZoom, MAX_ZOOM_LEVEL, shownImageSize } from '../utils/viewerDisplay';
 import { noteTool } from '../components/contribute/usageStats';
 import {
   recipeBatchAction,
@@ -1983,10 +1983,10 @@ export function useEditorActions() {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     let targetZoomPercent: number;
 
-    const orientationSteps = adjustments.orientationSteps || 0;
-    const isSwapped = orientationSteps === 1 || orientationSteps === 3;
-    const effectiveOriginalWidth = isSwapped ? originalSize.height : originalSize.width;
-    const effectiveOriginalHeight = isSwapped ? originalSize.width : originalSize.height;
+    // What the viewer fits: the crop, or the turned photograph.
+    const shown = shownImageSize(originalSize, adjustments);
+    const effectiveOriginalWidth = shown.width;
+    const effectiveOriginalHeight = shown.height;
 
     if (fitToWindow) {
       if (
@@ -2031,7 +2031,15 @@ export function useEditorActions() {
     // Never below fit (zoom 1, with the proof margin when it is on) but
     // for a zoom menu level below it.
     const { zoomRequests } = useEditorStore.getState();
-    const floor = belowFit && !fitToWindow ? Math.min(1, Math.max(transformZoom, 0.01)) : undefined;
+    // Other zooms stop at fit, or at a level below it already shown, so
+    // Zoom Out there never enlarges the photograph.
+    const shownZoom = useEditorStore.getState().zoom;
+    const floor =
+      belowFit && !fitToWindow
+        ? Math.min(1, Math.max(transformZoom, 0.01))
+        : !fitToWindow && shownZoom > 0 && shownZoom < 1
+          ? shownZoom
+          : undefined;
     useEditorStore
       .getState()
       .setEditor({ zoom: clampViewerZoom(transformZoom, floor), zoomRequests: zoomRequests + 1 });
