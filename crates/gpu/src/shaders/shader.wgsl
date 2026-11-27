@@ -982,7 +982,8 @@ fn ease_into_gamut(colour: vec3<f32>, to_space: mat3x3<f32>) -> vec3<f32> {
 // The last step: display values → the output space's primaries and curve
 // (output_color_space.rs; sRGB for the display), clipped to its gamut
 // (with `gamut_mapping`, at the colour's own hue; with 2 eased towards it
-// first, ease_into_gamut). ProPhoto holds the working gamut, so nothing is
+// first, ease_into_gamut; non-RAWs from renderVersion 21 take 1, so a
+// rendered photo's own colours on its space's edge stay). ProPhoto holds the working gamut, so nothing is
 // eased into it.
 fn encode_output(d: vec3<f32>) -> vec3<f32> {
     if (adjustments.global.gamut_mapping >= 2u) {
