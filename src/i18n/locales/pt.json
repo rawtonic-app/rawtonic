@@ -944,6 +944,8 @@
       "createNewTitle": "Criar Nova Edição Generativa",
       "downloadFailed": "Não foi possível transferir o modelo. Verifique a ligação à internet e tente novamente.",
       "generatingDepthMap": "A calcular mapa de profundidade IA...",
+      "memoryWaitSky": "Não há memória suficiente para calcular a máscara do céu agora. Feche outros aplicativos ou mude para a visualização de uma só foto; ela será calculada quando houver memória livre.",
+      "memoryWaitSubject": "Não há memória suficiente para calcular a máscara do assunto agora. Feche outros aplicativos ou mude para a visualização de uma só foto; ela será calculada quando houver memória livre.",
       "params": {
         "feather": "Difusão",
         "grow": "Expandir",

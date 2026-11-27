@@ -896,6 +896,8 @@
       "createNewTitle": "Neue generative Bearbeitung erstellen",
       "downloadFailed": "Das Modell konnte nicht geladen werden. Prüfe die Internetverbindung und versuche es erneut.",
       "generatingDepthMap": "KI-Tiefenkarte wird berechnet...",
+      "memoryWaitSky": "Gerade ist nicht genug Arbeitsspeicher frei, um die Himmelsmaske zu berechnen. Schließen Sie andere Programme oder wechseln Sie zur Einzelansicht; sie wird berechnet, sobald Speicher frei ist.",
+      "memoryWaitSubject": "Gerade ist nicht genug Arbeitsspeicher frei, um die Motivmaske zu berechnen. Schließen Sie andere Programme oder wechseln Sie zur Einzelansicht; sie wird berechnet, sobald Speicher frei ist.",
       "params": {
         "feather": "Weiche Kante",
         "grow": "Erweitern",

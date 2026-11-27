@@ -48,6 +48,26 @@ pub(crate) fn click_reserve(app: &tauri::AppHandle) -> u64 {
     if loaded { 2000 * MB } else { 3000 * MB }
 }
 
+/// What a settled frame of the open photo's full decode may add, per pixel
+/// of the photo: the Lenovo's new-layer frame of a 51 MP RAF (8256x6192, a
+/// Subject click's own frame) grew the app by 1872–2134 MB in 8 of 8 runs,
+/// the first Develop frame by 1.3–2.5 GB (WBRK1, notes: benchmark-results/
+/// brk2-2026-11-27): 2134 MB / 51.1 MP → 42 bytes. Most frames reuse their
+/// caches and add nothing; the hold lasts only while the frame runs.
+pub(crate) const FRAME_BYTES_PER_PIXEL: u64 = 42;
+
+/// Holds a settled frame's possible growth (`FRAME_BYTES_PER_PIXEL` ×
+/// `pixels`) in the broker while it runs, so a Subject click that comes as
+/// its new layer's frame starts does not take the same memory (G74/BRK2).
+pub(crate) fn hold_visible_frame(pixels: u64) -> rawtonic_runtime::memory_budget::Reservation {
+    BROKER.hold(
+        Class::Visible,
+        "visible frame",
+        pixels.saturating_mul(FRAME_BYTES_PER_PIXEL),
+        crate::memory_pressure::reading().app,
+    )
+}
+
 /// Whether the open photo's full-resolution decode or a frame of it is under
 /// way (or ended less than `ai_ahead::QUIET` ago).
 pub(crate) fn visible_busy() -> bool {
@@ -102,6 +122,11 @@ fn log_grant(granted: &Granted, waited: Duration) {
 }
 
 fn log_release(released: &rawtonic_runtime::memory_budget::Released) {
+    // A frame of the open photo is held for every settled render: only those
+    // that grew the app are worth a line (WBRK1 rechecks read them).
+    if released.class == Class::Visible && released.peak_growth < 100 * MB {
+        return;
+    }
     log::info!(
         "memory broker: {} ({}) released after {} ms, {} plan, peak +{} MB of {} MB estimated{}",
         released.label,
@@ -173,20 +198,23 @@ pub(crate) fn try_now(
 /// class `class_now` says (a request made ahead the photographer asks for
 /// meanwhile becomes `Asked`), the log line on a change of reason and the
 /// asked-waiting count.
-struct Waiter {
+struct Waiter<'a> {
     request: Request,
     start: Instant,
     held: Option<Wait>,
     asked_waiting: Option<rawtonic_runtime::memory_budget::AskedWaiting>,
+    /// Told each new reason it waits for.
+    on_wait: Option<&'a mut (dyn FnMut(Wait) + Send)>,
 }
 
-impl Waiter {
+impl<'a> Waiter<'a> {
     fn new(request: Request) -> Self {
         Self {
             request,
             start: Instant::now(),
             held: None,
             asked_waiting: None,
+            on_wait: None,
         }
     }
 
@@ -220,6 +248,9 @@ impl Waiter {
                         request.need / MB,
                         crate::memory_pressure::memory_line()
                     );
+                    if let Some(on_wait) = self.on_wait.as_mut() {
+                        on_wait(wait);
+                    }
                 }
                 self.held = Some(wait);
                 Err(wait)
@@ -251,15 +282,32 @@ impl Waiter {
 pub(crate) async fn reserve(
     request: Request,
     class_now: impl Fn() -> Class,
-    mut give_up: impl FnMut() -> Option<&'static str>,
+    give_up: impl FnMut() -> Option<&'static str>,
     cancel: Option<Arc<dyn Fn() + Send + Sync>>,
     timeout: Option<Duration>,
 ) -> Result<Granted, NotStarted> {
-    let mut waiter = Waiter::new(request);
+    reserve_telling(|| request, class_now, give_up, cancel, timeout, &mut |_| {}).await
+}
+
+/// [`reserve`] with the request as `request_now` makes it each attempt (an
+/// AI mask run's estimate drops once the photo's warped image is cached),
+/// telling `on_wait` each new reason it waits for (an AI mask run that
+/// waits for memory tells the photographer, G74/BRK2).
+pub(crate) async fn reserve_telling(
+    mut request_now: impl FnMut() -> Request,
+    class_now: impl Fn() -> Class,
+    mut give_up: impl FnMut() -> Option<&'static str>,
+    cancel: Option<Arc<dyn Fn() + Send + Sync>>,
+    timeout: Option<Duration>,
+    on_wait: &mut (dyn FnMut(Wait) + Send),
+) -> Result<Granted, NotStarted> {
+    let mut waiter = Waiter::new(request_now());
+    waiter.on_wait = Some(on_wait);
     loop {
         if let Some(reason) = give_up() {
             return Err(NotStarted::GaveUp(reason));
         }
+        waiter.request = request_now();
         if let Ok(granted) = waiter.attempt(class_now(), &cancel) {
             return Ok(granted);
         }

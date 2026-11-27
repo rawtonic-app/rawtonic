@@ -150,9 +150,10 @@ pub(crate) use crate::memory_broker::NotStarted;
 
 /// The memory budget's request for `job` of estimated peak `need`: one job
 /// at a time beside each other (the fetch beside them), leaving the click
-/// reserve unless it is Subject's own work (`reserve`).
+/// reserve unless it is Subject's own work (`reserve`). Asked for meanwhile
+/// (`Class::Asked`), it still starts only when it fits (G74/BRK2).
 pub fn request(job: AheadJob, need: u64, reserve: u64) -> Request {
-    let request = Request::new(Class::Speculative, job.label(), need);
+    let request = Request::new(Class::Speculative, job.label(), need).only_when_it_fits();
     let request = match job {
         AheadJob::ModelFetch => request,
         _ => request.exclusive(),
@@ -326,14 +327,15 @@ mod tests {
 
     #[tokio::test]
     async fn the_photographer_asking_starts_a_held_job() {
-        // Never room here (u64::MAX needed); the ask makes it a request of
-        // the photographer, which is never refused.
+        // Never room here as work made ahead (an endless click reserve);
+        // the ask makes it a request of the photographer, which leaves no
+        // reserve and starts as soon as its own run fits (G74/BRK2).
         let asked_at = asked_count();
         let asking = tokio::spawn(async {
             tokio::time::sleep(Duration::from_millis(50)).await;
             ask_now(None);
         });
-        let job = request(AheadJob::Sky, u64::MAX, 0);
+        let job = request(AheadJob::Sky, MB, u64::MAX);
         let result = tokio::time::timeout(
             Duration::from_secs(10),
             crate::memory_broker::reserve(
@@ -355,6 +357,21 @@ mod tests {
         asking.await.unwrap();
         let granted = result.expect("started");
         assert_eq!(granted.reservation.class(), Class::Asked);
+        drop(granted);
+        // Asked for, but its run cannot fit (u64::MAX): not started beyond
+        // the room; it waits for memory until its time is up.
+        let never = crate::memory_broker::reserve(
+            request(AheadJob::Sky, u64::MAX, 0),
+            || Class::Asked,
+            || None,
+            None,
+            Some(Duration::from_millis(600)),
+        )
+        .await;
+        assert!(matches!(
+            never.map(|_| ()),
+            Err(NotStarted::TimedOut(Wait::Memory { .. }))
+        ));
     }
 
     #[test]

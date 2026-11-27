@@ -944,6 +944,8 @@
       "createNewTitle": "Créer une nouvelle retouche générative",
       "downloadFailed": "Le modèle n’a pas pu être téléchargé. Vérifiez la connexion Internet et réessayez.",
       "generatingDepthMap": "Calcul de la carte de profondeur IA...",
+      "memoryWaitSky": "Mémoire insuffisante pour calculer le masque du ciel pour l’instant. Fermez d’autres applications ou passez à l’affichage d’une seule photo ; il sera calculé dès que de la mémoire sera libre.",
+      "memoryWaitSubject": "Mémoire insuffisante pour calculer le masque du sujet pour l’instant. Fermez d’autres applications ou passez à l’affichage d’une seule photo ; il sera calculé dès que de la mémoire sera libre.",
       "params": {
         "feather": "Contour progressif",
         "grow": "Agrandir",

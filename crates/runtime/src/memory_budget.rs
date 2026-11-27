@@ -24,7 +24,8 @@
 //!
 //! Classes, strict priority:
 //! - [`Class::Visible`] (P0): the open photo. Never refused; when short, it
-//!   cancels speculative work and reclaims.
+//!   cancels speculative work and reclaims. Its frames are recorded with
+//!   [`Broker::hold`] (no decision) so what they will allocate counts.
 //! - [`Class::Asked`] (P1): what the photographer asked for — a click on
 //!   Subject/Sky, opening the masking tools, and the pending AI layers of
 //!   the open photo (render correctness). One exclusive P1 at a time. When
@@ -34,7 +35,10 @@
 //!   until it is released), reclaims caches from the
 //!   [`ledger`](Broker::register_reclaim) (only buffers nothing else holds),
 //!   reads the memory again, and if the room still misses the full estimate
-//!   runs its *reduced plan* ([`Plan::Reduced`]) rather than wait.
+//!   runs its *reduced plan* ([`Plan::Reduced`]) rather than wait. A request
+//!   that starts only when it fits ([`Request::only_when_it_fits`]: the AI
+//!   mask runs) does not start beyond the room at all: it waits
+//!   (`Wait::Memory`) until a plan fits (G74/BRK2).
 //! - [`Class::Export`] (P2): exports and batch AI (step 2 wires them; the
 //!   rule is here): a new unit does not start while a P1 waits or runs, nor
 //!   if it would leave less than the click reserve.
@@ -139,6 +143,12 @@ pub struct Request {
     pub reserve: u64,
     /// How long a P1 waits for the visible photo at most.
     pub visible_wait: Duration,
+    /// A P1 that starts only when one of its plans fits the room (after the
+    /// visible wait, cancelling speculative work and reclaiming); until then
+    /// it waits (`Wait::Memory`). Without it a P1 is never refused (G74/BRK2:
+    /// a Subject run granted beyond the room took a 14 GB laptop past the
+    /// watchdog in 16 of 16 clicks, WBRK1).
+    pub fits_only: bool,
 }
 
 impl Request {
@@ -151,7 +161,13 @@ impl Request {
             exclusive: false,
             reserve: 0,
             visible_wait: ASKED_WAITS_FOR_VISIBLE,
+            fits_only: false,
         }
+    }
+
+    pub fn only_when_it_fits(mut self) -> Self {
+        self.fits_only = true;
+        self
     }
 
     pub fn reduced(mut self, reduced: u64) -> Self {
@@ -335,15 +351,23 @@ pub fn decide(request: &Request, situation: &Situation) -> Decision {
             if situation.reclaimable >= short {
                 return grant(Plan::Full, short);
             }
-            match request.reduced {
-                Some(reduced) => grant(
-                    Plan::Reduced,
-                    reduced.saturating_sub(room).min(situation.reclaimable),
-                ),
-                // No reduced plan: it runs as it is (never refused), with
-                // everything the ledger can give.
-                None => grant(Plan::Full, situation.reclaimable),
+            if let Some(reduced) = request.reduced {
+                let short = reduced.saturating_sub(room);
+                if situation.reclaimable >= short || !request.fits_only {
+                    return grant(Plan::Reduced, short.min(situation.reclaimable));
+                }
             }
+            if request.fits_only {
+                // Not started: waits until one of its plans fits.
+                let need = request.reduced.unwrap_or(request.need).min(request.need);
+                return Decision::Wait(Wait::Memory {
+                    room: room.saturating_add(situation.reclaimable),
+                    need,
+                });
+            }
+            // No reduced plan: it runs as it is (never refused), with
+            // everything the ledger can give.
+            grant(Plan::Full, situation.reclaimable)
         }
         Class::Export => {
             if situation.asked_waiting || exclusive_held(Class::Asked) {
@@ -773,12 +797,15 @@ impl Broker {
             reclaimed.push((name, bytes));
         }
         // What the ledger promised may not all come back (a buffer another
-        // holder took meanwhile): the full plan only if its room is there.
-        if !reclaimed.is_empty()
-            && reservation.plan == Plan::Full
-            && let Some(reduced) = request.reduced
-        {
-            let now = read();
+        // holder took meanwhile): the full plan only if its room is there,
+        // and a request that starts only when it fits not at all if even its
+        // reduced plan's room is not.
+        let now = if reclaimed.is_empty() {
+            None
+        } else {
+            Some(read()).filter(|now| now.total > 0)
+        };
+        if let Some(now) = now {
             let others: Vec<Held> = self.with(|inner| {
                 inner
                     .held
@@ -791,7 +818,10 @@ impl Broker {
                 .available
                 .saturating_sub(floor(now.total))
                 .saturating_sub(unspent(&others, now.app));
-            if now.total > 0 && room_now < request.need {
+            if reservation.plan == Plan::Full
+                && room_now < request.need
+                && let Some(reduced) = request.reduced
+            {
                 self.with(|inner| {
                     if let Some(e) = inner.held.iter_mut().find(|e| e.held.id == reservation.id) {
                         e.plan = Plan::Reduced;
@@ -801,6 +831,14 @@ impl Broker {
                 reservation.plan = Plan::Reduced;
                 reservation.estimate = reduced;
             }
+            if request.fits_only && room_now < reservation.estimate {
+                let need = reservation.estimate;
+                self.withdraw(reservation);
+                return Err(Wait::Memory {
+                    room: room_now,
+                    need,
+                });
+            }
         }
         Ok(Granted {
             reservation,
@@ -808,6 +846,62 @@ impl Broker {
             need: request.need,
             room,
         })
+    }
+
+    /// Records `estimate` as held for visible work (P0: the open photo's
+    /// frame) without deciding anything: it never waits, and what it will
+    /// allocate counts for the requests decided while it runs (G74/BRK2: the
+    /// new layer's full-resolution frame a Subject click starts grew a 14 GB
+    /// laptop by 1.9 GB beside the run, unseen by the broker, WBRK1).
+    pub fn hold(
+        &'static self,
+        class: Class,
+        label: &'static str,
+        estimate: u64,
+        app_now: Option<u64>,
+    ) -> Reservation {
+        self.with(|inner| {
+            inner.next_id += 1;
+            let id = inner.next_id;
+            let alone = inner.held.is_empty();
+            for other in &mut inner.held {
+                other.alone = false;
+            }
+            inner.held.push(Entry {
+                held: Held {
+                    id,
+                    class,
+                    estimate,
+                    app_at_start: app_now,
+                    exclusive: false,
+                    cancellable: false,
+                    cancelled_for: None,
+                },
+                label,
+                plan: Plan::Full,
+                cancel: None,
+                cancelled_at: None,
+                peak_growth: 0,
+                alone,
+            });
+            Reservation {
+                broker: self,
+                id,
+                plan: Plan::Full,
+                estimate,
+                label,
+                class,
+                started: Instant::now(),
+            }
+        })
+    }
+
+    /// Takes back a grant that is not started after all, without a release
+    /// report or a measured peak.
+    fn withdraw(&self, reservation: Reservation) {
+        let id = reservation.id;
+        std::mem::forget(reservation);
+        self.with(|inner| inner.held.retain(|e| e.held.id != id));
     }
 
     fn release(&self, id: u64, started: Instant) -> Option<Released> {
@@ -1377,5 +1471,149 @@ mod tests {
         drop(c);
         assert_eq!(b.corrected("x", Plan::Full, MB), MB);
         assert_eq!(b.corrected("y", Plan::Full, MB), MB);
+    }
+    #[test]
+    fn a_mask_run_that_does_not_fit_waits_instead_of_running_beyond_the_room() {
+        // WBRK1 L7_c10_r1 (Lenovo, ~7 GB available at start): after the new
+        // layer's frame, 2312 MB available, app 4728 MB: room 726 MB. The
+        // reduced plan (warp cached: model 1000 + run 650 MB) does not fit.
+        let click = Request::new(Class::Asked, "subject click", 2400 * MB)
+            .reduced(1650 * MB)
+            .exclusive()
+            .only_when_it_fits();
+        let none: [Held; 0] = [];
+        let r = reading(2312 * MB, 4728 * MB);
+        let room = 2312 * MB - floor(LENOVO);
+        assert_eq!(
+            decide(&click, &situation(&none, r)),
+            Decision::Wait(Wait::Memory {
+                room,
+                need: 1650 * MB
+            })
+        );
+        // The visible photo's frame first, as before.
+        let mut s = situation(&none, r);
+        s.visible_busy = true;
+        assert_eq!(decide(&click, &s), Decision::Wait(Wait::Visible));
+        // What the ledger can give counts: enough for the reduced plan, it
+        // starts with it, reclaiming only what it needs.
+        let mut s = situation(&none, r);
+        s.reclaimable = GB;
+        assert_eq!(
+            decide(&click, &s),
+            Decision::Grant {
+                plan: Plan::Reduced,
+                reclaim: 1650 * MB - room
+            }
+        );
+        // Not enough with the ledger either: it still waits, and says how
+        // much it would have.
+        s.reclaimable = 100 * MB;
+        assert_eq!(
+            decide(&click, &s),
+            Decision::Wait(Wait::Memory {
+                room: room + 100 * MB,
+                need: 1650 * MB
+            })
+        );
+        // Room for it later (memory freed): it starts.
+        assert!(matches!(
+            decide(&click, &situation(&none, reading(3500 * MB, 4728 * MB))),
+            Decision::Grant {
+                plan: Plan::Reduced,
+                reclaim: 0
+            }
+        ));
+        // The same request without the rule runs as before (never refused).
+        let mut old = click;
+        old.fits_only = false;
+        assert!(matches!(
+            decide(&old, &situation(&none, r)),
+            Decision::Grant {
+                plan: Plan::Reduced,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_visible_frame_held_counts_for_a_click_beside_it() {
+        // WBRK1 L85_c10_r1: the click came as its new layer's frame started
+        // (app 3504 MB, 5651 MB available); the frame then grew the app by
+        // ~1.9 GB beside the run. Held, the frame leaves room 2125 MB: the
+        // full plan (3013 MB) does not start beside it.
+        let b = broker();
+        let r = || reading(5651 * MB, 3504 * MB);
+        let frame = b.hold(Class::Visible, "visible frame", 1940 * MB, Some(3504 * MB));
+        let click = Request::new(Class::Asked, "subject click", 3013 * MB)
+            .reduced(2263 * MB)
+            .exclusive()
+            .only_when_it_fits();
+        assert_eq!(
+            b.try_reserve(click, &r, true, Duration::ZERO, None)
+                .unwrap_err(),
+            Wait::Visible
+        );
+        // After the visible wait, still short: waits for memory, holds
+        // nothing.
+        assert!(matches!(
+            b.try_reserve(click, &r, false, ASKED_WAITS_FOR_VISIBLE, None)
+                .unwrap_err(),
+            Wait::Memory { .. }
+        ));
+        assert_eq!(b.held().len(), 1);
+        // The frame ended, its warp cached (the click's own estimate
+        // without it): model + reduced run 1650 MB fit 3751 − 1586.
+        drop(frame);
+        let after = || reading(3751 * MB, 5404 * MB);
+        let granted = b
+            .try_reserve(
+                Request::new(Class::Asked, "subject click", 2400 * MB)
+                    .reduced(1650 * MB)
+                    .exclusive()
+                    .only_when_it_fits(),
+                &after,
+                false,
+                Duration::ZERO,
+                None,
+            )
+            .expect("fits now");
+        assert_eq!(granted.reservation.plan(), Plan::Reduced);
+    }
+
+    #[test]
+    fn a_reclaim_that_does_not_come_back_withdraws_a_run_that_must_fit() {
+        let b = broker();
+        static PROMISED: AtomicU64 = AtomicU64::new(GB);
+        b.register_reclaim(
+            "shared cache",
+            1,
+            || PROMISED.load(Ordering::SeqCst),
+            || PROMISED.store(0, Ordering::SeqCst),
+        );
+        // Room 3.0 − 1.586 = 1.414 GB, reduced 2 GB: 0.586 GB short, the
+        // ledger promises 1 GB but frees nothing.
+        let r = || reading(3 * GB, 3 * GB);
+        let wait = b
+            .try_reserve(
+                Request::new(Class::Asked, "subject click", 3 * GB)
+                    .reduced(2 * GB)
+                    .exclusive()
+                    .only_when_it_fits(),
+                &r,
+                false,
+                Duration::ZERO,
+                None,
+            )
+            .unwrap_err();
+        assert_eq!(
+            wait,
+            Wait::Memory {
+                room: 3 * GB - floor(LENOVO),
+                need: 2 * GB
+            }
+        );
+        assert!(b.held().is_empty(), "nothing held for a run not started");
+        assert!(!b.asked_active());
     }
 }

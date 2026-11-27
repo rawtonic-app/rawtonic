@@ -111,6 +111,25 @@ const USE_REPORT_INTERVAL_MS = 30_000;
 /** Event of `ai_lifecycle::UNLOADED_EVENT`. */
 export const AI_MODELS_UNLOADED_EVENT = 'ai-models-unloaded';
 
+/** `ai_commands::MEMORY_WAIT_EVENT`: a Subject or Sky mask asked for does not
+ * start for want of memory; it starts by itself when memory is free (G74/BRK2). */
+export const AI_MASK_MEMORY_WAIT_EVENT = 'ai-mask-memory-wait';
+export interface AiMaskMemoryWait {
+  path: string;
+  kind: 'subject' | 'sky';
+}
+const memoryWaitNotice = (kind: AiMaskMemoryWait['kind']) => `ai-mask-memory-wait-${kind}`;
+
+/** Tells the photographer that the open photo's mask waits for memory (one
+ * notice per kind, settled when the run ends). */
+export function noteAiMaskMemoryWait({ path, kind }: AiMaskMemoryWait) {
+  if (useEditorStore.getState().selectedImage?.path !== path) return;
+  notify.warn(i18n.t(kind === 'sky' ? 'editor.ai.memoryWaitSky' : 'editor.ai.memoryWaitSubject'), {
+    toastId: memoryWaitNotice(kind),
+    source: 'ai'
+  });
+}
+
 /** Why the backend dropped the models (`ai_lifecycle::UnloadReason`). */
 export type AiModelsUnloadReason = 'idle' | 'library' | 'memoryPressure';
 
@@ -402,6 +421,20 @@ export function useAiModelLifecycle(develop: boolean) {
       stop?.();
     };
   }, []);
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let unmounted = false;
+    listen<AiMaskMemoryWait>(AI_MASK_MEMORY_WAIT_EVENT, (event) => noteAiMaskMemoryWait(event.payload))
+      .then((unlisten) => {
+        if (unmounted) unlisten();
+        else stop = unlisten;
+      })
+      .catch((err) => console.error('Failed to listen for AI mask memory waits:', err));
+    return () => {
+      unmounted = true;
+      stop?.();
+    };
+  }, []);
 }
 
 /** A depth range's limits: applied when it renders, so values changed while
@@ -642,6 +675,7 @@ export function useAiMasking() {
       return false;
     } finally {
       unregisterAiTask(subMaskId);
+      notify.dismiss(memoryWaitNotice('subject'));
     }
   };
 
@@ -671,6 +705,7 @@ export function useAiMasking() {
       return false;
     } finally {
       unregisterAiTask(subMaskId);
+      notify.dismiss(memoryWaitNotice('sky'));
     }
   };
 
