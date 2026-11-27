@@ -77,14 +77,22 @@ impl Applied {
         next
     }
 
-    /// Notes what lookup `lookup` found for `label`; whether there is
-    /// anything to do (it is the newest lookup and found something new).
+    /// Whether lookup `lookup` for `label` has anything to do: it is the
+    /// newest, and it found something other than what is installed. Only
+    /// an installed result is noted ([`Applied::commit`]), so a lookup
+    /// dropped for a newer one never makes that newer one skip its work.
     #[cfg_attr(not(windows), allow(dead_code))]
-    fn found(&mut self, label: &str, lookup: u64, inputs: &Inputs) -> bool {
-        if !self.newest(label, lookup) || self.inputs.get(label) == Some(inputs) {
+    fn fresh(&self, label: &str, lookup: u64, inputs: &Inputs) -> bool {
+        self.newest(label, lookup) && self.inputs.get(label) != Some(inputs)
+    }
+
+    /// Lookup `lookup`'s result for `label` is being installed: whether it
+    /// is still the newest (else it is dropped); notes what it found.
+    fn commit(&mut self, label: &str, lookup: u64, inputs: Inputs) -> bool {
+        if !self.newest(label, lookup) {
             return false;
         }
-        self.inputs.insert(label.to_string(), inputs.clone());
+        self.inputs.insert(label.to_string(), inputs);
         true
     }
 
@@ -265,12 +273,11 @@ fn apply(
     let inputs = (system, chosen);
     if !lock_recover(&APPLIED)
         .get_or_insert_with(Applied::default)
-        .found(label, lookup, &inputs)
+        .fresh(label, lookup, &inputs)
     {
         return;
     }
-    let (system, chosen) = inputs;
-    let (lut, icc, status) = resolve(system, chosen);
+    let (lut, icc, status) = resolve(inputs.0.clone(), inputs.1.clone());
     // The profile behind the transform (None: no transform) and the status.
     let now = (icc.filter(|_| lut.is_some()), status.clone());
     // Taken before APPLIED: `attach_display` holds the context while it
@@ -282,7 +289,7 @@ fn apply(
     // Held while installing, so lookups finishing together install in order.
     let mut applied = lock_recover(&APPLIED);
     let applied = applied.get_or_insert_with(Applied::default);
-    if !applied.newest(label, lookup) || !applied.changed(label, now) {
+    if !applied.commit(label, lookup, inputs) || !applied.changed(label, now) {
         return;
     }
     let installed = set_transform(context.as_ref(), label, lut.as_ref());
@@ -460,25 +467,47 @@ mod tests {
         assert!(off.notice.is_some());
     }
 
+    fn found(icc: Vec<u8>) -> Inputs {
+        (
+            SystemProfile::Assigned {
+                icc,
+                location: "p.icc".into(),
+            },
+            None,
+        )
+    }
+
     #[test]
     fn an_unchanged_lookup_builds_nothing() {
         let mut applied = Applied::default();
-        let found = |icc: Vec<u8>| -> Inputs {
-            (
-                SystemProfile::Assigned {
-                    icc,
-                    location: "p.icc".into(),
-                },
-                None,
-            )
-        };
         let first = applied.start("main");
-        assert!(applied.found("main", first, &found(p3())));
+        assert!(applied.fresh("main", first, &found(p3())));
+        assert!(applied.commit("main", first, found(p3())));
         let again = applied.start("main");
-        assert!(!applied.found("main", again, &found(p3())));
+        assert!(!applied.fresh("main", again, &found(p3())));
         let other = applied.start("main");
         let adobe = ColorProfile::new_adobe_rgb().encode().unwrap();
-        assert!(applied.found("main", other, &found(adobe)));
+        assert!(applied.fresh("main", other, &found(adobe)));
+    }
+
+    #[test]
+    fn a_lookup_dropped_mid_drag_never_hides_the_new_monitor() {
+        // On the P3 monitor; dragged onto an Adobe RGB one: the first
+        // lookup there is overtaken by the next move while it builds.
+        let mut applied = Applied::default();
+        let on_p3 = applied.start("main");
+        assert!(applied.commit("main", on_p3, found(p3())));
+        let adobe = ColorProfile::new_adobe_rgb().encode().unwrap();
+        let first = applied.start("main");
+        assert!(applied.fresh("main", first, &found(adobe.clone())));
+        let second = applied.start("main");
+        // The second still has the new monitor's profile to install…
+        assert!(applied.fresh("main", second, &found(adobe.clone())));
+        // …and the first, finishing later, is dropped.
+        assert!(!applied.commit("main", first, found(adobe.clone())));
+        assert!(applied.commit("main", second, found(adobe.clone())));
+        let focus = applied.start("main");
+        assert!(!applied.fresh("main", focus, &found(adobe)));
     }
 
     #[test]

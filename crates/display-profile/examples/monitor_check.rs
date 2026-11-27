@@ -13,7 +13,8 @@
 //!   profile), to compare with a screenshot.
 //!
 //! Existing files are never written over: the run fails instead (each
-//! file is published whole, through rawtonic-fs's no-clobber step).
+//! file is published whole in one step, rawtonic-fs `persist_atomic`; a
+//! volume that cannot do that fails cleanly).
 //!
 //! On Linux, `--features system-lookup -- --lookup` prints what colord / X11 hold for the display
 //! instead.
@@ -28,8 +29,7 @@ fn publish(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut temp = tempfile::NamedTempFile::new_in(folder)?;
     temp.write_all(bytes)?;
     temp.as_file().sync_all()?;
-    rawtonic_fs::no_clobber::persist(temp, path)
-        .map(drop)
+    rawtonic_fs::no_clobber::persist_atomic(temp, path)
         .map_err(|e| std::io::Error::new(e.kind(), format!("{}: {e}", path.display())))
 }
 

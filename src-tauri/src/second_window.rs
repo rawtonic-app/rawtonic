@@ -1521,7 +1521,15 @@ pub(crate) fn set_monitor_transform(
 ) -> bool {
     let mut guard = lock_recover(&INNER);
     #[cfg(not(target_os = "linux"))]
-    if let Some(display) = guard.as_mut().and_then(|inner| inner.display.as_mut()) {
+    if let Some(inner) = guard.as_mut()
+        // A display of the device being replaced (GPU recovery) gets its
+        // transform when its new surface is made (`display_created`).
+        && inner
+            .device
+            .as_ref()
+            .is_some_and(|device| Arc::ptr_eq(device, &context.device))
+        && let Some(display) = inner.display.as_mut()
+    {
         display.set_monitor_transform(&context.device, &context.queue, lut);
         return true;
     }

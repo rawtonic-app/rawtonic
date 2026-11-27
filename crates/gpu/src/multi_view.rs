@@ -2027,10 +2027,10 @@ mod tests {
         }
     }
 
-    /// GPU time of the display pass for a 3840 × 2160 window filled by a
-    /// 3840 × 2160 frame, with and without the monitor transform: the cost
-    /// the transform adds to every presented frame. Prints the medians
-    /// (wall clock from encoding the pass to GPU idle, not GPU timestamps).
+    /// Offscreen wall-clock time of the display pass (from encoding it to GPU
+    /// idle, not GPU timestamps) for a 3840 × 2160 window filled by a
+    /// 3840 × 2160 frame, with and without the monitor transform. Prints the
+    /// medians.
     #[test]
     #[ignore = "requires a native GPU; timing probe"]
     fn monitor_transform_timing_probe() {
