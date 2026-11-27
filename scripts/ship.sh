@@ -6,6 +6,7 @@
 #   scripts/ship.sh [--title "type(scope): summary"] [--body-file FILE]
 #                   [--no-merge] [--keep-worktree] [--dry-run]
 #                   [--no-review REASON]
+#                   [--allow-revert FILE] (repeatable; recorded in PR body)
 #   --title          PR title (default: the branch's first commit subject)
 #   --body-file      PR description (default: the branch's commit subjects)
 #   --no-merge       stop after opening the PR (review first)
@@ -52,7 +53,7 @@ finish() {
 trap finish EXIT
 cd "$RAWTONIC_SHIP_REPO"
 
-TITLE=''; BODY_FILE=''; MERGE=1; KEEP=0; DRY=0; NO_REVIEW=''
+TITLE=''; BODY_FILE=''; MERGE=1; KEEP=0; DRY=0; NO_REVIEW=''; ALLOW_REVERTS=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --title) TITLE=$2; shift 2 ;;
@@ -61,6 +62,14 @@ while [ $# -gt 0 ]; do
     --keep-worktree) KEEP=1; shift ;;
     --dry-run) DRY=1; shift ;;
     --no-review) NO_REVIEW=$2; shift 2 ;;
+    --allow-revert)
+      case "$2" in
+        *'
+'*) echo 'ship: --allow-revert paths must not contain newlines' >&2; exit 2 ;;
+      esac
+      ALLOW_REVERTS="${ALLOW_REVERTS}${2}
+"
+      shift 2 ;;
     *) echo "ship: unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -70,12 +79,23 @@ warn() { printf 'ship: warning: %s\n' "$*" >&2; }
 die() { printf 'ship: %s\n' "$*" >&2; exit 1; }
 # The outcome line; marks the run as finished for the EXIT trap.
 result() { DONE=1; printf 'ship: %s\n' "$*"; }
+check_reverts() {
+  set --
+  while IFS= read -r path; do
+    [ -z "$path" ] || set -- "$@" --allow-revert "$path"
+  done <<EOF
+$ALLOW_REVERTS
+EOF
+  python3 scripts/check_ship_reverts.py "$@"
+}
 
 STEP=preconditions
 BRANCH=$(git symbolic-ref --short HEAD) || die "detached HEAD"
 [ "$BRANCH" != main ] || die "on main; ship a feature branch"
 [ -z "$(git status --porcelain)" ] || die "uncommitted changes; commit them first"
 git fetch -q origin
+# Branches may legitimately lag main; the guard scans their three-dot diff.
+check_reverts
 [ -n "$(git log --oneline origin/main..HEAD)" ] || die "no commits ahead of origin/main"
 WORKTREE=$(pwd -P)
 MAIN_DIR=$(git worktree list --porcelain | awk '/^worktree /{w=substr($0,10)} /^branch refs\/heads\/main$/{print w; exit}')
@@ -152,6 +172,10 @@ for f in v["findings"]:
     print("- [%s] `%s:%s` %s" % (f["severity"], f["file"], f["line"], f["issue"]))
 ' "$VERDICT_FILE" "$HEAD_SHA" >"$NOTE"
 fi
+# Keep intentional revert exceptions in the PR body, including reused PRs.
+if [ -n "$ALLOW_REVERTS" ]; then
+  printf '\n## Intentional reverts\n\nExplicit --allow-revert exceptions:\n%s' "$ALLOW_REVERTS" >>"$NOTE"
+fi
 # Only an open pull request counts: `gh pr view BRANCH` also returns a merged
 # or closed one, and a branch name shipped again would then get its review note
 # on the old pull request and be merged under that number.
@@ -159,6 +183,13 @@ PR_URL=$(gh pr view "$BRANCH" --repo rawtonic-app/rawtonic --json url,state \
   --jq 'select(.state == "OPEN") | .url' 2>/dev/null) || PR_URL=''
 if [ -n "$PR_URL" ]; then
   say "pull request exists: $PR_URL"
+  if [ -n "$ALLOW_REVERTS" ]; then
+    EXISTING_BODY=$(mktemp "${TMPDIR:-/tmp}/rawtonic-pr-existing.XXXXXX")
+    gh pr view "$PR_URL" --json body --jq .body >"$EXISTING_BODY"
+    printf '\n## Intentional reverts\n\nExplicit --allow-revert exceptions:\n%s' "$ALLOW_REVERTS" >>"$EXISTING_BODY"
+    gh pr edit "$PR_URL" --body-file "$EXISTING_BODY"
+    rm -f "$EXISTING_BODY"
+  fi
   gh pr comment "$PR_URL" --body-file "$NOTE" >/dev/null || die "review note not added to $PR_URL; nothing merged"
 else
   BODY=$(mktemp "${TMPDIR:-/tmp}/rawtonic-pr.XXXXXX")
@@ -190,6 +221,7 @@ git -C "$MAIN_DIR" pull -q --ff-only origin main
 MAIN_BEFORE=$(git -C "$MAIN_DIR" rev-parse HEAD)
 [ "$MAIN_BEFORE" = "$(git -C "$MAIN_DIR" rev-parse origin/main)" ] ||
   die "main in $MAIN_DIR has commits that are not on origin/main; push or drop them, then ship again"
+check_reverts
 SUMMARY=$(printf '%s' "$TITLE" | sed 's/^[a-z]*\(([^)]*)\)\{0,1\}!\{0,1\}: //')
 if ! git -C "$MAIN_DIR" merge -q --no-ff "$HEAD_SHA" -m "Merge pull request #$PR_NUM: $SUMMARY"; then
   git -C "$MAIN_DIR" merge --abort

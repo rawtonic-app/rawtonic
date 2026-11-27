@@ -52,6 +52,7 @@ git init -q --bare "$T/origin.git"
 git clone -q "$T/origin.git" "$T/main" 2>/dev/null
 mkdir "$T/main/scripts"
 cp "$SHIP" "$T/main/scripts/ship.sh"
+cp "$(dirname "$SHIP")/check_ship_reverts.py" "$T/main/scripts/check_ship_reverts.py"
 cp "$(dirname "$SHIP")/review.sh" "$T/main/scripts/review.sh"
 cp -R "$(dirname "$SHIP")/review" "$T/main/scripts/review"
 git -C "$T/main" add scripts
@@ -101,7 +102,8 @@ grep -q "uncommitted changes" "$T/out" || fail "dirty tree: no reason given"
 
 # 3. --no-merge opens the PR and leaves main alone.
 new_branch review
-ship review "$T/wt-review" --no-merge || fail "--no-merge exited $?"
+ship review "$T/wt-review" --no-merge --allow-revert 'photo settings' || fail "--no-merge exited $?"
+grep -q 'photo settings' "$T/gh-review.body" || fail "allow-revert missing from PR body"
 expect_last "$T/out" "ship: opened PR #7 (https://github.com/rawtonic-app/rawtonic/pull/7); not merged (--no-merge)"
 git -C "$T/origin.git" rev-parse -q --verify refs/heads/review >/dev/null || fail "--no-merge did not push the branch"
 [ "$(git -C "$T/origin.git" log --oneline main | wc -l)" -eq 1 ] || fail "--no-merge changed main"
@@ -267,6 +269,21 @@ sed -n '/## Incremental diff since earlier review/,$p' "$T/claude-prompt" >"$T/i
 grep -q '+later-round sentinel' "$T/incremental" || fail "incremental diff missing from Claude prompt"
 grep -q 'diff --git a/unreviewed-real.txt' "$T/incremental" && fail "incremental diff includes unchanged branch work"
 rm "$T/bin/claude"
+
+# The real ship entry point rejects restoring an absent pre-merge blob, then
+# accepts only the named override and records it in the actual PR body.
+new_branch guard-source
+ship guard-source "$T/main" || fail "guard fixture source did not ship"
+new_branch guard-revert
+git -C "$T/wt-guard-revert" rm -q guard-source.txt
+git -C "$T/wt-guard-revert" commit -q -m 'fix: intended revert'
+gd=$(git -C "$T/wt-guard-revert" rev-parse --git-dir)
+git -C "$T/wt-guard-revert" rev-parse HEAD >"$gd/rawtonic-check-passed"
+ship guard-revert "$T/wt-guard-revert" --dry-run && fail "silent revert shipped"
+grep -q 'this branch reverts guard-source.txt to before' "$T/out" || fail "missing revert reason"
+ship guard-revert "$T/wt-guard-revert" --dry-run --allow-revert other.txt && fail "unrelated override accepted"
+ship guard-revert "$T/wt-guard-revert" --no-merge --no-review 'test fixture' --allow-revert guard-source.txt || fail "intended revert rejected"
+grep -q 'guard-source.txt' "$T/gh-guard-revert.body" || fail "revert override missing from body"
 
 if [ "$FAILS" != 0 ]; then
   printf 'last output:\n'; cat "$T/out"
