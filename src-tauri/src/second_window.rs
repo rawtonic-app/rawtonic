@@ -1241,6 +1241,7 @@ async fn open_window(app_handle: &tauri::AppHandle) -> Result<(), String> {
             ..Inner::default()
         });
     }
+    crate::monitor_profile::display_created(app_handle, LABEL);
     OPEN.store(true, Ordering::SeqCst);
     let _ = window.show();
     if saved_state.fullscreen {
@@ -1396,6 +1397,7 @@ pub(crate) async fn after_device_recovered(app_handle: &tauri::AppHandle, contex
     #[cfg(target_os = "linux")]
     let display: Option<View> = None;
     bases().clear();
+    let surface_made = display.is_some();
     {
         let mut guard = lock_recover(&INNER);
         let Some(inner) = guard.as_mut() else { return };
@@ -1422,6 +1424,10 @@ pub(crate) async fn after_device_recovered(app_handle: &tauri::AppHandle, contex
                 display.set_multi_view_zoom(zoom);
             }
         }
+    }
+    // After INNER is let go: installing a transform takes it again.
+    if surface_made {
+        crate::monitor_profile::display_created(app_handle, LABEL);
     }
     emit_state(app_handle);
     schedule(app_handle);
@@ -1505,6 +1511,31 @@ pub(crate) fn resized(
         }
         schedule(&app);
     });
+}
+
+/// Converts the window's frames into its monitor's profile from now on
+/// (`monitor_profile`; None: as they are); whether it has a native display.
+pub(crate) fn set_monitor_transform(
+    context: &GpuContext,
+    lut: Option<&rawtonic_display_profile::DisplayLut>,
+) -> bool {
+    let mut guard = lock_recover(&INNER);
+    #[cfg(not(target_os = "linux"))]
+    if let Some(inner) = guard.as_mut()
+        // A display of the device being replaced (GPU recovery) gets its
+        // transform when its new surface is made (`display_created`).
+        && inner
+            .device
+            .as_ref()
+            .is_some_and(|device| Arc::ptr_eq(device, &context.device))
+        && let Some(display) = inner.display.as_mut()
+    {
+        display.set_monitor_transform(&context.device, &context.queue, lut);
+        return true;
+    }
+    #[cfg(target_os = "linux")]
+    let _ = (&mut guard, context, lut);
+    false
 }
 
 /// Draws the window again (it was covered: a covered window's frame is

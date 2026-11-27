@@ -2768,6 +2768,21 @@
       "saved": "Obiettivi Salvati",
       "title": "I Miei Obiettivi"
     },
+    "monitorProfile": {
+      "choose": "Scegli profilo ICC…",
+      "chosen": "Scelto nelle Preferenze: {{path}}",
+      "converted": "L'anteprima viene convertita in {{profile}}.",
+      "description": "Il profilo colore attraverso cui viene mostrata l'anteprima. Non modifica mai le esportazioni.",
+      "notApplied": "Il profilo di sistema è {{profile}}.",
+      "pickTitle": "Scegli il profilo ICC del monitor",
+      "refused": "Questo profilo non può essere usato: {{reason}}",
+      "rendererOff": "Il renderer nativo è disattivato: l'anteprima non viene convertita in {{profile}}.",
+      "section": "Colore dello schermo",
+      "srgb": "L'anteprima è mostrata in sRGB: il monitor non ha altri profili.",
+      "system": "Il sistema adatta l'anteprima al profilo di questo schermo.",
+      "title": "Profilo del monitor",
+      "useSystem": "Usa il profilo di sistema"
+    },
     "processing": {
       "aiDenoiseQualities": {
         "auto": "Automatica",

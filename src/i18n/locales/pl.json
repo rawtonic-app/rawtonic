@@ -2909,6 +2909,21 @@
       "saved": "Zapisane obiektywy",
       "title": "Moje obiektywy"
     },
+    "monitorProfile": {
+      "choose": "Wybierz profil ICC…",
+      "chosen": "Wybrany w Preferencjach: {{path}}",
+      "converted": "Podgląd jest konwertowany do {{profile}}.",
+      "description": "Przez który profil kolorów wyświetlany jest podgląd. Nigdy nie zmienia eksportów.",
+      "notApplied": "Profil systemowy to {{profile}}.",
+      "pickTitle": "Wybierz profil ICC monitora",
+      "refused": "Tego profilu nie można użyć: {{reason}}",
+      "rendererOff": "Natywny renderer jest wyłączony: podgląd nie jest konwertowany do {{profile}}.",
+      "section": "Kolory ekranu",
+      "srgb": "Podgląd jest wyświetlany jako sRGB: monitor nie ma innego profilu.",
+      "system": "System dopasowuje podgląd do profilu tego ekranu.",
+      "title": "Profil monitora",
+      "useSystem": "Użyj profilu systemowego"
+    },
     "processing": {
       "aiDenoiseQualities": {
         "auto": "Automatyczna",

@@ -133,8 +133,9 @@ if [ "$RUST" = 1 ]; then
   fi
   # Windows-only code: catches cfg(windows) slips that Linux/macOS never compile.
   if rustup target list --installed 2>/dev/null | grep -qx x86_64-pc-windows-gnu; then
-    run "rust: windows clippy (fs, tether)" \
-      cargo clippy -p rawtonic-fs -p rawtonic-tether \
+    run "rust: windows clippy (fs, tether, display-profile)" \
+      cargo clippy -p rawtonic-fs -p rawtonic-tether -p rawtonic-display-profile \
+      --features rawtonic-display-profile/system-lookup \
       --all-targets --locked --target x86_64-pc-windows-gnu -- -D warnings
     # The crates with C dependencies (bundled SQLite, aws-lc; metadata reaches
     # libmimalloc-sys through raw-format -> rawler -> runtime) need a MinGW C

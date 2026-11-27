@@ -2626,6 +2626,21 @@
       "saved": "Saved Lenses",
       "title": "My Lenses"
     },
+    "monitorProfile": {
+      "choose": "Choose ICC profile…",
+      "chosen": "Chosen in Preferences: {{path}}",
+      "converted": "The preview is converted into {{profile}}.",
+      "description": "Which colour profile the preview is shown through. Exports are never changed by it.",
+      "notApplied": "The system profile is {{profile}}.",
+      "pickTitle": "Choose the monitor's ICC profile",
+      "refused": "This profile cannot be used: {{reason}}",
+      "rendererOff": "The native renderer is off: the preview is not converted into {{profile}}.",
+      "section": "Display colour",
+      "srgb": "The preview is shown as sRGB: the monitor has no other profile.",
+      "system": "Your system matches the preview to this display's profile.",
+      "title": "Monitor profile",
+      "useSystem": "Use the system's profile"
+    },
     "processing": {
       "aiDenoiseQualities": {
         "auto": "Automatic",

@@ -47,6 +47,7 @@ import UpdateSettings from './UpdateSettings';
 import CrashReportSettings from './CrashReportSettings';
 import GpuBackendState from './GpuBackendState';
 import UsageStatsSettings from './UsageStatsSettings';
+import MonitorProfileSettings from './MonitorProfileSettings';
 import TetheringSettings from './TetheringSettings';
 import DevelopDefaultsSettings from './DevelopDefaultsSettings';
 import { saveDevelopDefaults } from '../../hooks/developDefaultsActions';
@@ -1058,6 +1059,13 @@ export default function SettingsPanel({
                         </SettingItem>
                       )}
                     </div>
+                  </div>
+
+                  <div className="pref-section">
+                    <Text as="h2" variant={TextVariants.title} className="pref-section-title">
+                      {t('settings.monitorProfile.section')}
+                    </Text>
+                    <MonitorProfileSettings />
                   </div>
 
                   <div className="pref-section">

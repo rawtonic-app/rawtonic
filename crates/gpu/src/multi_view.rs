@@ -1068,6 +1068,8 @@ pub(crate) struct PrimaryDraw<'a> {
 pub(crate) struct DisplayPass<'a> {
     pub pipeline: &'a wgpu::RenderPipeline,
     pub empty_before: &'a wgpu::BindGroup,
+    /// The monitor transform, bound for the whole pass.
+    pub monitor: &'a wgpu::BindGroup,
 }
 
 /// Records the display's one render pass into `view` (`size` device px):
@@ -1108,6 +1110,7 @@ pub(crate) fn encode_display_pass(
     });
     rpass.set_pipeline(display.pipeline);
     rpass.set_bind_group(1, display.empty_before, &[]);
+    rpass.set_bind_group(2, display.monitor, &[]);
     let mut primary_clip = primary.as_ref().map(|p| p.clip);
     if let Some(multi) = multi {
         let live = primary.is_some();
@@ -1167,6 +1170,8 @@ mod tests {
         sampler: wgpu::Sampler,
         empty: wgpu::TextureView,
         empty_before: wgpu::BindGroup,
+        monitor_layout: wgpu::BindGroupLayout,
+        monitor: super::super::monitor_transform::MonitorBinding,
     }
 
     const SIZE: [u32; 2] = [200, 100];
@@ -1180,8 +1185,10 @@ mod tests {
         let (device, queue) =
             pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
                 .expect("a GPU device");
-        let (pipeline, layout, before_layout) =
+        let (pipeline, layout, before_layout, monitor_layout) =
             super::super::display_pipeline(&device, wgpu::TextureFormat::Rgba8Unorm).unwrap();
+        let monitor =
+            super::super::monitor_transform::MonitorBinding::none(&device, &monitor_layout);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
@@ -1236,6 +1243,8 @@ mod tests {
             sampler,
             empty,
             empty_before,
+            monitor_layout,
+            monitor,
         }
     }
 
@@ -1313,6 +1322,17 @@ mod tests {
     }
 
     fn present(gpu: &Offscreen, multi: &MultiView, primary: Option<PrimaryDraw>) -> Vec<u8> {
+        present_through(gpu, multi, primary, &gpu.monitor)
+    }
+
+    /// [`present`] through the monitor transform `monitor`, its background
+    /// converted as `WgpuDisplay::render` converts it.
+    fn present_through(
+        gpu: &Offscreen,
+        multi: &MultiView,
+        primary: Option<PrimaryDraw>,
+        monitor: &super::super::monitor_transform::MonitorBinding,
+    ) -> Vec<u8> {
         let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
             label: None,
             size: wgpu::Extent3d {
@@ -1336,8 +1356,9 @@ mod tests {
             DisplayPass {
                 pipeline: &gpu.pipeline,
                 empty_before: &gpu.empty_before,
+                monitor: &monitor.bind_group,
             },
-            BG,
+            monitor.convert_clear(BG),
             multi.is_active().then_some(multi),
             primary,
         );
@@ -1895,6 +1916,192 @@ mod tests {
         assert!(close(pixel(&pixels, 20, 50), [35, 35, 35]));
     }
 
+    /// The transform into a wide-gamut (Display P3) monitor profile.
+    fn p3_lut() -> rawtonic_display_profile::DisplayLut {
+        let icc = moxcms::ColorProfile::new_display_p3().encode().unwrap();
+        rawtonic_display_profile::display_lut(rawtonic_display_profile::Encoding::Srgb, &icc)
+            .unwrap()
+            .expect("a transform")
+    }
+
+    fn p3_monitor(gpu: &Offscreen) -> super::super::monitor_transform::MonitorBinding {
+        super::super::monitor_transform::MonitorBinding::new(
+            &gpu.device,
+            &gpu.queue,
+            &gpu.monitor_layout,
+            Some(&p3_lut()),
+        )
+    }
+
+    const PATCHES: [[u8; 3]; 10] = [
+        [255, 0, 0],
+        [0, 255, 0],
+        [0, 0, 255],
+        [200, 100, 50],
+        [50, 120, 200],
+        [128, 128, 128],
+        [255, 255, 255],
+        [0, 0, 0],
+        [240, 200, 170],
+        [20, 60, 30],
+    ];
+
+    /// The patches side by side, 20 × 80 texels each, shown one texel per
+    /// device pixel; the background below.
+    fn patch_frame(gpu: &Offscreen) -> wgpu::BindGroup {
+        let rgba: Vec<u8> = (0..80)
+            .flat_map(|_| PATCHES.iter().flat_map(|p| [[p[0], p[1], p[2], 255]; 20]))
+            .flatten()
+            .collect();
+        live_frame_of(
+            gpu,
+            [0.0, 0.0, 200.0, 80.0],
+            [0.0, 0.0, 200.0, 100.0],
+            (200, 80),
+            &rgba,
+        )
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; the present pass converts into a wide-gamut monitor"]
+    fn a_wide_gamut_monitor_gets_the_known_patch_values() {
+        let gpu = offscreen();
+        let monitor = p3_monitor(&gpu);
+        assert!(monitor.converts());
+        let live = patch_frame(&gpu);
+        let pixels = present_through(
+            &gpu,
+            &MultiView::default(),
+            Some(PrimaryDraw {
+                bind_group: &live,
+                before: &gpu.empty_before,
+                clip: [0.0, 0.0, 200.0, 100.0],
+            }),
+            &monitor,
+        );
+        // The CPU table's values (rawtonic-display-profile checks them
+        // against the published primaries), sRGB red's known P3 value.
+        let lut = p3_lut();
+        for (i, patch) in PATCHES.into_iter().enumerate() {
+            let got = pixel(&pixels, 20 * i as u32 + 10, 40);
+            let want = lut
+                .apply(patch.map(|v| v as f32 / 255.0))
+                .map(|v| (v * 255.0).round() as u8);
+            assert!(close(got, want), "patch {patch:?}: {got:?} vs {want:?}");
+        }
+        assert!(close(pixel(&pixels, 10, 40), [234, 51, 35]));
+        // The background around the photograph is converted too.
+        let grey = (BG[0] * 255.0).round() as u8;
+        let bg = pixel(&pixels, 100, 95);
+        assert!(bg != [0, 0, 0] && close(bg, [grey; 3]), "{bg:?}");
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; an sRGB monitor shows the frame byte for byte"]
+    fn an_srgb_monitor_presents_the_frame_unchanged() {
+        let gpu = offscreen();
+        let icc = moxcms::ColorProfile::new_srgb().encode().unwrap();
+        let lut =
+            rawtonic_display_profile::display_lut(rawtonic_display_profile::Encoding::Srgb, &icc)
+                .unwrap();
+        assert!(lut.is_none());
+        let srgb = super::super::monitor_transform::MonitorBinding::new(
+            &gpu.device,
+            &gpu.queue,
+            &gpu.monitor_layout,
+            lut.as_ref(),
+        );
+        let live = patch_frame(&gpu);
+        let draw = || {
+            Some(PrimaryDraw {
+                bind_group: &live,
+                before: &gpu.empty_before,
+                clip: [0.0, 0.0, 200.0, 100.0],
+            })
+        };
+        let before = present(&gpu, &MultiView::default(), draw());
+        let after = present_through(&gpu, &MultiView::default(), draw(), &srgb);
+        assert_eq!(before, after);
+        for (i, patch) in PATCHES.into_iter().enumerate() {
+            assert_eq!(pixel(&after, 20 * i as u32 + 10, 40), patch);
+        }
+    }
+
+    /// Offscreen wall-clock time of the display pass (from encoding it to GPU
+    /// idle, not GPU timestamps) for a 3840 × 2160 window filled by a
+    /// 3840 × 2160 frame, with and without the monitor transform. Prints the
+    /// medians.
+    #[test]
+    #[ignore = "requires a native GPU; timing probe"]
+    fn monitor_transform_timing_probe() {
+        let gpu = offscreen();
+        let window = [3840u32, 2160u32];
+        let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: window[0],
+                height: window[1],
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = target.create_view(&Default::default());
+        let (w, h) = (window[0], window[1]);
+        let noise: Vec<u8> = (0..w * h)
+            .flat_map(|i| {
+                let v = i.wrapping_mul(2_654_435_761);
+                [(v >> 24) as u8, (v >> 16) as u8, (v >> 8) as u8, 255]
+            })
+            .collect();
+        let area = [0.0, 0.0, w as f32, h as f32];
+        let live = live_frame_of(&gpu, area, area, (w, h), &noise);
+        let p3 = p3_monitor(&gpu);
+        let time = |monitor: &super::super::monitor_transform::MonitorBinding| {
+            let mut samples = Vec::new();
+            for _ in 0..60 {
+                let start = std::time::Instant::now();
+                let mut encoder = gpu.device.create_command_encoder(&Default::default());
+                encode_display_pass(
+                    &mut encoder,
+                    &view,
+                    window,
+                    DisplayPass {
+                        pipeline: &gpu.pipeline,
+                        empty_before: &gpu.empty_before,
+                        monitor: &monitor.bind_group,
+                    },
+                    monitor.convert_clear(BG),
+                    None,
+                    Some(PrimaryDraw {
+                        bind_group: &live,
+                        before: &gpu.empty_before,
+                        clip: area,
+                    }),
+                );
+                gpu.queue.submit(Some(encoder.finish()));
+                let _ = gpu.device.poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: None,
+                });
+                samples.push(start.elapsed().as_secs_f64() * 1e3);
+            }
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let _ = time(&p3);
+        let plain = time(&gpu.monitor);
+        let converted = time(&p3);
+        let plain_again = time(&gpu.monitor);
+        println!(
+            "display pass 3840x2160: without transform {plain:.3} / {plain_again:.3} ms, with the monitor transform {converted:.3} ms (median of 60, wall clock from encoding the pass to GPU idle)"
+        );
+    }
+
     /// GPU time of the display pass for a 2880 × 1800 window (a 14" MacBook
     /// Pro at 2×) with eleven secondary cells of 1088 × 724 texels against
     /// the pass without them: the per-frame cost the multi view adds to the
@@ -1971,6 +2178,7 @@ mod tests {
                     DisplayPass {
                         pipeline: &gpu.pipeline,
                         empty_before: &gpu.empty_before,
+                        monitor: &gpu.monitor.bind_group,
                     },
                     BG,
                     with_cells.then_some(&multi),

@@ -2528,6 +2528,21 @@
       "saved": "登録されたレンズ",
       "title": "マイレンズ"
     },
+    "monitorProfile": {
+      "choose": "ICC プロファイルを選択…",
+      "chosen": "環境設定で選択: {{path}}",
+      "converted": "プレビューは {{profile}} に変換されます。",
+      "description": "プレビューをどのカラープロファイルを通して表示するか。書き出しには影響しません。",
+      "notApplied": "システムのプロファイルは {{profile}} です。",
+      "pickTitle": "モニターの ICC プロファイルを選択",
+      "refused": "このプロファイルは使用できません: {{reason}}",
+      "rendererOff": "ネイティブレンダラーがオフです: プレビューは {{profile}} に変換されません。",
+      "section": "ディスプレイの色",
+      "srgb": "プレビューは sRGB で表示されます（モニターに他のプロファイルがありません）。",
+      "system": "システムがプレビューをこのディスプレイのプロファイルに合わせます。",
+      "title": "モニタープロファイル",
+      "useSystem": "システムのプロファイルを使用"
+    },
     "processing": {
       "aiDenoiseQualities": {
         "auto": "自動",

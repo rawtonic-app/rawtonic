@@ -86,6 +86,7 @@ mod memory_broker;
 mod memory_pressure;
 mod merges;
 mod moebius;
+mod monitor_profile;
 mod multi_view;
 mod multi_view_prefetch;
 mod negative_conversion;
@@ -333,6 +334,7 @@ fn start(args: Vec<String>) {
                     // Moved to a display of another scale: same logical
                     // size, other device px.
                     tauri::WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                        monitor_profile::refresh(window.app_handle(), window.label());
                         second_window::resized(
                             window.app_handle(),
                             window,
@@ -341,12 +343,14 @@ fn start(args: Vec<String>) {
                         )
                     }
                     tauri::WindowEvent::Moved(_) => {
+                        monitor_profile::refresh(window.app_handle(), window.label());
                         if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
                             second_window::note_bounds(window.app_handle(), &webview);
                         }
                         second_window::repaint(window.app_handle());
                     }
                     tauri::WindowEvent::Focused(true) => {
+                        monitor_profile::refresh(window.app_handle(), window.label());
                         // Wayland tells no move: the display it is on is
                         // noted when it is used.
                         if let Some(webview) = window.app_handle().get_webview_window(window.label()) {
@@ -379,6 +383,19 @@ fn start(args: Vec<String>) {
                 && let Ok(ns_window) = window.ns_window()
             {
                 performance::log_display_refresh(ns_window);
+            }
+            // The monitor under the window, or its profile, may have
+            // changed (moved to another display, a profile set in
+            // Colour Management meanwhile).
+            if window.label() == "main"
+                && matches!(
+                    event,
+                    tauri::WindowEvent::Moved(_)
+                        | tauri::WindowEvent::ScaleFactorChanged { .. }
+                        | tauri::WindowEvent::Focused(true)
+                )
+            {
+                monitor_profile::refresh(window.app_handle(), "main");
             }
             let tauri::WindowEvent::Resized(size) = event else { return };
             if window.label() != "main" {
@@ -1124,6 +1141,8 @@ fn start(args: Vec<String>) {
             contribute::crash_report_remove,
             contribute::crash_reports_set_enabled,
             contribute::usage_stats_set_enabled,
+            monitor_profile::monitor_profile_status,
+            monitor_profile::monitor_profile_choose,
             contribute::usage_stats_note_tools,
             contribute::usage_stats_preview,
             app_settings::command::load_settings,

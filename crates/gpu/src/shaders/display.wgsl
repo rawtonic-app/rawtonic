@@ -30,6 +30,20 @@ struct Transform {
 // photograph rect as `tex` (1×1 and unused without a split).
 @group(1) @binding(0) var before_tex: texture_2d<f32>;
 
+// The monitor's display transform (monitor_transform.rs): `levels` maps an
+// encoded colour to a grey level per channel, `curve` (one row) the level
+// to the monitor's value. enabled 0: values pass through unchanged.
+struct Monitor {
+    enabled: f32,
+    size: f32,
+    curve_size: f32,
+    _pad: f32,
+};
+@group(2) @binding(0) var<uniform> monitor: Monitor;
+@group(2) @binding(1) var monitor_levels: texture_3d<f32>;
+@group(2) @binding(2) var monitor_curve: texture_2d<f32>;
+@group(2) @binding(3) var monitor_samp: sampler;
+
 struct VertexOutput {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -137,8 +151,31 @@ fn own_size_texel(screen: vec2<f32>) -> vec2<f32> {
     return floor(screen - round(transform.rect.xy)) + vec2<f32>(0.5);
 }
 
+// Converts a drawn colour (display-encoded, premultiplied) into the
+// monitor's values, keeping its coverage.
+fn to_monitor(color: vec4<f32>) -> vec4<f32> {
+    if (monitor.enabled < 0.5 || color.a <= 0.0) {
+        return color;
+    }
+    let rgb = clamp(color.rgb / color.a, vec3<f32>(0.0), vec3<f32>(1.0));
+    let n = monitor.size;
+    let level = textureSampleLevel(monitor_levels, monitor_samp, (rgb * (n - 1.0) + 0.5) / n, 0.0).rgb;
+    let m = monitor.curve_size;
+    let at = (level * (m - 1.0) + 0.5) / m;
+    let out = vec3<f32>(
+        textureSampleLevel(monitor_curve, monitor_samp, vec2<f32>(at.r, 0.5), 0.0).r,
+        textureSampleLevel(monitor_curve, monitor_samp, vec2<f32>(at.g, 0.5), 0.0).g,
+        textureSampleLevel(monitor_curve, monitor_samp, vec2<f32>(at.b, 0.5), 0.0).b,
+    );
+    return vec4<f32>(out * color.a, color.a);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    return to_monitor(shade(in));
+}
+
+fn shade(in: VertexOutput) -> vec4<f32> {
     var uv = in.uv;
     var screen = in.screen;
     if (transform.box_rect.z > 0.0) {

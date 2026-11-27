@@ -2768,6 +2768,21 @@
       "saved": "Objectius desats",
       "title": "Els meus objectius"
     },
+    "monitorProfile": {
+      "choose": "Tria un perfil ICC…",
+      "chosen": "Triat a les Preferències: {{path}}",
+      "converted": "La previsualització es converteix a {{profile}}.",
+      "description": "El perfil de color a través del qual es mostra la previsualització. Mai no canvia les exportacions.",
+      "notApplied": "El perfil del sistema és {{profile}}.",
+      "pickTitle": "Tria el perfil ICC del monitor",
+      "refused": "Aquest perfil no es pot fer servir: {{reason}}",
+      "rendererOff": "El renderitzador natiu està desactivat: la previsualització no es converteix a {{profile}}.",
+      "section": "Color de la pantalla",
+      "srgb": "La previsualització es mostra en sRGB: el monitor no té cap altre perfil.",
+      "system": "El sistema ajusta la previsualització al perfil d'aquesta pantalla.",
+      "title": "Perfil del monitor",
+      "useSystem": "Fes servir el perfil del sistema"
+    },
     "processing": {
       "aiDenoiseQualities": {
         "auto": "Automàtica",

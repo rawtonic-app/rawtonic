@@ -1,0 +1,30 @@
+[package]
+name = "rawtonic-display-profile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The monitor's ICC profile: where each OS keeps it, and the display transform from the preview's encoding into it. No desktop dependencies."
+
+[features]
+default = []
+# Where Windows and Linux keep the monitor's profile (the desktop app only:
+# the Linux lookup links libdbus, which a headless build need not have).
+system-lookup = ["dep:windows-sys", "dep:dbus", "dep:x11-dl"]
+
+[lints]
+workspace = true
+
+[dependencies]
+moxcms = "0.8"
+
+[dev-dependencies]
+png = { workspace = true }
+rawtonic-fs = { path = "../fs", version = "0.1.0" }
+tempfile = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_Devices_Display", "Win32_Graphics_Gdi", "Win32_UI_ColorSystem"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus = { version = "0.9", optional = true }
+x11-dl = { version = "2.21", optional = true }
