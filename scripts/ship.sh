@@ -94,6 +94,7 @@ BRANCH=$(git symbolic-ref --short HEAD) || die "detached HEAD"
 [ "$BRANCH" != main ] || die "on main; ship a feature branch"
 [ -z "$(git status --porcelain)" ] || die "uncommitted changes; commit them first"
 git fetch -q origin
+# Branches may legitimately lag main; the guard scans their three-dot diff.
 check_reverts
 [ -n "$(git log --oneline origin/main..HEAD)" ] || die "no commits ahead of origin/main"
 WORKTREE=$(pwd -P)

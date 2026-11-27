@@ -270,6 +270,21 @@ grep -q '+later-round sentinel' "$T/incremental" || fail "incremental diff missi
 grep -q 'diff --git a/unreviewed-real.txt' "$T/incremental" && fail "incremental diff includes unchanged branch work"
 rm "$T/bin/claude"
 
+# The real ship entry point rejects restoring an absent pre-merge blob, then
+# accepts only the named override and records it in the actual PR body.
+new_branch guard-source
+ship guard-source "$T/main" || fail "guard fixture source did not ship"
+new_branch guard-revert
+git -C "$T/wt-guard-revert" rm -q guard-source.txt
+git -C "$T/wt-guard-revert" commit -q -m 'fix: intended revert'
+gd=$(git -C "$T/wt-guard-revert" rev-parse --git-dir)
+git -C "$T/wt-guard-revert" rev-parse HEAD >"$gd/rawtonic-check-passed"
+ship guard-revert "$T/wt-guard-revert" --dry-run && fail "silent revert shipped"
+grep -q 'this branch reverts guard-source.txt to before' "$T/out" || fail "missing revert reason"
+ship guard-revert "$T/wt-guard-revert" --dry-run --allow-revert other.txt && fail "unrelated override accepted"
+ship guard-revert "$T/wt-guard-revert" --no-merge --no-review 'test fixture' --allow-revert guard-source.txt || fail "intended revert rejected"
+grep -q 'guard-source.txt' "$T/gh-guard-revert.body" || fail "revert override missing from body"
+
 if [ "$FAILS" != 0 ]; then
   printf 'last output:\n'; cat "$T/out"
   exit 1

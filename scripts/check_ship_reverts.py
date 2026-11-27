@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject stale branch diffs and exact restorations of recent pre-merge blobs."""
+"""Reject exact restorations of recent pre-merge blobs in branch-owned files."""
 import argparse
 import subprocess
 import sys
@@ -14,36 +14,40 @@ def changed(base):
     return set(git("diff", "--name-only", "-z", *revisions).split(b"\0")) - {b""}
 
 
-def blob(revision, path):
-    # ls-tree also represents an absent file, so deletions are checked too.
-    entry = git("--literal-pathspecs", "ls-tree", "-z", revision, "--", path)
-    return entry.split(b"\t", 1)[0].split()[-1] if entry else b""
+def blobs(revision):
+    result = {}
+    for entry in git("ls-tree", "-rz", revision).split(b"\0"):
+        if entry:
+            metadata, path = entry.split(b"\t", 1)
+            result[path] = metadata.split()[-1]
+    return result
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--allow-revert", action="append", default=[])
     args = parser.parse_args()
-    direct = changed("origin/main")
-    if direct != changed("origin/main...HEAD"):
-        sys.exit("ship: stale base: branch and merge-base file lists differ; rebase onto origin/main and ship again")
+    direct = changed("origin/main...HEAD")
     allowed = {p.encode(errors="surrogateescape") for p in args.allow_revert}
+    head = blobs("HEAD")
+    main_tree = blobs("origin/main")
+    pending = {p for p in direct - allowed if head.get(p) != main_tree.get(p)}
     failed = False
     merges = git("rev-list", "--first-parent", "--merges", "-n", "40", "origin/main").splitlines()
-    for raw_path in sorted(direct - allowed):
-        path = raw_path.decode(errors="surrogateescape")
-        current = blob("HEAD", path)
-        if current == blob("origin/main", path):
-            continue
-        for merge in merges:
-            revision = merge.decode()
-            before = blob(revision + "^1", path)
-            if before == blob(revision, path) or current != before:
+    for merge in merges:
+        if not pending:
+            break
+        revision = merge.decode()
+        before = blobs(revision + "^1")
+        after = blobs(revision)
+        for raw_path in sorted(pending):
+            if before.get(raw_path) == after.get(raw_path) or head.get(raw_path) != before.get(raw_path):
                 continue
+            path = raw_path.decode(errors="surrogateescape")
             subject = git("show", "-s", "--format=%s", revision).decode().strip()
             print(f"ship: this branch reverts {path} to before {subject}; use --allow-revert {path!r} for an intended revert", file=sys.stderr)
             failed = True
-            break
+            pending.remove(raw_path)
     return int(failed)
 
 

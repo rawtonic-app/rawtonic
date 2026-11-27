@@ -41,7 +41,7 @@ class GuardTest(unittest.TestCase):
             git("checkout", "worker")
             write("worker", "feature")
             commit("worker change")
-            self.assertIn("stale base", guard().stderr)
+            self.assertEqual(guard().returncode, 0)  # Ordinary branch behind main.
             # The exact failure: old tree becomes a commit on new main.
             git("reset", "--soft", "origin/main")
             commit("bad squash #1201")
