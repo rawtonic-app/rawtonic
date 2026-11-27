@@ -50,9 +50,9 @@ pub(crate) fn click_reserve(app: &tauri::AppHandle) -> u64 {
 
 /// What a settled frame of the open photo's full decode may add, per pixel
 /// of the photo: the Lenovo's new-layer frame of a 51 MP RAF (8256x6192, a
-/// Subject click's own frame) grew the app by 1872–2134 MB in 8 of 8 runs,
+/// Subject click's own frame) grew the app by 1877–2130 MB in 8 of 8 runs,
 /// the first Develop frame by 1.3–2.5 GB (WBRK1, notes: benchmark-results/
-/// brk2-2026-11-27): 2134 MB / 51.1 MP → 42 bytes. Most frames reuse their
+/// brk2-2026-11-27): 2130 MB / 51.1 MP → 42 bytes. Most frames reuse their
 /// caches and add nothing; the hold lasts only while the frame runs.
 pub(crate) const FRAME_BYTES_PER_PIXEL: u64 = 42;
 
