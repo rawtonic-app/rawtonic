@@ -1238,7 +1238,10 @@ async fn network_planned(
 /// requests. `download`: the model may be downloaded (a click); otherwise
 /// only an installed model is used (`Ok(None)` without one: background
 /// requests, a camera TIFF's migrated selection computed again on opening).
-/// Cancelling `cancel` stops a run of ONNX Runtime at once.
+/// Cancelling `cancel` stops a run of ONNX Runtime at once. A run the
+/// photographer asked for that the run-time guard stops near the memory
+/// floor (`memory_broker::RunGuard`, G74/BRK5) waits for memory and runs
+/// again.
 #[allow(clippy::too_many_arguments)]
 async fn auto_mask(
     state: &tauri::State<'_, AppState>,
@@ -1251,6 +1254,44 @@ async fn auto_mask(
     download: bool,
     origin: Option<Origin>,
     cancel: Option<&Arc<AiTaskToken>>,
+) -> Result<Option<Arc<String>>, CommandError> {
+    loop {
+        let mut stopped_short = false;
+        let mask = auto_mask_attempt(
+            state,
+            ai_state,
+            app_handle,
+            js_adjustments,
+            kind,
+            subject_version,
+            asked,
+            download,
+            origin,
+            cancel,
+            &mut stopped_short,
+        )
+        .await?;
+        if !stopped_short {
+            return Ok(mask);
+        }
+    }
+}
+
+/// One attempt of `auto_mask`; `stopped_short` is set when the run-time
+/// guard stopped its run (then `Ok(None)`, and it is asked again).
+#[allow(clippy::too_many_arguments)]
+async fn auto_mask_attempt(
+    state: &tauri::State<'_, AppState>,
+    ai_state: &AiState,
+    app_handle: &tauri::AppHandle,
+    js_adjustments: &serde_json::Value,
+    kind: AutoMask,
+    subject_version: u32,
+    asked: Option<&str>,
+    download: bool,
+    origin: Option<Origin>,
+    cancel: Option<&Arc<AiTaskToken>>,
+    stopped_short: &mut bool,
 ) -> Result<Option<Arc<String>>, CommandError> {
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
     // Counts as running from here, so an idle unload waits for the load too.
@@ -1350,12 +1391,23 @@ async fn auto_mask(
                             now.path == loaded.path && Arc::ptr_eq(&now.image, &loaded.image)
                         })
             };
+            let waited_since = std::time::Instant::now();
             let admitted = admit_asked(request, &gone, &mut tell).await;
             if told {
                 let _ = app_handle.emit(MEMORY_WAIT_END_EVENT, notice.clone());
             }
             match admitted {
                 Ok(reservation) => {
+                    if told {
+                        // It waited for memory (a pending layer at ~7 GB
+                        // available, a run the guard stopped): the room is
+                        // there now (G74/BRK5).
+                        log::info!(
+                            "AI {} mask: memory is free now after waiting {} ms for it; the run starts",
+                            kind.name(),
+                            waited_since.elapsed().as_millis()
+                        );
+                    }
                     log::info!(
                         "AI {} mask: granted {} MB; the frame after its answer {}",
                         kind.name(),
@@ -1510,6 +1562,17 @@ async fn auto_mask(
             let _ = options.terminate();
         })
     });
+    // A granted run of the photographer's stops before it takes the system
+    // below the memory floor (G74/BRK5): speculative work is cancelled and
+    // the run waits for memory to run again.
+    let guard = reservation
+        .as_ref()
+        .zip(options.clone())
+        .map(|(reservation, options)| {
+            crate::memory_broker::RunGuard::start(reservation.label(), move || {
+                let _ = options.terminate();
+            })
+        });
     let is_raw = loaded.is_raw;
     let run_options = options.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -1546,8 +1609,27 @@ async fn auto_mask(
     if let Some(watcher) = watcher {
         watcher.abort();
     }
+    let tripped = guard.and_then(|guard| guard.finish());
     if cancelled() {
         return Err(task_cancelled());
+    }
+    if let (Some(at), Some(reservation)) = (tripped, reservation.as_ref())
+        && !matches!(result, Ok(Ok(_)))
+    {
+        let next = crate::memory_broker::BROKER.stopped_short(
+            reservation,
+            crate::memory_pressure::reading().app.or(at.app),
+        );
+        log::info!(
+            "AI {} mask: run stopped with {} MB available, {} MB is kept for the system; it waits for memory and runs again (estimate now {} MB); {}",
+            kind.name(),
+            at.available / MB,
+            rawtonic_runtime::memory_budget::floor(at.total) / MB,
+            next / MB,
+            crate::memory_pressure::memory_line()
+        );
+        *stopped_short = true;
+        return Ok(None);
     }
     let (data, model_ms, backend) = result.map_err(|e| e.to_string())??;
     log::info!(
@@ -1921,12 +2003,23 @@ const LOW_PEAK_MODEL: u64 = 1000 * MB;
 /// after the run): +1362 MB on x86 in 3 fresh processes (MEM21), rounded up.
 const LOW_PEAK_RUN: u64 = 1400 * MB;
 /// The reduced plan's run (`MemoryPlan::LowPeakNoArena`, MEM21 option B):
-/// +643 MB on x86 alone (MEM21), but in the app on the Lenovo the whole
-/// reduced plan grew it by 1967–2539 MB over model and warped image of
-/// 1613 MB, i.e. +354–926 MB for the run (WBRK2, 6 runs at 7 GB
-/// available; 2 more stopped by the watchdog 3 s in) → 950 MB, the largest
-/// measured (G74/BRK3).
-const LOW_PEAK_RUN_REDUCED: u64 = 950 * MB;
+/// +643 MB on x86 alone (MEM21), but in the app on the Lenovo (Ryzen 5 PRO
+/// 6650U, 14 GB, ONNX Runtime CPU) the whole reduced plan grew its Private
+/// Bytes by up to 2686 MB over model and warped image of 1613 MB, i.e.
+/// +1073 MB for the run: the largest peak growth from the grant to the
+/// answer (1 s samples of the app's Private Bytes) in the 16 reduced-plan
+/// runs from the saved optimized graph of WBRK2 and WBRK3 at 7–8.5 GB
+/// available (51 MP; notes: benchmark-results/brk5-2026-11-27 §1). The
+/// 950 MB before (WBRK2 alone) was below one of them (G74/BRK5).
+const LOW_PEAK_RUN_REDUCED: u64 = 1100 * MB;
+/// A first session of the low-peak graph optimizes and saves it
+/// (`rawtonic_onnx`'s optimized graph cache), then loads the saved graph:
+/// 1898 MB peak resident on x86 against 1999 MB for that session's first
+/// run (BRK5, VmHWM): below the model and either plan's run, so the
+/// estimates hold for a first session too (WBRK4: before the reload such
+/// a session's run took the app 1.3 GB past its grant).
+const LOW_PEAK_FIRST_SESSION: u64 = 1900 * MB;
+const _: () = assert!(LOW_PEAK_FIRST_SESSION <= LOW_PEAK_MODEL + LOW_PEAK_RUN_REDUCED);
 /// The photo's warped full-resolution image the network reads: 12 bytes
 /// per pixel (8-bit RGB working copy and its float input; MEMB1 §4,
 /// ≈ 0.6 GB for the 51 MP RAF).
@@ -2907,11 +3000,11 @@ mod tests {
         assert_eq!(r.label, "AI subject pending layer");
         assert_eq!(r.visible_wait, PENDING_WAITS_FOR_VISIBLE);
         // Model 1.0 GB + warped image 12 B/px (0.61 GB) + run: 1.4 GB with
-        // the arena (MEM21 option A), 0.95 GB without (option B, the
-        // largest the Lenovo measured in the app, WBRK2).
+        // the arena (MEM21 option A), 1.1 GB without (option B, the
+        // largest the Lenovo measured in the app, WBRK2/WBRK3).
         let warp = 8256 * 6192 * 12;
         assert_eq!(r.need, 1000 * MB + warp + 1400 * MB);
-        assert_eq!(r.reduced, Some(1000 * MB + warp + 950 * MB));
+        assert_eq!(r.reduced, Some(1000 * MB + warp + 1100 * MB));
         // It starts only when a plan fits (G74/BRK2, WBRK1: granted beyond
         // the room, 16 of 16 clicks hit the watchdog).
         assert!(r.fits_only);
@@ -2928,7 +3021,7 @@ mod tests {
             frame_rebuilds: false,
         });
         assert_eq!(shared.need, 2400 * MB);
-        assert_eq!(shared.reduced, Some(1950 * MB));
+        assert_eq!(shared.reduced, Some(2100 * MB));
         // Elsewhere (Core ML, or the usual graph): MEM18's measured peaks,
         // no reduced plan.
         let usual = asked_request(&AskedEstimate {

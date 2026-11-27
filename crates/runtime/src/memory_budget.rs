@@ -71,6 +71,26 @@ pub fn floor(total: u64) -> u64 {
     (total / 10).max(FLOOR_MIN)
 }
 
+/// How close to the floor the available memory may come while a run the
+/// photographer asked for holds its grant ([`guard_trips`]): what the app
+/// can grow by before a run sees the stop. A Subject run on a 14 GB laptop
+/// grew the app by up to 0.9 GB/s (WBRK4 L85_c20: 4164 → 5056 MiB in
+/// 1.1 s); the guard reads the memory every 100 ms and ONNX Runtime stops
+/// at its next operator (`RunOptions::terminate`, ~0.2 s): ≈ 270 MB
+/// (G74/BRK5).
+pub const GUARD_MARGIN: u64 = 300 * MB;
+
+/// The run-time guard of a granted run the photographer asked for (G74/BRK5):
+/// whether, with the memory `now`, it must stop instead of taking the system
+/// below the [`floor`] — its estimate fell short (a first session of a
+/// model that optimizes its graph kept 1.0 GB more on x86, WBRK4), or
+/// work beside it (the open photo's frames) took the room. The run stops,
+/// its reservation records what it grew by ([`Broker::stopped_short`]) and
+/// it waits for memory to run again.
+pub fn guard_trips(now: &Reading) -> bool {
+    now.total > 0 && now.available < floor(now.total).saturating_add(GUARD_MARGIN)
+}
+
 /// Share of the physical memory the app's own memory stays within for
 /// speculative work: as `memory_pressure::WORK_SHARE` (G76/WG74: the multi
 /// view with seven 39–61 MP RAWs at 100 % reached 10.4 GB of 14 GB).
@@ -707,6 +727,64 @@ impl Broker {
                 e.held.estimate = grown.saturating_add(still_to_come);
             }
         });
+    }
+
+    /// `reservation`'s run was stopped by the run-time guard ([`guard_trips`])
+    /// with the app at `app_now`: the next request with its label and plan
+    /// is estimated at least at the larger of its estimate and what it grew
+    /// by, plus [`GUARD_MARGIN`] — each stop raises it, so a run that does
+    /// not fit waits for memory instead of starting and stopping again.
+    /// Its release records nothing after this. Returns that estimate.
+    pub fn stopped_short(&self, reservation: &Reservation, app_now: Option<u64>) -> u64 {
+        self.with(|inner| {
+            let Some(e) = inner.held.iter_mut().find(|e| e.held.id == reservation.id) else {
+                return reservation.estimate;
+            };
+            let grown = match (e.held.app_at_start, app_now) {
+                (Some(start), Some(now)) => now.saturating_sub(start),
+                _ => 0,
+            }
+            .max(e.peak_growth);
+            let next = e.held.estimate.max(grown).saturating_add(GUARD_MARGIN);
+            e.alone = false;
+            let (label, plan) = (e.label, e.plan);
+            let next = inner
+                .measured
+                .iter()
+                .find(|(l, p, _)| *l == label && *p == plan)
+                .map_or(next, |(_, _, measured)| next.max(*measured));
+            inner
+                .measured
+                .retain(|(l, p, _)| !(*l == label && *p == plan));
+            inner.measured.push((label, plan, next));
+            next
+        })
+    }
+
+    /// Cancels the speculative work held that can stop (P3: the run-time
+    /// guard of a run the photographer asked for, [`guard_trips`]); it counts
+    /// until it is released, as for a grant. Returns how many were told.
+    pub fn cancel_speculative(&self) -> usize {
+        let now = Instant::now();
+        let cancels: Vec<Callback> = self.with(|inner| {
+            inner
+                .held
+                .iter_mut()
+                .filter(|e| {
+                    e.held.class == Class::Speculative
+                        && e.held.cancellable
+                        && e.cancelled_at.is_none()
+                })
+                .filter_map(|e| {
+                    e.cancelled_at = Some(now);
+                    e.cancel.clone()
+                })
+                .collect()
+        });
+        for cancel in &cancels {
+            cancel();
+        }
+        cancels.len()
     }
 
     /// The estimate for `label` with `plan`: `estimate`, or the last peak
@@ -1518,6 +1596,122 @@ mod tests {
         assert_eq!(b.corrected("x", Plan::Full, MB), MB);
         assert_eq!(b.corrected("y", Plan::Full, MB), MB);
     }
+    /// WBRK4 L85_c20_r1 (Lenovo, 15859 MB): the click's reduced plan was
+    /// granted 2563 MB with a room of 2636 MB; its first session grew the
+    /// app by 2.9 GB in 9 s and took the available memory to 1294 MiB, the
+    /// watchdog. The guard stops it before the floor, the stop raises the
+    /// estimate beyond what it grew by, the retry waits for memory and runs
+    /// when the room is there.
+    #[test]
+    fn a_run_that_comes_near_the_floor_stops_and_waits_for_memory_to_run_again() {
+        let b = broker();
+        let floor = floor(LENOVO);
+        let request = Request::new(Class::Asked, "AI subject click", 3013 * MB)
+            .reduced(2563 * MB)
+            .exclusive()
+            .only_when_it_fits();
+        let start = reading(floor + 2636 * MB, 3481 * MB);
+        let run = b
+            .try_reserve(request, &|| start, false, Duration::ZERO, None)
+            .unwrap()
+            .reservation;
+        assert_eq!(run.plan(), Plan::Reduced);
+        // Within its estimate and above the floor + margin: it goes on.
+        let mid = reading(floor + 1000 * MB, 3481 * MB + 1636 * MB);
+        assert!(!guard_trips(&mid));
+        b.observe(mid.app.unwrap());
+        // Past its estimate, the available memory within the margin of the
+        // floor: it stops.
+        let near = reading(floor + GUARD_MARGIN - 50 * MB, 3481 * MB + 2700 * MB);
+        assert!(guard_trips(&near));
+        assert!(guard_trips(&reading(floor - MB, 0)));
+        // Unknown memory: no stop.
+        assert!(!guard_trips(&Reading {
+            total: 0,
+            available: 0,
+            app: None
+        }));
+        let next = b.stopped_short(&run, near.app);
+        assert_eq!(next, 2700 * MB + GUARD_MARGIN);
+        drop(run);
+        // Its release did not lower what the stop recorded.
+        assert_eq!(
+            b.corrected("AI subject click", Plan::Reduced, 2563 * MB),
+            next
+        );
+        // The same room again: it waits (no plan fits) instead of running
+        // into the floor again.
+        let again = b.try_reserve(request, &|| start, false, Duration::from_secs(1), None);
+        assert!(matches!(again, Err(Wait::Memory { need, .. }) if need == next));
+        // Memory freed (the photographer closed another program): it runs.
+        let freed = reading(floor + next + 10 * MB, 3481 * MB);
+        let later = b
+            .try_reserve(request, &|| freed, false, Duration::from_secs(60), None)
+            .unwrap();
+        assert_eq!(later.reservation.plan(), Plan::Reduced);
+        assert_eq!(later.reservation.estimate(), next);
+        // A second stop raises it again: no endless start and stop.
+        let again = b.stopped_short(&later.reservation, Some(3481 * MB + 100 * MB));
+        assert_eq!(again, next + GUARD_MARGIN);
+    }
+
+    #[test]
+    fn the_guard_cancels_speculative_work_that_can_stop() {
+        let b = broker();
+        let r = reading(20 * GB, 3 * GB);
+        let told = Arc::new(AtomicUsize::new(0));
+        let t = told.clone();
+        let ahead = b
+            .try_reserve(
+                Request::new(Class::Speculative, "AI subject ahead", GB),
+                &|| r,
+                false,
+                Duration::ZERO,
+                Some(Arc::new(move || {
+                    t.fetch_add(1, Ordering::SeqCst);
+                })),
+            )
+            .unwrap();
+        let frame = b.hold(Class::Visible, "visible frame", GB, Some(3 * GB));
+        assert_eq!(b.cancel_speculative(), 1);
+        assert_eq!(told.load(Ordering::SeqCst), 1);
+        // Told once; it counts until it is released.
+        assert_eq!(b.cancel_speculative(), 0);
+        assert!(b.held().iter().any(|h| h.cancelled_for.is_some()));
+        drop((ahead, frame));
+    }
+
+    /// A pending layer that waits for memory (WBRK4 at ~7 GB: "waiting for
+    /// memory…", room 1.25–2.86 GB of 3717 MB) runs as soon as the room is
+    /// there, also after a long wait: the wait has no time limit.
+    #[test]
+    fn a_waiting_pending_layer_runs_when_memory_frees() {
+        let b = broker();
+        let floor = floor(LENOVO);
+        let request = Request::new(Class::Asked, "AI subject pending layer", 3717 * MB)
+            .reduced(3717 * MB)
+            .exclusive()
+            .visible_wait(PENDING_WAITS_FOR_VISIBLE)
+            .only_when_it_fits();
+        let short = reading(floor + 2855 * MB, 3700 * MB);
+        for waited in [0, 15, 75, 600] {
+            assert_eq!(
+                b.try_reserve(request, &|| short, false, Duration::from_secs(waited), None)
+                    .map(|g| g.reservation.plan()),
+                Err(Wait::Memory {
+                    room: 2855 * MB,
+                    need: 3717 * MB
+                })
+            );
+        }
+        let freed = reading(floor + 3800 * MB, 3700 * MB);
+        let granted = b
+            .try_reserve(request, &|| freed, false, Duration::from_secs(601), None)
+            .unwrap();
+        assert_eq!(granted.reservation.plan(), Plan::Full);
+        assert_eq!(granted.room, 3800 * MB);
+    }
+
     #[test]
     fn a_mask_run_that_does_not_fit_waits_instead_of_running_beyond_the_room() {
         // WBRK1 L7_c10_r1 (Lenovo, ~7 GB available at start): after the new
