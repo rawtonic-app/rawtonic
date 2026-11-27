@@ -4750,8 +4750,9 @@ pub struct GpuProcessor {
     h_blur_pipeline: wgpu::ComputePipeline,
     v_blur_pipeline: wgpu::ComputePipeline,
     blur_params_buffer: wgpu::Buffer,
-    /// Clarity version 4's reduced-grid base (`clarity_base`).
-    clarity_base: clarity_base::ClarityBasePasses,
+    /// Clarity version 4's reduced-grid base (`clarity_base`), compiled at
+    /// its first use: a processor's start compiles nothing for it.
+    clarity_base: std::sync::OnceLock<Result<clarity_base::ClarityBasePasses, String>>,
 
     flare_bgl_0: wgpu::BindGroupLayout,
     flare_bgl_1: wgpu::BindGroupLayout,
@@ -8912,7 +8913,6 @@ impl GpuProcessor {
             CompileWeight::Tiny,
         )?;
 
-        let clarity_base = clarity_base::ClarityBasePasses::new(device)?;
         let blur_params_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Blur Params Buffer"),
             size: std::mem::size_of::<BlurParams>() as u64,
@@ -9324,7 +9324,7 @@ impl GpuProcessor {
             h_blur_pipeline,
             v_blur_pipeline,
             blur_params_buffer,
-            clarity_base,
+            clarity_base: std::sync::OnceLock::new(),
             flare_bgl_0,
             flare_bgl_1,
             flare_threshold_pipeline,
@@ -12660,7 +12660,15 @@ impl GpuProcessor {
         // for the input and kept with the blurs (`clarity_base`); Dehaze and
         // Glow still need the large blur's colour at full resolution.
         let large_colour = large_blur_colour(adjustments);
-        let clarity_field = if clarity_v4(adjustments) && blur_requirements[3] {
+        let clarity_passes = if clarity_v4(adjustments) && blur_requirements[3] {
+            let passes = self
+                .clarity_base
+                .get_or_init(|| clarity_base::ClarityBasePasses::new(device));
+            Some(passes.as_ref().map_err(Clone::clone)?)
+        } else {
+            None
+        };
+        let clarity_field = if let Some(passes) = clarity_passes {
             let large_radius = (40.0 * scale).ceil().max(1.0) as u32;
             let srgb_input = adjustments.global.is_raw_image != 1;
             let mut cache = blur_cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -12682,7 +12690,7 @@ impl GpuProcessor {
                 {
                     field.clone()
                 }
-                _ => self.clarity_base.field(
+                _ => passes.field(
                     device,
                     queue,
                     input_texture_view,
@@ -12860,8 +12868,8 @@ impl GpuProcessor {
                         tile.large = wanted_large;
                     }
                     let upsample = |colour: Option<&wgpu::TextureView>| {
-                        if let Some(field) = field {
-                            self.clarity_base.upsample(
+                        if let (Some(field), Some(passes)) = (field, clarity_passes) {
+                            passes.upsample(
                                 device,
                                 queue,
                                 field,

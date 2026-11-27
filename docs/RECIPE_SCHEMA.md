@@ -141,7 +141,7 @@ When the destination keeps its key, the paste states it as the destination rende
 |---|---|---|---|
 | `toneVersion` | always | Whites and Shadows as the amount they render (v17's and v21's travel); Blacks always as amounts (v18's travel, `express_pasted_blacks`) | 16 ↔ 17 and 12 ↔ 17 exact; Shadows 20 ↔ 21 exact (the same render); onto versions before 20 Shadows keep the amount and render with that version's own Shadows response; Blacks 16/17 → 18 exact on the RAW look; 18 → 16/17 exact to −71.55, deeper values end at −100, their deepest (18's −100: ΔE mean 1.21 / p95 5.99, −75: 0.15 / 0.73); Blacks of JPEG/TIFF and AgX/Classic photos keep their value. 17 → 5 Whites +50 5.0 / 12.1 (2.0 / 7.7 left as it is, below version 8 the amount is not the same response). Shadows +100 17 → 12 1.0 / 3.6. Blacks −100 17 → 5 6.0 / 19.7. Highlights ≤ 0.004 |
 | `colorNoiseVersion` | always | none | not on the charts (decode stage) |
-| `clarityVersion` | `clarity` | none | 3 → 1 at +100 0.32 / 1.93; 3 → 2 at +100 0.16 / 1.17 |
+| `clarityVersion` | `clarity` | none | 3 → 1 at +100 0.32 / 1.93; 3 → 2 at +100 0.16 / 1.17; 4 ↔ 3 at +100 0.005 / 0.025 |
 | `structureVersion` | `structure` | version 2's amount: 1 ↔ 2 exact (v1 values beyond v2's reach of +29.5 / −41 end at ±100); 2 ↔ 3 the same value | 1 ↔ 2 byte-exact. 3 → 1 at +100 0.07 / 0.52 (0.28 / 2.28 untranslated) |
 | `dehazeVersion` | `dehaze` | none | raised Dehaze exact between 1 and 2 (they share it); lowered 2 ↔ 1 at −50 1.6 / 3.3, at −100 4.0 / 13.5 (version 1 has no setting with version 2's veil); 3 adapts to the photo's airlight in both directions, so no value of 1 or 2 renders it |
 | `vibranceVersion` | `vibrance` | none | 2 → 1 at −100 4.3 / 32.7, at +50 0.84 / 6.1 |
