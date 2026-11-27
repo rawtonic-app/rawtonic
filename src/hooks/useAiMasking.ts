@@ -124,12 +124,15 @@ const memoryWaitNotice = (kind: AiMaskMemoryWait['kind']) => `ai-mask-memory-wai
 /** Waits for memory under way, by kind and photo. */
 const memoryWaits = new Map<string, number>();
 const waitKey = ({ path, kind }: AiMaskMemoryWait) => JSON.stringify([kind, path]);
+/** The photo each kind's notice was shown for. */
+const noticeFor = new Map<AiMaskMemoryWait['kind'], string>();
 
 /** A mask waits for memory: the photographer is told when it is the open
  * photo's (one notice per kind while such a wait lasts). */
 export function noteAiMaskMemoryWait(wait: AiMaskMemoryWait) {
   memoryWaits.set(waitKey(wait), (memoryWaits.get(waitKey(wait)) ?? 0) + 1);
   if (useEditorStore.getState().selectedImage?.path !== wait.path) return;
+  noticeFor.set(wait.kind, wait.path);
   notify.warn(i18n.t(wait.kind === 'sky' ? 'editor.ai.memoryWaitSky' : 'editor.ai.memoryWaitSubject'), {
     toastId: memoryWaitNotice(wait.kind),
     source: 'ai'
@@ -140,10 +143,15 @@ export function noteAiMaskMemoryWait(wait: AiMaskMemoryWait) {
  * changed): the notice goes when no wait of its kind for that photo is left. */
 export function noteAiMaskMemoryWaitEnd(wait: AiMaskMemoryWait) {
   const left = Math.max(0, (memoryWaits.get(waitKey(wait)) ?? 0) - 1);
-  if (left === 0) {
-    memoryWaits.delete(waitKey(wait));
-    notify.dismiss(memoryWaitNotice(wait.kind));
-  } else memoryWaits.set(waitKey(wait), left);
+  if (left > 0) {
+    memoryWaits.set(waitKey(wait), left);
+    return;
+  }
+  memoryWaits.delete(waitKey(wait));
+  // Only the photo's own notice: another photo's may show under that id now.
+  if (noticeFor.get(wait.kind) !== wait.path) return;
+  noticeFor.delete(wait.kind);
+  notify.dismiss(memoryWaitNotice(wait.kind));
 }
 
 /** Why the backend dropped the models (`ai_lifecycle::UnloadReason`). */
@@ -262,6 +270,7 @@ export function noteLandscapeModelReady() {
 /** Forgets the session state (tests). */
 export function resetAiMaskSession() {
   memoryWaits.clear();
+  noticeFor.clear();
   landscapeWaitingForModel.clear();
   cancelAiMaskPrecompute();
   lastMaskingUse = null;

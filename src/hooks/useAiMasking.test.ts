@@ -170,8 +170,11 @@ describe('automatic AI masks from imported presets', () => {
     expect(toast.warn.mock.calls[0][0]).toMatch(/Not enough memory to compute the Subject mask/);
     expect(toast.warn.mock.calls[0][1]).toMatchObject({ toastId: 'ai-mask-memory-wait-subject' });
     expect(subOf('sub-ai-foreground')?.parameters).toMatchObject({ maskDataBase64: null });
-    // Memory freed: this photo's wait ends first, its notice goes although
-    // the other photo's wait lasts; the run answers, the layer gets its mask.
+    // The other photo's wait ends: it showed no notice, this one's stays.
+    act(() => listeners.get(AI_MASK_MEMORY_WAIT_END_EVENT)?.({ payload: { path: '/s/b.NEF', kind: 'subject' } }));
+    expect(toast.dismiss).not.toHaveBeenCalled();
+    // Memory freed: this photo's wait ends, its notice goes; the run
+    // answers, the layer gets its mask.
     act(() => listeners.get(AI_MASK_MEMORY_WAIT_END_EVENT)?.({ payload: { path: '/s/a.NEF', kind: 'subject' } }));
     expect(toast.dismiss).toHaveBeenCalledWith('ai-mask-memory-wait-subject');
     await act(async () => answer({ maskDataBase64: 'data:image/png;base64,AAAA' }));

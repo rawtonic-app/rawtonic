@@ -416,6 +416,12 @@ pub fn decide(request: &Request, situation: &Situation) -> Decision {
             let reserve = if beside_waiting { 0 } else { request.reserve };
             let need = request.need.saturating_add(reserve);
             if room < need {
+                // The waiting click's prerequisite may let the ledger go,
+                // as the click itself would (review r3).
+                let short = need - room;
+                if beside_waiting && situation.reclaimable >= short {
+                    return grant(Plan::Full, short);
+                }
                 return Decision::Wait(Wait::Memory { room, need });
             }
             grant(Plan::Full, 0)
@@ -1653,6 +1659,23 @@ mod tests {
         let mut s = situation(&none, reading(4 * GB, 6600 * MB));
         s.asked_waiting = true;
         assert!(matches!(decide(&fetch, &s), Decision::Grant { .. }));
+        // Review r3: 2.2 GB available (room 614 MB), 2 GB of decodes the
+        // ledger can let go: the fetch starts, reclaiming what it lacks.
+        let mut s = situation(&none, reading(2200 * MB, 6600 * MB));
+        s.asked_waiting = true;
+        s.reclaimable = 2 * GB;
+        assert_eq!(
+            decide(&fetch, &s),
+            Decision::Grant {
+                plan: Plan::Full,
+                reclaim: 700 * MB - (2200 * MB - floor(LENOVO))
+            }
+        );
+        s.reclaimable = 0;
+        assert!(matches!(
+            decide(&fetch, &s),
+            Decision::Wait(Wait::Memory { .. })
+        ));
         // Not while an asked run holds its reservation.
         let click = [Held {
             exclusive: true,
