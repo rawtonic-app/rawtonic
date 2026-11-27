@@ -2018,18 +2018,33 @@ const MB: u64 = 1_000_000;
 /// after the first run with +1.36 GB of it the run → ≈ 1.0 GB model, as
 /// AIMEM measured the usual graph's).
 const LOW_PEAK_MODEL: u64 = 1000 * MB;
-/// Its first run with the shipped plan (`MemoryPlan::LowPeak`, arena shrunk
-/// after the run): +1362 MB on x86 in 3 fresh processes (MEM21), rounded up.
-const LOW_PEAK_RUN: u64 = 1400 * MB;
+/// Its run with the shipped plan (`MemoryPlan::LowPeak`, arena shrunk after
+/// the run). The arena is committed at once and touched as the network
+/// walks it, so the system's available memory, not the app's Private
+/// Bytes, is what it takes: the largest fall of the available memory from
+/// the grant to the answer in the 7 granted full-plan Subject runs of WBRK5
+/// on the Lenovo (Ryzen 5 PRO 6650U, 14 GB, Windows, ONNX Runtime CPU;
+/// 51 MP, model not loaded, warp not shared; 1 s samples) was 3754 MB over
+/// model and warp of 1604 MB → 2150 MB for the run (G74/BRK6; notes:
+/// benchmark-results/brk6-2026-11-27 §1). MEM21 measured +1362 MB on x86
+/// in a process of its own.
+const LOW_PEAK_RUN: u64 = 2200 * MB;
+/// What a run that loaded the low-peak model keeps in the app at its answer
+/// beyond the model and the warped image: 1600–1988 MB over the app at the
+/// grant with 604 MB of warp in the 4 full-plan pending layers of WBRK5
+/// (1604 counted) → up to 384 MB. The frame with the mask builds the
+/// photo's caches beside it (G74/BRK6). A loaded model's is in the app
+/// already.
+const LOW_PEAK_KEPT_AT_ANSWER: u64 = 400 * MB;
 /// The reduced plan's run (`MemoryPlan::LowPeakNoArena`, MEM21 option B):
-/// +643 MB on x86 alone (MEM21), but in the app on the Lenovo (Ryzen 5 PRO
-/// 6650U, 14 GB, ONNX Runtime CPU) the whole reduced plan grew its Private
-/// Bytes by up to 2686 MB over model and warped image of 1613 MB, i.e.
-/// +1073 MB for the run: the largest peak growth from the grant to the
-/// answer (1 s samples of the app's Private Bytes) in the 16 reduced-plan
-/// runs from the saved optimized graph of WBRK2 and WBRK3 at 7–8.5 GB
-/// available (51 MP; notes: benchmark-results/brk5-2026-11-27 §1). The
-/// 950 MB before (WBRK2 alone) was below one of them (G74/BRK5).
+/// +643 MB on x86 alone (MEM21), but in the app on the Lenovo the whole
+/// reduced plan grew its Private Bytes by up to 2686 MB over model and
+/// warped image of 1613 MB, i.e. +1073 MB for the run: the largest peak
+/// growth from the grant to the answer (1 s samples of the app's Private
+/// Bytes) in the 16 reduced-plan runs from the saved optimized graph of
+/// WBRK2 and WBRK3 at 7–8.5 GB available (51 MP; notes: benchmark-results/
+/// brk5-2026-11-27 §1). The 950 MB before (WBRK2 alone) was below one of
+/// them (G74/BRK5).
 const LOW_PEAK_RUN_REDUCED: u64 = 1100 * MB;
 /// A first session of the low-peak graph optimizes and saves it
 /// (`rawtonic_onnx`'s optimized graph cache), then loads the saved graph:
@@ -2082,7 +2097,8 @@ fn asked_request(e: &AskedEstimate) -> rawtonic_runtime::memory_budget::Request 
             e.pixels * WARP_BYTES_PER_PIXEL
         };
         let base = if e.loaded { 0 } else { LOW_PEAK_MODEL } + warp;
-        let after = if after > 0 { base + after } else { 0 };
+        let kept = if e.loaded { 0 } else { LOW_PEAK_KEPT_AT_ANSWER };
+        let after = if after > 0 { base + kept + after } else { 0 };
         Request::new(Class::Asked, label, (base + LOW_PEAK_RUN).max(after))
             .reduced((base + LOW_PEAK_RUN_REDUCED).max(after))
     } else {
@@ -3018,11 +3034,12 @@ mod tests {
         assert!(r.exclusive);
         assert_eq!(r.label, "AI subject pending layer");
         assert_eq!(r.visible_wait, PENDING_WAITS_FOR_VISIBLE);
-        // Model 1.0 GB + warped image 12 B/px (0.61 GB) + run: 1.4 GB with
-        // the arena (MEM21 option A), 1.1 GB without (option B, the
-        // largest the Lenovo measured in the app, WBRK2/WBRK3).
+        // Model 1.0 GB + warped image 12 B/px (0.61 GB) + run: 2.2 GB with
+        // the arena (MEM21 option A; the largest the Lenovo's available
+        // memory fell, WBRK5), 1.1 GB without (option B, the largest the
+        // Lenovo measured in the app, WBRK2/WBRK3).
         let warp = 8256 * 6192 * 12;
-        assert_eq!(r.need, 1000 * MB + warp + 1400 * MB);
+        assert_eq!(r.need, 1000 * MB + warp + 2200 * MB);
         assert_eq!(r.reduced, Some(1000 * MB + warp + 1100 * MB));
         // It starts only when a plan fits (G74/BRK2, WBRK1: granted beyond
         // the room, 16 of 16 clicks hit the watchdog).
@@ -3039,7 +3056,7 @@ mod tests {
             pixels: 8256 * 6192,
             frame_rebuilds: false,
         });
-        assert_eq!(shared.need, 2400 * MB);
+        assert_eq!(shared.need, 3200 * MB);
         assert_eq!(shared.reduced, Some(2100 * MB));
         // Elsewhere (Core ML, or the usual graph): MEM18's measured peaks,
         // no reduced plan.
@@ -3090,11 +3107,12 @@ mod tests {
         let warp = pixels * 12;
         let frame = pixels * crate::memory_broker::FRAME_BYTES_PER_PIXEL;
         let kept = estimate(false, false, false);
-        assert_eq!(kept.need, 1000 * MB + warp + 1400 * MB);
+        assert_eq!(kept.need, 1000 * MB + warp + 2200 * MB);
         let rebuilt = estimate(true, false, false);
-        // 1.0 + 0.6 + 2.1 GB: more than either plan's run.
-        assert_eq!(rebuilt.need, 1000 * MB + warp + frame);
-        assert_eq!(rebuilt.reduced, Some(1000 * MB + warp + frame));
+        // 1.0 + 0.6 + 0.4 (what the run keeps at its answer) + 2.5 GB:
+        // more than either plan's run.
+        assert_eq!(rebuilt.need, 1000 * MB + warp + 400 * MB + frame);
+        assert_eq!(rebuilt.reduced, Some(1000 * MB + warp + 400 * MB + frame));
         // With the model loaded and the warp shared the frame alone counts.
         let warm = estimate(true, true, true);
         assert_eq!((warm.need, warm.reduced), (frame, Some(frame)));
@@ -3110,6 +3128,48 @@ mod tests {
             frame_rebuilds: true,
         });
         assert_eq!(sky.need, frame);
+    }
+
+    /// WBRK5 S4_P7000_r2 (G74/BRK6): a pending Subject layer of the 50 MP
+    /// CR2 (model not loaded, frame caches gone) was granted the full plan
+    /// at 5412 MB available (app 2232 MB) with 3824 MB of room for 3717 MB;
+    /// in the 4 such runs of WBRK5 the available memory fell up to 3754 MB
+    /// from the grant to the answer and up to 4469 MB from the grant to the
+    /// frame with the mask (S4_Pmax_r1: 1988 MB kept at the answer, then
+    /// the frame), and the thumbnail after it took the system below the
+    /// floor. Either plan now covers those, so at that room it waits for
+    /// memory instead.
+    #[test]
+    fn a_pending_layer_waits_where_its_run_and_its_frame_would_cross_the_floor() {
+        let pixels: u64 = 8688 * 5792;
+        let pending = |frame_rebuilds| {
+            asked_request(&AskedEstimate {
+                kind: AutoMask::Subject,
+                origin: Origin::Pending,
+                low_peak: true,
+                on_cpu: true,
+                loaded: false,
+                pixels,
+                warp_shared: false,
+                frame_rebuilds,
+            })
+        };
+        let run_only = pending(false);
+        assert!(run_only.need >= 3754 * MB, "{} MB", run_only.need / MB);
+        let with_frame = pending(true);
+        for need in [with_frame.need, with_frame.reduced.expect("reduced")] {
+            assert!(need >= 4469 * MB, "{} MB", need / MB);
+        }
+        let broker: &'static Broker = Box::leak(Box::new(Broker::new()));
+        let at_the_grant = Reading {
+            total: 15_859 * MB,
+            available: 5412 * MB,
+            app: Some(2232 * MB),
+        };
+        assert!(matches!(
+            broker.try_reserve(with_frame, &|| at_the_grant, false, Duration::ZERO, None),
+            Err(Wait::Memory { .. })
+        ));
     }
 
     /// MEMB1's failing case through the broker: 4-up Develop open on the
@@ -3169,7 +3229,8 @@ mod tests {
         );
         assert_eq!(PREFETCH_CANCELLED.load(Ordering::SeqCst), 1);
         drop(prefetch);
-        // Stopped: 4.9 − 1.59 = 3.3 GB room, full plan.
+        // Stopped: 4.9 − 1.59 = 3.3 GB room: the full plan (3.8 GB with
+        // WBRK5's measured run) misses it, the reduced plan (2.7 GB) starts.
         let granted = broker
             .try_reserve(
                 pending_subject(),
@@ -3180,7 +3241,7 @@ mod tests {
             )
             .expect("a request of the photographer is never refused");
         assert_eq!(granted.reservation.class(), Class::Asked);
-        assert_eq!(granted.reservation.plan(), Plan::Full);
+        assert_eq!(granted.reservation.plan(), Plan::Reduced);
         // Speculative work waits while it runs.
         assert_eq!(
             broker

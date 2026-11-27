@@ -708,6 +708,110 @@ fn generate_thumbnail_with_source(
     )
 }
 
+/// The open photograph's colour noise render input its thumbnail renders
+/// from (with the stored preview proxy, in place of the full decode), when
+/// one was built for `adjustments` (`color_noise_view::for_thumbnail`).
+fn colour_noise_input(
+    path_str: &str,
+    adjustments: &serde_json::Value,
+    is_raw: bool,
+    settings: &AppSettings,
+    app_handle: &AppHandle,
+) -> Option<Arc<image::Rgb32FImage>> {
+    (is_raw && !adjustments.is_null() && image_loader::ai_denoise_settings(adjustments).is_none())
+        .then(|| {
+            let tm = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
+            crate::color_noise_view::for_thumbnail(
+                &app_handle.state::<DevelopSession>().color_noise_view,
+                path_str,
+                &get_all_adjustments_from_json(adjustments, is_raw, tm),
+                adjustments,
+                is_raw,
+            )
+        })
+        .flatten()
+}
+
+/// Whether a thumbnail base cached for a photo (`entry`) serves a render of
+/// the recipe whose base hash is `base_hash`: the same base, enough
+/// resolution for its crop at `target_res`, and the mask source when the
+/// recipe's masks need one.
+fn base_reusable(
+    entry: &crate::state::thumbnails::ThumbnailGeometryEntry,
+    base_hash: u64,
+    crop: Option<&Crop>,
+    target_res: u32,
+    needs_mask_source: bool,
+) -> bool {
+    let (cached_hash, _, scale, mask_source, _) = entry;
+    let sufficient_resolution = crop
+        .filter(|c| c.width > 0.0 && c.height > 0.0)
+        .is_none_or(|c| {
+            (c.width as f32 * *scale).max(c.height as f32 * *scale) >= target_res as f32 * 0.95
+        });
+    *cached_hash == base_hash
+        && sufficient_resolution
+        && (!needs_mask_source || mask_source.is_some())
+}
+
+/// The pixels of the base the saved thumbnail of the open photo `path_str`
+/// will render from when its last render cached one it can reuse (a save
+/// that changed no part of the base: an exposure or colour edit), instead
+/// of the full decode (its retouched copy and warp at full resolution,
+/// `memory_broker::THUMBNAIL_BYTES_PER_PIXEL`). The four such renders in
+/// WBRK5 grew the app by 0 MB (G74/BRK6, review r1); the render still
+/// flips, straightens and crops that base, which a tight crop keeps at up
+/// to full resolution (review r3), so the caller counts it by its own
+/// pixels. None, and the render counts its full estimate, for a recipe
+/// that a new recipe's defaults complete or without a reusable base; also
+/// for a render from the colour noise view's input, which reads the stored
+/// preview proxy first (review r3).
+pub(crate) fn open_photo_thumbnail_cached_base(
+    path_str: &str,
+    app_handle: &AppHandle,
+) -> Option<u64> {
+    let (source_path, sidecar_path) = parse_virtual_path(path_str);
+    let metadata = thumbnail_metadata(&source_path, &sidecar_path)?;
+    let adjustments = &metadata.adjustments;
+    if adjustments.is_null() || crate::image_processing::is_new_recipe(adjustments) {
+        return None;
+    }
+    let settings = crate::state::settings::current(app_handle);
+    if colour_noise_input(
+        path_str,
+        adjustments,
+        is_raw_file(&source_path),
+        &settings,
+        app_handle,
+    )
+    .is_some()
+    {
+        return None;
+    }
+    let target_res = settings.medium_thumbnail_resolution.unwrap_or(1280);
+    let crop: Option<Crop> =
+        serde_json::from_value(adjustments[geometry::CROP.name()].clone()).ok();
+    let needs_mask_source = adjustments
+        .get(masks::MASKS.name())
+        .and_then(|m| serde_json::from_value::<Vec<MaskDefinition>>(m.clone()).ok())
+        .unwrap_or_default()
+        .iter()
+        .any(MaskDefinition::requires_warped_image);
+    let base_hash = crate::cache_utils::calculate_thumbnail_base_hash(adjustments);
+    lock_recover(&app_handle.state::<ThumbnailState>().geometry_cache)
+        .get(path_str)
+        .filter(|entry| {
+            base_reusable(
+                entry,
+                base_hash,
+                crop.as_ref(),
+                target_res,
+                needs_mask_source,
+            )
+        })
+        .map(|(_, base, ..)| u64::from(base.width()) * u64::from(base.height()))
+}
+
 /// The stored Standard proxy of the RAW `source` when it stands for a
 /// photograph shown with `adjustments` in its own effective frame.
 fn stored_proxy(
@@ -880,21 +984,9 @@ fn develop_thumbnail_with_source(
     // warped preview proxy, as the Develop fit view. Not with AI Denoise:
     // the input was made from the denoised decode, the proxy stands for the
     // photograph without it.
-    let color_noise = (is_raw
-        && gpu_context.is_some()
-        && !adjustments.is_null()
-        && image_loader::ai_denoise_settings(&adjustments).is_none())
-    .then(|| {
-        let tm = crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
-        crate::color_noise_view::for_thumbnail(
-            &app_handle.state::<DevelopSession>().color_noise_view,
-            path_str,
-            &get_all_adjustments_from_json(&adjustments, is_raw, tm),
-            &adjustments,
-            is_raw,
-        )
-    })
-    .flatten();
+    let color_noise = (gpu_context.is_some())
+        .then(|| colour_noise_input(path_str, &adjustments, is_raw, &settings, app_handle))
+        .flatten();
     let (proxy, color_noise) = match (proxy, color_noise) {
         (None, Some(input)) => match stored_proxy(&source_path, &adjustments, &settings) {
             Some(proxy) => (Some(proxy), Some(input)),
@@ -968,31 +1060,20 @@ fn develop_thumbnail_with_source(
             Option<(u32, u32)>,
         )> = {
             let cache = lock_recover(&thumbnails.geometry_cache);
-            if let Some((cached_hash, img, scale, mask_source, decoded_size)) = cache.get(cache_key)
-            {
-                let mut sufficient_resolution = true;
-                if let Some(c) = &crop_data
-                    && c.width > 0.0
-                    && c.height > 0.0
-                {
-                    let final_crop_max_dim =
-                        (c.width as f32 * *scale).max(c.height as f32 * *scale);
-                    if final_crop_max_dim < (target_res as f32 * 0.95) {
-                        sufficient_resolution = false;
-                    }
-                }
-
-                if *cached_hash == base_cache_hash
-                    && sufficient_resolution
-                    && (!needs_mask_source || mask_source.is_some())
-                {
-                    Some((Arc::clone(img), *scale, mask_source.clone(), *decoded_size))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+            cache
+                .get(cache_key)
+                .filter(|entry| {
+                    base_reusable(
+                        entry,
+                        base_cache_hash,
+                        crop_data.as_ref(),
+                        target_res,
+                        needs_mask_source,
+                    )
+                })
+                .map(|(_, img, scale, mask_source, decoded_size)| {
+                    (Arc::clone(img), *scale, mask_source.clone(), *decoded_size)
+                })
         };
 
         let (processing_base_arc, total_scale, mask_source, decoded_size) = if let Some(cached) =

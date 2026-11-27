@@ -235,6 +235,12 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
                 };
                 match crate::memory_broker::admit_open_photo_thumbnail(
                     u64::from(image.width()) * u64::from(image.height()),
+                    || {
+                        super::thumbnails::open_photo_thumbnail_cached_base(
+                            &path_clone,
+                            &app_handle_clone,
+                        )
+                    },
                     || !is_newest_open_photo_thumbnail(&path_clone, ticket),
                     left,
                 ) {
