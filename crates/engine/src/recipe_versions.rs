@@ -654,6 +654,9 @@ impl GrainVersion {
 /// Clarity measured against an edge-aware base (`clarityVersion` 2).
 pub const EDGE_AWARE_CLARITY_VERSION: u64 = 2;
 
+/// Clarity's base from a reduced grid (`clarityVersion` 4).
+pub const REDUCED_BASE_CLARITY_VERSION: u64 = 4;
+
 /// `clarityVersion` (`image_processing::CLARITY_VERSION`): 1 when missing,
 /// never newer than this renderer knows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -681,6 +684,12 @@ impl ClarityVersion {
     /// Clarity's band is measured against an edge-aware base.
     pub fn edge_aware(self) -> bool {
         self.0 >= EDGE_AWARE_CLARITY_VERSION
+    }
+
+    /// The base's large-scale mean log luminance comes from a reduced grid
+    /// (gpu crate `clarity_base`), not from the full-resolution large blur.
+    pub fn reduced_base(self) -> bool {
+        self.0 >= REDUCED_BASE_CLARITY_VERSION
     }
 }
 
