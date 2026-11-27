@@ -673,6 +673,11 @@ pub struct AppSettings {
     /// Send anonymous weekly usage statistics (ADR 0017; missing: off).
     #[serde(default)]
     pub usage_stats: Option<bool>,
+    /// The ICC profile file the preview is converted into instead of the
+    /// monitor's own (Preferences > Display, Windows; missing: the
+    /// system's). Only `persist_monitor_profile` changes it.
+    #[serde(default)]
+    pub monitor_profile: Option<String>,
     /// Connect Canon cameras on the camera library's untested EOS path to
     /// help test it (Preferences > Tethering; missing: off). Such a body
     /// keeps every photo on its memory card and has nothing freed.
@@ -967,6 +972,7 @@ impl Default for AppSettings {
             favorite_profiles: None,
             auto_advance: None,
             usage_stats: None,
+            monitor_profile: None,
             tether_experimental_canon: None,
             open_import_on_card: None,
             last_root_path: None,
@@ -1434,11 +1440,13 @@ fn forget_decodes_of_other_preferences(
 }
 
 /// Frontend snapshots must never roll back the backend's throttle timestamp,
-/// nor the usage-statistics choice, which only `persist_usage_stats` changes.
+/// nor the usage-statistics choice, which only `persist_usage_stats` changes,
+/// nor the chosen monitor profile (`persist_monitor_profile`).
 fn take_frontend_snapshot(saved: &mut AppSettings, mut snapshot: AppSettings) {
     snapshot.last_update_check = saved.last_update_check;
     snapshot.privacy_notice_seen = saved.privacy_notice_seen;
     snapshot.usage_stats = saved.usage_stats;
+    snapshot.monitor_profile = std::mem::take(&mut saved.monitor_profile);
     snapshot.unknown = std::mem::take(&mut saved.unknown);
     *saved = snapshot;
 }
@@ -1457,6 +1465,15 @@ pub(crate) fn persist_settings_file(path: &Path, settings: &AppSettings) -> Resu
             .map_err(|e| e.to_string())?;
     }
     rawtonic_fs::atomic_write(path, json).map_err(|e| e.to_string())
+}
+
+/// Saves the monitor profile chosen in Preferences on its own
+/// (`monitor_profile::monitor_profile_choose`).
+pub(crate) fn persist_monitor_profile(app: &AppHandle, path: Option<String>) -> Result<(), String> {
+    crate::state::settings::update(app, |settings| {
+        settings.monitor_profile = path;
+        Ok(())
+    })
 }
 
 /// Saves the usage-statistics choice on its own (ADR 0017): the switch

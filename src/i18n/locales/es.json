@@ -2768,6 +2768,20 @@
       "saved": "Lentes guardadas",
       "title": "Mis lentes"
     },
+    "monitorProfile": {
+      "choose": "Elegir perfil ICC…",
+      "chosen": "Elegido en Preferencias: {{path}}",
+      "converted": "La vista previa se convierte a {{profile}}.",
+      "description": "Las fotos se muestran a través del perfil de color que el sistema asigna al monitor, como en Lightroom y Capture One. Nunca cambia las exportaciones.",
+      "notApplied": "El perfil del sistema es {{profile}}.",
+      "pickTitle": "Elegir el perfil ICC del monitor",
+      "refused": "Este perfil no se puede usar: {{reason}}",
+      "section": "Color de la pantalla",
+      "srgb": "La vista previa se muestra en sRGB: el monitor no tiene otro perfil.",
+      "system": "El sistema ajusta la vista previa al perfil de esta pantalla.",
+      "title": "Perfil del monitor",
+      "useSystem": "Usar el perfil del sistema"
+    },
     "processing": {
       "aiDenoiseQualities": {
         "auto": "Automática",

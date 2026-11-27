@@ -2528,6 +2528,20 @@
       "saved": "已儲存的鏡頭",
       "title": "我的鏡頭"
     },
+    "monitorProfile": {
+      "choose": "選擇 ICC 描述檔…",
+      "chosen": "在偏好設定中選擇：{{path}}",
+      "converted": "預覽會轉換為 {{profile}}。",
+      "description": "照片透過系統指定給顯示器的色彩描述檔顯示，與 Lightroom 和 Capture One 相同。它從不改變輸出。",
+      "notApplied": "系統描述檔為 {{profile}}。",
+      "pickTitle": "選擇顯示器的 ICC 描述檔",
+      "refused": "無法使用此描述檔：{{reason}}",
+      "section": "顯示器色彩",
+      "srgb": "預覽以 sRGB 顯示：顯示器沒有其他描述檔。",
+      "system": "系統會將預覽對應到此顯示器的描述檔。",
+      "title": "顯示器描述檔",
+      "useSystem": "使用系統描述檔"
+    },
     "processing": {
       "aiDenoiseQualities": {
         "auto": "自動",

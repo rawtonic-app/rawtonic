@@ -17486,7 +17486,9 @@ fn display_at_own_size_shows_whole_texels_between_device_pixels() {
     let device = &context.device;
     let queue = &context.queue;
     let format = wgpu::TextureFormat::Rgba8Unorm;
-    let (pipeline, layout, split_layout) = display_pipeline(device, format).unwrap();
+    let (pipeline, layout, split_layout, monitor_layout) =
+        display_pipeline(device, format).unwrap();
+    let monitor = monitor_transform::MonitorBinding::none(device, &monitor_layout);
     let (window_w, window_h) = (96u32, 48u32);
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Own size test target"),
@@ -17622,6 +17624,7 @@ fn display_at_own_size_shows_whole_texels_between_device_pixels() {
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &frame_group, &[]);
             pass.set_bind_group(1, &split_group, &[]);
+            pass.set_bind_group(2, &monitor.bind_group, &[]);
             pass.draw(0..4, 0..1);
         }
         queue.submit(Some(encoder.finish()));
@@ -17694,7 +17697,9 @@ fn display_split_shows_the_before_left_of_the_divider() {
     let device = &context.device;
     let queue = &context.queue;
     let format = wgpu::TextureFormat::Rgba8Unorm;
-    let (pipeline, layout, split_layout) = display_pipeline(device, format).unwrap();
+    let (pipeline, layout, split_layout, monitor_layout) =
+        display_pipeline(device, format).unwrap();
+    let monitor = monitor_transform::MonitorBinding::none(device, &monitor_layout);
     let (window_w, window_h) = (96u32, 48u32);
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Split test target"),
@@ -17796,6 +17801,7 @@ fn display_split_shows_the_before_left_of_the_divider() {
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &frame_group, &[]);
             pass.set_bind_group(1, &split_group, &[]);
+            pass.set_bind_group(2, &monitor.bind_group, &[]);
             pass.draw(0..4, 0..1);
         }
         queue.submit(Some(encoder.finish()));

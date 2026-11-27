@@ -306,7 +306,8 @@ pub fn attach_display(gpu: &GpuState, app_handle: &tauri::AppHandle) {
     if adapter.is_surface_supported(&surface) {
         match configure_display(&context.device, &adapter, surface, &window) {
             Ok(display) => {
-                *context.display.lock().unwrap_or_else(|e| e.into_inner()) = Some(display)
+                *context.display.lock().unwrap_or_else(|e| e.into_inner()) = Some(display);
+                crate::monitor_profile::display_created(app_handle, "main");
             }
             Err(error) => log::warn!("Window display unavailable, compute-only: {error}"),
         }
@@ -322,6 +323,7 @@ pub fn attach_display(gpu: &GpuState, app_handle: &tauri::AppHandle) {
         Ok((context, instance, adapter)) => {
             *lock_recover(&gpu.adapter) = Some((instance, adapter));
             *context_lock = Some(context.clone());
+            crate::monitor_profile::display_created(app_handle, "main");
             let app_handle = app_handle.clone();
             rawtonic_runtime::spawn_render_thread("gpu-prewarm", move || {
                 let gpu = app_handle.state::<GpuState>();

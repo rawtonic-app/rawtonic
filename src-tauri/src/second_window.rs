@@ -1241,6 +1241,7 @@ async fn open_window(app_handle: &tauri::AppHandle) -> Result<(), String> {
             ..Inner::default()
         });
     }
+    crate::monitor_profile::display_created(app_handle, LABEL);
     OPEN.store(true, Ordering::SeqCst);
     let _ = window.show();
     if saved_state.fullscreen {
@@ -1401,6 +1402,7 @@ pub(crate) async fn after_device_recovered(app_handle: &tauri::AppHandle, contex
         let Some(inner) = guard.as_mut() else { return };
         if let Some(display) = display {
             inner.display = Some(display);
+            crate::monitor_profile::display_created(app_handle, LABEL);
         }
         inner.device = Some(Arc::clone(&context.device));
         inner.whole = None;
@@ -1505,6 +1507,24 @@ pub(crate) fn resized(
         }
         schedule(&app);
     });
+}
+
+/// Converts the window's frames into its monitor's profile from now on
+/// (`monitor_profile`; None: as they are).
+pub(crate) fn set_monitor_transform(
+    app_handle: &tauri::AppHandle,
+    lut: Option<&rawtonic_display_profile::DisplayLut>,
+) {
+    let Some(context) = app_handle.state::<crate::state::gpu::GpuState>().context() else {
+        return;
+    };
+    let mut guard = lock_recover(&INNER);
+    #[cfg(not(target_os = "linux"))]
+    if let Some(display) = guard.as_mut().and_then(|inner| inner.display.as_mut()) {
+        display.set_monitor_transform(&context.device, &context.queue, lut);
+    }
+    #[cfg(target_os = "linux")]
+    let _ = (&mut guard, context, lut);
 }
 
 /// Draws the window again (it was covered: a covered window's frame is

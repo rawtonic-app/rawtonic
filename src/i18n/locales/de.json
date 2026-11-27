@@ -2626,6 +2626,20 @@
       "saved": "Gespeicherte Objektive",
       "title": "Meine Objektive"
     },
+    "monitorProfile": {
+      "choose": "ICC-Profil wählen …",
+      "chosen": "In den Einstellungen gewählt: {{path}}",
+      "converted": "Die Vorschau wird in {{profile}} umgerechnet.",
+      "description": "Fotos werden über das Farbprofil angezeigt, das dein System dem Monitor zuweist, wie in Lightroom und Capture One. Exporte ändert es nie.",
+      "notApplied": "Das Systemprofil ist {{profile}}.",
+      "pickTitle": "ICC-Profil des Monitors wählen",
+      "refused": "Dieses Profil kann nicht verwendet werden: {{reason}}",
+      "section": "Bildschirmfarben",
+      "srgb": "Die Vorschau wird als sRGB angezeigt: Der Monitor hat kein anderes Profil.",
+      "system": "Dein System passt die Vorschau an das Profil dieses Bildschirms an.",
+      "title": "Monitorprofil",
+      "useSystem": "Profil des Systems verwenden"
+    },
     "processing": {
       "aiDenoiseQualities": {
         "auto": "Automatisch",

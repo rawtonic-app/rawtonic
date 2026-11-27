@@ -653,6 +653,19 @@ decodes, other photos' decodes); step 1 covers the AI mask runs, their model loa
 multi view's decodes (`ai_ahead`, `ai_commands::auto_mask`, `proxy_worker`, `multi_view_prefetch`); exports and the other
 AI tools join in step 2 through `memory_broker::reserve`.
 
+Monitor colour (G23/G62, MCM1): the display pass converts every value it draws (frame, background, multi-view cells)
+into the window's monitor profile through `monitor_transform.rs` (display.wgsl group 2: a 65³ table of grey levels and a
+4096-point grey response per channel, both from `rawtonic-display-profile`); without a transform the shader passes the
+values through unchanged, so exports, readbacks and an sRGB monitor are untouched.
+
+#### `display-profile`
+
+`display-profile` — the monitor's ICC profile and the preview's display transform: `display_lut` (moxcms, relative
+colorimetric, clipped; None within one 8-bit code of the frame's encoding; unusable profiles are errors, never panics),
+`windows` (the window's monitor, advanced colour = managed by Windows, `GetICMProfileW`), `linux` (colord over D-Bus,
+X11 `_ICC_PROFILE`). App glue `src-tauri/src/monitor_profile.rs`: looks the profile up again when a window moves, changes
+scale or gets the focus, the Preferences override (Windows) and status (`MonitorProfileSettings.tsx`). macOS needs none
+of it: the Display P3 layer is matched by ColorSync.
 
 #### `export`
 

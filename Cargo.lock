@@ -5721,6 +5721,7 @@ dependencies = [
  "log",
  "memmap2",
  "mimalloc",
+ "moxcms",
  "mozjpeg-rs",
  "ndarray",
  "objc",
@@ -5737,6 +5738,7 @@ dependencies = [
  "rawtonic-catalog",
  "rawtonic-contribute",
  "rawtonic-denoise",
+ "rawtonic-display-profile",
  "rawtonic-engine",
  "rawtonic-export",
  "rawtonic-faces",
@@ -5883,6 +5885,18 @@ dependencies = [
  "rawtonic-onnx",
  "rawtonic-rawdecode",
  "tempfile",
+]
+
+[[package]]
+name = "rawtonic-display-profile"
+version = "0.1.0"
+dependencies = [
+ "dbus",
+ "log",
+ "moxcms",
+ "png 0.18.1",
+ "windows-sys 0.61.2",
+ "x11-dl",
 ]
 
 [[package]]
@@ -6044,8 +6058,10 @@ dependencies = [
  "half",
  "image",
  "log",
+ "moxcms",
  "naga",
  "pollster",
+ "rawtonic-display-profile",
  "rawtonic-engine",
  "rawtonic-fs",
  "rawtonic-rawdecode",

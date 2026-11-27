@@ -292,6 +292,8 @@ export enum Invokes {
   UsageStatsNoteTools = 'usage_stats_note_tools',
   UsageStatsPreview = 'usage_stats_preview',
   UsageStatsSetEnabled = 'usage_stats_set_enabled',
+  MonitorProfileStatus = 'monitor_profile_status',
+  MonitorProfileChoose = 'monitor_profile_choose',
   LoadSettings = 'load_settings',
   MoveFiles = 'move_files',
   MoveFolder = 'move_folder',

@@ -55,6 +55,8 @@ pub use idle_compile_child::{
     HELPER_ERROR_FILE, IdleCompileHelper, compile_in_helper_process, set_idle_compile_helper,
     set_on_cold_helper_compile,
 };
+#[path = "monitor_transform.rs"]
+pub mod monitor_transform;
 #[path = "multi_view.rs"]
 pub mod multi_view;
 #[path = "preview_layers.rs"]
@@ -2613,14 +2615,15 @@ pub fn split_uniform(
 }
 
 /// The display's render pipeline (display.wgsl) for a `format` target and
-/// its two bind group layouts: frame (transform, image, sampler, mask
-/// overlay) and the split view's before.
-fn display_pipeline(
+/// its three bind group layouts: frame (transform, image, sampler, mask
+/// overlay), the split view's before and the monitor transform.
+pub(crate) fn display_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
 ) -> Result<
     (
         wgpu::RenderPipeline,
+        wgpu::BindGroupLayout,
         wgpu::BindGroupLayout,
         wgpu::BindGroupLayout,
     ),
@@ -2694,9 +2697,15 @@ fn display_pipeline(
             }],
         });
 
+    let monitor_bind_group_layout = monitor_transform::bind_group_layout(device);
+
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Display Pipeline Layout"),
-        bind_group_layouts: &[Some(&bind_group_layout), Some(&split_bind_group_layout)],
+        bind_group_layouts: &[
+            Some(&bind_group_layout),
+            Some(&split_bind_group_layout),
+            Some(&monitor_bind_group_layout),
+        ],
         immediate_size: 0,
     });
 
@@ -2730,7 +2739,12 @@ fn display_pipeline(
             cache: None,
         })
     })?;
-    Ok((pipeline, bind_group_layout, split_bind_group_layout))
+    Ok((
+        pipeline,
+        bind_group_layout,
+        split_bind_group_layout,
+        monitor_bind_group_layout,
+    ))
 }
 
 pub struct WgpuDisplay {
@@ -2795,6 +2809,10 @@ pub struct WgpuDisplay {
     camera_cover: Option<camera_cover::CameraCover>,
     /// Other photographs shown beside the live one (multi_view.rs).
     multi: MultiView,
+    /// The monitor profile's transform applied as frames are drawn
+    /// (monitor_transform.rs); none until the window's profile is known.
+    monitor_layout: wgpu::BindGroupLayout,
+    monitor: monitor_transform::MonitorBinding,
 }
 
 /// Whether a developed frame of `frame` replaces what is shown while a
@@ -2957,8 +2975,9 @@ impl WgpuDisplay {
         surface: wgpu::Surface<'static>,
         config: wgpu::SurfaceConfiguration,
     ) -> Result<Self, String> {
-        let (pipeline, bind_group_layout, split_bind_group_layout) =
+        let (pipeline, bind_group_layout, split_bind_group_layout, monitor_layout) =
             display_pipeline(device, config.format)?;
+        let monitor = monitor_transform::MonitorBinding::none(device, &monitor_layout);
 
         let transform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Transform Buffer"),
@@ -3047,6 +3066,8 @@ impl WgpuDisplay {
             viewer_area: None,
             camera_cover: None,
             multi: MultiView::default(),
+            monitor_layout,
+            monitor,
             sampler,
             current_bind_group: None,
             overlay: None,
@@ -3289,6 +3310,22 @@ impl WgpuDisplay {
         if self.camera_cover.take().is_some() {
             self.render(device, queue);
         }
+    }
+
+    /// Draws from now on through the monitor profile's transform `lut`
+    /// (None: values as they are) and shows the frame again with it.
+    pub fn set_monitor_transform(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        lut: Option<&rawtonic_display_profile::DisplayLut>,
+    ) {
+        if !self.monitor.converts() && lut.is_none() {
+            return;
+        }
+        self.monitor =
+            monitor_transform::MonitorBinding::new(device, queue, &self.monitor_layout, lut);
+        self.render(device, queue);
     }
 
     /// The photograph whose camera preview is shown.
@@ -3557,6 +3594,7 @@ impl WgpuDisplay {
         } else {
             self.latest_transform.bg_primary
         };
+        let clear = self.monitor.convert_clear(clear);
         // In the multi view the live frame covers exactly the primary's cell,
         // whatever clip the webview last sent (it follows the editor's
         // container a moment later when the primary changes).
@@ -3609,6 +3647,7 @@ impl WgpuDisplay {
             DisplayPass {
                 pipeline: &self.pipeline,
                 empty_before: &self.empty_split_bind_group,
+                monitor: &self.monitor.bind_group,
             },
             clear,
             multi.then_some(&self.multi),

@@ -1,0 +1,23 @@
+[package]
+name = "rawtonic-display-profile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The monitor's ICC profile: where each OS keeps it, and the display transform from the preview's encoding into it. No desktop dependencies."
+
+[lints]
+workspace = true
+
+[dependencies]
+log = { workspace = true }
+moxcms = "0.8"
+
+[dev-dependencies]
+png = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Devices_Display", "Win32_Graphics_Gdi", "Win32_UI_ColorSystem"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+dbus = "0.9"
+x11-dl = "2.21"
