@@ -375,24 +375,74 @@ pub(crate) fn get_models_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf> {
     Ok(models_dir)
 }
 
-/// Writes a verified download to `dest`: a temporary file of its own
-/// renamed over the old one (never deleted first, never a name another
-/// load or the CLI writes at the same time).
-fn persist_downloaded_asset(dest: &Path, bytes: &[u8]) -> Result<()> {
-    if bytes.is_empty() {
-        return Err(anyhow::anyhow!(
-            "Downloaded asset for {} was empty",
-            dest.display()
-        ));
+/// A model download streamed to disk (G74/FET1): its bytes go to a
+/// temporary file of its own beside `dest` (`rawtonic_fs::AtomicWriter`)
+/// and into a SHA-256 as they arrive, so a fetch holds only the piece in
+/// flight in memory, never the whole file. Only `finish` with the pinned
+/// SHA-256 renames it over `dest` (never deleted first, never a name another
+/// load or the CLI writes at the same time); dropped before (a cut
+/// connection, an error) or with the wrong SHA-256, the temporary file goes
+/// and `dest` stays as it was.
+struct VerifiedDownload {
+    file: rawtonic_fs::AtomicWriter,
+    hash: sha2::Sha256,
+    received: u64,
+    dest: PathBuf,
+}
+
+impl VerifiedDownload {
+    fn new(dest: &Path) -> Result<Self> {
+        use sha2::Digest as _;
+        let parent = dest.parent().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Cannot determine parent directory for downloaded asset {}",
+                dest.display()
+            )
+        })?;
+        fs::create_dir_all(parent)?;
+        // Temporary files of an earlier download a crash or a kill left
+        // (older than `STALE_AGE`; a live download writes its own all along).
+        let removed = rawtonic_fs::temp::sweep_folder(parent, std::time::SystemTime::now());
+        if removed.files > 0 {
+            log::info!(
+                "AI: removed {} abandoned download file(s) ({} bytes) in {}",
+                removed.files,
+                removed.bytes,
+                parent.display()
+            );
+        }
+        Ok(Self {
+            file: rawtonic_fs::AtomicWriter::new(dest)?,
+            hash: sha2::Sha256::new(),
+            received: 0,
+            dest: dest.to_path_buf(),
+        })
     }
-    let parent = dest.parent().ok_or_else(|| {
-        anyhow::anyhow!(
-            "Cannot determine parent directory for downloaded asset {}",
-            dest.display()
-        )
-    })?;
-    fs::create_dir_all(parent)?;
-    rawtonic_fs::atomic_write(dest, bytes)
+
+    fn write(&mut self, piece: &[u8]) -> Result<()> {
+        use sha2::Digest as _;
+        self.hash.update(piece);
+        self.file.write_all(piece)?;
+        self.received += piece.len() as u64;
+        Ok(())
+    }
+
+    fn finish(self, expected_hash: &str) -> Result<()> {
+        use sha2::Digest as _;
+        if self.received == 0 {
+            return Err(anyhow::anyhow!(
+                "Downloaded asset for {} was empty",
+                self.dest.display()
+            ));
+        }
+        let hash = rawtonic_fs::hex(self.hash.finalize());
+        if hash != expected_hash {
+            return Err(anyhow::anyhow!(
+                "download has SHA-256 {hash}, expected {expected_hash}"
+            ));
+        }
+        self.file.commit()
+    }
 }
 
 /// The download URL of a file of the model pack.
@@ -400,23 +450,21 @@ fn model_url(source: &str) -> String {
     format!("{MODEL_PACK_URL}/{source}")
 }
 
-/// Downloads `source`, calling `progress(received, total)` as its bytes
-/// arrive (`total` 0 when the server does not say).
-async fn fetch_model(source: &str, progress: &mut (dyn FnMut(u64, u64) + Send)) -> Result<Vec<u8>> {
-    fetch_url(&model_url(source), MODEL_READ_TIMEOUT, progress).await
-}
-
 /// A model download whose connection sends nothing for this long ends with
 /// an error (a stalled transfer would otherwise wait for good, and the
 /// low-peak Subject model's background fetch never try again).
 const MODEL_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// `fetch_model` from `url`, failing when no byte arrives for `read_timeout`.
+/// Downloads `url` piece by piece into `sink`, calling
+/// `progress(received, total)` as its bytes arrive (`total` 0 when the
+/// server does not say), failing when no byte arrives for `read_timeout`.
+/// Returns the bytes received.
 async fn fetch_url(
     url: &str,
     read_timeout: std::time::Duration,
     progress: &mut (dyn FnMut(u64, u64) + Send),
-) -> Result<Vec<u8>> {
+    sink: &mut (dyn FnMut(&[u8]) -> Result<()> + Send),
+) -> Result<u64> {
     let client = reqwest::Client::builder()
         .connect_timeout(read_timeout)
         .read_timeout(read_timeout)
@@ -429,35 +477,58 @@ async fn fetch_url(
         ));
     }
     let total = response.content_length().unwrap_or(0);
-    let mut bytes = Vec::with_capacity(total as usize);
+    let mut received = 0u64;
     while let Some(chunk) = response.chunk().await? {
-        bytes.extend_from_slice(&chunk);
-        progress(bytes.len() as u64, total);
+        sink(&chunk)?;
+        received += chunk.len() as u64;
+        progress(received, total);
     }
-    Ok(bytes)
+    Ok(received)
 }
 
-/// Replaces `dest` only with a download whose SHA-256 matches: a failed or
-/// corrupt download leaves the file that was there.
+/// Replaces `dest` only with a download whose SHA-256 matches, streamed to
+/// disk (`VerifiedDownload`): a failed, cut or corrupt download leaves the
+/// file that was there and no partial file.
 async fn download_verified_model(
     source: &str,
     dest: &Path,
     expected_hash: &str,
     progress: &mut (dyn FnMut(u64, u64) + Send),
 ) -> Result<()> {
-    let bytes = fetch_model(source, progress).await?;
-    persist_verified_asset(dest, &bytes, expected_hash)
-        .map_err(|e| anyhow::anyhow!("{}: {e}", model_url(source)))
+    download_verified_from(
+        &model_url(source),
+        dest,
+        expected_hash,
+        MODEL_READ_TIMEOUT,
+        progress,
+    )
+    .await
 }
 
+/// `download_verified_model` from `url`.
+async fn download_verified_from(
+    url: &str,
+    dest: &Path,
+    expected_hash: &str,
+    read_timeout: std::time::Duration,
+    progress: &mut (dyn FnMut(u64, u64) + Send),
+) -> Result<()> {
+    let mut download = VerifiedDownload::new(dest)?;
+    fetch_url(url, read_timeout, progress, &mut |piece| {
+        download.write(piece)
+    })
+    .await?;
+    download
+        .finish(expected_hash)
+        .map_err(|e| anyhow::anyhow!("{url}: {e}"))
+}
+
+/// `VerifiedDownload` of `bytes` at once (tests).
+#[cfg(test)]
 fn persist_verified_asset(dest: &Path, bytes: &[u8], expected_hash: &str) -> Result<()> {
-    let hash = rawtonic_fs::sha256_hex(bytes);
-    if hash != expected_hash {
-        return Err(anyhow::anyhow!(
-            "download has SHA-256 {hash}, expected {expected_hash}"
-        ));
-    }
-    persist_downloaded_asset(dest, bytes)
+    let mut download = VerifiedDownload::new(dest)?;
+    download.write(bytes)?;
+    download.finish(expected_hash)
 }
 
 /// `true` when the installed model file at `path` has the SHA-256
@@ -4971,7 +5042,9 @@ mod relight_tests {
 
 #[cfg(test)]
 mod download_tests {
-    use super::persist_downloaded_asset;
+    fn persist_downloaded_asset(dest: &std::path::Path, bytes: &[u8]) -> anyhow::Result<()> {
+        super::persist_verified_asset(dest, bytes, &rawtonic_fs::sha256_hex(bytes))
+    }
 
     /// A download replaces the installed file by a rename, without deleting
     /// it first, through a temporary file of its own: the fixed
@@ -5024,12 +5097,21 @@ mod model_fetch_tests {
         let url = format!("http://{address}/model.onnx");
         let timeout = Duration::from_millis(300);
         let started = Instant::now();
-        let stalled = super::fetch_url(&url, timeout, &mut |_, _| {}).await;
+        let mut bytes = Vec::new();
+        let stalled = super::fetch_url(&url, timeout, &mut |_, _| {}, &mut |piece| {
+            bytes.extend_from_slice(piece);
+            Ok(())
+        })
+        .await;
         assert!(stalled.is_err(), "a stalled transfer must fail");
         assert!(started.elapsed() < Duration::from_secs(10));
-        let whole = super::fetch_url(&url, timeout, &mut |_, _| {})
-            .await
-            .unwrap();
+        let mut whole = Vec::new();
+        super::fetch_url(&url, timeout, &mut |_, _| {}, &mut |piece| {
+            whole.extend_from_slice(piece);
+            Ok(())
+        })
+        .await
+        .unwrap();
         assert_eq!(whole, b"abcdef");
     }
 }
