@@ -4918,6 +4918,7 @@
       },
       "colorSampleHint": "Click to sample a color, drag to sample an area; Shift adds up to five samples.",
       "computing": "computing…",
+      "computingSlow": "computing in the slower mode (low memory)…",
       "depth": {
         "falloff": "Falloff",
         "farLimit": "Far limit",
@@ -4956,7 +4957,8 @@
       "objectFrameChanged": "The photo was turned, or its lens or transform changed, since this selection was made. Click without Shift or Alt to select again.",
       "refine": "Refine",
       "refineAria": "Color range refine",
-      "subtractTitle": "Subtract from this layer's mask"
+      "subtractTitle": "Subtract from this layer's mask",
+      "waitingForMemory": "waiting for memory…"
     },
     "metadata": {
       "appliesTo_one": "Changes apply to {{count}} photo.",

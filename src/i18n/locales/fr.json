@@ -5125,6 +5125,7 @@
       },
       "colorSampleHint": "Cliquez pour prélever une couleur, faites glisser pour prélever une zone ; Maj ajoute jusqu'à cinq échantillons.",
       "computing": "calcul…",
+      "computingSlow": "calcul en mode plus lent (mémoire faible)…",
       "depth": {
         "falloff": "Transition",
         "farLimit": "Limite lointaine",
@@ -5163,7 +5164,8 @@
       "objectFrameChanged": "La photo a été tournée, ou son objectif ou sa transformation a changé, depuis cette sélection. Cliquez sans Maj ni Alt pour sélectionner à nouveau.",
       "refine": "Affiner",
       "refineAria": "Affiner la plage de couleur",
-      "subtractTitle": "Soustraire du masque de ce calque"
+      "subtractTitle": "Soustraire du masque de ce calque",
+      "waitingForMemory": "en attente de mémoire…"
     },
     "metadata": {
       "appliesTo_one": "Les modifications s'appliquent à {{count}} photo.",

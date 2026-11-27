@@ -381,7 +381,8 @@ pub fn decide(request: &Request, situation: &Situation) -> Decision {
             grant(Plan::Full, situation.reclaimable)
         }
         Class::Export => {
-            if situation.asked_waiting || exclusive_held(Class::Asked) {
+            // Also a P1 held after its answer (`Broker::settle`).
+            if situation.asked_waiting || situation.held.iter().any(|h| h.class == Class::Asked) {
                 return Decision::Wait(Wait::Asked);
             }
             let need = request.need.saturating_add(request.reserve);
@@ -391,10 +392,8 @@ pub fn decide(request: &Request, situation: &Situation) -> Decision {
             grant(Plan::Full, 0)
         }
         Class::Speculative => {
-            let asked_runs = situation
-                .held
-                .iter()
-                .any(|h| h.class == Class::Asked && h.exclusive);
+            // Also a P1 held after its answer (`Broker::settle`).
+            let asked_runs = situation.held.iter().any(|h| h.class == Class::Asked);
             let beside_waiting = request.serves_asked && situation.asked_waiting;
             if asked_runs || (situation.asked_waiting && !beside_waiting) {
                 return Decision::Wait(Wait::Asked);
@@ -675,17 +674,34 @@ impl Broker {
         self.with(|inner| inner.held.iter().map(Entry::snapshot).collect())
     }
 
-    /// Whether a request of the photographer (an exclusive P1) runs or
-    /// waits: background work that is not reserved here (a 1:1 preview's
-    /// write) holds back meanwhile.
+    /// Whether a request of the photographer (a P1) runs, waits or is held
+    /// after its answer (`settle`): background work that is not reserved
+    /// here (a 1:1 preview's write, an idle compile, the open photo's saved
+    /// thumbnail) holds back meanwhile.
     pub fn asked_active(&self) -> bool {
         self.with(|inner| {
-            inner.asked_waiting > 0
-                || inner
-                    .held
-                    .iter()
-                    .any(|e| e.held.class == Class::Asked && e.held.exclusive)
+            inner.asked_waiting > 0 || inner.held.iter().any(|e| e.held.class == Class::Asked)
         })
+    }
+
+    /// `reservation`'s work is answered but what follows it still runs under
+    /// it (an AI mask's frame, G74/BRK3): it stays counted and keeps
+    /// speculative work and exports back, but no longer holds back another
+    /// exclusive request of its class (a second selection of the same
+    /// photo the webview waits for before it shows either), and counts only
+    /// `still_to_come` beyond what the app grew by since it started (with
+    /// the app at `app_now`): the work's own peak is over.
+    pub fn settle(&self, reservation: &Reservation, still_to_come: u64, app_now: Option<u64>) {
+        self.with(|inner| {
+            if let Some(e) = inner.held.iter_mut().find(|e| e.held.id == reservation.id) {
+                e.held.exclusive = false;
+                let grown = match (e.held.app_at_start, app_now) {
+                    (Some(start), Some(now)) => now.saturating_sub(start),
+                    _ => 0,
+                };
+                e.held.estimate = grown.saturating_add(still_to_come);
+            }
+        });
     }
 
     /// The estimate for `label` with `plan`: `estimate`, or the last peak
@@ -1685,5 +1701,58 @@ mod tests {
             decide(&fetch, &situation(&click, reading(20 * GB, 3 * GB))),
             Decision::Wait(Wait::Asked)
         );
+    }
+
+    /// G74/BRK3: an AI mask answered and held while its frame renders
+    /// keeps speculative work back and counts only what is still to come
+    /// (the frame), so a second selection of the same photo (the webview
+    /// applies a migrated photo's Subject and Sky together) starts beside
+    /// it where the two whole estimates would not fit.
+    #[test]
+    fn a_settled_answer_counts_but_lets_the_next_request_start() {
+        let b: &'static Broker = Box::leak(Box::new(Broker::new()));
+        let start = reading(6 * GB, 3 * GB);
+        let subject = b
+            .try_reserve(
+                Request::new(Class::Asked, "subject", 3 * GB).exclusive(),
+                &|| start,
+                false,
+                Duration::ZERO,
+                None,
+            )
+            .expect("fits");
+        let sky = || Request::new(Class::Asked, "sky", 1500 * MB).exclusive();
+        assert_eq!(
+            b.try_reserve(sky(), &|| start, false, Duration::ZERO, None)
+                .unwrap_err(),
+            Wait::Exclusive
+        );
+        // Answered: the app kept 1.6 GB of it (model, warp), the frame of
+        // 1 GB is still to come.
+        let r = reading(4400 * MB, 4600 * MB);
+        b.settle(&subject.reservation, GB, r.app);
+        assert!(b.asked_active(), "held after its answer");
+        // Room 4.4 − 1.59 − 1 (the frame) = 1.81 GB ≥ 1.5: Sky starts. With
+        // Subject's whole 3 GB still counted (1.4 GB unspent) it would not.
+        let second = b
+            .try_reserve(sky(), &|| r, false, Duration::ZERO, None)
+            .expect("starts");
+        drop(second);
+        // Speculative work and exports still wait for it.
+        for class in [Class::Speculative, Class::Export] {
+            assert_eq!(
+                b.try_reserve(
+                    Request::new(class, "decode", MB),
+                    &|| r,
+                    false,
+                    Duration::ZERO,
+                    None
+                )
+                .unwrap_err(),
+                Wait::Asked
+            );
+        }
+        drop(subject);
+        assert!(!b.asked_active());
     }
 }

@@ -24,6 +24,8 @@ import {
   AI_MASKS_AHEAD_DELAY_MS,
   AI_MASK_MEMORY_WAIT_END_EVENT,
   AI_MASK_MEMORY_WAIT_EVENT,
+  AI_MASK_SLOW_MODE_END_EVENT,
+  AI_MASK_SLOW_MODE_EVENT,
   AI_MODELS_UNLOADED_EVENT,
   AI_WARM_UP_DELAY_MS,
   objectSelectionBusy,
@@ -34,7 +36,7 @@ import {
   useAiModelLifecycle
 } from './useAiMasking';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
-import { useProcessStore } from '../store/useProcessStore';
+import { aiMaskModeKey, useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
 import { Panel } from '../components/ui/AppProperties';
 import { INITIAL_ADJUSTMENTS } from '../utils/adjustments';
@@ -181,6 +183,45 @@ describe('automatic AI masks from imported presets', () => {
     await waitFor(() =>
       expect(subOf('sub-ai-foreground')?.parameters).toMatchObject({ maskDataBase64: 'data:image/png;base64,AAAA' })
     );
+  });
+
+  it('keeps why a Subject mask takes longer: waiting for memory, then the slower plan, then done', async () => {
+    // G74/BRK3: on a machine short of memory the run waits, then runs the
+    // reduced plan (36–42 s for 51 MP); the computing layer says which.
+    useEditorStore.setState({
+      selectedImage: { path: '/s/a.NEF', isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer('ai-foreground', { maskDataBase64: null, grow: 0, feather: 0 })] as never
+      }
+    });
+    let answer: (value: unknown) => void = () => {};
+    invoke.mockImplementation((command: string) =>
+      command === 'generate_ai_foreground_mask' ? new Promise((resolve) => (answer = resolve)) : Promise.resolve(null)
+    );
+    renderHook(() => useAiModelLifecycle(true));
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(listeners.has(AI_MASK_SLOW_MODE_EVENT)).toBe(true));
+    await waitFor(() => expect(useProcessStore.getState().activeAiTasks['sub-ai-foreground']).toBeTruthy());
+    const mode = () => useProcessStore.getState().aiMaskModes[aiMaskModeKey('subject', '/s/a.NEF')];
+    const wait = { payload: { path: '/s/a.NEF', kind: 'subject' } };
+    act(() => listeners.get(AI_MASK_MEMORY_WAIT_EVENT)?.(wait));
+    expect(mode()).toBe('waitingMemory');
+    // Another photo's run says nothing about this one.
+    act(() => listeners.get(AI_MASK_SLOW_MODE_EVENT)?.({ payload: { path: '/s/b.NEF', kind: 'subject' } }));
+    expect(mode()).toBe('waitingMemory');
+    // Memory freed for the reduced plan: the wait ends, the slower run starts.
+    act(() => listeners.get(AI_MASK_MEMORY_WAIT_END_EVENT)?.(wait));
+    expect(mode()).toBeUndefined();
+    act(() => listeners.get(AI_MASK_SLOW_MODE_EVENT)?.(wait));
+    expect(mode()).toBe('slow');
+    // A late wait end (another request's) does not end the slower run.
+    act(() => listeners.get(AI_MASK_MEMORY_WAIT_END_EVENT)?.(wait));
+    expect(mode()).toBe('slow');
+    act(() => listeners.get(AI_MASK_SLOW_MODE_END_EVENT)?.(wait));
+    expect(mode()).toBeUndefined();
+    await act(async () => answer({ maskDataBase64: 'data:image/png;base64,AAAA' }));
+    await waitFor(() => expect(useProcessStore.getState().activeAiTasks['sub-ai-foreground']).toBeUndefined());
   });
 
   /** Answers `generate_*` calls only when the test resolves them. */

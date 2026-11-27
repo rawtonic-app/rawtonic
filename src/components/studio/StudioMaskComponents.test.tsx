@@ -5,6 +5,7 @@ import StudioMaskComponents from './StudioMaskComponents';
 import { useStudioTools } from './useStudioTools';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useUIStore } from '../../store/useUIStore';
+import { aiMaskModeKey, useProcessStore } from '../../store/useProcessStore';
 import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, type Adjustments } from '../../utils/adjustments';
 import { createSubMask } from '../../utils/maskUtils';
 import { erasesFromLayer } from '../../utils/maskKinds';
@@ -119,5 +120,36 @@ describe('the combine menus', () => {
     setLayer(false);
     pick("Subtract from this layer's mask", 'Brush');
     expect(layerOf().subMasks[1]).toMatchObject({ type: Mask.Brush, mode: SubMaskMode.Subtractive });
+  });
+});
+
+describe('a Subject component computing', () => {
+  it('says when it waits for memory or computes in the slower low-memory mode (G74/BRK3)', () => {
+    const subject = { ...createSubMask(Mask.AiForeground, size), id: 'subj' };
+    useEditorStore.setState({
+      adjustments: {
+        ...INITIAL_ADJUSTMENTS,
+        masks: [{ ...structuredClone(INITIAL_MASK_CONTAINER), id: 'l1', name: 'Layer 1', subMasks: [subject] }]
+      },
+      activeMaskContainerId: 'l1',
+      activeMaskId: 'subj'
+    });
+    useProcessStore.setState({
+      activeAiTasks: { subj: { id: 'subj', type: 'foreground', count: 1 } },
+      aiMaskModes: {}
+    });
+    const busy = () => document.querySelector('.studio-mask-busy')?.textContent;
+    render(<StudioMaskComponents />);
+    expect(busy()).toBe('· computing…');
+    act(() => useProcessStore.getState().setAiMaskMode(aiMaskModeKey('subject', '/a.arw'), 'waitingMemory'));
+    expect(busy()).toBe('· waiting for memory…');
+    act(() => useProcessStore.getState().setAiMaskMode(aiMaskModeKey('subject', '/a.arw'), 'slow'));
+    expect(busy()).toBe('· computing in the slower mode (low memory)…');
+    // Another photo's slower run says nothing here.
+    act(() => useProcessStore.getState().setAiMaskMode(aiMaskModeKey('subject', '/a.arw'), null));
+    act(() => useProcessStore.getState().setAiMaskMode(aiMaskModeKey('subject', '/b.arw'), 'slow'));
+    expect(busy()).toBe('· computing…');
+    act(() => useProcessStore.setState({ activeAiTasks: {}, aiMaskModes: {} }));
+    expect(busy()).toBeUndefined();
   });
 });

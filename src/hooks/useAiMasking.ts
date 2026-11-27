@@ -14,7 +14,7 @@ import {
 import i18n from 'i18next';
 import { notify } from '../activity/notify';
 import { debouncedSetHistory, useEditorStore } from '../store/useEditorStore';
-import { useProcessStore } from '../store/useProcessStore';
+import { aiMaskModeKey, useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
 import { useEditorActions } from './useEditorActions';
 import { Adjustments, MaskContainer, Coord } from '../utils/adjustments';
@@ -131,6 +131,8 @@ const noticeFor = new Map<AiMaskMemoryWait['kind'], string>();
  * photo's (one notice per kind while such a wait lasts). */
 export function noteAiMaskMemoryWait(wait: AiMaskMemoryWait) {
   memoryWaits.set(waitKey(wait), (memoryWaits.get(waitKey(wait)) ?? 0) + 1);
+  // The layer computing says it waits for memory (G74/BRK3).
+  useProcessStore.getState().setAiMaskMode(aiMaskModeKey(wait.kind, wait.path), 'waitingMemory');
   if (useEditorStore.getState().selectedImage?.path !== wait.path) return;
   noticeFor.set(wait.kind, wait.path);
   notify.warn(i18n.t(wait.kind === 'sky' ? 'editor.ai.memoryWaitSky' : 'editor.ai.memoryWaitSubject'), {
@@ -148,10 +150,30 @@ export function noteAiMaskMemoryWaitEnd(wait: AiMaskMemoryWait) {
     return;
   }
   memoryWaits.delete(waitKey(wait));
+  const key = aiMaskModeKey(wait.kind, wait.path);
+  if (useProcessStore.getState().aiMaskModes[key] === 'waitingMemory') {
+    useProcessStore.getState().setAiMaskMode(key, null);
+  }
   // Only the photo's own notice: another photo's may show under that id now.
   if (noticeFor.get(wait.kind) !== wait.path) return;
   noticeFor.delete(wait.kind);
   notify.dismiss(memoryWaitNotice(wait.kind));
+}
+
+/** `ai_commands::SLOW_MODE_EVENT`: a Subject or Sky mask asked for runs the
+ * reduced plan, which fits in less memory and takes longer (36–42 s for
+ * 51 MP on a 14 GB laptop); the layer computing says so until
+ * `SLOW_MODE_END_EVENT` (G74/BRK3). */
+export const AI_MASK_SLOW_MODE_EVENT = 'ai-mask-slow-mode';
+export const AI_MASK_SLOW_MODE_END_EVENT = 'ai-mask-slow-mode-end';
+
+export function noteAiMaskSlowMode(run: AiMaskMemoryWait) {
+  useProcessStore.getState().setAiMaskMode(aiMaskModeKey(run.kind, run.path), 'slow');
+}
+
+export function noteAiMaskSlowModeEnd(run: AiMaskMemoryWait) {
+  const key = aiMaskModeKey(run.kind, run.path);
+  if (useProcessStore.getState().aiMaskModes[key] === 'slow') useProcessStore.getState().setAiMaskMode(key, null);
 }
 
 /** Why the backend dropped the models (`ai_lifecycle::UnloadReason`). */
@@ -270,6 +292,7 @@ export function noteLandscapeModelReady() {
 /** Forgets the session state (tests). */
 export function resetAiMaskSession() {
   memoryWaits.clear();
+  useProcessStore.setState({ aiMaskModes: {} });
   noticeFor.clear();
   landscapeWaitingForModel.clear();
   cancelAiMaskPrecompute();
@@ -452,7 +475,9 @@ export function useAiModelLifecycle(develop: boolean) {
     let unmounted = false;
     for (const [name, handle] of [
       [AI_MASK_MEMORY_WAIT_EVENT, noteAiMaskMemoryWait],
-      [AI_MASK_MEMORY_WAIT_END_EVENT, noteAiMaskMemoryWaitEnd]
+      [AI_MASK_MEMORY_WAIT_END_EVENT, noteAiMaskMemoryWaitEnd],
+      [AI_MASK_SLOW_MODE_EVENT, noteAiMaskSlowMode],
+      [AI_MASK_SLOW_MODE_END_EVENT, noteAiMaskSlowModeEnd]
     ] as const) {
       listen<AiMaskMemoryWait>(name, (event) => handle(event.payload))
         .then((unlisten) => {

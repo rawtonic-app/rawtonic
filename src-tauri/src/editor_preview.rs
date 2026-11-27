@@ -3286,7 +3286,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             // A settled frame of the full decode holds what it may add in the
             // memory budget while it runs (G74/BRK2: a Subject click's new
             // layer frame, +1.9 GB for 51 MP on a 14 GB laptop).
-            let _visible = (!interactive)
+            let mut visible = (!interactive)
                 .then(|| {
                     state
                         .source
@@ -3411,6 +3411,9 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 Ok(_) => {}
             }
             let rendered = result.is_ok();
+            if rendered && let Some(visible) = visible.as_mut() {
+                visible.rendered();
+            }
             let region_sent = result
                 .as_ref()
                 .is_ok_and(|bytes| bytes.starts_with(BROWSER_REGION_MAGIC));

@@ -144,6 +144,28 @@ fn write_editor_save(
     Ok((metadata, EditorSave { crop_missing }))
 }
 
+/// The newest save's ticket per photo whose thumbnail renders from the open
+/// photo's decode (`save_metadata_and_update_thumbnail_blocking`).
+static OPEN_PHOTO_THUMBNAILS: std::sync::Mutex<Option<(String, u64)>> = std::sync::Mutex::new(None);
+static OPEN_PHOTO_THUMBNAIL_TICKETS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// A new ticket for `path`'s saved thumbnail; it supersedes earlier ones.
+fn open_photo_thumbnail_ticket(path: &str) -> u64 {
+    let ticket = OPEN_PHOTO_THUMBNAIL_TICKETS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    *crate::state::lock::lock_recover(&OPEN_PHOTO_THUMBNAILS) = Some((path.to_string(), ticket));
+    ticket
+}
+
+/// Whether `ticket` is still the newest saved thumbnail of `path` (a save
+/// of another photo since does not supersede it).
+fn is_newest_open_photo_thumbnail(path: &str, ticket: u64) -> bool {
+    match crate::state::lock::lock_recover(&OPEN_PHOTO_THUMBNAILS).as_ref() {
+        Some((newest, newest_ticket)) if newest == path => *newest_ticket == ticket,
+        _ => true,
+    }
+}
+
 pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     path: String,
     adjustments: Value,
@@ -175,7 +197,71 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
 
     add_to_thumbnail_queue(&app_handle.state::<ThumbnailState>(), 1, &app_handle);
 
+    // Taken now, in the order of the saves.
+    let ticket = preloaded_image_option
+        .is_some()
+        .then(|| open_photo_thumbnail_ticket(&path));
+
     rawtonic_runtime::spawn_render_thread("saved-thumbnail", move || {
+        let mut preloaded_image_option = preloaded_image_option;
+        // The open photo's thumbnail renders from its full decode: after
+        // its frame and a request of the photographer, not beside them, one
+        // at a time and counted while it renders (G74/BRK3: beside the frame
+        // with a new Subject mask the two full-resolution warps took a 14 GB
+        // laptop past its watchdog). Saves meanwhile come to one render, the
+        // newest one's; once the photo is left it renders as any other.
+        let _admitted = match (preloaded_image_option.as_deref(), ticket) {
+            (Some(image), Some(ticket)) => {
+                let started = std::time::Instant::now();
+                let decode = preloaded_image_option.clone();
+                // Only a RAW renders from its stored preview once its photo is
+                // left; any other file would be decoded and warped in full
+                // again, outside this admission (review r3): it keeps its
+                // decode and waits its turn.
+                let from_preview = is_raw_file(parse_virtual_path(&path_clone).0);
+                let left = || {
+                    if !from_preview {
+                        return false;
+                    }
+                    let state = app_handle_clone.state::<AppState>();
+                    !crate::state::lock::lock_recover(&state.source.original_image)
+                        .as_ref()
+                        .is_some_and(|now| {
+                            now.path == path_clone
+                                && decode
+                                    .as_ref()
+                                    .is_some_and(|d| std::sync::Arc::ptr_eq(&now.image, d))
+                        })
+                };
+                match crate::memory_broker::admit_open_photo_thumbnail(
+                    u64::from(image.width()) * u64::from(image.height()),
+                    || !is_newest_open_photo_thumbnail(&path_clone, ticket),
+                    left,
+                ) {
+                    crate::memory_broker::ThumbnailAdmission::Admitted(reservation, turn) => {
+                        if started.elapsed().as_millis() >= 100 {
+                            log::info!(
+                                "Saved thumbnail of the open photo waited {} ms for its frame, a request of the photographer or memory",
+                                started.elapsed().as_millis()
+                            );
+                        }
+                        Some((reservation, turn))
+                    }
+                    crate::memory_broker::ThumbnailAdmission::Superseded => {
+                        increment_thumbnail_progress(
+                            &app_handle_clone.state::<ThumbnailState>(),
+                            &app_handle_clone,
+                        );
+                        return;
+                    }
+                    crate::memory_broker::ThumbnailAdmission::Left => {
+                        preloaded_image_option = None;
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
         let settings = crate::state::settings::current(&app_handle_clone);
 
         let thumb_cache_dir = match resolve_thumbnail_cache_dir(&app_handle_clone) {

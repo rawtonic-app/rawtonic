@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useProcessStore } from '../../store/useProcessStore';
+import { aiMaskModeOf, computingLabelKey } from '../../utils/aiMaskMode';
 import { useUIStore } from '../../store/useUIStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useEditorActions } from '../../hooks/useEditorActions';
@@ -250,6 +251,17 @@ export default function StudioLayers({
   useMaskThumbnailUpdates();
   const thumbnails = useMaskThumbnailStore((s) => s.layers);
   const aiTasks = useProcessStore((s) => s.activeAiTasks);
+  const aiMaskModes = useProcessStore((s) => s.aiMaskModes);
+  const photoPath = useEditorStore((s) => s.selectedImage?.path);
+  // A layer whose Subject or Sky waits for memory or computes in the slower
+  // low-memory plan says so on its row (G74/BRK3).
+  const slowReason = (mask: MaskContainer) => {
+    const mode = mask.subMasks
+      .filter((sub) => Boolean(aiTasks[sub.id]))
+      .map((sub) => aiMaskModeOf(sub.type, photoPath, aiMaskModes))
+      .find(Boolean);
+    return mode ? t(computingLabelKey(mode)) : null;
+  };
   const [layerDrag, setLayerDrag] = useState<{
     id: string;
     target: string | null;
@@ -568,6 +580,11 @@ export default function StudioLayers({
                     <EyeOff className="studio-solo-muted-indicator" size={11} aria-hidden="true" />
                   )}
                   {renaming !== mask.id && <span className="studio-layer-label">{mask.name}</span>}
+                  {slowReason(mask) && (
+                    <span className="studio-mask-busy" title={slowReason(mask) ?? undefined}>
+                      · {slowReason(mask)}
+                    </span>
+                  )}
                   {unrendered && (
                     <span
                       className="studio-layer-unrendered"

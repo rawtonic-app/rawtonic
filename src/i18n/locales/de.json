@@ -4918,6 +4918,7 @@
       },
       "colorSampleHint": "Klicken, um eine Farbe aufzunehmen, ziehen für einen Bereich; Umschalt fügt bis zu fünf Proben hinzu.",
       "computing": "wird berechnet…",
+      "computingSlow": "wird im langsameren Modus berechnet (wenig Arbeitsspeicher)…",
       "depth": {
         "falloff": "Übergang",
         "farLimit": "Fernes Ende",
@@ -4956,7 +4957,8 @@
       "objectFrameChanged": "Das Foto wurde gedreht oder seine Objektiv- bzw. Transformkorrektur geändert, seit diese Auswahl entstand. Klicke ohne Umschalt oder Alt, um neu auszuwählen.",
       "refine": "Verfeinern",
       "refineAria": "Farbbereich verfeinern",
-      "subtractTitle": "Von der Maske dieser Ebene abziehen"
+      "subtractTitle": "Von der Maske dieser Ebene abziehen",
+      "waitingForMemory": "wartet auf freien Arbeitsspeicher…"
     },
     "metadata": {
       "appliesTo_one": "Änderungen gelten für {{count}} Foto.",

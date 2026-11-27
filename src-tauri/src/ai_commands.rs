@@ -1149,6 +1149,13 @@ enum Network {
 }
 
 impl Network {
+    /// Subject's low-peak graph without its arena: the reduced memory plan,
+    /// ~30 % slower (G74/BRK1).
+    fn runs_reduced_plan(&self) -> bool {
+        matches!(self, Self::Subject(model)
+            if model.memory_plan() == Some(rawtonic_onnx::MemoryPlan::LowPeakNoArena))
+    }
+
     fn on_onnx(&self) -> bool {
         match self {
             Self::Subject(model) => model.on_onnx(),
@@ -1289,6 +1296,13 @@ async fn auto_mask(
                         &loaded,
                         js_adjustments,
                     ),
+                    // Also when this run lets them go itself (below: an
+                    // installed model on the CPU, review r1).
+                    // Not when an answer held for its frame counts that
+                    // frame already (a migrated photo's Subject and Sky).
+                    frame_rebuilds: (crate::memory_broker::frame_caches_dropped()
+                        || (!download && rawtonic_onnx::models_run_on_cpu_only()))
+                        && !crate::memory_broker::frame_counted_by_an_answer(),
                 })
             };
             // Not started while no plan fits: the photographer is told once
@@ -1339,6 +1353,7 @@ async fn auto_mask(
     // that holds memory already (it would never end, G74/BRK2).
     let mut _run = kind.lock(ai_state).lock().await;
     if let Some(mask) = cached_mask(ai_state, kind, &key) {
+        settle_after_answer(app_handle, &loaded, origin, reservation);
         return Ok(Some(mask));
     }
     if cancelled() {
@@ -1361,6 +1376,7 @@ async fn auto_mask(
         let turn = crate::ai_lifecycle::turn(asked.is_some()).await;
         _run = kind.lock(ai_state).lock().await;
         if let Some(mask) = cached_mask(ai_state, kind, &key) {
+            settle_after_answer(app_handle, &loaded, origin, reservation);
             return Ok(Some(mask));
         }
         if cancelled() {
@@ -1373,6 +1389,9 @@ async fn auto_mask(
     let reduced = reservation
         .as_ref()
         .is_some_and(|r| r.plan() == rawtonic_runtime::memory_budget::Plan::Reduced);
+    // The reduced plan takes longer (36–42 s for 51 MP on a Radeon 680M
+    // laptop, WBRK2): the layer says why while it computes (G74/BRK3).
+    let mut _slow = reduced.then(|| SlowMode::tell(app_handle, &loaded.path, kind));
     let _stage = crate::memory_broker::Stage::new(format!("AI {} mask run", kind.name()));
     // The photo's warped image is made while a model that is not loaded yet
     // loads (Core ML loads on a worker thread): a first click waits for the
@@ -1416,6 +1435,11 @@ async fn auto_mask(
     let Some(network) = network else {
         return Ok(None);
     };
+    // A model loaded for the reduced plan serves a full grant too: the
+    // run is as slow then, and says so (review r1).
+    if _slow.is_none() && network.runs_reduced_plan() {
+        _slow = Some(SlowMode::tell(app_handle, &loaded.path, kind));
+    }
     if cancelled() {
         return Err(task_cancelled());
     }
@@ -1506,7 +1530,88 @@ async fn auto_mask(
     );
     let data = Arc::new(data);
     store_mask(ai_state, kind, key, data.clone());
+    // Not under the AI turn after the answer: a compile the frame with the
+    // mask waits for would wait for it.
+    drop(_turn);
+    settle_after_answer(app_handle, &loaded, origin, reservation);
     Ok(Some(data))
+}
+
+/// What follows the answer of a click or a pending layer (the webview puts
+/// the mask in its layer: the frame with the mask, the saved thumbnail)
+/// stays under the run's grant until that frame settled
+/// (`memory_broker::hold_after_answer`, G74/BRK3). Not for the masking
+/// tools' run: its mask is kept for a click, no frame follows it.
+fn settle_after_answer(
+    app_handle: &tauri::AppHandle,
+    loaded: &crate::state::source::LoadedImage,
+    origin: Option<Origin>,
+    reservation: Option<rawtonic_runtime::memory_budget::Reservation>,
+) {
+    let Some(reservation) = reservation else {
+        return;
+    };
+    if !matches!(origin, Some(Origin::Click | Origin::Pending)) {
+        return;
+    }
+    // Another selection of the photo may start beside it (the webview
+    // waits for a migrated photo's Subject and Sky together, review r1),
+    // and the grant counts what is still to come: the frame building the
+    // caches again when they are gone, once for such a batch (review r2).
+    let pixels = u64::from(loaded.image.width()) * u64::from(loaded.image.height());
+    let counts_frame = crate::memory_broker::frame_caches_dropped()
+        && !crate::memory_broker::frame_counted_by_an_answer();
+    let still_to_come = if counts_frame {
+        pixels.saturating_mul(crate::memory_broker::FRAME_BYTES_PER_PIXEL)
+    } else {
+        0
+    };
+    crate::memory_broker::BROKER.settle(
+        &reservation,
+        still_to_come,
+        crate::memory_pressure::reading().app,
+    );
+    let label = reservation.label();
+    let app = app_handle.clone();
+    let (path, image) = (loaded.path.clone(), loaded.image.clone());
+    crate::memory_broker::hold_after_answer(reservation, label, counts_frame, move || {
+        !lock_recover(&app.state::<AppState>().source.original_image)
+            .as_ref()
+            .is_some_and(|now| now.path == path && Arc::ptr_eq(&now.image, &image))
+    });
+}
+
+/// Told when an AI mask run the photographer asked for runs its reduced
+/// plan (`SlowMode`): it takes longer, and the layer computing says so.
+pub(crate) const SLOW_MODE_EVENT: &str = "ai-mask-slow-mode";
+/// Told when that run ends, however it ends, with the same `MemoryWait`.
+pub(crate) const SLOW_MODE_END_EVENT: &str = "ai-mask-slow-mode-end";
+
+/// A run on the reduced plan while it lives: `SLOW_MODE_EVENT`, then
+/// `SLOW_MODE_END_EVENT` when it is dropped.
+struct SlowMode {
+    app: tauri::AppHandle,
+    notice: MemoryWait,
+}
+
+impl SlowMode {
+    fn tell(app: &tauri::AppHandle, path: &str, kind: AutoMask) -> Self {
+        let notice = MemoryWait {
+            path: path.to_string(),
+            kind: kind.name(),
+        };
+        let _ = app.emit(SLOW_MODE_EVENT, notice.clone());
+        Self {
+            app: app.clone(),
+            notice,
+        }
+    }
+}
+
+impl Drop for SlowMode {
+    fn drop(&mut self) {
+        let _ = self.app.emit(SLOW_MODE_END_EVENT, self.notice.clone());
+    }
 }
 
 /// The automatic selections an export, a collage or the selection queue
@@ -1757,6 +1862,11 @@ struct AskedEstimate {
     /// The photo's full-resolution warped image is cached or being built
     /// (`editor_preview::full_warped_image_shared`): the run adds none.
     warp_shared: bool,
+    /// The open photo's frame caches were let go since its last settled
+    /// frame (`memory_broker::frame_caches_dropped`): the frame with the
+    /// new mask builds them again after the answer, beside what the run
+    /// keeps (G74/BRK3).
+    frame_rebuilds: bool,
 }
 
 /// Told when an AI mask run the photographer asked for does not start for
@@ -1785,8 +1895,12 @@ const LOW_PEAK_MODEL: u64 = 1000 * MB;
 /// after the run): +1362 MB on x86 in 3 fresh processes (MEM21), rounded up.
 const LOW_PEAK_RUN: u64 = 1400 * MB;
 /// The reduced plan's run (`MemoryPlan::LowPeakNoArena`, MEM21 option B):
-/// +643 MB on x86, +770–800 MB on arm64 → 650 MB (the target, x86).
-const LOW_PEAK_RUN_REDUCED: u64 = 650 * MB;
+/// +643 MB on x86 alone (MEM21), but in the app on the Lenovo the whole
+/// reduced plan grew it by 1967–2539 MB over model and warped image of
+/// 1613 MB, i.e. +354–926 MB for the run (WBRK2, 6 runs at 7 GB
+/// available; 2 more stopped by the watchdog 3 s in) → 950 MB, the largest
+/// measured (G74/BRK3).
+const LOW_PEAK_RUN_REDUCED: u64 = 950 * MB;
 /// The photo's warped full-resolution image the network reads: 12 bytes
 /// per pixel (8-bit RGB working copy and its float input; MEMB1 §4,
 /// ≈ 0.6 GB for the 51 MP RAF).
@@ -1818,6 +1932,18 @@ fn asked_request(e: &AskedEstimate) -> rawtonic_runtime::memory_budget::Request 
     } else {
         ASKED_WAITS_FOR_VISIBLE
     };
+    // After the answer the frame with the mask renders under the same grant
+    // (`memory_broker::hold_after_answer`): when the photo's frame caches
+    // are gone it builds them again (`FRAME_BYTES_PER_PIXEL`) beside what
+    // the run keeps — the model and the warped image it cached. The run's
+    // own memory is free by then, so the grant covers the larger of the two
+    // (WBRK2: +2.96 GB within 1 s of a pending layer's answer at 7 GB).
+    let after = if e.frame_rebuilds {
+        e.pixels
+            .saturating_mul(crate::memory_broker::FRAME_BYTES_PER_PIXEL)
+    } else {
+        0
+    };
     let request = if e.kind == AutoMask::Subject && e.low_peak {
         let warp = if e.warp_shared {
             0
@@ -1825,7 +1951,9 @@ fn asked_request(e: &AskedEstimate) -> rawtonic_runtime::memory_budget::Request 
             e.pixels * WARP_BYTES_PER_PIXEL
         };
         let base = if e.loaded { 0 } else { LOW_PEAK_MODEL } + warp;
-        Request::new(Class::Asked, label, base + LOW_PEAK_RUN).reduced(base + LOW_PEAK_RUN_REDUCED)
+        let after = if after > 0 { base + after } else { 0 };
+        Request::new(Class::Asked, label, (base + LOW_PEAK_RUN).max(after))
+            .reduced((base + LOW_PEAK_RUN_REDUCED).max(after))
     } else {
         let job = match e.kind {
             AutoMask::Subject => crate::ai_ahead::AheadJob::Subject,
@@ -1834,7 +1962,7 @@ fn asked_request(e: &AskedEstimate) -> rawtonic_runtime::memory_budget::Request 
         Request::new(
             Class::Asked,
             label,
-            crate::ai_ahead::estimated_peak(job, e.on_cpu, e.loaded),
+            crate::ai_ahead::estimated_peak(job, e.on_cpu, e.loaded).max(after),
         )
     };
     request.exclusive().visible_wait(wait).only_when_it_fits()
@@ -2710,6 +2838,7 @@ mod tests {
             loaded: false,
             pixels: 8256 * 6192,
             warp_shared: false,
+            frame_rebuilds: false,
         })
     }
 
@@ -2723,10 +2852,11 @@ mod tests {
         assert_eq!(r.label, "AI subject pending layer");
         assert_eq!(r.visible_wait, PENDING_WAITS_FOR_VISIBLE);
         // Model 1.0 GB + warped image 12 B/px (0.61 GB) + run: 1.4 GB with
-        // the arena, 0.65 GB without (MEM21 option A / B).
+        // the arena (MEM21 option A), 0.95 GB without (option B, the
+        // largest the Lenovo measured in the app, WBRK2).
         let warp = 8256 * 6192 * 12;
         assert_eq!(r.need, 1000 * MB + warp + 1400 * MB);
-        assert_eq!(r.reduced, Some(1000 * MB + warp + 650 * MB));
+        assert_eq!(r.reduced, Some(1000 * MB + warp + 950 * MB));
         // It starts only when a plan fits (G74/BRK2, WBRK1: granted beyond
         // the room, 16 of 16 clicks hit the watchdog).
         assert!(r.fits_only);
@@ -2740,9 +2870,10 @@ mod tests {
             on_cpu: true,
             loaded: false,
             pixels: 8256 * 6192,
+            frame_rebuilds: false,
         });
         assert_eq!(shared.need, 2400 * MB);
-        assert_eq!(shared.reduced, Some(1650 * MB));
+        assert_eq!(shared.reduced, Some(1950 * MB));
         // Elsewhere (Core ML, or the usual graph): MEM18's measured peaks,
         // no reduced plan.
         let usual = asked_request(&AskedEstimate {
@@ -2753,6 +2884,7 @@ mod tests {
             loaded: true,
             pixels: 45_000_000,
             warp_shared: false,
+            frame_rebuilds: false,
         });
         assert_eq!(usual.need, 4200 * MB);
         assert_eq!(usual.reduced, None);
@@ -2764,8 +2896,53 @@ mod tests {
             loaded: false,
             pixels: 45_000_000,
             warp_shared: false,
+            frame_rebuilds: false,
         });
         assert_eq!((sky.need, sky.reduced), (1200 * MB, None));
+    }
+
+    /// The frame with the new mask builds the photo's frame caches again
+    /// when they were let go (an idle compile before the run): the grant
+    /// covers it beside what the run keeps, the model and the warped image
+    /// (WBRK2 P7000: +2.96 GB within 1 s of the answer, the watchdog).
+    #[test]
+    fn the_grant_covers_the_frame_after_the_answer() {
+        let pixels: u64 = 8688 * 5792;
+        let estimate = |frame_rebuilds, loaded, warp_shared| {
+            asked_request(&AskedEstimate {
+                kind: AutoMask::Subject,
+                origin: Origin::Pending,
+                low_peak: true,
+                on_cpu: true,
+                loaded,
+                pixels,
+                warp_shared,
+                frame_rebuilds,
+            })
+        };
+        let warp = pixels * 12;
+        let frame = pixels * crate::memory_broker::FRAME_BYTES_PER_PIXEL;
+        let kept = estimate(false, false, false);
+        assert_eq!(kept.need, 1000 * MB + warp + 1400 * MB);
+        let rebuilt = estimate(true, false, false);
+        // 1.0 + 0.6 + 2.1 GB: more than either plan's run.
+        assert_eq!(rebuilt.need, 1000 * MB + warp + frame);
+        assert_eq!(rebuilt.reduced, Some(1000 * MB + warp + frame));
+        // With the model loaded and the warp shared the frame alone counts.
+        let warm = estimate(true, true, true);
+        assert_eq!((warm.need, warm.reduced), (frame, Some(frame)));
+        // Elsewhere too: the larger of the run's peak and the frame.
+        let sky = asked_request(&AskedEstimate {
+            kind: AutoMask::Sky,
+            origin: Origin::Click,
+            low_peak: true,
+            on_cpu: true,
+            loaded: true,
+            pixels,
+            warp_shared: false,
+            frame_rebuilds: true,
+        });
+        assert_eq!(sky.need, frame);
     }
 
     /// MEMB1's failing case through the broker: 4-up Develop open on the
