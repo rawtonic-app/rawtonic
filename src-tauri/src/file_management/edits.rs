@@ -144,6 +144,28 @@ fn write_editor_save(
     Ok((metadata, EditorSave { crop_missing }))
 }
 
+/// The newest save's ticket per photo whose thumbnail renders from the open
+/// photo's decode (`save_metadata_and_update_thumbnail_blocking`).
+static OPEN_PHOTO_THUMBNAILS: std::sync::Mutex<Option<(String, u64)>> = std::sync::Mutex::new(None);
+static OPEN_PHOTO_THUMBNAIL_TICKETS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// A new ticket for `path`'s saved thumbnail; it supersedes earlier ones.
+fn open_photo_thumbnail_ticket(path: &str) -> u64 {
+    let ticket = OPEN_PHOTO_THUMBNAIL_TICKETS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    *crate::state::lock::lock_recover(&OPEN_PHOTO_THUMBNAILS) = Some((path.to_string(), ticket));
+    ticket
+}
+
+/// Whether `ticket` is still the newest saved thumbnail of `path` (a save
+/// of another photo since does not supersede it).
+fn is_newest_open_photo_thumbnail(path: &str, ticket: u64) -> bool {
+    match crate::state::lock::lock_recover(&OPEN_PHOTO_THUMBNAILS).as_ref() {
+        Some((newest, newest_ticket)) if newest == path => *newest_ticket == ticket,
+        _ => true,
+    }
+}
+
 pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     path: String,
     adjustments: Value,
@@ -177,19 +199,36 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
 
     rawtonic_runtime::spawn_render_thread("saved-thumbnail", move || {
         // The open photo's thumbnail renders from its full decode: after
-        // its frame and a request of the photographer, not beside them
-        // (G74/BRK3: beside the frame with a new Subject mask the two
-        // full-resolution warps took a 14 GB laptop past its watchdog).
-        if preloaded_image_option.is_some() {
-            let waited =
-                crate::memory_broker::wait_for_open_photo(crate::memory_broker::THUMBNAIL_WAIT);
-            if waited.as_millis() >= 100 {
-                log::info!(
-                    "Saved thumbnail of the open photo waited {} ms for its frame or a request of the photographer",
-                    waited.as_millis()
-                );
+        // its frame and a request of the photographer, not beside them, and
+        // counted while it renders (G74/BRK3: beside the frame with a new
+        // Subject mask the two full-resolution warps took a 14 GB laptop
+        // past its watchdog). Saves meanwhile come to one render: the
+        // newest one's.
+        let _thumbnail = match preloaded_image_option.as_deref() {
+            Some(image) => {
+                let ticket = open_photo_thumbnail_ticket(&path_clone);
+                let waited = crate::memory_broker::wait_for_open_photo(|| {
+                    !is_newest_open_photo_thumbnail(&path_clone, ticket)
+                });
+                if !is_newest_open_photo_thumbnail(&path_clone, ticket) {
+                    increment_thumbnail_progress(
+                        &app_handle_clone.state::<ThumbnailState>(),
+                        &app_handle_clone,
+                    );
+                    return;
+                }
+                if waited.as_millis() >= 100 {
+                    log::info!(
+                        "Saved thumbnail of the open photo waited {} ms for its frame or a request of the photographer",
+                        waited.as_millis()
+                    );
+                }
+                Some(crate::memory_broker::hold_open_photo_thumbnail(
+                    u64::from(image.width()) * u64::from(image.height()),
+                ))
             }
-        }
+            None => None,
+        };
         let settings = crate::state::settings::current(&app_handle_clone);
 
         let thumb_cache_dir = match resolve_thumbnail_cache_dir(&app_handle_clone) {

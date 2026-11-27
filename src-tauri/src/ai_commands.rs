@@ -1149,6 +1149,13 @@ enum Network {
 }
 
 impl Network {
+    /// Subject's low-peak graph without its arena: the reduced memory plan,
+    /// ~30 % slower (G74/BRK1).
+    fn runs_reduced_plan(&self) -> bool {
+        matches!(self, Self::Subject(model)
+            if model.memory_plan() == Some(rawtonic_onnx::MemoryPlan::LowPeakNoArena))
+    }
+
     fn on_onnx(&self) -> bool {
         match self {
             Self::Subject(model) => model.on_onnx(),
@@ -1289,7 +1296,10 @@ async fn auto_mask(
                         &loaded,
                         js_adjustments,
                     ),
-                    frame_rebuilds: crate::memory_broker::frame_caches_dropped(),
+                    // Also when this run lets them go itself (below: an
+                    // installed model on the CPU, review r1).
+                    frame_rebuilds: crate::memory_broker::frame_caches_dropped()
+                        || (!download && rawtonic_onnx::models_run_on_cpu_only()),
                 })
             };
             // Not started while no plan fits: the photographer is told once
@@ -1378,7 +1388,7 @@ async fn auto_mask(
         .is_some_and(|r| r.plan() == rawtonic_runtime::memory_budget::Plan::Reduced);
     // The reduced plan takes longer (36–42 s for 51 MP on a Radeon 680M
     // laptop, WBRK2): the layer says why while it computes (G74/BRK3).
-    let _slow = reduced.then(|| SlowMode::tell(app_handle, &loaded.path, kind));
+    let mut _slow = reduced.then(|| SlowMode::tell(app_handle, &loaded.path, kind));
     let _stage = crate::memory_broker::Stage::new(format!("AI {} mask run", kind.name()));
     // The photo's warped image is made while a model that is not loaded yet
     // loads (Core ML loads on a worker thread): a first click waits for the
@@ -1422,6 +1432,11 @@ async fn auto_mask(
     let Some(network) = network else {
         return Ok(None);
     };
+    // A model loaded for the reduced plan serves a full grant too: the
+    // run is as slow then, and says so (review r1).
+    if _slow.is_none() && network.runs_reduced_plan() {
+        _slow = Some(SlowMode::tell(app_handle, &loaded.path, kind));
+    }
     if cancelled() {
         return Err(task_cancelled());
     }
@@ -1536,6 +1551,9 @@ fn settle_after_answer(
     if !matches!(origin, Some(Origin::Click | Origin::Pending)) {
         return;
     }
+    // Another selection of the photo may start beside it (the webview
+    // waits for a migrated photo's Subject and Sky together, review r1).
+    crate::memory_broker::BROKER.settle(&reservation);
     let label = reservation.label();
     let app = app_handle.clone();
     let (path, image) = (loaded.path.clone(), loaded.image.clone());

@@ -82,16 +82,28 @@ pub(crate) fn frame_caches_dropped() -> bool {
 }
 
 /// A settled frame of the open photo's full decode while it runs: its hold
-/// in the broker, and when it ends, that the frame caches are built.
+/// in the broker, and when it ends rendered ([`VisibleFrame::rendered`]),
+/// that the frame caches are built (a cancelled or failed frame says
+/// nothing, review r1).
 pub(crate) struct VisibleFrame {
     _hold: rawtonic_runtime::memory_budget::Reservation,
     started: u64,
+    rendered: bool,
+}
+
+impl VisibleFrame {
+    /// The frame was rendered.
+    pub(crate) fn rendered(&mut self) {
+        self.rendered = true;
+    }
 }
 
 impl Drop for VisibleFrame {
     fn drop(&mut self) {
-        FRAME_CACHES_DROPPED.store(false, Ordering::SeqCst);
-        FRAMES_ENDED_UP_TO.fetch_max(self.started, Ordering::SeqCst);
+        if self.rendered {
+            FRAME_CACHES_DROPPED.store(false, Ordering::SeqCst);
+            FRAMES_ENDED_UP_TO.fetch_max(self.started, Ordering::SeqCst);
+        }
     }
 }
 
@@ -107,6 +119,7 @@ pub(crate) fn hold_visible_frame(pixels: u64) -> VisibleFrame {
             crate::memory_pressure::reading().app,
         ),
         started: FRAMES_STARTED.fetch_add(1, Ordering::SeqCst) + 1,
+        rendered: false,
     }
 }
 
@@ -164,23 +177,40 @@ pub(crate) fn hold_after_answer<T: Send + 'static>(
     });
 }
 
-/// How long the open photo's saved thumbnail waits at most for its frames
-/// and a request of the photographer ([`wait_for_open_photo`]).
-pub(crate) const THUMBNAIL_WAIT: Duration = Duration::from_secs(20);
+/// Bytes per pixel a saved thumbnail of the open photo may add while it
+/// renders from the full decode: its retouched copy and warp, 12 bytes each
+/// (+1.2 GB at 50 MP when the caches were gone, WBRK2).
+pub(crate) const THUMBNAIL_BYTES_PER_PIXEL: u64 = 24;
 
-/// Waits (blocking, at most `limit`) while the open photo's decode or a
-/// frame of it is under way or a request of the photographer runs, waits or
-/// is held after its answer: the saved thumbnail of the open photo warps
-/// the full decode when the frame caches are gone (+1.2 GB at 50 MP,
-/// 1.2 s on a Radeon 680M), and beside the frame with a new mask the two
-/// warps came to +2.4–3.7 GB (WBRK2). One after the other, the peak is the
-/// larger one. Gives how long it waited.
-pub(crate) fn wait_for_open_photo(limit: Duration) -> Duration {
+/// Waits (blocking) while the open photo's decode or a frame of it is under
+/// way or a request of the photographer runs, waits or is held after its
+/// answer, or until `superseded` (a newer save of the photo renders the
+/// thumbnail instead): the saved thumbnail of the open photo warps the full
+/// decode when the frame caches are gone, and beside the frame with a new
+/// mask the two warps came to +2.4–3.7 GB (WBRK2). One after the other,
+/// the peak is the larger one. No time limit (review r1: one that ran out
+/// started the warp beside the work it waited for); the thumbnail only
+/// shows later. Gives how long it waited.
+pub(crate) fn wait_for_open_photo(superseded: impl Fn() -> bool) -> Duration {
     let start = Instant::now();
-    while (visible_busy() || BROKER.asked_active()) && start.elapsed() < limit {
+    while (visible_busy() || BROKER.asked_active()) && !superseded() {
         std::thread::sleep(Duration::from_millis(100));
     }
     start.elapsed()
+}
+
+/// Holds the open photo's saved thumbnail's possible growth
+/// (`THUMBNAIL_BYTES_PER_PIXEL` × `pixels`) while it renders, so a request
+/// decided meanwhile counts it.
+pub(crate) fn hold_open_photo_thumbnail(
+    pixels: u64,
+) -> rawtonic_runtime::memory_budget::Reservation {
+    BROKER.hold(
+        Class::Visible,
+        "saved thumbnail of the open photo",
+        pixels.saturating_mul(THUMBNAIL_BYTES_PER_PIXEL),
+        crate::memory_pressure::reading().app,
+    )
 }
 
 /// Whether the open photo's full-resolution decode or a frame of it is under
@@ -565,17 +595,25 @@ mod tests {
         // The caches let go (an idle compile), then a frame builds them.
         note_frame_caches_dropped();
         assert!(frame_caches_dropped());
-        let before = hold_visible_frame(1);
+        let mut before = hold_visible_frame(1);
         let dropped = Arc::new(AtomicBool::new(false));
         hold_after_answer(Held(dropped.clone()), "AI subject click", || false);
         // The frame under way at the answer ends: it was not the mask's.
+        before.rendered();
         drop(before);
         assert!(!frame_caches_dropped());
         assert!(!dropped_within(&dropped, Duration::from_millis(400)).await);
-        // The frame with the mask.
-        let with_mask = hold_visible_frame(1);
+        // A frame cancelled (a newer request replaced it) says nothing.
+        note_frame_caches_dropped();
+        drop(hold_visible_frame(1));
+        assert!(frame_caches_dropped());
         assert!(!dropped_within(&dropped, Duration::from_millis(300)).await);
+        // The frame with the mask.
+        let mut with_mask = hold_visible_frame(1);
+        assert!(!dropped_within(&dropped, Duration::from_millis(300)).await);
+        with_mask.rendered();
         drop(with_mask);
+        assert!(!frame_caches_dropped());
         assert!(dropped_within(&dropped, Duration::from_secs(2)).await);
 
         // Leaving the photo ends the hold at once.
