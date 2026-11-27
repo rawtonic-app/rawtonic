@@ -970,7 +970,12 @@ fn cpu_session_cached(
             return build_session(path, kind, None, tuning);
         }
         Ok(optimized::Lookup::Graph(graph)) => {
-            let session = session_from_graph(kind, tuning, &graph);
+            let load = Instant::now();
+            let session = builder(kind, None, tuning)?
+                .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Disable)
+                .map_err(|e| anyhow!("optimization level: {e}"))?
+                .commit_from_file(&graph);
+            log_subject_load_step(kind, "session build from optimized graph", load);
             match session {
                 Ok(session) => {
                     log::info!(
@@ -1020,30 +1025,12 @@ fn cpu_session_cached(
             let saved = save.publish(entry, created >= keep_from);
             log_subject_load_step(kind, "optimized graph cache publication", publish);
             match saved {
-                Ok(optimized::Kept::Yes) => {
-                    log::info!(
-                        "AI {}: CPU session in {} ms, optimized graph saved in {} ms more",
-                        kind.name(),
-                        created.as_millis(),
-                        (started.elapsed() - created).as_millis()
-                    );
-                    // The session that optimized and saved the graph keeps
-                    // what that took: on x86 (Ryzen 5 3600X, glibc with
-                    // MALLOC_MMAP_THRESHOLD_=128K as on Windows) Subject's
-                    // low-peak graph held 1861 MB resident after it was
-                    // created against 851 MB for a session from the saved
-                    // graph, and its first run peaked at 2545 against
-                    // 1953 MB; dropped and loaded from the saved graph it
-                    // peaked at 1999 MB (process VmHWM, ONNX Runtime 1.30,
-                    // parallel, no arena; notes: benchmark-results/
-                    // brk5-2026-11-27). On a 14 GB laptop that first run
-                    // took the app 1.3 GB past its 2.6 GB grant within 9 s
-                    // (WBRK4). So it goes, and the session comes from the
-                    // graph as every later one does: same bits (the real
-                    // models' test), 1–3 s more once.
-                    drop(session);
-                    return reloaded_from_saved_graph(path, kind, tuning, entry);
-                }
+                Ok(optimized::Kept::Yes) => log::info!(
+                    "AI {}: CPU session in {} ms, optimized graph saved in {} ms more",
+                    kind.name(),
+                    created.as_millis(),
+                    (started.elapsed() - created).as_millis()
+                ),
                 Ok(optimized::Kept::No) => log::info!(
                     "AI {}: CPU session in {} ms, quick enough without a saved graph",
                     kind.name(),
@@ -1063,53 +1050,6 @@ fn cpu_session_cached(
             save.abandon();
             entry.failed();
             log::info!("AI {}: optimized graph not saved: {e:#}", kind.name());
-            build_session(path, kind, None, tuning)
-        }
-    }
-}
-
-/// A CPU session of `kind` from its saved optimized `graph`, which needs no
-/// optimization.
-fn session_from_graph(kind: ModelKind, tuning: Tuning, graph: &Path) -> Result<Session> {
-    let load = Instant::now();
-    let session = builder(kind, None, tuning)?
-        .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Disable)
-        .map_err(|e| anyhow!("optimization level: {e}"))?
-        .commit_from_file(graph);
-    log_subject_load_step(kind, "session build from optimized graph", load);
-    Ok(session?)
-}
-
-/// The session for `path` from the graph its first session just saved in
-/// `entry` (`cpu_session_cached`); built as before, without saving, when
-/// the saved graph cannot be used.
-fn reloaded_from_saved_graph(
-    path: &Path,
-    kind: ModelKind,
-    tuning: Tuning,
-    entry: &optimized::Entry,
-) -> Result<Session> {
-    let started = Instant::now();
-    let session = match entry.lookup() {
-        Ok(optimized::Lookup::Graph(graph)) => session_from_graph(kind, tuning, &graph),
-        Ok(_) => Err(anyhow!("the saved graph is not in the cache")),
-        Err(e) => Err(e),
-    };
-    match session {
-        Ok(session) => {
-            log::info!(
-                "AI {}: CPU session loaded again from the graph it saved in {} ms",
-                kind.name(),
-                started.elapsed().as_millis()
-            );
-            Ok(session)
-        }
-        Err(e) => {
-            log::warn!(
-                "AI {}: saved optimized graph not usable after its save, rebuilt: {e:#}",
-                kind.name()
-            );
-            entry.discard();
             build_session(path, kind, None, tuning)
         }
     }
@@ -1211,7 +1151,7 @@ pub fn ensure_finite<'a>(values: impl IntoIterator<Item = &'a f32>) -> Result<()
 
 /// True for ONNX Runtime's error after a run was stopped on purpose
 /// (`RunOptions::terminate`): not a reason to leave the GPU.
-pub fn is_termination(error: &anyhow::Error) -> bool {
+fn is_termination(error: &anyhow::Error) -> bool {
     format!("{error:#}").contains("terminate flag")
 }
 

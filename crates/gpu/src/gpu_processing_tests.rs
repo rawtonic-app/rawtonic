@@ -30015,3 +30015,162 @@ fn display_renders_in_short_submission_tiles_keep_their_bytes() {
         times.join(", ")
     );
 }
+
+/// A rendered photo (JPEG, PNG, TIFF) at its default edit exports its own
+/// pixels (`renderVersion` 21, `image_processing::SOURCE_GAMUT_RENDER_VERSION`):
+/// saturated patches on or near the edge of the source's space (primaries,
+/// secondaries, strong mid colours) come back within one 8-bit code in
+/// that space's output, for sources in sRGB, Display P3 and Adobe RGB
+/// (P3's colours beyond the ProPhoto working gamut within four, below). Version 20 eased them inwards (the soft knee of 12, which
+/// RAWs keep: their render at 21 is that of 20), so saved recipes keep
+/// their pixels. Notes: benchmark-results/nri1-2026-11-27/REPORT.md.
+#[test]
+#[ignore = "requires a native GPU; a non-RAW's default edit keeps its pixels"]
+fn non_raw_default_edit_keeps_saturated_source_pixels() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let patches: [[u8; 3]; 16] = [
+        [255, 0, 0],
+        [0, 255, 0],
+        [0, 0, 255],
+        [0, 255, 255],
+        [255, 0, 255],
+        [255, 255, 0],
+        [200, 100, 50],
+        [50, 120, 200],
+        [128, 128, 128],
+        [255, 255, 255],
+        [0, 0, 0],
+        [240, 200, 170],
+        [20, 60, 30],
+        [230, 20, 40],
+        [10, 180, 60],
+        [60, 30, 220],
+    ];
+    // The renderer reads non-RAW values as sRGB-encoded, negative and
+    // beyond 1 outside sRGB (input_profile.rs `encode`).
+    let encode = |v: f64| {
+        if v <= 0.003_130_8 {
+            v * 12.92
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        }
+    };
+    let context = context();
+    let width = patches.len() as u32;
+    let processor = GpuProcessor::new(context.clone(), width, 1).unwrap();
+    for space in [
+        OutputColorSpace::Srgb,
+        OutputColorSpace::DisplayP3,
+        OutputColorSpace::AdobeRgb,
+    ] {
+        let to_srgb = space.to_linear_srgb();
+        let curve = space.transfer();
+        let to_prophoto = OutputColorSpace::ProPhoto.from_linear_srgb();
+        // Each patch's sRGB-encoded input, and whether it lies beyond the
+        // ProPhoto working gamut's cube (ADR 0010), which clips it.
+        let (input, beyond_working): (Vec<[f32; 3]>, Vec<bool>) = patches
+            .iter()
+            .map(|p| {
+                let linear = p.map(|v| curve.to_linear(f64::from(v) / 255.0));
+                let srgb: [f64; 3] =
+                    std::array::from_fn(|r| (0..3).map(|c| to_srgb[r][c] * linear[c]).sum());
+                let beyond = (0..3)
+                    .map(|r| (0..3).map(|c| to_prophoto[r][c] * srgb[c]).sum::<f64>())
+                    .any(|v| !(-1e-6..=1.0 + 1e-6).contains(&v));
+                (srgb.map(|v| encode(v) as f32), beyond)
+            })
+            .unzip();
+        let view = linear_texture(&context, &input, width, 1);
+        let render_with = |recipe: serde_json::Value, is_raw: bool| {
+            let mut adjustments = get_all_adjustments_from_json(&recipe, is_raw, None);
+            adjustments.global.output_space[0] = space.shader_code();
+            adjustments.global.output_matrix =
+                crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+            let (pixels, ..) = processor
+                .run(
+                    &view,
+                    width,
+                    1,
+                    RenderRequest {
+                        adjustments,
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    false,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            let RenderedPixels::U8(pixels) = pixels else {
+                unreachable!()
+            };
+            pixels
+        };
+        let render =
+            |version: u64, is_raw: bool| render_with(json!({ "renderVersion": version }), is_raw);
+        let current = crate::image_processing::RENDER_VERSION;
+        let new_edit = render(current, false);
+        let pre_knee = render(11, false);
+        for (i, patch) in patches.iter().enumerate() {
+            let out = &new_edit[i * 4..i * 4 + 3];
+            // Display P3's reds and cyans on its edge lie just beyond the
+            // ProPhoto working gamut (ADR 0010; red's ProPhoto blue
+            // -0.0013, cyan's 1.0013), whose cube clips them by up to four
+            // codes in every version (0.04 % of the P3 cube by more than
+            // one code). Notes: parity-gaps/G62, task NRI1.
+            let tolerance = if beyond_working[i] {
+                assert_eq!(
+                    out,
+                    &pre_knee[i * 4..i * 4 + 3],
+                    "{space:?} patch {patch:?}"
+                );
+                4
+            } else {
+                1
+            };
+            for c in 0..3 {
+                // Or within 1e-4 of linear light: Adobe RGB's pure gamma
+                // has no linear toe, so float rounding of 2e-5 shows as
+                // code 2 next to black.
+                let linear = |v: u8| curve.to_linear(f64::from(v) / 255.0);
+                assert!(
+                    (i32::from(out[c]) - i32::from(patch[c])).abs() <= tolerance
+                        || (linear(out[c]) - linear(patch[c])).abs() <= 1e-4,
+                    "{space:?} patch {patch:?} renders as {out:?}"
+                );
+            }
+        }
+        // A saved recipe of version 20 keeps the knee's pixels; on sRGB
+        // its red is eased off the edge.
+        if space == OutputColorSpace::Srgb {
+            let saved = render(20, false);
+            assert!(
+                saved[0] < 255 && saved[1] > 1,
+                "version 20 red {:?}",
+                &saved[..3]
+            );
+        }
+        // RAWs keep the knee.
+        assert_eq!(
+            render(current, true),
+            render(20, true),
+            "{space:?} RAW changed"
+        );
+        // Colours an edit pushes beyond the output space are clipped at
+        // their hue, as before the knee (version 11); an sRGB source holds
+        // nothing beyond ProPhoto's floor, so the two agree exactly.
+        if space == OutputColorSpace::Srgb {
+            let edit = |version: u64| {
+                render_with(
+                    json!({ "renderVersion": version, "saturation": 60, "vibrance": 40, "exposure": 0.5 }),
+                    false,
+                )
+            };
+            assert_eq!(
+                edit(current),
+                edit(11),
+                "an edited non-RAW differs from the clip at its hue"
+            );
+        }
+    }
+}
