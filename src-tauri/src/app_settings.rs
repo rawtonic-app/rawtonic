@@ -1589,7 +1589,10 @@ mod tests {
         )
         .unwrap();
         let settings = load_settings_file(&path).unwrap();
-        assert!(matches!(settings.copy_paste_settings.mode, PasteMode::Replace));
+        assert!(matches!(
+            settings.copy_paste_settings.mode,
+            PasteMode::Replace
+        ));
         let written = serde_json::to_value(&settings.copy_paste_settings).unwrap();
         assert!(written.get("autoSync").is_none());
     }
