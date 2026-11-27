@@ -1561,6 +1561,8 @@ pub(crate) fn resized(
 
 /// Converts the window's frames into its monitor's profile from now on
 /// (`monitor_profile`; None: as they are); whether it has a native display.
+/// Linux has none: `browser_colour` converts its page's frames.
+#[cfg(not(target_os = "linux"))]
 pub(crate) fn set_monitor_transform(
     context: &GpuContext,
     lut: Option<&rawtonic_display_profile::DisplayLut>,
