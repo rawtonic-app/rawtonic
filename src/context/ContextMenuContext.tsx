@@ -320,7 +320,7 @@ function MenuItem({ option, path, hideContextMenu }: MenuItemProps) {
           }
         }}
         ref={itemRef}
-        role={option.checked === undefined ? 'menuitem' : 'menuitemradio'}
+        role={option.checked === undefined ? 'menuitem' : option.toggle ? 'menuitemcheckbox' : 'menuitemradio'}
         aria-checked={option.checked}
         aria-haspopup={option.submenu ? 'menu' : undefined}
         aria-expanded={option.submenu ? !!isSubmenuOpen : undefined}

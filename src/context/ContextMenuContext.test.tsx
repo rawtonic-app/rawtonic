@@ -179,3 +179,24 @@ it('closes on Escape in a field inside the menu without the key reaching the app
   expect(app).not.toHaveBeenCalled();
   window.removeEventListener('keydown', app);
 });
+
+it('shows text without icons and states as checks: choices as radio items, independent switches as checkboxes', () => {
+  render(
+    <ContextMenuProvider>
+      <Opener />
+    </ContextMenuProvider>
+  );
+  const Icon = () => <svg data-testid="item-icon" />;
+  act(() =>
+    show(10, 10, [
+      { label: 'Plain', icon: Icon as never, onClick: () => {} },
+      { label: 'By name', checked: true, onClick: () => {} },
+      { label: 'By date', checked: false, onClick: () => {} },
+      { label: 'Invert', checked: true, toggle: true, onClick: () => {} }
+    ])
+  );
+  expect(screen.queryByTestId('item-icon')).toBeNull();
+  expect(screen.getByRole('menuitemradio', { name: 'By name' }).getAttribute('aria-checked')).toBe('true');
+  expect(screen.getByRole('menuitemradio', { name: 'By date' }).getAttribute('aria-checked')).toBe('false');
+  expect(screen.getByRole('menuitemcheckbox', { name: 'Invert' }).getAttribute('aria-checked')).toBe('true');
+});

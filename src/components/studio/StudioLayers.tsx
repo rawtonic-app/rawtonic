@@ -69,6 +69,7 @@ export function useRadialOptionsMenu() {
       {
         label: t('studio.develop.layers.drawMaskInside'),
         checked: inside,
+        toggle: true,
         onClick: toggle
       }
     ]);
@@ -366,12 +367,14 @@ export default function StudioLayers({
       {
         label: soloKey ? `${t('studio.develop.layers.menu.solo')} (${soloKey})` : t('studio.develop.layers.menu.solo'),
         checked: layerSolo?.layerId === target.id && !layerSolo.componentId,
+        toggle: true,
         onClick: () => soloLayer(target)
       },
       { type: OPTION_SEPARATOR },
       {
         label: t('editor.masks.settings.invertMask'),
         checked: !!target.invert,
+        toggle: true,
         onClick: () => toggleInvert(target)
       },
       {

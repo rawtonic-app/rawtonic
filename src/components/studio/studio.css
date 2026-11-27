@@ -8142,3 +8142,12 @@ html.window-outlined body::after {
     border: 1px solid CanvasText;
   }
 }
+
+/* Forced colours drop the shadow and map both frames to one system colour:
+   the photo being edited keeps a heavier outline there (VISCALM1). */
+@media (forced-colors: active) {
+  .studio-photo.is-current {
+    outline: 2px solid Highlight;
+    outline-offset: -3px;
+  }
+}
