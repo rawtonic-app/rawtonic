@@ -2101,6 +2101,12 @@
   object-fit: contain;
   box-shadow: 0 1px 5px #0005;
 }
+.studio-photo-error-compact {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .studio-photo-type {
   position: absolute;
   bottom: 3px;
@@ -6676,7 +6682,7 @@ button.studio-button.is-destructive:hover:not(:disabled) {
 .studio-library-toolbar[data-collapse]:not([data-wrap='true']) .studio-library-filters {
   flex-wrap: nowrap;
 }
-.studio-library-toolbar[data-collapse]:not([data-wrap='true']) .studio-search {
+.studio-library-toolbar:is([data-collapse='0'], [data-collapse='1']) .studio-search {
   min-width: 190px;
 }
 /* The search group never shrinks below its controls (they would overlap the

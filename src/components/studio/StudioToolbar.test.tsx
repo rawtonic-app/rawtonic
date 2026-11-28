@@ -7,6 +7,8 @@ import { useUIStore } from '../../store/useUIStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import type { AppSettings, SelectedImage } from '../ui/AppProperties';
+// @ts-expect-error node:fs is untyped in the frontend tsconfig
+import { readFileSync } from 'node:fs';
 
 vi.mock('../panel/Editor', () => ({ default: () => null }));
 vi.mock('./StudioDevelop', () => ({
@@ -236,38 +238,73 @@ it('opens the export queue from the top bar beside the work, counting what is no
   act(() => useProcessStore.setState({ exportQueue: [] }));
 });
 
-it('keeps the Library controls in their own row above the grid at every width', () => {
+it.each([
+  { viewport: 1728, collapse: '0' },
+  { viewport: 1280, collapse: '2' }
+])('keeps the Library toolbar in one row with a folder selected at $viewport px', ({ viewport, collapse }) => {
   // The top bar is the same in Library, loupe and Develop (O-08): labeled
   // actions there, filters in their own row.
   useUIStore.setState({ activeView: 'library' });
-  useLibraryStore.setState({ sessionDirectory: '/qa/library' });
+  useLibraryStore.setState({
+    sessionDirectory: '/qa/library',
+    currentFolderPath: '/qa/library/photos',
+    activeAlbumId: null
+  });
   useSettingsStore.setState({ appSettings: { uiScale: 1, keybinds: {} } as AppSettings });
-  Object.defineProperty(window, 'innerWidth', { value: 1728, configurable: true });
+  const style = document.createElement('style');
+  style.textContent = readFileSync('src/components/studio/studio.css', 'utf8') as string;
+  document.head.append(style);
+  const windowWidth = window.innerWidth;
+  window.innerWidth = viewport;
+  const clientWidth = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (
+    this: HTMLElement
+  ) {
+    return this.classList.contains('studio-library-toolbar') ? window.innerWidth - 366 : 0;
+  });
+  const scrollWidth = vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (
+    this: HTMLElement
+  ) {
+    const search = this.querySelector('.studio-search');
+    if (!this.classList.contains('studio-library-toolbar') || !search) return 0;
+    // jsdom resolves the CSS cascade but doesn't lay out flex items. Model
+    // the other controls and padding as 740 px at compact levels.
+    const searchWidth = Math.max(160, parseFloat(getComputedStyle(search).minWidth));
+    return (this.dataset.collapse === '0' ? 900 : 740) + searchWidth;
+  });
   const noop = vi.fn();
-  const view = render(
-    <StudioWorkspace
-      files={[]}
-      flagCounts={{ all: 120, picked: 12, rejected: 3, unflagged: 105 }}
-      transformWrapperRef={{ current: null }}
-      onSelect={noop}
-      onFilmSelect={noop}
-      onOpen={noop}
-      onNavigate={noop}
-      onBack={noop}
-      onRate={noop}
-      onContextMenu={noop}
-      onEditorContextMenu={noop}
-      onCopy={noop}
-      onPaste={noop}
-      onReset={noop}
-      onZoom={noop}
-      requestThumbnails={noop}
-      settings={null}
-      onSettings={noop}
-    />
-  );
-  const toolbar = view.container.querySelector('.studio-library-toolbar')!;
-  expect(toolbar.contains(screen.getByRole('searchbox'))).toBe(true);
-  expect(toolbar.classList.contains('is-in-header')).toBe(false);
-  view.unmount();
+  try {
+    const view = render(
+      <StudioWorkspace
+        files={[]}
+        flagCounts={{ all: 120, picked: 12, rejected: 3, unflagged: 105 }}
+        transformWrapperRef={{ current: null }}
+        onSelect={noop}
+        onFilmSelect={noop}
+        onOpen={noop}
+        onNavigate={noop}
+        onBack={noop}
+        onRate={noop}
+        onContextMenu={noop}
+        onEditorContextMenu={noop}
+        onCopy={noop}
+        onPaste={noop}
+        onReset={noop}
+        onZoom={noop}
+        requestThumbnails={noop}
+        settings={null}
+        onSettings={noop}
+      />
+    );
+    const toolbar = view.container.querySelector<HTMLElement>('.studio-library-toolbar')!;
+    expect(toolbar.contains(screen.getByRole('searchbox'))).toBe(true);
+    expect(toolbar.contains(screen.getByRole('button', { name: 'Include subfolders' }))).toBe(true);
+    expect(toolbar.classList.contains('is-in-header')).toBe(false);
+    expect(toolbar.dataset.collapse).toBe(collapse);
+    expect(toolbar.dataset.wrap).toBeUndefined();
+  } finally {
+    window.innerWidth = windowWidth;
+    clientWidth.mockRestore();
+    scrollWidth.mockRestore();
+    style.remove();
+  }
 });

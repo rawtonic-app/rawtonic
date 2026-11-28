@@ -1273,6 +1273,7 @@ export default function StudioWorkspace(props: Props) {
       {shownFolder && (
         <button
           className="studio-subfolders"
+          aria-label={t('session.hotFolder.includeSubfolders')}
           aria-pressed={subfolders}
           title={t('session.hotFolder.includeSubfolders')}
           onClick={toggleSubfolders}

@@ -121,11 +121,13 @@ const Tile = memo(function Tile({
         data-panel-shortcut="true"
         onClick={(e) => onSelect(file.path, e)}
         onDoubleClick={() => onOpen(file.path)}
-        title={label}
+        title={film && imageError ? imageError : label}
       >
         <span className="studio-photo-image">
           {imageError ? (
-            <span role="alert">{imageError}</span>
+            <span role="alert" className={film ? 'studio-photo-error-compact' : undefined}>
+              {film ? t('studio.loadError.cannotOpen') : imageError}
+            </span>
           ) : url ? (
             <CachedThumbnail
               sourcePath={file.path}

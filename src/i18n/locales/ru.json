@@ -5290,6 +5290,7 @@
       }
     },
     "loadError": {
+      "cannotOpen": "Не открыть",
       "failed": "Не удалось открыть «{{name}}»: {{error}}",
       "nikonHighEfficiency": "Этот файл NEF использует высокоэффективное сжатие Nikon. Кодек TicoRAW защищён патентами, поэтому Rawtonic не может его декодировать. Преобразуйте файл в DNG с помощью Adobe DNG Converter или выберите в камере сжатие RAW без потерь.",
       "nikonHighEfficiencyMac": "В macOS 27 или новее можно попробовать включить «{{setting}}» в настройках.",
