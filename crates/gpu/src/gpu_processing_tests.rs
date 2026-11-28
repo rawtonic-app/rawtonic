@@ -910,6 +910,11 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & ANCHOR_V23_FEATURE != 0 {
             continue;
         }
+        // The base colour table of render version 22 likewise
+        // (`base_colour_compiles_only_for_the_neutral_raw_look`).
+        if expected & BASE_COLOUR_FEATURE != 0 {
+            continue;
+        }
         // Lowered Dehaze of version 2 likewise
         // (`dehaze_version_2_compiles_only_where_dehaze_is_lowered`).
         if expected & (DEHAZE_V2_FEATURE | DEHAZE_V3_FEATURE) != 0 {
@@ -1004,6 +1009,8 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & PRESENCE_V3_FEATURE != 0 {
             profile["structureVersion"] = json!(3);
         }
+        // Before the base colour table (its own test).
+        profile["renderVersion"] = json!(21);
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         if expected & HIGHLIGHTS_V14_FEATURE != 0 {
             // Version 14 changes the Camera Raw look's Highlights only.
@@ -30173,4 +30180,212 @@ fn non_raw_default_edit_keeps_saturated_source_pixels() {
             );
         }
     }
+}
+
+/// The base colour table of render version 22 (`BASE_COLOUR`) compiles only
+/// for RAWs in the neutral look of recipes of that version: an older
+/// recipe, a camera profile, a file's own curve, another look and a
+/// non-RAW keep the pipelines they had.
+#[test]
+fn base_colour_compiles_only_for_the_neutral_raw_look() {
+    let neutral = |recipe: serde_json::Value, raw: bool, flag: f32| {
+        let mut adjustments = get_all_adjustments_from_json(&recipe, raw, Some(2));
+        adjustments.global.tonemapper_mode = 3;
+        adjustments.global.profile_curve[15][3] = flag;
+        adjustments
+    };
+    let has = |adjustments: &AllAdjustments| {
+        let on = preview_features(adjustments) & BASE_COLOUR_FEATURE != 0;
+        assert_eq!(on, tone_level(adjustments) & 256 != 0);
+        assert_eq!(on, export_features(adjustments) & BASE_COLOUR_FEATURE != 0);
+        on
+    };
+    assert!(has(&neutral(json!({"renderVersion": 22}), true, 2.0)));
+    // A recipe without the key is of version 1.
+    assert!(!has(&neutral(json!({}), true, 2.0)));
+    assert!(!has(&neutral(json!({"renderVersion": 21}), true, 2.0)));
+    assert!(!has(&neutral(json!({"renderVersion": 22}), false, 2.0)));
+    // A file's own curve and colour (1), a camera profile (4, 5).
+    for flag in [0.0, 1.0, 3.0, 4.0, 5.0] {
+        assert!(
+            !has(&neutral(json!({"renderVersion": 22}), true, flag)),
+            "{flag}"
+        );
+    }
+    let mut agx = neutral(json!({"renderVersion": 22}), true, 2.0);
+    agx.global.tonemapper_mode = 1;
+    assert!(!has(&agx));
+    // A never-edited RAW's first render.
+    assert_ne!(new_raw_edit(None).global.profile_curve[15][1], 0.0);
+    assert_ne!(
+        preview_features(&new_raw_edit(None)) & BASE_COLOUR_FEATURE,
+        0
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU; base colour table against its CPU reference"]
+fn base_colour_matches_its_cpu_reference() {
+    let context = context();
+    // Colours across hue, chroma and lightness (linear sRGB scene values),
+    // one per column, and greys.
+    let mut colours: Vec<[f32; 3]> = Vec::new();
+    for v in [0.02f32, 0.08, 0.2, 0.45, 0.9] {
+        for s in [0.0f32, 0.05, 0.3, 0.6, 0.8] {
+            for h in 0..24 {
+                let h = h as f32 / 24.0 * 6.0;
+                let f = |n: f32| {
+                    let k = (n + h) % 6.0;
+                    v * (1.0 - s * (k.min(4.0 - k).clamp(0.0, 1.0)))
+                };
+                colours.push([f(5.0), f(3.0), f(1.0)]);
+            }
+        }
+    }
+    let (width, height) = (colours.len() as u32, 4u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let data: Vec<f16> = (0..height)
+        .flat_map(|_| colours.iter())
+        .flat_map(|c| {
+            [
+                f16::from_f32(c[0]),
+                f16::from_f32(c[1]),
+                f16::from_f32(c[2]),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Colour patches"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    let render = |version: u64| -> Vec<[f32; 3]> {
+        let recipe = json!({"renderVersion": version});
+        let mut adjustments = get_all_adjustments_from_json(&recipe, true, Some(2));
+        adjustments.global.tonemapper_mode = 3;
+        adjustments.global.profile_curve[15][3] = 2.0;
+        // The output's soft gamut knee bends colours near the sRGB edge
+        // after the table; without it colours inside sRGB keep the table's
+        // values.
+        adjustments.global.gamut_mapping = 1;
+        assert_eq!(base_colour(&adjustments), version >= 22);
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        let row = (height / 2 * width * 4) as usize;
+        pixels[row..row + (width * 4) as usize]
+            .chunks(4)
+            .map(|p| [p[0], p[1], p[2]].map(|v| v as f32 / 65535.0))
+            .collect()
+    };
+    let lab = |rgb: [f32; 3]| {
+        let lin = rgb.map(|e| {
+            if e <= 0.04045 {
+                e / 12.92
+            } else {
+                ((e + 0.055) / 1.055).powf(2.4)
+            }
+        });
+        let x = (0.4124564 * lin[0] + 0.3575761 * lin[1] + 0.1804375 * lin[2]) / 0.95047;
+        let y = 0.2126729 * lin[0] + 0.7151522 * lin[1] + 0.0721750 * lin[2];
+        let z = (0.0193339 * lin[0] + 0.1191920 * lin[1] + 0.9503041 * lin[2]) / 1.08883;
+        let f = |t: f32| {
+            if t > 0.008856452 {
+                t.cbrt()
+            } else {
+                t * 7.787037 + 16.0 / 116.0
+            }
+        };
+        let (fx, fy, fz) = (f(x), f(y), f(z));
+        [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
+    };
+    let inside_srgb = |lab: [f32; 3]| {
+        let inv = |f: f32| {
+            if f > 0.20689656 {
+                f * f * f
+            } else {
+                (f - 16.0 / 116.0) / 7.787037
+            }
+        };
+        let fy = (lab[0] + 16.0) / 116.0;
+        let x = inv(fy + lab[1] / 500.0) * 0.95047;
+        let y = inv(fy);
+        let z = inv(fy - lab[2] / 200.0) * 1.08883;
+        [
+            3.2404542 * x - 1.5371385 * y - 0.4985314 * z,
+            -0.9692660 * x + 1.8760108 * y + 0.0415560 * z,
+            0.0556434 * x - 0.2040259 * y + 1.0572252 * z,
+        ]
+        .iter()
+        .all(|&v| v > 0.001 && v < 0.999)
+    };
+    let (before, after) = (render(21), render(22));
+    let mut worst = 0.0f32;
+    let mut moved = 0;
+    for (b, a) in before.iter().zip(&after) {
+        let (lb, la) = (lab(*b), lab(*a));
+        // Colours the output clipped (the look's output beyond sRGB) can be
+        // moved back inside; compare the ones clear of the sRGB cube's faces.
+        if a.iter().chain(b).any(|&v| v <= 0.01 || v >= 0.99) {
+            continue;
+        }
+        let d = crate::base_colour::delta(lb);
+        let expected = [lb[1] + d[0], lb[2] + d[1]];
+        // Corrected colours beyond sRGB are clipped by the output.
+        if !inside_srgb([lb[0], expected[0], expected[1]]) {
+            continue;
+        }
+        let error = (la[1] - expected[0])
+            .hypot(la[2] - expected[1])
+            .max((la[0] - lb[0]).abs());
+        if error > 0.08 {
+            eprintln!("off by {error}: before {lb:?} after {la:?} expected a b {expected:?}");
+        }
+        worst = worst.max(error);
+        if d[0].hypot(d[1]) > 0.5 {
+            moved += 1;
+        }
+        if lb[1].hypot(lb[2]) < 0.5 {
+            assert!(
+                (la[1] - lb[1]).hypot(la[2] - lb[2]) < 0.05,
+                "grey moved: {lb:?} {la:?}"
+            );
+        }
+    }
+    assert!(moved > 100, "the table moved only {moved} colours");
+    // 16-bit output: Lab within about a twentieth of a unit.
+    assert!(worst < 0.08, "worst {worst}");
 }

@@ -5924,7 +5924,16 @@ fn get_global_adjustments_resolved(
         halation_amount: effects.halation_amount.get() as f32 / SCALES.halation,
         flare_amount: effects.flare_amount.get() as f32 / SCALES.flares,
         sharpness_threshold: detail.sharpness_threshold.get() as f32 / SCALES.sharpness_threshold,
-        profile_curve: [[0.0; 4]; 16],
+        // `profile_curve[15][1]`: 1 = the base colour table
+        // (`base_colour`); `BaseLook::apply` keeps it for the neutral RAW
+        // look only.
+        profile_curve: {
+            let mut slots = [[0.0; 4]; 16];
+            if versions.render.base_colour() {
+                slots[15][1] = 1.0;
+            }
+            slots
+        },
         grading_lut: [[0.0; 4]; GRADING_LUT_SIZE],
         bw_mix: std::array::from_fn(|i| {
             std::array::from_fn(|j| {
@@ -6519,8 +6528,11 @@ pub const RENDER_VERSION_KEY: &str = "renderVersion";
 /// HEIF, …) at the output space's edge keeping their hue, without the
 /// knee of 12, so a rendered photo at its default edit keeps its own
 /// pixels (`SOURCE_GAMUT_RENDER_VERSION`); RAWs develop as 20.
+/// 22 (2026-11-28) gives the neutral RAW look Rawtonic's base colour table
+/// (`base_colour::BASE_COLOUR_RENDER_VERSION`); other photos, RAWs with a
+/// camera profile or their file's own look develop as 21.
 /// Recipes without the key keep version 1.
-pub const RENDER_VERSION: u64 = 21;
+pub const RENDER_VERSION: u64 = 22;
 
 /// The render version from which the geometry warp places each pixel
 /// directly and computes the lens model, the manual distortion and the

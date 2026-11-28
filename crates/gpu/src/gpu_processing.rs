@@ -4418,7 +4418,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 1 << 30;
+const PREVIEW_PIPELINE_COUNT: usize = 1 << 31;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -4441,7 +4441,8 @@ const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// level of tone version 19 67108864, raised Shadows' bounds of tone
 /// version 20 134217728, lowered Whites' offset cap of tone version 22
 /// 268435456, raised Shadows' and lowered Highlights' pixel anchor of tone
-/// version 23 536870912.
+/// version 23 536870912, the base colour table of render version 22
+/// 1073741824.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -4564,14 +4565,19 @@ const WHITES_V22_FEATURE: usize = 268435456;
 /// compiled only for recipes of that version that use either, so older
 /// recipes' pipelines keep the code they had.
 const ANCHOR_V23_FEATURE: usize = 536870912;
+/// The neutral RAW look's base colour table of render version 22
+/// (`BASE_COLOUR`, shader `apply_base_colour`), compiled only for recipes
+/// that use it, so older recipes' pipelines keep the code they had.
+const BASE_COLOUR_FEATURE: usize = 1073741824;
 
 /// Slots per page of a [`VariantTable`]: features that differ only in the
 /// low bits (detail, noise reduction, tone, relight, sharpening responses)
 /// share a page. 2^15 pages, as at 2^24 variants with 2^9 slots: the page
 /// array stays the size it was when the effects got a bit each (G76/WCC8)
 /// and when tone version 20's raised Shadows (2^13 slots), version 22's
-/// lowered Whites (2^14) and version 23's pixel anchor (2^15) got one.
-const VARIANT_PAGE_BITS: u32 = 15;
+/// lowered Whites (2^14), version 23's pixel anchor (2^15) and render
+/// version 22's base colour (2^16) got one.
+const VARIANT_PAGE_BITS: u32 = 16;
 const VARIANT_PAGE_SLOTS: usize = 1 << VARIANT_PAGE_BITS;
 const VARIANT_PAGES: usize = PREVIEW_PIPELINE_COUNT / VARIANT_PAGE_SLOTS;
 
@@ -4633,7 +4639,7 @@ fn variant_table<T>() -> VariantTable<T> {
 }
 /// A RAW with the default detail settings (Sharpening 40, Color 25) and the
 /// newest sharpening response.
-const RAW_DEFAULT_PREVIEW_FEATURES: usize = 1 | 16 | SHARPEN_V8_FEATURE;
+const RAW_DEFAULT_PREVIEW_FEATURES: usize = 1 | 16 | SHARPEN_V8_FEATURE | BASE_COLOUR_FEATURE;
 
 /// The display variants compiled after the RAW default one at start: edited
 /// RAWs, other photos often without any detail feature, and the all-enabled
@@ -6008,6 +6014,17 @@ fn anchor_v23(adjustments: &AllAdjustments) -> bool {
         && (shadows_v20(adjustments) || highlights_v14(adjustments))
 }
 
+/// Whether the photo renders with the base colour table of render version
+/// 22 (`BASE_COLOUR`): a RAW in the neutral look (shader
+/// `base_colour_active`; engine base_colour.rs).
+fn base_colour(adjustments: &AllAdjustments) -> bool {
+    let flags = adjustments.global.profile_curve[15];
+    adjustments.global.is_raw_image == 1
+        && adjustments.global.tonemapper_mode >= 2
+        && flags[1] > 0.5
+        && (flags[3] - 2.0).abs() < 0.5
+}
+
 /// Display levels (EV) of tone version 23's anchors, by slot (shader.wgsl
 /// `anchor_v23_level`): SH_V23_FROM, SH_V23_FROM − SH_V23_WIDTH, SH_V20_TO,
 /// HL_V23_FROM, white.
@@ -6095,7 +6112,9 @@ fn dehaze_v3(adjustments: &AllAdjustments) -> bool {
 /// of version 14 (4), lowered Blacks of version 16 (8), raised Shadows'
 /// level of version 19 (16), raised Shadows' bounds of version 20 (32),
 /// lowered Whites' offset cap of version 22 (64), raised Shadows' and
-/// lowered Highlights' pixel anchor of version 23 (128).
+/// lowered Highlights' pixel anchor of version 23 (128), and the base
+/// colour table of render version 22 (256: part of the base look's tone
+/// stage).
 fn tone_level(adjustments: &AllAdjustments) -> usize {
     usize::from(whites_v12(adjustments))
         | (usize::from(shadows_v13(adjustments)) << 1)
@@ -6105,10 +6124,11 @@ fn tone_level(adjustments: &AllAdjustments) -> usize {
         | (usize::from(shadows_v20(adjustments)) << 5)
         | (usize::from(whites_v22(adjustments)) << 6)
         | (usize::from(anchor_v23(adjustments)) << 7)
+        | (usize::from(base_colour(adjustments)) << 8)
 }
 
 /// `tone_level`'s values (`Range2Pipelines`, `MIXER_FEATURE_SLOTS`).
-const TONE_LEVELS: usize = 256;
+const TONE_LEVELS: usize = 512;
 
 /// Whether lowered Whites of tone version 10 reads the small blur's mean log
 /// luminance (shader.wgsl whites_v10_offset), on the photo or a layer.
@@ -6345,6 +6365,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let shadows_v20 = shadows_v20(adjustments);
     let whites_v22 = whites_v22(adjustments);
     let anchor_v23 = anchor_v23(adjustments);
+    let base_colour = base_colour(adjustments);
     let hsl_v2 = hsl_v2(adjustments);
     let presence_v3 = presence_v3(adjustments);
     let dehaze_v2 = dehaze_v2(adjustments);
@@ -6393,6 +6414,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | if shadows_v20 { SHADOWS_V20_FEATURE } else { 0 }
         | if whites_v22 { WHITES_V22_FEATURE } else { 0 }
         | if anchor_v23 { ANCHOR_V23_FEATURE } else { 0 }
+        | if base_colour { BASE_COLOUR_FEATURE } else { 0 }
         | if hsl_v2 { HSL_V2_FEATURE } else { 0 }
         | if presence_v3 { PRESENCE_V3_FEATURE } else { 0 }
         | if dehaze_v2 { DEHAZE_V2_FEATURE } else { 0 }
@@ -6663,7 +6685,7 @@ fn export_variant(
 /// `GpuProcessor::range2_pipelines`, one table per main output on the heap:
 /// inline, the tables of all outputs made `GpuProcessor` too large for a
 /// test thread's stack once the tone levels doubled to 32. The tone levels
-/// are a `Vec` of `TONE_LEVELS` entries (256 since tone version 23: more
+/// are a `Vec` of `TONE_LEVELS` entries (512 since render version 22: more
 /// than an array builds by default, and built on the heap).
 type Range2Pipelines = Vec<Range2OutputPipelines>;
 type Range2OutputPipelines =
@@ -6758,6 +6780,10 @@ type CurveLutEntry = Option<(Vec<u8>, bool)>;
 /// vec4 words before the Luminance tables in `curve_luts_buffer`.
 const LUMINANCE_LUT_OFFSET: usize =
     CURVE_LUT_SAMPLES * (MAX_MASKS + 1) + crate::camera_profile::TABLE_CAPACITY;
+/// vec4 words before the base colour table in `curve_luts_buffer` (shader
+/// `BASE_COLOUR_TABLE_BASE`).
+const BASE_COLOUR_TABLE_OFFSET: usize =
+    LUMINANCE_LUT_OFFSET + LUMINANCE_LUT_WORDS * (MAX_MASKS + 1);
 // shader.wgsl `LUMINANCE_TABLE_BASE` and `luminance_table_value`.
 const _: () = assert!(
     crate::camera_profile::TABLE_CAPACITY == 65_536
@@ -6864,9 +6890,12 @@ fn new_raw_edit(tonemapper_override: Option<u32>) -> AllAdjustments {
     adjustments.global.noise_level = adjustments.global.noise_level.max(f32::MIN_POSITIVE);
     // A RAW's base look renders the Standard look as Camera Raw's
     // (`baseline_exposure::BaseLook::apply`).
+    // with its built-in curve and neutral colour, the look of most RAWs
+    // (flag 2: the base colour table of render version 22 applies).
     if adjustments.global.tonemapper_mode == crate::image_processing::tonemapper_mode_of("standard")
     {
         adjustments.global.tonemapper_mode = rawtonic_engine::baseline_exposure::CAMERA_RAW_MODE;
+        adjustments.global.profile_curve[15][3] = 2.0;
     }
     adjustments
 }
@@ -8265,6 +8294,7 @@ fn variant_constants(
         ("SHADOWS_V20", ((features >> 27) & 1) as f64),
         ("WHITES_V22", ((features >> 28) & 1) as f64),
         ("ANCHOR_V23", ((features >> 29) & 1) as f64),
+        ("BASE_COLOUR", ((features >> 30) & 1) as f64),
     ];
     if deferred {
         constants.push(("DEFER_OUTPUT", 1.0));
@@ -9236,12 +9266,22 @@ impl GpuProcessor {
         let curve_luts_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Display curve tables"),
             // Mask layers' curve tables, a camera profile's colour tables,
-            // then the layers' Luminance tables (shader
-            // `LUMINANCE_TABLE_BASE`).
-            size: (LUMINANCE_LUT_OFFSET + LUMINANCE_LUT_WORDS * (MAX_MASKS + 1)) as u64 * 16,
+            // the layers' Luminance tables (shader `LUMINANCE_TABLE_BASE`),
+            // then the base colour table (`BASE_COLOUR_TABLE_BASE`), written
+            // here once.
+            size: (BASE_COLOUR_TABLE_OFFSET + crate::base_colour::ENTRIES) as u64 * 16,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
+            mapped_at_creation: true,
         });
+        {
+            let mut range = curve_luts_buffer
+                .get_mapped_range_mut(BASE_COLOUR_TABLE_OFFSET as u64 * 16..)
+                .map_err(|error| format!("Display curve tables: {error:?}"))?;
+            range
+                .slice(..)
+                .copy_from_slice(bytemuck::cast_slice(&crate::base_colour::gpu_table()));
+        }
+        curve_luts_buffer.unmap();
 
         let dummy_texture_desc = wgpu::TextureDescriptor {
             label: Some("Dummy Texture"),
@@ -11680,6 +11720,7 @@ impl GpuProcessor {
                         ("SHADOWS_V20", on(tone & 32 != 0)),
                         ("WHITES_V22", on(tone & 64 != 0)),
                         ("ANCHOR_V23", on(tone & 128 != 0)),
+                        ("BASE_COLOUR", on(tone & 256 != 0)),
                         ("HSL_V2", on(hsl)),
                         ("PRESENCE_V3", on(presence)),
                         ("DEHAZE_V2", on(dehaze)),
