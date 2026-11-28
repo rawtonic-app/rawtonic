@@ -834,24 +834,27 @@ st_site() {
   # This release's documentation screenshots (stage docs-shots), if it made any.
   # Nothing but what this stage writes may be uncommitted (a rerun after a failed
   # attempt finds its own release.json and screenshot files, which it writes anew).
-  local other; other=$(git -C "$WEBWT" status --porcelain --untracked-files=all | awk '{print $NF}' \
-    | grep -vxE 'release\.json|site/assets/shot-[A-Za-z0-9_-]+\.(jpg|avif|webp)')
+  local png=$WORK/docs-shots/png shots=0 status other f n
+  [ "$DOCS_SHOTS" = 1 ] && [ -f "$STATE/docs-shots.ok" ] && [ -n "$(find "$png" -name '*.png' 2>/dev/null | head -1)" ] && shots=1
+  # The files this run writes: release.json, and the screenshots made from this
+  # run's captures (images.sh writes them anew). Anything else uncommitted stops it.
+  local mine=(release.json)
+  if [ "$shots" = 1 ]; then
+    for f in "$png"/*.png; do n=$(basename "$f" .png)
+      mine+=("site/assets/$n.jpg" "site/assets/$n-720.avif" "site/assets/$n-1440.avif" "site/assets/$n-720.webp" "site/assets/$n-1440.webp")
+    done
+  fi
+  status=$(git -C "$WEBWT" status --porcelain --untracked-files=all) || fail "git status of $WEBWT"
+  other=$(awk '{print $NF}' <<< "$status" | grep -vxF -f <(printf '%s\n' "${mine[@]}") || true)
   [ -z "$other" ] || fail "$WEBWT has changes this stage did not make (commit or remove them): $(echo "$other" | tr '\n' ' ')"
-  local png=$WORK/docs-shots/png
-  if [ "$DOCS_SHOTS" = 1 ] && [ -f "$STATE/docs-shots.ok" ] && [ -n "$(find "$png" -name '*.png' 2>/dev/null | head -1)" ]; then
+  if [ "$shots" = 1 ]; then
     (cd "$WEBWT" && scripts/images.sh "$png") || fail "scripts/images.sh (ImageMagick 7 and cwebp)"
     # Only the files made from this run's captures.
-    local f n files=()
-    for f in "$png"/*.png; do n=$(basename "$f" .png)
-      files+=("site/assets/$n.jpg" "site/assets/$n-720.avif" "site/assets/$n-1440.avif" "site/assets/$n-720.webp" "site/assets/$n-1440.webp")
-    done
+    local files=("${mine[@]:1}")
     git -C "$WEBWT" add -- "${files[@]}" || fail "git add"
     if git -C "$WEBWT" diff --cached --quiet; then echo "the screenshots are unchanged"
     else git -C "$WEBWT" commit -q -m "docs: screenshots of $VERSION" -- "${files[@]}" || fail "commit"; fi
   else
-    # Screenshot files an earlier failed attempt of this stage left uncommitted go.
-    git -C "$WEBWT" checkout -q -- 'site/assets/shot-*' 2>/dev/null
-    git -C "$WEBWT" clean -q -f -- 'site/assets/shot-*'
     echo "no new documentation screenshots (--no-docs-shots, or stage docs-shots skipped or failed): the website keeps its own"
   fi
   python3 "$SCRIPTS/website.py" write --version "$VERSION" --changelog "$WORK/CHANGELOG.md" --assets "$ASSETS" \

@@ -25,7 +25,8 @@ profile so the AI tools need no download.
 
 --places FILE lists the screenshot places the website has (one id per line).
 Places without a shot in the list and shots that failed are reported; they
-never fail the run (exit 1 only when the app could not be run at all).
+never fail the run (exit 1 only when the app could not be run or no shot
+was made at all; a demo session reaching outside itself stops the run).
 DIR/result.json holds every shot and its result.
 """
 import argparse
@@ -69,7 +70,7 @@ def self_contained(session):
     absolute or ../ Capture/Output in session.json, a symbolic link, a catalog root
     elsewhere (a Capture on another drive), a hot folder or an unfinished import or
     task the app would resume. The app would open those live folders, not the clone."""
-    problems = []
+    problems = [f"{session} is a symbolic link"] if os.path.islink(session) else []
     for folder, dirs, files in os.walk(session):
         for name in dirs + files:
             if os.path.islink(os.path.join(folder, name)):
@@ -81,7 +82,9 @@ def self_contained(session):
             problems.append(f"session.json {key} = {value}")
     db = session / "session.sqlite"
     if db.is_file():
-        con = sqlite3.connect(f"file:{db}?immutable=1", uri=True)
+        # A normal connection: it reads the write-ahead log as the app will.
+        # Called on the disposable clone, never on the demo library itself.
+        con = sqlite3.connect(str(db))
         try:
             tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
             for path, external in con.execute("SELECT path, external FROM roots"):
@@ -119,10 +122,9 @@ class Capture:
         self.demo = Path(args.demo).resolve()
         if not (self.demo / "session" / "session.json").is_file():
             raise SystemExit(f"docs shots: {self.demo}/session is not a Rawtonic session")
-        outside = self_contained(self.demo / "session")
-        if outside:
-            raise SystemExit("docs shots: the demo session reaches folders outside itself, which a clone "
-                             "would still open: " + "; ".join(outside))
+        for link in (self.demo / "session", self.demo / "card"):
+            if link.is_symlink():
+                raise SystemExit(f"docs shots: {link} is a symbolic link; the demo library must hold its own files")
         self.spec = json.loads(Path(args.shots).read_text())
         # Absolute: the app reports the session by its absolute path.
         self.out = Path(args.out).resolve()
@@ -148,9 +150,17 @@ class Capture:
         name = json.loads((self.demo / "session" / "session.json").read_text()).get("name") or "Session"
         session = base / name
         clone_tree(self.demo / "session", session)
+        outside = self_contained(session)
+        if outside:
+            raise SystemExit("docs shots: the demo session reaches folders outside itself, which the app "
+                             "would open from the clone: " + "; ".join(outside))
         # A memory card to import from (DEMO/card), a clone as well.
         if (self.demo / "card").is_dir():
             clone_tree(self.demo / "card", base / "card")
+            links = [os.path.join(f, n) for f, ds, fs in os.walk(base / "card") for n in ds + fs
+                     if os.path.islink(os.path.join(f, n))]
+            if links:
+                raise SystemExit(f"docs shots: symbolic links in the demo card: {', '.join(links)}")
         demo_config = self.demo / "config"
         settings = {}
         if demo_config.is_dir():
