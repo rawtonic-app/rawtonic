@@ -483,7 +483,7 @@ fn white_balance(attrs: &HashMap<String, String>, adjustments: &mut Map<String, 
 /// sliders that keep Lightroom's value because no single map helped). The
 /// knots were measured with the responses new edits get (tone version 23,
 /// Dehaze version 3, render version 22); an import writes onto those.
-const LIGHTROOM_TRAVEL: &[(&str, &[(f64, f64)], &[(f64, f64)])] = &[
+const LIGHTROOM_TRAVEL: &[(&str, Knots, Knots)] = &[
     // Camera Raw's Dehaze + is gentler than ours: its +50 is our +30.
     (detail::DEHAZE.name(), &[(50.0, 30.0), (100.0, 65.0)], &[]),
     // Its Shadows +100 lifts a little less than ours; the knot is the one
@@ -498,6 +498,9 @@ const LIGHTROOM_TRAVEL: &[(&str, &[(f64, f64)], &[(f64, f64)])] = &[
         &[],
     ),
 ];
+
+/// One side's knots, (|Lightroom|, |Rawtonic|) by rising |Lightroom|.
+type Knots = &'static [(f64, f64)];
 
 /// `value` of Lightroom's `key` slider (Rawtonic's name) in Rawtonic's travel.
 fn lightroom_travel(key: &str, value: f64) -> f64 {
