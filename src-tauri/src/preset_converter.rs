@@ -472,6 +472,66 @@ fn white_balance(attrs: &HashMap<String, String>, adjustments: &mut Map<String, 
     );
 }
 
+/// Lightroom/Camera Raw slider values in Rawtonic's travel (user decision
+/// 2026-11-28, notes: decisions/0009-tone-colour-direction.md option C): the
+/// importer translates a value into the one whose effect on the photo comes
+/// closest to Camera Raw's at that value. Per slider and sign the knots are
+/// (|Lightroom|, |Rawtonic|), piecewise linear through 0; each knot is the
+/// median over Camera Raw 18.7 training photos of the per-photo best value of
+/// our slider (CORP1's train split, by camera model; notes:
+/// benchmark-results/impt1-2026-11-28/REPORT.md, which also names the
+/// sliders that keep Lightroom's value because no single map helped). The
+/// knots were measured with the responses new edits get (tone version 23,
+/// Dehaze version 3, render version 22); an import writes onto those.
+const LIGHTROOM_TRAVEL: &[(&str, &[(f64, f64)], &[(f64, f64)])] = &[
+    // Camera Raw's Dehaze + is gentler than ours: its +50 is our +30.
+    (detail::DEHAZE.name(), &[(50.0, 30.0), (100.0, 65.0)], &[]),
+    // Its Shadows +100 lifts a little less than ours; the knot is the one
+    // that leaves no key (dark, middle, bright photos) worse than 1:1 (the
+    // median, 80, made bright photos worse).
+    (tone::SHADOWS.name(), &[(50.0, 50.0), (100.0, 95.0)], &[]),
+    // Its Whites + is an image-wide lift ours reaches only at our +100 (from
+    // its +50 on); its +25 is ours.
+    (tone::WHITES.name(), &[(25.0, 25.0), (50.0, 100.0), (100.0, 100.0)], &[]),
+];
+
+/// `value` of Lightroom's `key` slider (Rawtonic's name) in Rawtonic's travel.
+fn lightroom_travel(key: &str, value: f64) -> f64 {
+    let Some((_, positive, negative)) = LIGHTROOM_TRAVEL.iter().find(|(k, ..)| *k == key) else {
+        return value;
+    };
+    let knots = if value >= 0.0 { positive } else { negative };
+    let x = value.abs();
+    let (mut x0, mut y0) = (0.0, 0.0);
+    for &(x1, y1) in *knots {
+        if x <= x1 {
+            return value.signum() * (y0 + (y1 - y0) * (x - x0) / (x1 - x0));
+        }
+        (x0, y0) = (x1, y1);
+    }
+    // Beyond the last knot (a mask's value times an Amount above 100 %): the
+    // last segment's slope, up to the slider's end.
+    let slope = match knots {
+        [.., (xa, ya), (xb, yb)] => (yb - ya) / (xb - xa),
+        [(xb, yb)] => yb / xb,
+        [] => 1.0,
+    };
+    value.signum() * (y0 + slope * (x - x0)).min(100.0)
+}
+
+/// The global sliders of `adjustments` in Rawtonic's travel, as whole
+/// numbers like the sliders show them.
+fn to_rawtonic_travel(adjustments: &mut Map<String, Value>) {
+    for (key, ..) in LIGHTROOM_TRAVEL {
+        if let Some(value) = adjustments.get(*key).and_then(Value::as_f64) {
+            adjustments.insert(
+                key.to_string(),
+                json!(lightroom_travel(key, value).round()),
+            );
+        }
+    }
+}
+
 /// The `crs:` attributes of a Lightroom XMP packet (name → value).
 pub fn crs_attributes(xmp_content: &str) -> HashMap<String, String> {
     let xmp_one_line = xmp_content.replace('\n', " ");
@@ -797,6 +857,7 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
             json!(shadows_val.clamp(-100.0, 100.0)),
         );
     }
+    to_rawtonic_travel(&mut adjustments);
 
     // Rawtonic's Amount is calibrated to Lightroom's on the same scale
     // (notes: reference/detail.md: 40 = Lightroom's 40), so it maps 1:1 over
@@ -2023,7 +2084,9 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
                     key if key == recipe_color::HUE.name() => 180.0,
                     _ => 100.0,
                 };
-                let value = (v * scale * amount).clamp(-limit, limit);
+                // A mask's tone and presence sliders add to the photo's and
+                // run through the same operators, so they translate alike.
+                let value = lightroom_travel(key, v * scale * amount).clamp(-limit, limit);
                 adjustments.insert(key.to_string(), json!((value * 100.0).round() / 100.0));
             }
         }
@@ -2576,11 +2639,67 @@ mod tests {
         let xmp = r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:Shadows2012="+60"
             crs:Contrast2012="-30" crs:Clarity2012="+25" crs:Texture="+40"/></rdf:RDF></x:xmpmeta>"#;
         let adjustments = convert_xmp_to_preset(xmp).unwrap().adjustments;
-        assert_eq!(adjustments["shadows"], 60.0);
+        // Lightroom's +60 in our travel (+50 → +50, +100 → +95).
+        assert_eq!(adjustments["shadows"], 59.0);
         assert_eq!(adjustments["contrast"], -30);
         assert_eq!(adjustments["clarity"], 25);
         // Lightroom's Texture is fine-detail contrast, Rawtonic's Structure.
         assert_eq!(adjustments["structure"], 40);
+    }
+
+    /// Camera Raw's Dehaze + acts as about 0.6 of ours at the same value
+    /// (notes: benchmark-results/impt1-2026-11-28/REPORT.md).
+    #[test]
+    fn lightroom_dehaze_translates_into_our_travel() {
+        let dehaze = |v: &str| {
+            let xmp = format!(r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:Dehaze="{v}"/></rdf:RDF></x:xmpmeta>"#);
+            convert_xmp_to_preset(&xmp).unwrap().adjustments["dehaze"].clone()
+        };
+        assert_eq!(dehaze("+50"), 30.0);
+        assert_eq!(dehaze("+100"), 65.0);
+        assert_eq!(dehaze("+25"), 15.0);
+        assert_eq!(dehaze("+75"), 48.0);
+        // Dehaze − keeps Lightroom's value (its best value was the same).
+        assert_eq!(dehaze("-50"), -50.0);
+        assert_eq!(dehaze("-100"), -100.0);
+    }
+
+    #[test]
+    fn lightroom_shadows_and_whites_translate_into_our_travel() {
+        let xmp = |attrs: &str| {
+            convert_xmp_to_preset(&format!(
+                r#"<x:xmpmeta><rdf:RDF><rdf:Description {attrs}/></rdf:RDF></x:xmpmeta>"#
+            ))
+            .unwrap()
+            .adjustments
+        };
+        let a = xmp(r#"crs:Shadows2012="+100" crs:Whites2012="+50""#);
+        assert_eq!(a["shadows"], 95.0);
+        assert_eq!(a["whites"], 100.0);
+        let a = xmp(r#"crs:Shadows2012="+50" crs:Whites2012="+25""#);
+        assert_eq!(a["shadows"], 50.0);
+        assert_eq!(a["whites"], 25.0);
+        let a = xmp(r#"crs:Shadows2012="+75" crs:Whites2012="+40""#);
+        assert_eq!(a["shadows"], 73.0);
+        assert_eq!(a["whites"], 70.0);
+        // The negative sides keep Lightroom's value.
+        let a = xmp(r#"crs:Shadows2012="-100" crs:Whites2012="-60""#);
+        assert_eq!(a["shadows"], -100.0);
+        assert_eq!(a["whites"], -60.0);
+    }
+
+    /// A mask's Dehaze runs through the photo's operator, so it translates
+    /// alike, after Lightroom's Amount.
+    #[test]
+    fn lightroom_mask_dehaze_translates_like_the_photos() {
+        let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+            <crs:MaskGroupBasedCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="true" crs:LocalDehaze="0.5" crs:LocalShadows2012="-0.4">
+            <crs:CorrectionMasks><rdf:Seq><rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="1" crs:Radius="0.05" crs:Flow="1" crs:CenterWeight="0"><crs:Dabs><rdf:Seq><rdf:li>d 0.300000 0.500000</rdf:li></rdf:Seq></crs:Dabs></rdf:Description></rdf:li></rdf:Seq></crs:CorrectionMasks>
+            </rdf:Description></rdf:li></rdf:Seq></crs:MaskGroupBasedCorrections></rdf:Description></rdf:RDF></x:xmpmeta>"#;
+        let (masks, _) = super::lightroom_masks(xmp);
+        assert_eq!(masks.len(), 1);
+        assert_eq!(masks[0]["adjustments"]["dehaze"], 30.0);
+        assert_eq!(masks[0]["adjustments"]["shadows"], -40.0);
     }
 
     #[test]
@@ -2938,7 +3057,8 @@ mod tests {
         // Hue ±1 is ±180°, scaled by the Amount (0.5).
         assert_eq!(sky["adjustments"]["hue"], json!(45.0));
         assert_eq!(sky["adjustments"]["defringe"], json!(-20.0));
-        assert_eq!(sky["adjustments"]["dehaze"], json!(15.0));
+        // Dehaze 0.3 × 0.5 is Lightroom's +15, our travel's +9.
+        assert_eq!(sky["adjustments"]["dehaze"], json!(9.0));
         assert_eq!(
             sky["adjustments"]["curves"]["luma"][1],
             json!({"x": 128.0, "y": 138.0})
