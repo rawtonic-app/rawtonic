@@ -12,6 +12,7 @@ import { resetBuiltinPresets } from '../../utils/builtinPresets';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import type { AppSettings } from '../ui/AppProperties';
 import { clearPresetThumbnailCache, recipeChanges } from './presetThumbnails';
+import { presetPreviewOf } from './StudioPresets';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('../../hooks/useEditorActions', () => ({
@@ -303,5 +304,12 @@ describe('recipeChanges', () => {
     const base = { exposure: 1, contrast: 5, masks: [{ id: 'a' }], lutPath: 'x.cube' } as never;
     const next = { exposure: 1, contrast: 10, masks: [{ id: 'a' }], blackAndWhite: true } as never;
     expect(recipeChanges(base, next)).toEqual({ contrast: 10, blackAndWhite: true, lutPath: null });
+  });
+});
+
+describe('presetPreviewOf', () => {
+  it('shows nothing for an imported preset whose settings are not an object', () => {
+    const preset = { id: 'bad', name: 'Bad', adjustments: null } as never;
+    expect(presetPreviewOf(preset, { ...INITIAL_ADJUSTMENTS }, { path: '/job/a.arw' })).toBeNull();
   });
 });

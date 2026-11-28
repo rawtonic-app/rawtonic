@@ -105,6 +105,8 @@ export function presetPreviewOf(
   current: Adjustments,
   image: { path: string; isRaw?: boolean }
 ): Adjustments | null {
+  // An imported file whose settings are not an object: nothing to show.
+  if (typeof preset.adjustments !== 'object' || preset.adjustments === null) return null;
   if (isStyle(preset) && appliedStyleOf(current)?.id === preset.id) return current;
   const reverted = isStyle(preset) ? revertStyle(current) : null;
   const base = reverted?.removed ? normalizeLoadedAdjustments(reverted.recipe, Boolean(image.isRaw)) : reverted?.recipe;

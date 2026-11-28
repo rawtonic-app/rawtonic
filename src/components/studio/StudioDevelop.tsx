@@ -1226,8 +1226,9 @@ export default function StudioDevelop() {
       track={track}
       keys={key === 'exposure' ? EXPOSURE_KEYS : undefined}
       optionView={optionViewOf(key)}
-      // AI Denoise and colour noise live in the RAW's decode: no held look.
-      peek={key !== 'aiDenoise' && key !== 'colorNoiseReduction'}
+      // AI Denoise lives in the RAW's decode: no held look. (Others whose
+      // default would need the RAW developed again are refused at the hold.)
+      peek={key !== 'aiDenoise'}
       onChange={changeOf(key)}
       onInteraction={
         key === 'grainAmount'
