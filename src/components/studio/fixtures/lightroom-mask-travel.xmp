@@ -1,0 +1,16 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+      <crs:Name><rdf:Alt><rdf:li>Lightroom mask travel</rdf:li></rdf:Alt></crs:Name>
+      <crs:MaskGroupBasedCorrections><rdf:Seq><rdf:li>
+        <rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="true" crs:LocalDehaze="1">
+          <crs:CorrectionMasks><rdf:Seq><rdf:li>
+            <rdf:Description crs:What="Mask/Paint" crs:MaskValue="1" crs:Radius="0.05" crs:Flow="1" crs:CenterWeight="0">
+              <crs:Dabs><rdf:Seq><rdf:li>d 0.300000 0.500000</rdf:li></rdf:Seq></crs:Dabs>
+            </rdf:Description>
+          </rdf:li></rdf:Seq></crs:CorrectionMasks>
+        </rdf:Description>
+      </rdf:li></rdf:Seq></crs:MaskGroupBasedCorrections>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>

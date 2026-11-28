@@ -1,0 +1,69 @@
+{
+  "failures": [],
+  "presets": [
+    {
+      "preset": {
+        "adjustments": {
+          "dehaze": 30.0,
+          "dehazeVersion": 3,
+          "shadows": 96.992,
+          "whites": 100.0
+        },
+        "id": "global-preset",
+        "includeCropTransform": false,
+        "includeMasks": false,
+        "name": "Lightroom travel",
+        "presetType": "style"
+      }
+    },
+    {
+      "preset": {
+        "adjustments": {
+          "dehazeVersion": 3,
+          "masks": [
+            {
+              "adjustments": {
+                "dehaze": 65.0
+              },
+              "id": "mask-layer",
+              "invert": false,
+              "maskVersion": 6,
+              "name": "Mask 1",
+              "opacity": 100.0,
+              "subMasks": [
+                {
+                  "id": "mask-brush",
+                  "invert": false,
+                  "mode": "additive",
+                  "opacity": 100.0,
+                  "parameters": {
+                    "lrNormalized": {
+                      "strokes": [
+                        {
+                          "autoMask": false,
+                          "centerWeight": 0.0,
+                          "dabs": [[0.3, 0.5]],
+                          "flow": 1.0,
+                          "radius": 0.05
+                        }
+                      ]
+                    }
+                  },
+                  "type": "brush",
+                  "visible": true
+                }
+              ],
+              "visible": true
+            }
+          ]
+        },
+        "id": "mask-preset",
+        "includeCropTransform": false,
+        "includeMasks": true,
+        "name": "Lightroom mask travel",
+        "presetType": "style"
+      }
+    }
+  ],
+  "untranslated": []
+}

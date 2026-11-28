@@ -498,6 +498,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lightroom_travel_import_matches_frontend_fixture() {
+        let fixtures =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/components/studio/fixtures");
+        let mut presets = Vec::new();
+        let mut untranslated = Vec::new();
+        let mut names = HashSet::new();
+        for name in ["lightroom-travel.xmp", "lightroom-mask-travel.xmp"] {
+            let (items, report) =
+                parse_preset_file_reporting(fixtures.join(name).to_str().unwrap()).unwrap();
+            merge_imported_items(&mut presets, &mut names, items);
+            untranslated.extend(report);
+        }
+        let result = PresetImportResult {
+            presets,
+            failures: Vec::new(),
+            untranslated,
+        };
+        let mut actual = serde_json::to_value(&result).unwrap();
+        // The importer generates these IDs on every run. Keep the rest of
+        // the serialized command result identical to what Vitest reads.
+        actual["presets"][0]["preset"]["id"] = "global-preset".into();
+        let masked = &mut actual["presets"][1]["preset"];
+        masked["id"] = "mask-preset".into();
+        let layer = &mut masked["adjustments"]["masks"][0];
+        layer["id"] = "mask-layer".into();
+        layer["subMasks"][0]["id"] = "mask-brush".into();
+        let expected: Value = serde_json::from_str(include_str!(
+            "../../../src/components/studio/fixtures/lightroom-travel-import.json"
+        ))
+        .unwrap();
+        assert_eq!(actual, expected, "{actual:#}");
+    }
+
+    #[test]
     fn preset_import_rejects_archives_before_opening_them() {
         let directory = tempfile::tempdir().unwrap();
         for name in ["presets.ZIP", "styles.costylepack"] {
