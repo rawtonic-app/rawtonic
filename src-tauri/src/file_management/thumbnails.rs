@@ -303,7 +303,7 @@ fn thumbnail_hash_before_source_gamut(path_str: &str, adjustments_bytes: &[u8]) 
         true,
         true,
         false,
-        false,
+        true,
     )?;
     (Some(&before) != compute_thumbnail_cache_hash(path_str, adjustments_bytes).as_ref())
         .then_some(before)
@@ -326,7 +326,7 @@ fn thumbnail_hash_before_camera_identity(
         false,
         false,
         false,
-        false,
+        true,
     )
 }
 
@@ -347,7 +347,7 @@ fn thumbnail_hash_with_display_copy_held(
         false,
         false,
         false,
-        false,
+        true,
     )
 }
 
@@ -369,7 +369,7 @@ fn thumbnail_hash_with_display_copy_renewed(
         false,
         false,
         false,
-        false,
+        true,
     )
 }
 
@@ -388,7 +388,7 @@ fn thumbnail_hash_before_refreshes(path_str: &str, adjustments_bytes: &[u8]) -> 
         false,
         false,
         false,
-        false,
+        true,
     )
 }
 
@@ -406,7 +406,7 @@ fn thumbnail_hash_before_orf_preview(path_str: &str, adjustments_bytes: &[u8]) -
         false,
         false,
         false,
-        false,
+        true,
     )
 }
 
@@ -430,7 +430,7 @@ fn thumbnail_hash_before_hdr_rolloff(path_str: &str, adjustments_bytes: &[u8]) -
         true,
         false,
         false,
-        false,
+        true,
     )
 }
 
