@@ -493,7 +493,8 @@ st_gui() {
 # could not be run at all, and then site keeps the website's earlier screenshots.
 st_docs_shots() {
   local d=$WORK/docs-shots
-  rm -rf "$d/png"
+  # Only this run's pictures: none of an earlier run may pass for a shot that fails now.
+  rm -rf "$d/png" "$d/en" "$d/de" "$d/result.json"
   if [ "$DOCS_SHOTS" = 0 ]; then echo "skipped (--no-docs-shots): the website keeps its screenshots"; return; fi
   if [ -z "$DOCS_DEMO" ]; then
     echo "skipped: no demo library (RAWTONIC_DOCS_DEMO; docs/RELEASING.md): the website keeps its screenshots"; return
@@ -512,14 +513,18 @@ st_docs_shots() {
   python3 "$REPO_ROOT/scripts/docs-shots/capture.py" --app "$WORK/gui-app/Rawtonic QA release.app" \
     --demo "$DOCS_DEMO" --places "$d/places.txt" --out "$d" --port "$QA_PORT" --version "$VERSION" \
     ${models[@]+"${models[@]}"} || fail "the QA app could not be run for the screenshots (above)"
-  # The website's names: shot-ID (English interface) and shot-ID-de.
+  # The shots this run made (result.json), under the website's names: shot-ID
+  # (English interface) and shot-ID-LANG.
   mkdir -p "$d/png"
-  local f id lang
-  for f in "$d"/en/*.png "$d"/de/*.png; do
-    [ -f "$f" ] || continue
-    id=$(basename "$f" .png); lang=$(basename "$(dirname "$f")")
-    if [ "$lang" = en ]; then cp "$f" "$d/png/shot-$id.png"; else cp "$f" "$d/png/shot-$id-$lang.png"; fi
-  done
+  python3 - "$d" <<'PY' || fail "copy the screenshots"
+import json, shutil, sys
+from pathlib import Path
+d = Path(sys.argv[1])
+for shot in json.loads((d / "result.json").read_text())["shots"]:
+    if shot["ok"]:
+        name = f"shot-{shot['id']}" + ("" if shot["lang"] == "en" else f"-{shot['lang']}")
+        shutil.copyfile(shot["file"], d / "png" / f"{name}.png")
+PY
   echo "docs shots for site: $(find "$d/png" -name '*.png' | wc -l | tr -d ' ') file(s) in $d/png"
 }
 
@@ -828,13 +833,19 @@ st_site() {
   echo "website branch $WEB_BRANCH at $(git -C "$WEBWT" log -1 --format='%h %s')"
   # This release's documentation screenshots (stage docs-shots), if it made any.
   local png=$WORK/docs-shots/png
-  if [ -f "$STATE/docs-shots.ok" ] && [ -n "$(find "$png" -name '*.png' 2>/dev/null | head -1)" ]; then
+  if [ "$DOCS_SHOTS" = 1 ] && [ -f "$STATE/docs-shots.ok" ] && [ -n "$(find "$png" -name '*.png' 2>/dev/null | head -1)" ]; then
+    [ -z "$(git -C "$WEBWT" status --porcelain)" ] || fail "$WEBWT has uncommitted changes: commit or remove them before the screenshots are added"
     (cd "$WEBWT" && scripts/images.sh "$png") || fail "scripts/images.sh (ImageMagick 7 and cwebp)"
-    git -C "$WEBWT" add site/assets || fail "git add"
+    # Only the files made from this run's captures.
+    local f n files=()
+    for f in "$png"/*.png; do n=$(basename "$f" .png)
+      files+=("site/assets/$n.jpg" "site/assets/$n-720.avif" "site/assets/$n-1440.avif" "site/assets/$n-720.webp" "site/assets/$n-1440.webp")
+    done
+    git -C "$WEBWT" add -- "${files[@]}" || fail "git add"
     if git -C "$WEBWT" diff --cached --quiet; then echo "the screenshots are unchanged"
     else git -C "$WEBWT" commit -q -m "docs: screenshots of $VERSION" || fail "commit"; fi
   else
-    echo "no new documentation screenshots (stage docs-shots skipped or failed): the website keeps its own"
+    echo "no new documentation screenshots (--no-docs-shots, or stage docs-shots skipped or failed): the website keeps its own"
   fi
   python3 "$SCRIPTS/website.py" write --version "$VERSION" --changelog "$WORK/CHANGELOG.md" --assets "$ASSETS" \
     --release-json "$WEBWT/release.json" || fail "the website's release.json (see above)"

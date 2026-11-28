@@ -8,7 +8,9 @@ fails here, in scripts/check.sh, instead of at the next release's screenshots.
 """
 import json
 import re
+import sqlite3
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -71,6 +73,32 @@ class ShotList(unittest.TestCase):
             if rect:
                 x, y, cw, ch = rect
                 self.assertTrue(0 <= x and 0 <= y and x + cw <= w and y + ch <= h, shot["id"])
+
+
+class DemoSession(unittest.TestCase):
+    """A clone of the demo session must not reach live folders outside it."""
+
+    def make(self, folder, capture="Capture", root=".", external=0):
+        (folder / "session.json").write_text(json.dumps({"name": "Demo", "capture": capture, "output": "Output"}))
+        con = sqlite3.connect(folder / "session.sqlite")
+        con.execute("CREATE TABLE roots(id TEXT PRIMARY KEY, path TEXT NOT NULL, external INTEGER NOT NULL DEFAULT 0)")
+        con.execute("INSERT INTO roots VALUES ('session', ?, ?)", (root, external))
+        con.commit()
+        con.close()
+        return capture_problems(folder)
+
+    def test_a_self_contained_session_passes(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(self.make(Path(d)), [])
+
+    def test_outside_folders_are_refused(self):
+        for kwargs in ({"capture": "/Volumes/Card/Capture"}, {"capture": "../Capture"},
+                       {"root": "/Volumes/Photos"}, {"external": 1}):
+            with self.subTest(**kwargs), tempfile.TemporaryDirectory() as d:
+                self.assertTrue(self.make(Path(d), **kwargs))
+
+
+capture_problems = capture.self_contained
 
 
 if __name__ == "__main__":

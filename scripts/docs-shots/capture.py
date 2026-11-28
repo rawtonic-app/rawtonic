@@ -34,6 +34,7 @@ import os
 import plistlib
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -63,6 +64,28 @@ def lookup(tree, key):
     return node
 
 
+def self_contained(session):
+    """The problems that would let a clone of SESSION reach folders outside it: an
+    absolute or ../ Capture/Output in session.json, or a catalog root elsewhere (a
+    Capture on another drive). The app would open those live folders, not the clone."""
+    problems = []
+    info = json.loads((session / "session.json").read_text())
+    for key in ("capture", "output", "selects", "trash"):
+        value = info.get(key)
+        if isinstance(value, str) and (os.path.isabs(value) or ".." in Path(value).parts):
+            problems.append(f"session.json {key} = {value}")
+    db = session / "session.sqlite"
+    if db.is_file():
+        con = sqlite3.connect(f"file:{db}?immutable=1", uri=True)
+        try:
+            for path, external in con.execute("SELECT path, external FROM roots"):
+                if external or os.path.isabs(path) or ".." in Path(path).parts:
+                    problems.append(f"catalog root {path}")
+        finally:
+            con.close()
+    return problems
+
+
 def clone_tree(src, dst):
     """APFS clone (no extra disk space) with a plain copy as the fallback."""
     if subprocess.run(["cp", "-c", "-R", str(src), str(dst)], capture_output=True).returncode != 0:
@@ -79,11 +102,16 @@ class Capture:
             raise SystemExit(f"docs shots: {self.identifier} is not a QA identifier (cc.rawtonic.qa…)")
         self.binary = self.app / "Contents/MacOS" / info["CFBundleExecutable"]
         self.version = args.version or info.get("CFBundleShortVersionString", "")
-        self.demo = Path(args.demo)
+        self.demo = Path(args.demo).resolve()
         if not (self.demo / "session" / "session.json").is_file():
             raise SystemExit(f"docs shots: {self.demo}/session is not a Rawtonic session")
+        outside = self_contained(self.demo / "session")
+        if outside:
+            raise SystemExit("docs shots: the demo session reaches folders outside itself, which a clone "
+                             "would still open: " + "; ".join(outside))
         self.spec = json.loads(Path(args.shots).read_text())
-        self.out = Path(args.out)
+        # Absolute: the app reports the session by its absolute path.
+        self.out = Path(args.out).resolve()
         self.run = self.out / time.strftime("run-%Y%m%d-%H%M%S")
         self.strings = {}
         self.proc = None
@@ -115,14 +143,15 @@ class Capture:
             shutil.copytree(demo_config, config, dirs_exist_ok=True)
             if (config / "settings.json").is_file():
                 settings = json.loads((config / "settings.json").read_text())
-        settings.update({
-            "language": lang,
-            "interfaceShade": self.spec.get("shade", "darkest"),
-            # No What's new over the first shot; no update check from a QA run.
-            "lastRunVersion": self.version,
-        })
         settings.update(self.spec.get("settings", {}))
         settings.update(extra_settings or {})
+        settings.update({
+            "language": lang,
+            "interfaceShade": settings.get("interfaceShade") or self.spec.get("shade", "darkest"),
+            # No What's new over the first shot, no update check (network, a banner).
+            "lastRunVersion": self.version,
+            "checkForUpdates": False,
+        })
         (config / "settings.json").write_text(json.dumps(settings, indent=2))
         (config / "last-library.json").write_text(json.dumps(str(session)))
         scale = 2  # the window state is in backing pixels; the capture checks the size
@@ -330,6 +359,7 @@ class Capture:
         raw.write_bytes(base64.b64decode(result["png_base64"]))
         scale = result["width"] / vw
         if scale < 1.9:
+            raw.unlink()
             raise ShotFailed(f"capture is {result['width']} px for a {vw} px window: not a Retina 2x display")
         if box is None:
             raw.replace(path)
@@ -337,9 +367,9 @@ class Capture:
             x0, y0, x1, y1 = (round(v * scale) for v in box)
             r = subprocess.run(["magick", str(raw), "-crop", f"{x1 - x0}x{y1 - y0}+{x0}+{y0}", "+repage",
                                 str(path)], capture_output=True, text=True)
+            raw.unlink()
             if r.returncode:
                 raise ShotFailed(f"crop: {r.stderr.strip()[-200:]}")
-            raw.unlink()
         return {"width": result["width"], "scale": scale}
 
     # --- run --------------------------------------------------------------------
@@ -361,6 +391,8 @@ class Capture:
         home, session = self.prepare(label, lang, window, shot.get("settings"))
         path = self.out / lang / f"{shot['id']}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            path.unlink()  # never an earlier run's picture for a shot that fails now
         entry = {"id": shot["id"], "lang": lang}
         self.launch(home, self.run / f"{label}.stdout.log")
         try:
@@ -406,6 +438,8 @@ class Capture:
                     self.proc.kill()
         if started:  # one shot that ran is enough to call the app runnable
             fatal = None
+        if self.results and not any(r["ok"] for r in self.results):
+            fatal = fatal or "no shot was made (the setup, not one shot, is wrong: see the failure-*.png)"
         defined = {s["id"] for s in self.spec["shots"]}
         places = []
         if self.args.places:
