@@ -492,7 +492,11 @@ const LIGHTROOM_TRAVEL: &[(&str, &[(f64, f64)], &[(f64, f64)])] = &[
     (tone::SHADOWS.name(), &[(50.0, 50.0), (100.0, 95.0)], &[]),
     // Its Whites + is an image-wide lift ours reaches only at our +100 (from
     // its +50 on); its +25 is ours.
-    (tone::WHITES.name(), &[(25.0, 25.0), (50.0, 100.0), (100.0, 100.0)], &[]),
+    (
+        tone::WHITES.name(),
+        &[(25.0, 25.0), (50.0, 100.0), (100.0, 100.0)],
+        &[],
+    ),
 ];
 
 /// `value` of Lightroom's `key` slider (Rawtonic's name) in Rawtonic's travel.
@@ -524,10 +528,7 @@ fn lightroom_travel(key: &str, value: f64) -> f64 {
 fn to_rawtonic_travel(adjustments: &mut Map<String, Value>) {
     for (key, ..) in LIGHTROOM_TRAVEL {
         if let Some(value) = adjustments.get(*key).and_then(Value::as_f64) {
-            adjustments.insert(
-                key.to_string(),
-                json!(lightroom_travel(key, value).round()),
-            );
+            adjustments.insert(key.to_string(), json!(lightroom_travel(key, value).round()));
         }
     }
 }
@@ -2652,7 +2653,9 @@ mod tests {
     #[test]
     fn lightroom_dehaze_translates_into_our_travel() {
         let dehaze = |v: &str| {
-            let xmp = format!(r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:Dehaze="{v}"/></rdf:RDF></x:xmpmeta>"#);
+            let xmp = format!(
+                r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:Dehaze="{v}"/></rdf:RDF></x:xmpmeta>"#
+            );
             convert_xmp_to_preset(&xmp).unwrap().adjustments["dehaze"].clone()
         };
         assert_eq!(dehaze("+50"), 30.0);
