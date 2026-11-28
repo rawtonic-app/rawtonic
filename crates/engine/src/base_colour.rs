@@ -76,39 +76,12 @@ pub fn delta(lab: [f32; 3]) -> [f32; 2] {
     [out[0] * fade, out[1] * fade]
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn greys_stay_grey() {
-        for l in [0.0, 5.0, 18.0, 50.0, 77.0, 100.0] {
-            assert_eq!(delta([l, 0.0, 0.0]), [0.0, 0.0]);
-            let [da, db] = delta([l, 0.5, -0.5]);
-            assert!(da.abs() < 0.2 && db.abs() < 0.2, "{l}: {da} {db}");
-        }
-    }
-
-    #[test]
-    fn the_table_is_whole_and_moderate() {
-        assert_eq!(TABLE.len(), ENTRIES);
-        assert!(
-            TABLE
-                .iter()
-                .flatten()
-                .all(|v| v.is_finite() && v.abs() < 12.0)
-        );
-        // Exactly on a node the table's own entry comes back.
-        let e = TABLE[(5 * AB_NODES + 15) * AB_NODES + 9];
-        let d = delta([50.0, -96.0 + 15.0 * AB_STEP, -96.0 + 9.0 * AB_STEP]);
-        assert!((d[0] - e[0]).abs() < 1e-5 && (d[1] - e[1]).abs() < 1e-5);
-    }
-}
-
 /// (Δa*, Δb*) per node, L* major, then a*, then b* (fitted, rounded to
 /// 0.01).
+// Fitted values; some happen to be near π or τ.
+#[allow(clippy::approx_constant)]
 #[rustfmt::skip]
-const TABLE: [[f32; 2]; ENTRIES] = [
+static TABLE: [[f32; 2]; ENTRIES] = [
     // L* 0, a* -96
     [0.03, 0.25], [0.02, 0.26], [0.00, 0.28], [-0.03, 0.31], [-0.08, 0.34], [-0.13, 0.39], [-0.19, 0.46], [-0.27, 0.53], [-0.34, 0.62], [-0.42, 0.71], [-0.50, 0.82], [-0.58, 0.92], [-0.65, 1.03], [-0.71, 1.13], [-0.76, 1.22], [-0.79, 1.30], [-0.81, 1.37], [-0.80, 1.43], [-0.79, 1.48], [-0.76, 1.52], [-0.72, 1.55], [-0.68, 1.58], [-0.65, 1.61], [-0.63, 1.62], [-0.61, 1.63],
     // L* 0, a* -88
@@ -660,3 +633,32 @@ const TABLE: [[f32; 2]; ENTRIES] = [
     // L* 100, a* 96
     [1.13, -0.05], [1.13, -0.05], [1.13, -0.05], [1.13, -0.05], [1.13, -0.05], [1.13, -0.05], [1.13, -0.05], [1.13, -0.04], [1.13, -0.03], [1.14, 0.01], [1.14, 0.08], [1.14, 0.20], [1.14, 0.39], [1.14, 0.65], [1.15, 0.95], [1.20, 1.27], [1.27, 1.57], [1.38, 1.83], [1.51, 2.02], [1.65, 2.15], [1.78, 2.21], [1.89, 2.24], [1.97, 2.24], [2.03, 2.24], [2.06, 2.23],
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn greys_stay_grey() {
+        for l in [0.0, 5.0, 18.0, 50.0, 77.0, 100.0] {
+            assert_eq!(delta([l, 0.0, 0.0]), [0.0, 0.0]);
+            let [da, db] = delta([l, 0.5, -0.5]);
+            assert!(da.abs() < 0.2 && db.abs() < 0.2, "{l}: {da} {db}");
+        }
+    }
+
+    #[test]
+    fn the_table_is_whole_and_moderate() {
+        assert_eq!(TABLE.len(), ENTRIES);
+        assert!(
+            TABLE
+                .iter()
+                .flatten()
+                .all(|v| v.is_finite() && v.abs() < 12.0)
+        );
+        // Exactly on a node the table's own entry comes back.
+        let e = TABLE[(5 * AB_NODES + 15) * AB_NODES + 9];
+        let d = delta([50.0, -96.0 + 15.0 * AB_STEP, -96.0 + 9.0 * AB_STEP]);
+        assert!((d[0] - e[0]).abs() < 1e-5 && (d[1] - e[1]).abs() < 1e-5);
+    }
+}
