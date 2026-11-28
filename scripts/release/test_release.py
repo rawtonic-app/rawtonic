@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests of the release helpers: version bump, release notes, the GUI smoke's frame check,
-the in-app update manifest, the website's release facts and publish checks, the docs check."""
+the in-app update manifest, the website's release facts and publish checks, the docs check,
+and the shell release runner's screenshot cache cleanup."""
 import contextlib
 import io
 import json
@@ -598,6 +599,86 @@ class DocsCheck(unittest.TestCase):
             with self.assertRaises(SystemExit) as e:
                 docs_check.site_base(site, "1.0")
             self.assertIn("no website commit of the previous release 1.0", str(e.exception))
+
+
+class DocsShotsCacheTests(unittest.TestCase):
+    qa_id = "cc.rawtonic.qa.test"
+    production_id = "cc.rawtonic.editor"
+    cache_name = "com.apple.e5rt.e5bundlecache"
+
+    def run_stage(self, folder, identifier, *, capture_fails=False, symlink=False):
+        release = Path(__file__).resolve().parents[1] / "release.sh"
+        work = folder / "work" / "0.1.0-alpha.99"
+        state = work / "state"
+        state.mkdir(parents=True)
+        for marker in ("qa-app.ok", "docs.ok", "docs-branches"):
+            (state / marker).touch()
+        website = folder / "website"
+        (website / "scripts").mkdir(parents=True)
+        (website / "scripts/build.mjs").touch()
+        tools = folder / "bin"
+        tools.mkdir()
+        commands = {
+            "defaults": f"echo {self.qa_id}\n",
+            "git": "case \"$3\" in grep) echo '{{shot \"example\"';; esac\n",
+            "python3": f"""if [[ "$1" == */docs-shots/capture.py ]]; then
+    [ "$CAPTURE_FAILS" = 0 ] || exit 1
+    printf '%s\\n' '{{"shots":[]}}' > "$TEST_WORK/docs-shots/result.json"
+else
+    exec "{sys.executable}" "$@"
+fi
+""",
+        }
+        for name, body in commands.items():
+            command = tools / name
+            command.write_text("#!/bin/bash\n" + body)
+            command.chmod(0o755)
+        caches = folder / "Library/Caches"
+        for name in (self.production_id, "cc.rawtonic.qa.other", self.qa_id):
+            if symlink and name == self.qa_id:
+                (caches / name).symlink_to(caches / self.production_id, target_is_directory=True)
+                continue
+            cache = caches / name / self.cache_name
+            cache.mkdir(parents=True)
+            (cache / "compiled").touch()
+            (cache.parent / "other-cache").touch()
+        result = subprocess.run(
+            ["bash", str(release), "--only", "docs-shots", work.name],
+            env={**os.environ, "HOME": str(folder), "PATH": f"{tools}:{os.environ['PATH']}",
+                 "RAWTONIC_RELEASE_ENV": str(folder / "unset.env"),
+                 "RAWTONIC_RELEASE_WORK": str(work.parent), "RAWTONIC_WEBSITE_DIR": str(website),
+                 "RAWTONIC_DOCS_DEMO": str(folder / "demo"), "RAWTONIC_QA_IDENTIFIER": identifier,
+                 "CAPTURE_FAILS": str(int(capture_fails)), "TEST_WORK": str(work)},
+            capture_output=True, text=True, check=False,
+        )
+        for name in (self.production_id, "cc.rawtonic.qa.other"):
+            self.assertTrue((caches / name / self.cache_name / "compiled").is_file())
+        self.assertTrue((caches / self.qa_id / "other-cache").is_file())
+        return result, caches / self.qa_id / self.cache_name
+
+    def test_cleanup_preserves_stage_result(self):
+        for capture_fails in (False, True):
+            with self.subTest(capture_fails=capture_fails), tempfile.TemporaryDirectory() as folder:
+                result, cache = self.run_stage(Path(folder), self.qa_id, capture_fails=capture_fails)
+                self.assertEqual(result.returncode, int(capture_fails), result.stdout + result.stderr)
+                if capture_fails:
+                    self.assertIn("QA app could not be run", result.stdout)
+                self.assertFalse(cache.exists())
+
+    def test_refuses_unsafe_identifiers(self):
+        for identifier in ("", self.production_id, "cc.rawtonic.qa/../cc.rawtonic.editor"):
+            with self.subTest(identifier=identifier), tempfile.TemporaryDirectory() as folder:
+                result, cache = self.run_stage(Path(folder), identifier)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("RAWTONIC_QA_IDENTIFIER must be a QA identifier", result.stdout)
+                self.assertTrue(cache.is_dir())
+
+    def test_refuses_symlink_to_production_cache_parent(self):
+        with tempfile.TemporaryDirectory() as folder:
+            result, cache = self.run_stage(Path(folder), self.qa_id, symlink=True)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("refusing to clear the Core ML cache through a symlink", result.stdout)
+            self.assertTrue(cache.is_dir())
 
 
 if __name__ == "__main__":

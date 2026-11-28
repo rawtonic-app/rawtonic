@@ -52,23 +52,23 @@ Rawtonic is vibe-coded: almost all of its code is written by AI coding agents (C
 
 ## Download
 
-Download [**Rawtonic 0.1.0-alpha.19**](https://github.com/rawtonic-app/rawtonic/releases/tag/v0.1.0-alpha.19) or browse [all releases](https://github.com/rawtonic-app/rawtonic/releases).
+Download [**Rawtonic 0.1.0-alpha.22**](https://github.com/rawtonic-app/rawtonic/releases/tag/v0.1.0-alpha.22) or browse [all releases](https://github.com/rawtonic-app/rawtonic/releases).
 
 Rawtonic runs on **macOS** (Apple Silicon; Intel experimental), **Linux** (x86-64) and **Windows** (x64, unsigned).
 
 ### macOS
 
-Download `Rawtonic_0.1.0-alpha.19_aarch64.dmg` for Apple Silicon (M1 and later), macOS 14 Sonoma or later. Open it and drag **Rawtonic** to **Applications**. The app is signed with an Apple Developer ID and notarized by Apple, so it opens with a double-click.
+Download `Rawtonic_0.1.0-alpha.22_aarch64.dmg` for Apple Silicon (M1 and later), macOS 14 Sonoma or later. Open it and drag **Rawtonic** to **Applications**. The app is signed with an Apple Developer ID and notarized by Apple, so it opens with a double-click.
 
-For Intel Macs (macOS 13 or later) there is an experimental `Rawtonic_0.1.0-alpha.19_x86_64.dmg`. So far it has run only under Rosetta 2 on Apple Silicon, not on an Intel Mac; please [report](https://github.com/rawtonic-app/rawtonic/issues) how it runs on yours.
+For Intel Macs (macOS 13 or later) there is an experimental `Rawtonic_0.1.0-alpha.22_x86_64.dmg`. So far it has run only under Rosetta 2 on Apple Silicon, not on an Intel Mac; please [report](https://github.com/rawtonic-app/rawtonic/issues) how it runs on yours.
 
 ### Linux
 
-Download `Rawtonic_0.1.0-alpha.19_amd64.AppImage` for x86-64, make it executable and start it:
+Download `Rawtonic_0.1.0-alpha.22_amd64.AppImage` for x86-64, make it executable and start it:
 
 ```sh
-chmod +x Rawtonic_0.1.0-alpha.19_amd64.AppImage
-./Rawtonic_0.1.0-alpha.19_amd64.AppImage
+chmod +x Rawtonic_0.1.0-alpha.22_amd64.AppImage
+./Rawtonic_0.1.0-alpha.22_amd64.AppImage
 ```
 
 It runs on current distributions (Ubuntu 22.04 or later, Debian 12, Fedora and others with glibc 2.35 or later). If it does not start, install FUSE 2 (`sudo apt install libfuse2t64` on Ubuntu 24.04, `libfuse2` on older Ubuntu and Debian) or start it with `--appimage-extract-and-run`. The very first start can take a minute or two before the first photo appears while the graphics driver prepares Rawtonic's shaders; later starts are quick.
@@ -79,11 +79,11 @@ To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpd
 
 Choose one of these downloads for Windows 10 or 11 (x64, tested on Windows 11).
 
-- `Rawtonic_0.1.0-alpha.19_x64.msi` — **the recommended download.** It installs for all users into Program Files, so Windows asks for administrator permission. If you installed Rawtonic earlier with the `-setup.exe`, uninstall that copy first in Settings → Apps (your libraries, edits and settings stay); the MSI says so and stops otherwise.
-- `Rawtonic_0.1.0-alpha.19_x64-setup.exe` — installs for your user only, without administrator rights.
-- `Rawtonic_0.1.0-alpha.19_x64-portable.zip` — portable, no installation: unpack it anywhere (a USB drive works) and start `Rawtonic\rawtonic-app.exe`. It needs the Microsoft Edge WebView2 Runtime, which Windows 11 includes and Edge installs on Windows 10. Settings and libraries are kept in your user profile, not beside the app.
+- `Rawtonic_0.1.0-alpha.22_x64.msi` — **the recommended download.** It installs for all users into Program Files, so Windows asks for administrator permission. If you installed Rawtonic earlier with the `-setup.exe`, uninstall that copy first in Settings → Apps (your libraries, edits and settings stay); the MSI says so and stops otherwise.
+- `Rawtonic_0.1.0-alpha.22_x64-setup.exe` — installs for your user only, without administrator rights.
+- `Rawtonic_0.1.0-alpha.22_x64-portable.zip` — portable, no installation: unpack it anywhere (a USB drive works) and start `Rawtonic\rawtonic-app.exe`. It needs the Microsoft Edge WebView2 Runtime, which Windows 11 includes and Edge installs on Windows 10. Settings and libraries are kept in your user profile, not beside the app.
 
-The downloads are **unsigned**. To check a download before running it: in PowerShell, `Get-FileHash .\Rawtonic_0.1.0-alpha.19_x64.msi` (or the file you chose) must print the same SHA-256 as `SHA256SUMS-windows.txt` (upper- or lower-case does not matter). This catches download corruption; it does not verify the publisher. Uninstall an installed Rawtonic in Settings → Apps.
+The downloads are **unsigned**. To check a download before running it: in PowerShell, `Get-FileHash .\Rawtonic_0.1.0-alpha.22_x64.msi` (or the file you chose) must print the same SHA-256 as `SHA256SUMS-windows.txt` (upper- or lower-case does not matter). This catches download corruption; it does not verify the publisher. Uninstall an installed Rawtonic in Settings → Apps.
 
 Rawtonic needs a GPU with a Vulkan or DirectX 12 driver; PCs with only Microsoft's software renderer are not supported yet. On a laptop with a Radeon 680M integrated GPU, the first use of some slider combinations took up to about a minute to compile graphics pipelines with AMD’s Windows driver, and exporting two photos at a time used more memory than exporting one at a time.
 
@@ -110,7 +110,7 @@ Other systems are not supported yet; you can try to [build from source](docs/DEV
 
 ### 1 · Bring the shoot in
 
-Start a **session** for a portrait sitting, a wedding or a product shoot. **Import** copies the photographs from the card, checks every copy against the original before it counts as safe, and can write a backup to a second drive at the same time. In the import dialog you can check photos at 100 % for focus (Z or a click, real pixels, not an enlarged preview) rate them and choose which to import before anything is copied; inserting a memory card opens the import with that card, and it can be ejected once every photo is copied and verified. The card is never changed. You can also drag photographs from the Finder or your file manager straight onto the window. Besides RAW files, Rawtonic opens JPEG, TIFF, PNG, WebP, JPEG XL and AVIF, and on macOS HEIC/HEIF (iPhone `.heic`, camera `.hif`). Shooting tethered into a folder? **Hot folder** picks up each new file as it arrives (optionally from subfolders too) and can apply a preset or the previous photo's settings, a rating and keywords straight away; it keeps watching when you reopen the session, and picks up what arrived while Rawtonic was closed.
+Start a **session** for a portrait sitting, a wedding or a product shoot. **Import** copies the photographs from the card, checks every copy against the original before it counts as safe, and can write a backup to a second drive at the same time. In the import dialog you can check photos at 100 % for focus (Z or a click, real pixels, not an enlarged preview) rate them and choose which to import before anything is copied; inserting a memory card opens the import with that card, and it can be ejected once every photo is copied and verified. The card is never changed. You can also drag photographs from the Finder or your file manager straight onto the window. Besides RAW files, Rawtonic opens JPEG, TIFF, PNG, WebP, JPEG XL and AVIF, and on macOS HEIC/HEIF (iPhone `.heic`, camera `.hif`). JPEG, PNG and TIFF files with a camera RAW extension open by their contents, as do HEIF files on macOS. Shooting tethered into a folder? **Hot folder** picks up each new file as it arrives (optionally from subfolders too) and can apply a preset or the previous photo's settings, a rating and keywords straight away; it keeps watching when you reopen the session, and picks up what arrived while Rawtonic was closed.
 
 Use a **catalog** for a growing photo collection. Imports copy into its own `Photos/year/date` folders by default; you can also keep photos in their existing folders. Albums organize photographs without moving them. Moved, renamed, added or deleted files outside Rawtonic? **Synchronize Folder** finds the changes, follows moved photos with their edits and lets you review everything before it is applied. The library menu can create a **portable copy** for another computer, make a **full verified backup**, or **restore a backup** into a new folder—including external originals and required edit resources.
 
@@ -128,7 +128,7 @@ The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P a
 
 ### 3 · Develop
 
-The **Develop** room gives the photograph the space: a filmstrip (under the photo, or docked beside it as a vertical grid with its own quick filter), a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, see the photograph alone in **full screen** (F, also from the Library; I shows its facts), step back through **History** (⌥/Alt-click a tool group's name to open just that group), copy settings across a series and save your own presets. Adaptive presets compute selections such as sky, subject and people for each photo, including photos you apply the preset to in the Library and never open in Develop. Drag a slider to explore, move the pointer away from it while dragging for a finer drag, step it with the arrow keys, or type a number to be exact (Tab commits it and moves to the next value). On a Mac a two-finger swipe pans the zoomed photo and a pinch zooms. A **second window** (Window ▸ Second Window, ⇧F) shows the photo live on another display, with its own zoom and a lock that keeps one photo while you move on. The **Profile** browser shows the open photo with every camera profile and look; hover to preview, click to apply. **Match Light** gives a series the exposure and white balance that make it look lit like a reference photo. **Develop defaults** set what unedited photos start with — globally, per camera model or per single camera body — and Reset goes back to them.
+The **Develop** room uses neutral greys around the photo, with a filmstrip (under the photo, or docked beside it as a vertical grid with its own quick filter), a histogram and compact tool tabs. Point at a tool section header to see its presets, copy and targeted adjustment controls where available. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, see the photograph alone in **full screen** (F, also from the Library; I shows its facts), step back through **History** (⌥/Alt-click a tool group's name to open just that group), copy settings across a series and save your own presets. Adaptive presets compute selections such as sky, subject and people for each photo, including photos you apply the preset to in the Library and never open in Develop. Drag a slider to explore, move the pointer away from it while dragging for a finer drag, step it with the arrow keys, or type a number to be exact (Tab commits it and moves to the next value). Hold a supported adjustment slider’s name to preview its default until you let go. Switch **Styles & presets** to Grid to see thumbnails of the open photo with each preset applied. In Develop and the Library loupe, press **Z** to switch between Fit and your last chosen zoom level (100 % by default). The zoom levels in the viewer’s **⋯** menu range from 25 to 1600 %. On a Mac a two-finger swipe pans the zoomed photo and a pinch zooms. A **second window** (Window ▸ Second Window, ⇧F) shows the photo live on another display, with its own zoom and a lock that keeps one photo while you move on. The **Profile** browser shows the open photo with every camera profile and look; hover to preview, click to apply. **Match Light** gives a series the exposure and white balance that make it look lit like a reference photo. **Develop defaults** set what unedited photos start with — globally, per camera model or per single camera body — and Reset goes back to them.
 
 <p align="center">
   <a href="docs/images/readme-filmstrip.jpg"><img src="docs/images/readme-filmstrip.jpg" alt="Develop with the filmstrip docked to the right of the photo as a two-column grid with its quick filter, a cat photograph open" width="860"></a>
@@ -176,7 +176,7 @@ The **Develop** room gives the photograph the space: a filmstrip (under the phot
   <a href="docs/images/readme-export.jpg"><img src="docs/images/readme-export.jpg" alt="Export dialog with three recipes ticked: high quality, web and a 16-bit Adobe RGB TIFF for print" width="860"></a>
 </p>
 
-Save **export recipes** for full-size delivery, web sizes, social media or TIFFs for retouching, and tick several to produce every version in one go, each with its own size, format, colour space, sharpening, watermark and folder. **Super Resolution** enlarges a photo 2× with an AI model as it is exported. The **export queue** survives a restart: resume an interrupted job and retry failed photographs when you are ready. **Provenance (C2PA)** can add a signed record of the source photo and kinds of edits to the main JPEG, PNG, TIFF, WebP, AVIF or JPEG XL file of an export. It is off by default and signing happens on your computer.
+Save **export recipes** for full-size delivery, web sizes, social media or TIFFs for retouching, and tick several to produce every version in one go, each with its own size, format, colour space, sharpening, watermark and folder. **Export with Previous** uses the library’s last export recipes, settings and folders for the selected photos without opening the dialog. **Super Resolution** enlarges a photo 2× with an AI model as it is exported. The **export queue** survives a restart: resume an interrupted job and retry failed photographs when you are ready. **Provenance (C2PA)** can add a signed record of the source photo and kinds of edits to the main JPEG, PNG, TIFF, WebP, AVIF or JPEG XL file of an export. It is off by default and signing happens on your computer.
 
 ## What it does
 
@@ -215,6 +215,8 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | hold **\\**                  | whole photograph before        |
 | ⌘\\ / Ctrl+\\                | whole photograph before, on until pressed again |
 | **N**                        | multi view of the selection    |
+| **Z**                        | switch between Fit and the last chosen zoom level in Develop and Library loupe |
+| ⌥⇧⌘E / Ctrl+Alt+Shift+E     | Export with Previous           |
 | ⌘G / Ctrl+G, ⇧⌘G / ⇧Ctrl+G  | group into a stack / unstack   |
 | **S** / **⇧S**               | collapse or expand a stack / move a photo to the top of its stack |
 | ⌘' / Ctrl+'                  | new virtual copy               |
@@ -257,8 +259,9 @@ Rawtonic's goal is simple to state and hard to reach: every tool should be at le
 - **Upright Full.** Automatic perspective correction can crop away more of the frame than other leading editors.
 - **High ISO and AI Denoise.** Fine colour edges at high ISO can look less clean than in leading editors. AI Denoise is slower on first use and at 50 can leave more noise.
 - **Library thumbnails.** A first scroll through 1,000 new RAWs took 37 seconds in the release test.
-- **AI masks on computers with 16 GB of memory or less.** Subject and Sky selections wait for memory or use a slower low-memory mode, but a mask on a very large photo (around 50 MP) can still use too much memory right after it finishes; a fix is in progress. The first Subject selection on a Mac after installing or updating can take about 40 seconds while macOS prepares the model.
-- **Monitor profiles on Windows.** Develop follows the monitor's colour profile; the Library, filmstrip and Loupe thumbnails do not yet, so they can look a little different from Develop.
+- **AI masks on computers with 16 GB of memory or less.** Subject and Sky selections wait for memory or use a slower low-memory mode, and Rawtonic stayed above its memory floor in 11 runs of a 50 MP RAW workflow on one 14 GB Windows laptop. The memory guard does not cover model loading or Apple’s Core ML. The first Subject selection on a Mac after installing or updating can take about 40 seconds while macOS prepares the model.
+- **Monitor profiles on Windows.** Develop follows the selected monitor profile, but saturated primaries were off in a test on one Windows laptop. Library, filmstrip and Loupe thumbnails can differ from Develop because their colours are still unconverted.
+- **Zoom from 200 %.** The Before/After before pane on Linux and the other photos in multi view still smooth pixels at high zoom.
 - **Integrated graphics.** Glow, Halation and film grain together exceeded the drag-time goal in a render test on a Radeon 680M. Their cost while dragging in the app has yet to be measured.
 - **Relight is experimental.** The original light's own cast shadows stay in the photo, and the subject's shadow on the background does not touch the ground.
 - **Tethering is experimental.** The Tether tool (session bar) connects a camera on USB through libgphoto2 in a separate helper process, fires it, shows its settings and live view and copies each photo into Capture. It has been tested on a Mac with a Sony a7 III and a7 IV and a Fujifilm X-H2S and GFX 50R (capture, settings, focus, cable pulled and plugged in again, long series); Fujifilm live view does not work yet, Canon cameras are not supported yet, and other cameras and Linux have not been tried with a body. The tether panel's **Camera test** checks a camera step by step and makes an anonymous report you can send in one click (after seeing exactly what is sent) or paste into a camera report; tested and reported cameras are listed in [docs/TETHER_CAMERAS.md](docs/TETHER_CAMERAS.md). The hot folder works with your camera maker's tethering app.
