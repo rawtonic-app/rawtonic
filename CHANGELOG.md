@@ -20,10 +20,7 @@ The twenty-second alpha. New: a calmer interface (neutral greys, one accent colo
 
 ### Changes to existing edits
 
-- **Saved edits export as in alpha.21, as far as measured** (M5 Pro, Metal, 16-bit TIFF). Two comparisons:
-  - **The alpha.21 app against a release command line of this version** (main at `25266ef59`, measured 2026-11-28): all 120 exports of six release photos (Fujifilm RAF, Canon CR3, Panasonic RW2, Olympus ORF, Sony ARW, Nikon NEF) with 20 saved recipes are byte-identical (a fresh HOME for each export).
-  - **The 326-export preservation matrix** (12 photos; samples of each tool family and the oldest value of each tested processing version), a release command line of alpha.21's code against one of this version: all 326 byte-identical (measured 2026-11-28; the alpha.21 side is alpha.21's code without its version bump and changelog, `011465102`, this version's side main at `25266ef59`).
-  - Not covered by either: AI Denoise, LUTs and face retouch, among other tools the matrix leaves out.
+- **Saved edits export as in alpha.21, as far as measured** (M5 Pro, Metal, 16-bit TIFF): the alpha.21 app against a release command line of this version, and a release command line of alpha.21's code against one of this version on a matrix of samples of each tool family and the oldest value of each tested processing version, are byte-identical on our private test set of camera files. Not covered: AI Denoise, LUTs and face retouch, among other tools the matrix leaves out.
 - No change in this release is meant to change a photo's pixels: the calmer interface, preset thumbnails, slider peek, Export with Previous and the zoom changes leave edits and exports as they were.
 
 ### Known gaps
