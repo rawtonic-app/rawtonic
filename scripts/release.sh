@@ -101,7 +101,7 @@ SIGNING_ENV=${RAWTONIC_SIGNING_ENV:-$HOME/.config/rawtonic/signing.env}
 PHOTOS=${RAWTONIC_RELEASE_PHOTOS:-}
 PHOTO_SUMS=${RAWTONIC_RELEASE_PHOTOS_SUMS:-${PHOTOS:+$PHOTOS/SHA256SUMS}}
 RECIPES=${RAWTONIC_IDENT_RECIPES:-}
-QA_ID=${RAWTONIC_QA_IDENTIFIER:-cc.rawtonic.qa.release}
+QA_ID=${RAWTONIC_QA_IDENTIFIER-cc.rawtonic.qa.release}
 QA_PORT=${RAWTONIC_QA_PORT:-7989}
 LINUX_DIR=${RAWTONIC_LINUX_DIR:-rawtonic-release}
 LINUX_CACHE=${RAWTONIC_LINUX_CACHE:-$LINUX_DIR/cache}
@@ -139,6 +139,10 @@ RAW_RE='\.(arw|raf|nef|nrw|cr2|cr3|rw2|orf|dng|pef|srw|3fr|iiq|x3f)$'
 say() { printf '%s %s\n' "$(date +%H:%M:%S)" "$*"; }
 fail() { echo "FAIL: $*"; exit 1; }
 need() { local s; for s in "$@"; do [ -f "$STATE/$s.ok" ] || fail "needs stage $s first"; done; }
+require_qa_id() {
+  [[ $QA_ID =~ ^cc\.rawtonic\.qa(\.[A-Za-z0-9-]+)*$ ]] \
+    || fail "RAWTONIC_QA_IDENTIFIER must be a QA identifier (cc.rawtonic.qa or cc.rawtonic.qa.<name>)"
+}
 sha() { cat "$STATE/sha"; }
 locked() { if [ ${#LOCK[@]} -gt 0 ]; then "${LOCK[@]}" "$@"; else "$@"; fi; }
 # One command line on the Linux host, run by bash whatever its login shell.
@@ -232,7 +236,7 @@ st_preflight() {
   echo "photographs: ${#PHOTO_LIST[@]} in $PHOTOS"
   originals_unchanged
   ls "$RECIPES"/*.json >/dev/null 2>&1 || fail "RAWTONIC_IDENT_RECIPES has no *.json recipes"
-  [ "$QA_ID" != cc.rawtonic.editor ] || fail "the QA identifier must not be the user's cc.rawtonic.editor"
+  require_qa_id
   website_branch_ready
   remote true || fail "the Linux host does not answer over SSH"
   [ -n "$LINUX_PHOTOS" ] || fail "RAWTONIC_LINUX_PHOTOS is not set"
@@ -465,6 +469,7 @@ st_ident() {
 }
 
 st_qa_app() {
+  require_qa_id
   need source
   cd "$WTQA" || fail "no $WTQA"
   export CARGO_TARGET_DIR=$WORK/qatarget RAWTONIC_BUNDLE_ONNX=1 VITE_RAWTONIC_QA=1
@@ -491,8 +496,23 @@ st_gui() {
 # what the website's docs show is always the released interface. A failed shot or
 # a website place without a shot is listed; the stage fails only when the app
 # could not be run at all, and then site keeps the website's earlier screenshots.
-st_docs_shots() {
-  local d=$WORK/docs-shots
+clear_docs_shots_cache() {
+  local library=${HOME:?}/Library
+  local cache=$library/Caches/$QA_ID
+  if [ -L "$library" ] || [ -L "$library/Caches" ] || [ -L "$cache" ]; then
+    echo "FAIL: refusing to clear the Core ML cache through a symlink: $cache"
+    return 1
+  fi
+  echo "clearing the QA Core ML cache: $cache/com.apple.e5rt.e5bundlecache"
+  rm -rf "$cache/com.apple.e5rt.e5bundlecache"
+}
+
+st_docs_shots() (
+  local d=$WORK/docs-shots app="$WORK/gui-app/Rawtonic QA release.app"
+  if [ "$DOCS_SHOTS" = 1 ] && [ -n "$DOCS_DEMO" ]; then
+    require_qa_id
+    trap 'rc=$?; clear_docs_shots_cache || exit 1; exit "$rc"' EXIT
+  fi
   # Only this run's pictures: none of an earlier run may pass for a shot that fails now.
   rm -rf "$d/png" "$d/en" "$d/de" "$d/result.json"
   if [ "$DOCS_SHOTS" = 0 ]; then echo "skipped (--no-docs-shots): the website keeps its screenshots"; return; fi
@@ -500,6 +520,8 @@ st_docs_shots() {
     echo "skipped: no demo library (RAWTONIC_DOCS_DEMO; docs/RELEASING.md): the website keeps its screenshots"; return
   fi
   need qa-app docs
+  [ "$(defaults read "$app/Contents/Info.plist" CFBundleIdentifier)" = "$QA_ID" ] \
+    || fail "the screenshot app's identifier must match $QA_ID (rebuild stage qa-app)"
   website_clone
   mkdir -p "$d"
   # The places every page of what the release ships has: origin/main and the docs branches.
@@ -510,7 +532,7 @@ st_docs_shots() {
   echo "screenshot places on the website: $(tr '\n' ' ' < "$d/places.txt")"
   local models=()
   if [ -d "$DOCS_MODELS" ]; then models=(--models "$DOCS_MODELS"); else echo "no model folder $DOCS_MODELS: the AI tools would download their models (scripts/models/install_models.sh $QA_ID)"; fi
-  python3 "$REPO_ROOT/scripts/docs-shots/capture.py" --app "$WORK/gui-app/Rawtonic QA release.app" \
+  python3 "$REPO_ROOT/scripts/docs-shots/capture.py" --app "$app" \
     --demo "$DOCS_DEMO" --places "$d/places.txt" --out "$d" --port "$QA_PORT" --version "$VERSION" \
     ${models[@]+"${models[@]}"} || fail "the QA app could not be run for the screenshots (above)"
   # The shots this run made (result.json), under the website's names: shot-ID
@@ -526,7 +548,7 @@ for shot in json.loads((d / "result.json").read_text())["shots"]:
         shutil.copyfile(shot["file"], d / "png" / f"{name}.png")
 PY
   echo "docs shots for site: $(find "$d/png" -name '*.png' | wc -l | tr -d ' ') file(s) in $d/png"
-}
+)
 
 st_relay() {
   need source
