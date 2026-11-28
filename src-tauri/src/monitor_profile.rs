@@ -625,8 +625,12 @@ mod tests {
     use super::*;
     use moxcms::ColorProfile;
 
+    /// Encoded once: the header carries the time of encoding, so two
+    /// encodes a second apart differ (a flaky comparison before).
     fn p3() -> Vec<u8> {
-        ColorProfile::new_display_p3().encode().unwrap()
+        static P3: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+        P3.get_or_init(|| ColorProfile::new_display_p3().encode().unwrap())
+            .clone()
     }
 
     #[test]
