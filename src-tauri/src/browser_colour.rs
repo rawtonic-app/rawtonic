@@ -225,15 +225,16 @@ pub fn convert_thumbnail(lut: &ByteConverter, jpeg: &[u8]) -> Result<Vec<u8>, St
     crate::preview_jpeg::encode_rgbx_444_as_is(&image, THUMBNAIL_QUALITY)
 }
 
-/// The thumbnail file `path` names, when it names one by its spelling
-/// alone: a plain name (letters, digits, `_`, `-`, `.`; `….jpg`) directly
-/// in the cache folder `root` (spelled as `root` or `canonical_root`), as
-/// the thumbnail cache writes them (`<hash>_<size>.jpg`).
-fn cache_file(
+/// The thumbnail file name `path` names, when it names one by its
+/// spelling alone: a plain name (letters, digits, `_`, `-`, `.`; `….jpg`)
+/// directly in the cache folder `root` (spelled as `root` or
+/// `canonical_root`), as the thumbnail cache writes them
+/// (`<hash>_<size>.jpg`).
+fn cache_file<'a>(
     root: &std::path::Path,
     canonical_root: &std::path::Path,
-    path: &std::path::Path,
-) -> Option<std::path::PathBuf> {
+    path: &'a std::path::Path,
+) -> Option<&'a str> {
     let parent = path.parent()?;
     let name = path.file_name()?.to_str()?;
     let plain = !name.starts_with('.')
@@ -241,7 +242,7 @@ fn cache_file(
         && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'));
-    (plain && (parent == root || parent == canonical_root)).then(|| canonical_root.join(name))
+    (plain && (parent == root || parent == canonical_root)).then_some(name)
 }
 
 /// The bytes for the thumbnail at `path` in the cache folder `root`: the
@@ -254,22 +255,23 @@ fn thumbnail(
 ) -> Option<Arc<Vec<u8>>> {
     use rawtonic_fs::Canonical;
     // The request's path is checked by its spelling before anything asks
-    // the file system about it, and only a regular file is read, never a
-    // link (Windows: a reparse point) the cache folder might hold: on
-    // Windows resolving or opening a path can reach a network share.
+    // the file system about it, and the file is opened by name in the
+    // cache folder's handle without following a link (Windows: a reparse
+    // point), its bytes and metadata from that one handle: on Windows
+    // resolving or opening a path can reach a network share.
     let canonical_root = root.canonical().ok()?;
-    let path = cache_file(root, &canonical_root, path)?;
-    let meta = std::fs::symlink_metadata(&path)
-        .ok()
-        .filter(|meta| meta.file_type().is_file())?;
+    let name = cache_file(root, &canonical_root, path)?;
+    let (file, meta) = rawtonic_fs::anchored::Directory::open(&canonical_root)
+        .and_then(|folder| folder.read(std::ffi::OsStr::new(name)))
+        .ok()?;
     let Some(lut) = lut else {
-        return std::fs::read(&path).ok().map(Arc::new);
+        return Some(Arc::new(file));
     };
+    let path = canonical_root.join(name);
     let key = (path.clone(), meta.len(), meta.modified().ok(), generation);
     if let Some(bytes) = lock_recover(&CONVERTED).get_or_insert_default().get(&key) {
         return Some(bytes);
     }
-    let file = std::fs::read(&path).ok()?;
     let bytes = match convert_thumbnail(&lut.1, &file) {
         Ok(bytes) => Arc::new(bytes),
         Err(error) => {
@@ -426,7 +428,7 @@ mod tests {
         }
         assert_eq!(
             cache_file(root.path(), &canonical, &file),
-            Some(canonical.join("abc_small.jpg"))
+            Some("abc_small.jpg")
         );
         // A link in the cache folder is not followed.
         #[cfg(unix)]

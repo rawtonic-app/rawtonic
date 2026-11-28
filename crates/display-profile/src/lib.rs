@@ -297,8 +297,9 @@ pub fn display_lut(source: Encoding, icc: &[u8]) -> Result<Option<DisplayLut>, P
 /// sRGB value goes to the monitor values `chosen` gives it (as Develop's
 /// native pass shows them), then back through [`webview_display`] of
 /// `system` to the sRGB value that this model of the webview turns into
-/// those monitor values (to the table's ±1; measured on Windows by WMCM3,
-/// not here). `None` when that is the image itself. Colours of `chosen` that
+/// those monitor values: within ±1 for the ten test patches through a
+/// moxcms model of that conversion (the tests); WebView2 itself has not
+/// been measured yet (pending: WMCM3). `None` when that is the image itself. Colours of `chosen` that
 /// lie outside sRGB in the system's primaries (a wide-gamut system
 /// profile) are clipped to sRGB here and cannot be shown as `chosen` gives
 /// them.
@@ -343,7 +344,8 @@ pub fn managed_webview_lut(
 /// profile `icc`: its primaries (the matrix's colorants) with the sRGB tone
 /// curve; `None` for a profile without usable primaries (tables only),
 /// for which Chromium takes the display to be sRGB
-/// (`skia/ext/color_profile.cc`).
+/// (`skia/ext/color_profile.cc`; a table-only profile with usable CICP
+/// primaries, which Chromium reads first, is not handled: notes MCM3).
 pub fn webview_display(icc: &[u8]) -> Result<Option<ColorProfile>, ProfileError> {
     let system = rgb_profile(icc)?;
     let colorants = [

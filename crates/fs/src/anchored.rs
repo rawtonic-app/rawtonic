@@ -47,6 +47,16 @@ impl Directory {
         Ok(text)
     }
 
+    /// Reads a regular file by name, without traversing a link (Windows: a
+    /// reparse point), with its metadata from the same open handle.
+    pub fn read(&self, name: &OsStr) -> io::Result<(Vec<u8>, std::fs::Metadata)> {
+        let mut file = platform::open_file(&self.0, leaf(name)?, false)?;
+        let meta = file.metadata()?;
+        let mut bytes = Vec::with_capacity(meta.len() as usize);
+        file.read_to_end(&mut bytes)?;
+        Ok((bytes, meta))
+    }
+
     /// Removes a named regular file, optionally only if its modification
     /// time is at or before the cutoff. A concurrently replaced name on
     /// Unix can lose the link itself, but unlinkat never follows it.
@@ -117,6 +127,26 @@ mod tests {
         directory.remove_file(name, None).unwrap();
         assert!(!moved.join(name).exists());
         assert_eq!(fs::read(other.join(name)).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn read_gives_a_regular_files_bytes_and_never_follows_a_link() {
+        let root = tempfile::tempdir().unwrap();
+        let cache = root.path().join("cache");
+        let other = root.path().join("other");
+        fs::create_dir(&cache).unwrap();
+        fs::write(&other, b"elsewhere").unwrap();
+        fs::write(cache.join("entry"), b"cached").unwrap();
+        let directory = Directory::open(&cache).unwrap();
+        let (bytes, meta) = directory.read(OsStr::new("entry")).unwrap();
+        assert_eq!(bytes, b"cached");
+        assert_eq!(meta.len(), 6);
+        assert!(directory.read(OsStr::new("../other")).is_err());
+        assert!(directory.read(OsStr::new("missing")).is_err());
+        if !link_or_skip(symlink_file(&other, cache.join("link"))) {
+            return;
+        }
+        assert!(directory.read(OsStr::new("link")).is_err());
     }
 
     #[test]
