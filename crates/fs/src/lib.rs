@@ -651,6 +651,27 @@ impl FileStamp {
     }
 }
 
+/// The identity of the file at `path`: device and inode on Unix, volume
+/// serial number and file index on Windows (where `fs::Metadata` carries
+/// neither, and NTFS gives a file put in another's place within seconds the
+/// old one's creation time). `None` when it cannot be read.
+pub fn file_identity(path: &Path) -> Option<(u64, u64)> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        fs::metadata(path).ok().map(|meta| (meta.dev(), meta.ino()))
+    }
+    #[cfg(windows)]
+    {
+        file_id(path)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = path;
+        None
+    }
+}
+
 #[cfg(windows)]
 fn file_id(path: &Path) -> Option<(u64, u64)> {
     use std::os::windows::fs::OpenOptionsExt;
@@ -780,9 +801,49 @@ mod tests {
             fs::metadata(&path).unwrap().ino()
         };
         let confirmed = ConfirmedFile::read(&path).unwrap();
-        // The old file is open while it is replaced: it keeps its bytes (a
-        // rename, never a truncate or a delete-then-write).
+        let only_print = || {
+            let names: Vec<_> = fs::read_dir(dir.path())
+                .unwrap()
+                .map(|e| e.unwrap().file_name())
+                .collect();
+            assert_eq!(names, ["print.jpg"]);
+        };
+        // Unix: the old file is open while it is replaced and keeps its
+        // bytes (a rename, never a truncate or a delete-then-write).
+        // Windows: a program holding the old file open without delete
+        // sharing blocks the rename; the replace is refused naming the
+        // cause, the old file and no temporary are left, and it succeeds
+        // once the file is closed.
+        #[cfg(unix)]
         let mut open = fs::File::open(&path).unwrap();
+        #[cfg(windows)]
+        let mut open = {
+            use std::os::windows::fs::OpenOptionsExt;
+            use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+            fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                .open(&path)
+                .unwrap()
+        };
+        #[cfg(windows)]
+        {
+            let error = replace_confirmed(
+                temp_with(b"new export"),
+                &path,
+                &confirmed,
+                |_| false,
+                &|| false,
+            )
+            .unwrap_err();
+            assert!(format!("{error:#}").contains("in use"), "{error:#}");
+            assert_eq!(fs::read(&path).unwrap(), b"someone else's print");
+            only_print();
+            let mut old = Vec::new();
+            open.read_to_end(&mut old).unwrap();
+            assert_eq!(old, b"someone else's print");
+            drop(open);
+        }
         replace_confirmed(
             temp_with(b"new export"),
             &path,
@@ -792,9 +853,12 @@ mod tests {
         )
         .unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"new export");
-        let mut old = Vec::new();
-        open.read_to_end(&mut old).unwrap();
-        assert_eq!(old, b"someone else's print");
+        #[cfg(unix)]
+        {
+            let mut old = Vec::new();
+            open.read_to_end(&mut old).unwrap();
+            assert_eq!(old, b"someone else's print");
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::{MetadataExt, PermissionsExt};
@@ -802,11 +866,7 @@ mod tests {
             assert_ne!(meta.ino(), old_inode);
             assert_eq!(meta.permissions().mode() & 0o777, 0o644);
         }
-        let names: Vec<_> = fs::read_dir(dir.path())
-            .unwrap()
-            .map(|e| e.unwrap().file_name())
-            .collect();
-        assert_eq!(names, ["print.jpg"]);
+        only_print();
     }
 
     #[test]

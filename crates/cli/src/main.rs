@@ -1521,6 +1521,23 @@ fn export(args: ExportArgs) -> Result<()> {
     let generated_provenance = |source: &Path| managed.get(source).is_some_and(|entry| entry.3);
 
     let started = Instant::now();
+    // Missing models are reported before the GPU starts: that is cheaper,
+    // and the user learns what to install even where no GPU can start.
+    let enlarger = if settings.super_resolution {
+        let dir = models_dir(models.clone()).context("Super Resolution")?;
+        let model = rawtonic_superres::Model::from_dir(&dir).context("Super Resolution")?;
+        if model.uses_onnx() {
+            ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        anyhow::ensure!(
+            settings.super_resolution_quality.is_full() || model.fast_installed(),
+            "the Super Resolution Fast model is not installed in {} (tick Super Resolution in the app's Export dialog, or run scripts/models/install_models.sh)",
+            dir.display()
+        );
+        Some(model)
+    } else {
+        None
+    };
     // First: it loads the Lensfun database, which preparing the recipes
     // (face retouch: lens defaults and lens parameters of recipes saved
     // while the photo could not be read) already reads.
@@ -1592,20 +1609,9 @@ fn export(args: ExportArgs) -> Result<()> {
         }
         None => recipes,
     };
-    let exporter = if settings.super_resolution {
-        let dir = models_dir(models.clone()).context("Super Resolution")?;
-        let model = rawtonic_superres::Model::from_dir(&dir).context("Super Resolution")?;
-        if model.uses_onnx() {
-            ONNX_RUNTIME_USED.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
-        anyhow::ensure!(
-            settings.super_resolution_quality.is_full() || model.fast_installed(),
-            "the Super Resolution Fast model is not installed in {} (tick Super Resolution in the app's Export dialog, or run scripts/models/install_models.sh)",
-            dir.display()
-        );
-        exporter.with_enlarger(std::sync::Arc::new(SuperResolution(model)))
-    } else {
-        exporter
+    let exporter = match enlarger {
+        Some(model) => exporter.with_enlarger(std::sync::Arc::new(SuperResolution(model))),
+        None => exporter,
     };
     let exporter = match &provenance_identity {
         Some(dir) => {
