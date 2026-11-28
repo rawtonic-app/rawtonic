@@ -207,7 +207,7 @@ const KeybindRow = ({
   isConflicting,
   reassignedFrom
 }: KeybindRowProps) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const recording = recordingAction === def.action;
 
   useEffect(() => {
@@ -285,7 +285,7 @@ const KeybindRow = ({
               className={`px-2 py-1 font-sans bg-bg-primary border rounded-md cursor-pointer hover:border-accent transition-colors ${isConflicting ? 'border-yellow-400' : 'border-border-color'}`}
             >
               {displayCombo ? (
-                displayCombo.map((k) => formatKeyCode(k, osPlatform)).join(' + ')
+                displayCombo.map((k) => formatKeyCode(k, osPlatform, false, i18n.resolvedLanguage)).join(' + ')
               ) : (
                 <span className="text-text-secondary italic">{t('settings.controls.notAssigned')}</span>
               )}
