@@ -267,10 +267,12 @@ fn thumbnail_hash_for_engine(
     )
 }
 
-/// The key a RAW tile following the develop defaults (or a Reset's
-/// recipe) was cached under before renderVersion 22 gave the neutral look
-/// its base colour table (2026-11-28): while the original is unavailable,
-/// that tile is better than none. `None` where the key did not change.
+/// The key a tile was cached under before renderVersion 22 gave the
+/// neutral RAW look its base colour table (2026-11-28), exactly as the
+/// release before computed it: a RAW tile of a new edit without the
+/// `base-colour-v1` tag, and 21 as the never-edited defaults' render
+/// version. While the original is unavailable, that tile is better than
+/// none. `None` where the key did not change.
 fn thumbnail_hash_before_base_colour(path_str: &str, adjustments_bytes: &[u8]) -> Option<String> {
     let before = thumbnail_hash_with(
         path_str,
@@ -593,11 +595,19 @@ fn thumbnail_hash_with(
             .as_ref()
             .is_none_or(|adjustments| adjustments.get(lens::CORRECTION_MODE.name()).is_none())
         {
+            // The key of a tile from before renderVersion 22's base colour
+            // hashed 21 here (`thumbnail_hash_before_base_colour`).
+            let render_version = if base_colour {
+                rawtonic_engine::image_processing::RENDER_VERSION
+            } else {
+                rawtonic_engine::image_processing::RENDER_VERSION
+                    .min(rawtonic_engine::base_colour::BASE_COLOUR_RENDER_VERSION - 1)
+            };
             hasher.update(
                 format!(
                     "\0never-edited-defaults-{}-{}",
                     rawtonic_engine::source_facts::VERSION,
-                    rawtonic_engine::image_processing::RENDER_VERSION
+                    render_version
                 )
                 .as_bytes(),
             );
@@ -3021,12 +3031,14 @@ mod share_lookup_tests {
     }
 
     /// A RAW tile of a new edit (a Reset's recipe) changes its key with
-    /// renderVersion 22 (`base-colour-v1`) and keeps the older key as a
-    /// fallback; a saved edit, a never-edited RAW and a non-RAW keep theirs.
+    /// renderVersion 22 (`base-colour-v1`); the fallback is the key the
+    /// release before computed, with 21 as the never-edited defaults'
+    /// render version, so a tile cached then is found while the original
+    /// is offline. A saved edit with its lens mode set keeps its key.
     #[test]
     fn a_raw_new_edit_tile_is_made_again_for_render_version_22() {
         let temp = tempfile::tempdir().unwrap();
-        let raw = temp.path().join("IMG_0004.CR3");
+        let raw = temp.path().join("IMG_0004.ARW");
         std::fs::write(&raw, b"not read for the key").unwrap();
         let path = raw.to_string_lossy().into_owned();
         let reset = b"{}";
@@ -3034,13 +3046,38 @@ mod share_lookup_tests {
         let before = super::thumbnail_hash_before_base_colour(&path, reset).unwrap();
         assert_ne!(new, before);
         assert_eq!(super::older_tile_keys(&path, reset).first(), Some(&before));
-        for kept in [&b"null"[..], br#"{"renderVersion":21,"exposure":1}"#] {
-            assert_eq!(super::thumbnail_hash_before_base_colour(&path, kept), None);
-        }
-        let jpeg = temp.path().join("IMG_0004.JPG");
-        std::fs::write(&jpeg, b"jpeg").unwrap();
+        // The release before's key of a saved RAW recipe without a lens
+        // mode, built from its parts (`raw_thumbnail_cache_renders_new_recipes_again`)
+        // with render version 21.
+        let modified = std::fs::metadata(&raw)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let saved = br#"{"exposure":1}"#;
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(path.as_bytes());
+        hasher.update(&modified.to_le_bytes());
+        hasher.update(saved);
+        hasher.update(b"\0embedded-raw-orientation-v1");
+        hasher.update(format!("\0raw-engine-{}", crate::preview_proxy::ENGINE_VERSION).as_bytes());
+        hasher.update(b"\0display-copy-keeps-beyond-srgb-v1\0");
+        hasher.update(
+            format!(
+                "\0never-edited-defaults-{}-21",
+                rawtonic_engine::source_facts::VERSION
+            )
+            .as_bytes(),
+        );
         assert_eq!(
-            super::thumbnail_hash_before_base_colour(&jpeg.to_string_lossy(), reset),
+            super::thumbnail_hash_before_base_colour(&path, saved),
+            Some(hasher.finalize().to_hex().to_string())
+        );
+        let lens_set = br#"{"renderVersion":21,"exposure":1,"lensCorrectionMode":"auto"}"#;
+        assert_eq!(
+            super::thumbnail_hash_before_base_colour(&path, lens_set),
             None
         );
     }

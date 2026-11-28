@@ -9,9 +9,11 @@
 //! against our own Camera Raw renders of the same photos, registered pixel
 //! by pixel; a trilinear grid (L* every 10, a*/b* every 8 over ±96) with a
 //! Laplacian smoothness term, L* kept. No profile, look table or other file
-//! of another product was read or used. On 70 photos of 70 camera models
-//! the fit never saw, the median ΔE00 to Camera Raw falls from 2.61 to 2.36
-//! (61 of 70 photos closer), skin from 3.88 to 3.62, greys equal.
+//! of another product was read or used. On the 70 validation photos of 70
+//! camera models the fit never saw (the grid size and smoothness were
+//! chosen on them; the hold-out is not scored yet), the release CLI's
+//! median ΔE00 to Camera Raw falls from 2.61 to 2.36 (59 of 70 photos
+//! closer), skin from 3.88 to 3.47, greys equal.
 //!
 //! - Stage: the table was fitted on the base look's output, so it sits
 //!   there: every edit before the tone curve (white balance, exposure,
