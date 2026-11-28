@@ -30389,3 +30389,23 @@ fn base_colour_matches_its_cpu_reference() {
     // 16-bit output: Lab within about a twentieth of a unit.
     assert!(worst < 0.08, "worst {worst}");
 }
+
+/// The base colour table adds little to what a display variant compiles
+/// (the compile budget of the Radeon 680M's Windows driver grows with the
+/// inlined size, G76/WCC): the RAW default variant and the Basic-panel
+/// superset with Glow a new RAW edit compiles first.
+#[test]
+fn base_colour_adds_little_to_display_variants() {
+    let shader = crate::display_variant_ir::DisplayShader::new(include_str!("shaders/shader.wgsl"));
+    let size = |features: usize| {
+        let module = shader
+            .variant_module(&variant_constants(features, false, true, true, false))
+            .unwrap();
+        crate::display_variant_ir::inlined_size(&module)
+    };
+    for features in [RAW_DEFAULT_PREVIEW_FEATURES, 7335999 | BASE_COLOUR_FEATURE] {
+        let (with, without) = (size(features), size(features & !BASE_COLOUR_FEATURE));
+        eprintln!("variant {features}: {without} → {with} inlined expressions");
+        assert!(with > without && with - without < 400, "{without} → {with}");
+    }
+}
