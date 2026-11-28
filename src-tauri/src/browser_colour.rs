@@ -225,18 +225,23 @@ pub fn convert_thumbnail(lut: &ByteConverter, jpeg: &[u8]) -> Result<Vec<u8>, St
     crate::preview_jpeg::encode_rgbx_444_as_is(&image, THUMBNAIL_QUALITY)
 }
 
-/// Whether `path` names a file inside `root` by its spelling alone: an
-/// absolute path without `.` or `..` steps that starts with `root`.
-fn named_inside(root: &std::path::Path, path: &std::path::Path) -> bool {
-    use std::path::Component;
-    path.is_absolute()
-        && path.components().all(|c| {
-            matches!(
-                c,
-                Component::Prefix(_) | Component::RootDir | Component::Normal(_)
-            )
-        })
-        && path.starts_with(root)
+/// The thumbnail file `path` names, when it names one by its spelling
+/// alone: a plain name (letters, digits, `_`, `-`, `.`; `….jpg`) directly
+/// in the cache folder `root` (spelled as `root` or `canonical_root`), as
+/// the thumbnail cache writes them (`<hash>_<size>.jpg`).
+fn cache_file(
+    root: &std::path::Path,
+    canonical_root: &std::path::Path,
+    path: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    let parent = path.parent()?;
+    let name = path.file_name()?.to_str()?;
+    let plain = !name.starts_with('.')
+        && name.ends_with(".jpg")
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'));
+    (plain && (parent == root || parent == canonical_root)).then(|| canonical_root.join(name))
 }
 
 /// The bytes for the thumbnail at `path` in the cache folder `root`: the
@@ -249,21 +254,17 @@ fn thumbnail(
 ) -> Option<Arc<Vec<u8>>> {
     use rawtonic_fs::Canonical;
     // The request's path is checked by its spelling before anything asks
-    // the file system about it: on Windows resolving a path opens it, and
-    // a network share's name would reach out to that share.
+    // the file system about it, and only a regular file is read, never a
+    // link (Windows: a reparse point) the cache folder might hold: on
+    // Windows resolving or opening a path can reach a network share.
     let canonical_root = root.canonical().ok()?;
-    if !named_inside(root, path) && !named_inside(&canonical_root, path) {
-        return None;
-    }
-    let root = canonical_root;
-    let path = path.canonical().ok()?;
-    if !path.starts_with(&root) || path.extension().is_none_or(|e| e != "jpg") {
-        return None;
-    }
+    let path = cache_file(root, &canonical_root, path)?;
+    let meta = std::fs::symlink_metadata(&path)
+        .ok()
+        .filter(|meta| meta.file_type().is_file())?;
     let Some(lut) = lut else {
         return std::fs::read(&path).ok().map(Arc::new);
     };
-    let meta = std::fs::metadata(&path).ok()?;
     let key = (path.clone(), meta.len(), meta.modified().ok(), generation);
     if let Some(bytes) = lock_recover(&CONVERTED).get_or_insert_default().get(&key) {
         return Some(bytes);
@@ -401,23 +402,39 @@ mod tests {
         std::fs::write(&elsewhere, &jpeg).unwrap();
         assert!(thumbnail(root.path(), &elsewhere, installed.get()).is_none());
         // Refused by its spelling, before the file system is asked: steps
-        // out of the folder, relative names, another root.
+        // out of the folder, relative names, another root, subfolders.
+        let canonical = rawtonic_fs::canonicalize(root.path()).unwrap();
         let escape = root
             .path()
             .join("..")
             .join(outside.path().file_name().unwrap())
             .join("x.jpg");
         assert!(thumbnail(root.path(), &escape, installed.get()).is_none());
-        assert!(!named_inside(root.path(), &escape));
-        assert!(!named_inside(
-            root.path(),
-            std::path::Path::new("abc_small.jpg")
-        ));
-        assert!(!named_inside(
-            root.path(),
-            std::path::Path::new("//server/share/abc_small.jpg")
-        ));
-        assert!(named_inside(root.path(), &file));
+        for refused in [
+            escape.clone(),
+            std::path::PathBuf::from("abc_small.jpg"),
+            std::path::PathBuf::from("//server/share/abc_small.jpg"),
+            root.path().join("sub").join("abc_small.jpg"),
+            root.path().join("abc small.jpg"),
+            root.path().join("abc_small.png"),
+        ] {
+            assert_eq!(
+                cache_file(root.path(), &canonical, &refused),
+                None,
+                "{refused:?}"
+            );
+        }
+        assert_eq!(
+            cache_file(root.path(), &canonical, &file),
+            Some(canonical.join("abc_small.jpg"))
+        );
+        // A link in the cache folder is not followed.
+        #[cfg(unix)]
+        {
+            let link = root.path().join("linked_small.jpg");
+            std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+            assert!(thumbnail(root.path(), &link, installed.get()).is_none());
+        }
 
         // A wide-gamut monitor: each patch as the table gives it (±1 in
         // the frame; the thumbnail, through a second JPEG encode, within
