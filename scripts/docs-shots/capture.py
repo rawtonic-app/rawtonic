@@ -66,9 +66,14 @@ def lookup(tree, key):
 
 def self_contained(session):
     """The problems that would let a clone of SESSION reach folders outside it: an
-    absolute or ../ Capture/Output in session.json, or a catalog root elsewhere (a
-    Capture on another drive). The app would open those live folders, not the clone."""
+    absolute or ../ Capture/Output in session.json, a symbolic link, a catalog root
+    elsewhere (a Capture on another drive), a hot folder or an unfinished import or
+    task the app would resume. The app would open those live folders, not the clone."""
     problems = []
+    for folder, dirs, files in os.walk(session):
+        for name in dirs + files:
+            if os.path.islink(os.path.join(folder, name)):
+                problems.append(f"symbolic link {os.path.relpath(os.path.join(folder, name), session)}")
     info = json.loads((session / "session.json").read_text())
     for key in ("capture", "output", "selects", "trash"):
         value = info.get(key)
@@ -78,9 +83,18 @@ def self_contained(session):
     if db.is_file():
         con = sqlite3.connect(f"file:{db}?immutable=1", uri=True)
         try:
+            tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
             for path, external in con.execute("SELECT path, external FROM roots"):
                 if external or os.path.isabs(path) or ".." in Path(path).parts:
                     problems.append(f"catalog root {path}")
+            if "hot_folder" in tables:
+                problems += [f"hot folder {f}" for (f,) in con.execute("SELECT folder FROM hot_folder")]
+            if "ingest_items" in tables:
+                problems += [f"unfinished import of {src}" for (src,) in con.execute(
+                    "SELECT source FROM ingest_items WHERE state IN ('pending', 'copying')")]
+            if "tasks" in tables:
+                problems += [f"unfinished task {kind} ({state})" for kind, state in con.execute(
+                    "SELECT kind, state FROM tasks WHERE state NOT IN ('done', 'failed', 'cancelled')")]
         finally:
             con.close()
     return problems
@@ -361,15 +375,20 @@ class Capture:
         if scale < 1.9:
             raw.unlink()
             raise ShotFailed(f"capture is {result['width']} px for a {vw} px window: not a Retina 2x display")
+        # The new picture replaces the earlier one only once it is complete;
+        # result.json says which pictures this run made.
         if box is None:
             raw.replace(path)
         else:
             x0, y0, x1, y1 = (round(v * scale) for v in box)
+            part = path.with_suffix(".part.png")
             r = subprocess.run(["magick", str(raw), "-crop", f"{x1 - x0}x{y1 - y0}+{x0}+{y0}", "+repage",
-                                str(path)], capture_output=True, text=True)
+                                str(part)], capture_output=True, text=True)
             raw.unlink()
             if r.returncode:
+                part.unlink(missing_ok=True)
                 raise ShotFailed(f"crop: {r.stderr.strip()[-200:]}")
+            part.replace(path)
         return {"width": result["width"], "scale": scale}
 
     # --- run --------------------------------------------------------------------
@@ -391,8 +410,6 @@ class Capture:
         home, session = self.prepare(label, lang, window, shot.get("settings"))
         path = self.out / lang / f"{shot['id']}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists():
-            path.unlink()  # never an earlier run's picture for a shot that fails now
         entry = {"id": shot["id"], "lang": lang}
         self.launch(home, self.run / f"{label}.stdout.log")
         try:

@@ -832,9 +832,13 @@ st_site() {
   docs_check --site-ref "$(git -C "$WEBWT" rev-parse HEAD)"
   echo "website branch $WEB_BRANCH at $(git -C "$WEBWT" log -1 --format='%h %s')"
   # This release's documentation screenshots (stage docs-shots), if it made any.
+  # Nothing but what this stage writes may be uncommitted (a rerun after a failed
+  # attempt finds its own release.json and screenshot files, which it writes anew).
+  local other; other=$(git -C "$WEBWT" status --porcelain --untracked-files=all | awk '{print $NF}' \
+    | grep -vxE 'release\.json|site/assets/shot-[A-Za-z0-9_-]+\.(jpg|avif|webp)')
+  [ -z "$other" ] || fail "$WEBWT has changes this stage did not make (commit or remove them): $(echo "$other" | tr '\n' ' ')"
   local png=$WORK/docs-shots/png
   if [ "$DOCS_SHOTS" = 1 ] && [ -f "$STATE/docs-shots.ok" ] && [ -n "$(find "$png" -name '*.png' 2>/dev/null | head -1)" ]; then
-    [ -z "$(git -C "$WEBWT" status --porcelain)" ] || fail "$WEBWT has uncommitted changes: commit or remove them before the screenshots are added"
     (cd "$WEBWT" && scripts/images.sh "$png") || fail "scripts/images.sh (ImageMagick 7 and cwebp)"
     # Only the files made from this run's captures.
     local f n files=()
@@ -843,8 +847,11 @@ st_site() {
     done
     git -C "$WEBWT" add -- "${files[@]}" || fail "git add"
     if git -C "$WEBWT" diff --cached --quiet; then echo "the screenshots are unchanged"
-    else git -C "$WEBWT" commit -q -m "docs: screenshots of $VERSION" || fail "commit"; fi
+    else git -C "$WEBWT" commit -q -m "docs: screenshots of $VERSION" -- "${files[@]}" || fail "commit"; fi
   else
+    # Screenshot files an earlier failed attempt of this stage left uncommitted go.
+    git -C "$WEBWT" checkout -q -- 'site/assets/shot-*' 2>/dev/null
+    git -C "$WEBWT" clean -q -f -- 'site/assets/shot-*'
     echo "no new documentation screenshots (--no-docs-shots, or stage docs-shots skipped or failed): the website keeps its own"
   fi
   python3 "$SCRIPTS/website.py" write --version "$VERSION" --changelog "$WORK/CHANGELOG.md" --assets "$ASSETS" \
@@ -853,7 +860,7 @@ st_site() {
     || fail "the website's strict build (above: What's new, or a sentence naming an older release — fix it on $WEB_BRANCH)"
   git -C "$WEBWT" add release.json || fail "git add"
   if git -C "$WEBWT" diff --cached --quiet; then echo "release.json already carries these facts"
-  else git -C "$WEBWT" commit -q -m "release: $VERSION" || fail "commit"; fi
+  else git -C "$WEBWT" commit -q -m "release: $VERSION" -- release.json || fail "commit"; fi
   [ -z "$(git -C "$WEBWT" status --porcelain)" ] || fail "$WEBWT has uncommitted changes: commit them on $WEB_BRANCH"
   echo "website: $WEB_BRANCH at $(git -C "$WEBWT" rev-parse --short HEAD), ahead of origin/main by $(git -C "$WEBWT" rev-list --count origin/main..HEAD) commit(s); --publish merges and deploys it"
 }

@@ -91,6 +91,20 @@ class DemoSession(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             self.assertEqual(self.make(Path(d)), [])
 
+    def test_links_and_jobs_the_app_would_resume_are_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.make(Path(d))
+            (Path(d) / "Capture").symlink_to(tempfile.gettempdir())
+            self.assertTrue(capture_problems(Path(d)))
+        with tempfile.TemporaryDirectory() as d:
+            self.make(Path(d))
+            con = sqlite3.connect(Path(d) / "session.sqlite")
+            con.execute("CREATE TABLE hot_folder(id INTEGER PRIMARY KEY, folder TEXT NOT NULL)")
+            con.execute("INSERT INTO hot_folder VALUES (1, '/Volumes/Card')")
+            con.commit()
+            con.close()
+            self.assertTrue(capture_problems(Path(d)))
+
     def test_outside_folders_are_refused(self):
         for kwargs in ({"capture": "/Volumes/Card/Capture"}, {"capture": "../Capture"},
                        {"root": "/Volumes/Photos"}, {"external": 1}):
