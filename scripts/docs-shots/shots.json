@@ -1,0 +1,202 @@
+{
+  "about": "One entry per screenshot place on rawtonic.cc/docs ({{shot \"id\" …}} in the website's pages). Coordinates and crops are CSS pixels of the 1440 × 900 window; names through the app's i18n keys (name_key) so one entry serves en and de. Not here, so listed by every run: catalog-import (needs a Lightroom or Capture One catalog in the demo library), tether-panel (needs a connected camera), masks-people-parts (needs a licence-cleared portrait of a person). See docs/RELEASING.md.",
+  "window": [1440, 900],
+  "shade": "darkest",
+  "shots": [
+    {
+      "id": "develop-exposure-group",
+      "photo": "Mt_Cook.ARW",
+      "steps": [
+        {"op": "tab", "tab": "adjust"},
+        {"op": "tool", "tool": "Exposure"},
+        {"op": "type", "name_key": "studio.adjustment.value", "var_keys": {"name": "studio.develop.sliders.exposure"}, "text": "0.25", "enter": true},
+        {"op": "type", "name_key": "studio.adjustment.value", "var_keys": {"name": "studio.develop.sliders.highlights"}, "text": "-35", "enter": true},
+        {"op": "type", "name_key": "studio.adjustment.value", "var_keys": {"name": "studio.develop.sliders.shadows"}, "text": "20", "enter": true}
+      ],
+      "crop": {"rect": [0, 40, 1100, 730]}
+    },
+    {
+      "id": "develop-ai-denoise",
+      "photo": "Street_at_night.NEF",
+      "steps": [
+        {"op": "tab", "tab": "detail"},
+        {"op": "tool", "tool": "Noise reduction"},
+        {"op": "type", "name_key": "studio.adjustment.value", "var_keys": {"name": "studio.develop.sliders.aiDenoise"}, "text": "60", "enter": true},
+        {"op": "sleep", "ms": 2000},
+        {"op": "state", "path": "editor.aiDenoiseBusy", "equals": false, "timeout_ms": 600000},
+        {"op": "key", "key": ".", "code": "Period"},
+        {"op": "key", "key": "y", "code": "KeyY"}
+      ],
+      "settle_ms": 4000,
+      "crop": {"rect": [340, 80, 1100, 690]}
+    },
+    {
+      "id": "export-dialog",
+      "photo": "Chania_lighthouse.CR2",
+      "steps": [
+        {"op": "click", "selector": ".studio-export-button"},
+        {"op": "wait", "selector": ".studio-export-submit"},
+        {"op": "wait", "name_key": "studio.export.recipes.exportWith", "vars": {"name": "Print TIFF 16-bit"}},
+        {"op": "sleep", "ms": 1000},
+        {"op": "click", "name_key": "studio.export.recipes.exportWith", "vars": {"name": "Web 2048 px"}},
+        {"op": "sleep", "ms": 400},
+        {"op": "click", "name_key": "studio.export.recipes.exportWith", "vars": {"name": "Print TIFF 16-bit"}}
+      ],
+      "settle_ms": 1200,
+      "crop": {"union": [{"selector": "dialog[open]"}], "pad": 12}
+    },
+    {
+      "id": "import-dialog",
+      "steps": [
+        {"op": "click", "name_key": "session.bar.ingestTitle"},
+        {"op": "answer", "path": "card/EOS_DIGITAL"},
+        {"op": "click", "name_key": "session.ingest.addFolder"},
+        {"op": "sleep", "ms": 5000},
+        {"op": "click_at", "x": 587, "y": 265, "count": 2},
+        {"op": "sleep", "ms": 2000},
+        {"op": "key", "key": "4", "code": "Digit4"}
+      ],
+      "settle_ms": 2000
+    },
+    {
+      "id": "library-grid",
+      "steps": [
+        {"op": "key", "key": "g", "code": "KeyG"},
+        {"op": "click", "name": "Kitten_in_plants.ARW", "role": "button", "native": true}
+      ],
+      "settle_ms": 3000,
+      "crop": {"rect": [340, 40, 1100, 600]}
+    },
+    {
+      "id": "library-multi-view",
+      "steps": [
+        {"op": "key", "key": "g", "code": "KeyG"},
+        {"op": "click", "name": "Kitten.CR2", "role": "button", "native": true},
+        {"op": "click", "name": "Kitten_in_plants.ARW", "role": "button", "native": true, "modifiers": ["command"]},
+        {"op": "click", "name": "Cat_in_the_brush.ARW", "role": "button", "native": true, "modifiers": ["command"]},
+        {"op": "click", "name": "Heath_morning.CR2", "role": "button", "native": true, "modifiers": ["command"]},
+        {"op": "key", "key": "n", "code": "KeyN"}
+      ],
+      "settle_ms": 5000,
+      "crop": {"rect": [340, 40, 1100, 860]}
+    },
+    {
+      "id": "develop-overview",
+      "photo": "Kitten.CR2",
+      "steps": [
+        {"op": "tab", "tab": "adjust"},
+        {"op": "tool", "tool": "Exposure"}
+      ],
+      "settle_ms": 3000
+    },
+    {
+      "id": "develop-history-snapshots",
+      "photo": "Dolomites_sunset.ARW",
+      "steps": [
+        {"op": "tab", "tab": "adjust"},
+        {"op": "tool", "tool": "Exposure"},
+        {"op": "type", "name_key": "studio.adjustment.value", "var_keys": {"name": "studio.develop.sliders.exposure"}, "text": "0.35", "enter": true},
+        {"op": "sleep", "ms": 600},
+        {"op": "type", "name_key": "studio.adjustment.value", "var_keys": {"name": "studio.develop.sliders.shadows"}, "text": "18", "enter": true},
+        {"op": "sleep", "ms": 600},
+        {"op": "click", "selector": "details[data-tool-title=\"Exposure\"] > summary"},
+        {"op": "click", "selector": "details[data-tool-title=\"History\"] > summary"},
+        {"op": "sleep", "ms": 600},
+        {"op": "click", "selector": "details[data-tool-title=\"Snapshots\"] > summary"}
+      ],
+      "settle_ms": 2000,
+      "crop": {"union": [{"selector": "details[data-tool-title=\"Snapshots\"]"}, {"selector": "details[data-tool-title=\"History\"]"}], "pad": 0, "min_width": 700}
+    },
+    {
+      "id": "colour-white-balance",
+      "photo": "Colour_chart.ORF",
+      "steps": [
+        {"op": "tab", "tab": "adjust"},
+        {"op": "tool", "tool": "White balance"},
+        {"op": "click", "name_key": "studio.develop.whiteBalance.picker"},
+        {"op": "sleep", "ms": 500},
+        {"op": "mouse", "x": 800, "y": 670},
+        {"op": "mouse", "x": 810, "y": 675},
+        {"op": "hover", "points": [[805, 672], [812, 676]]}
+      ],
+      "settle_ms": 1500,
+      "crop": {"rect": [0, 40, 1440, 730]}
+    },
+    {
+      "id": "colour-editor",
+      "photo": "Colour_chart.ORF",
+      "steps": [
+        {"op": "tab", "tab": "color"},
+        {"op": "tool", "tool": "Color editor"},
+        {"op": "click", "name_key": "studio.color.editor.pickAria"},
+        {"op": "sleep", "ms": 400},
+        {"op": "click_at", "x": 755, "y": 618},
+        {"op": "sleep", "ms": 800},
+        {"op": "type", "name_key": "studio.adjustment.value", "var_keys": {"name": "adjustments.color.hue"}, "text": "-20", "enter": true}
+      ],
+      "settle_ms": 2000,
+      "crop": {"rect": [0, 40, 1100, 780]}
+    },
+    {
+      "id": "detail-sharpening",
+      "photo": "Kitten.CR2",
+      "steps": [
+        {"op": "tab", "tab": "detail"},
+        {"op": "tool", "tool": "Sharpening"},
+        {"op": "mouse", "x": 930, "y": 410},
+        {"op": "key", "key": "z", "code": "KeyZ"}
+      ],
+      "settle_ms": 3500,
+      "crop": {"rect": [0, 40, 1440, 730]}
+    },
+    {
+      "id": "crop-overlay",
+      "photo": "Castle_evening.CR3",
+      "settings": {"cropGrid": "always"},
+      "steps": [
+        {"op": "tab", "tab": "crop"},
+        {"op": "tool", "tool": "Crop"},
+        {"op": "type", "name_key": "studio.crop.aria.ratio", "text": "16 × 9"}
+      ],
+      "settle_ms": 2000,
+      "crop": {"rect": [0, 40, 1440, 730]}
+    },
+    {
+      "id": "crop-perspective-guided",
+      "photo": "Taipei_golden_hour.ARW",
+      "steps": [
+        {"op": "tab", "tab": "crop"},
+        {"op": "tool", "tool": "Geometry"},
+        {"op": "click", "name_key": "studio.upright.modes.guided.title"},
+        {"op": "sleep", "ms": 1000},
+        {"op": "drag", "points": [[846, 410], [845.5, 450], [845, 500], [844.5, 550], [844, 600], [844, 640]]},
+        {"op": "sleep", "ms": 500},
+        {"op": "drag", "points": [[921, 412], [921, 450], [921, 500], [921, 550], [921, 600], [921, 640]]}
+      ],
+      "settle_ms": 2500,
+      "crop": {"rect": [0, 40, 1440, 730]}
+    },
+    {
+      "id": "presets-grid",
+      "photo": "Mt_Cook.ARW",
+      "steps": [
+        {"op": "tab", "tab": "adjust"},
+        {"op": "tool", "tool": "Styles & presets"},
+        {"op": "click", "name_key": "studio.presets.showGrid"}
+      ],
+      "settle_ms": 8000,
+      "crop": {"rect": [0, 40, 1100, 780]}
+    },
+    {
+      "id": "masks-layers-panel",
+      "photo": "Dolomites_sunset.ARW",
+      "steps": [
+        {"op": "tab", "tab": "layers"},
+        {"op": "sleep", "ms": 800},
+        {"op": "click", "name_key": "studio.develop.layers.select", "vars": {"name": "Sky"}}
+      ],
+      "settle_ms": 2500,
+      "crop": {"rect": [0, 40, 1440, 730]}
+    }
+  ]
+}
