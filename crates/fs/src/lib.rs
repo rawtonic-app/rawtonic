@@ -811,10 +811,21 @@ mod tests {
         // Unix: the old file is open while it is replaced and keeps its
         // bytes (a rename, never a truncate or a delete-then-write).
         // Windows: a program holding the old file open without delete
-        // sharing (as `File::open` does) blocks the rename; the replace is
-        // refused naming the cause, the old file and no temporary are left,
-        // and it succeeds once the file is closed.
+        // sharing blocks the rename; the replace is refused naming the
+        // cause, the old file and no temporary are left, and it succeeds
+        // once the file is closed.
+        #[cfg(unix)]
         let mut open = fs::File::open(&path).unwrap();
+        #[cfg(windows)]
+        let mut open = {
+            use std::os::windows::fs::OpenOptionsExt;
+            use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+            fs::OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                .open(&path)
+                .unwrap()
+        };
         #[cfg(windows)]
         {
             let error = replace_confirmed(

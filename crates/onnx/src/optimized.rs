@@ -790,6 +790,20 @@ mod tests {
         let source = dir.join("model.onnx");
         let next = dir.join("next.onnx");
         fs::write(&next, b"source model").unwrap();
+        // Same length and times as the old file: only its identity differs.
+        let old = fs::metadata(&source).unwrap();
+        let times = fs::FileTimes::new().set_modified(old.modified().unwrap());
+        #[cfg(windows)]
+        let times = {
+            use std::os::windows::fs::FileTimesExt;
+            times.set_created(old.created().unwrap())
+        };
+        fs::File::options()
+            .write(true)
+            .open(&next)
+            .unwrap()
+            .set_times(times)
+            .unwrap();
         fs::rename(&next, &source).unwrap();
         let replaced = test_entry(&dir.join("cache"), &source, ModelKind::Subject).unwrap();
         assert_ne!(replaced.key, entry.key);
