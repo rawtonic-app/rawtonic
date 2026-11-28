@@ -864,6 +864,14 @@
   cursor: ew-resize;
   touch-action: none;
 }
+/* UI-PEEK: a small tick under the track marks the slider's default (the
+   centre of the thumb at that value: 6 px in from each end). */
+.adjustment-track.has-default-tick {
+  background-image: linear-gradient(var(--studio-shade-muted), var(--studio-shade-muted));
+  background-repeat: no-repeat;
+  background-size: 1px 4px;
+  background-position: calc(5.5px + (100% - 12px) * var(--default-at)) calc(50% + 5px);
+}
 /* VISCALM1: one track grey, a bigger plain thumb, no gradient or underline. */
 .adjustment-track::-webkit-slider-runnable-track {
   height: 2px;
@@ -3819,6 +3827,93 @@
   margin-left: auto;
   font-weight: 400;
   color: var(--studio-shade-muted);
+}
+/* PRESET-THUMB: the grid of the open photo with each preset (the list's
+   own states: applied = accent border and name, favourite star on hover). */
+.studio-preset-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 4px;
+  padding: 2px 0 6px;
+}
+.studio-preset-cell {
+  position: relative;
+  min-width: 0;
+}
+.studio-workspace .studio-preset-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  width: 100%;
+  gap: 2px;
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--studio-shade-muted);
+  text-align: left;
+}
+.studio-workspace .studio-preset-tile:hover {
+  background: #ffffff12;
+}
+.studio-workspace .studio-preset-tile:focus-visible {
+  box-shadow: 0 0 0 2px var(--studio-shade-text);
+}
+.studio-workspace .studio-preset-tile.is-applied {
+  border-color: var(--studio-accent);
+  color: var(--studio-accent);
+  font-weight: 600;
+}
+.studio-preset-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  border-radius: 2px;
+  background: var(--studio-shade-inset);
+  overflow: hidden;
+}
+.studio-preset-thumb.is-unavailable {
+  background: repeating-linear-gradient(135deg, var(--studio-shade-inset) 0 6px, transparent 6px 12px);
+}
+.studio-preset-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.studio-preset-tile-name {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding-right: 14px;
+  font-size: 10px;
+  line-height: 1.25;
+}
+.studio-preset-tile-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-preset-tile-name > svg {
+  flex-shrink: 0;
+}
+.studio-preset-tile .studio-preset-applied-mark {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  color: var(--studio-accent);
+  filter: drop-shadow(0 0 1px #000);
+}
+.studio-workspace .studio-preset-cell > .studio-preset-star {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  padding: 2px;
+}
+.studio-preset-cell:hover > .studio-preset-star {
+  opacity: 1;
 }
 .studio-preset-search {
   margin-bottom: 6px;

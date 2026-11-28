@@ -2902,6 +2902,7 @@
   "studio": {
     "adjustment": {
       "scrubHint": "拖动以调整 · 双击重置",
+      "scrubHintPeek": "拖动以调整 · 双击重置 · 按住名称可查看默认值下的照片",
       "trackHint": "拖动以调整；将指针移离滑块可更精细调整 · Alt (⌥)：十分之一 · 双击重置",
       "trackHintSharpenGrey": "拖动以调整；将指针移离滑块可更精细调整 · 拖动时按住 Alt (⌥)：以灰度显示照片 · 双击重置",
       "trackHintSharpenMask": "拖动以调整；将指针移离滑块可更精细调整 · 拖动时按住 Alt (⌥)：显示被锐化的部分（白色） · 双击重置",
@@ -5096,7 +5097,9 @@
       "newPreset": "新建预设",
       "newPresetTitle": "将当前设置存储为预设",
       "noFolder": "无文件夹",
+      "noThumbnail": "无缩略图：此预设会改变 RAW 冲印或裁剪；应用后即可查看",
       "renameAria": "重命名 {{name}}",
+      "showGrid": "以此照片的缩略图显示",
       "sort": "排序预设",
       "sortTitle": "按 A–Z 排序文件夹和预设",
       "style": "样式",

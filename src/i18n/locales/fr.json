@@ -3158,6 +3158,7 @@
   "studio": {
     "adjustment": {
       "scrubHint": "Faites glisser pour régler · double-clic pour réinitialiser",
+      "scrubHintPeek": "Faites glisser pour régler · double-clic pour réinitialiser · maintenez le nom pour voir la photo à la valeur par défaut",
       "trackHint": "Faites glisser pour régler ; éloignez le pointeur du curseur pour des pas plus fins · Alt (⌥) : un dixième · double-clic pour réinitialiser",
       "trackHintSharpenGrey": "Faites glisser pour régler ; éloignez le pointeur du curseur pour des pas plus fins · Alt (⌥) pendant le glissement : montre la photo en gris · double-clic pour réinitialiser",
       "trackHintSharpenMask": "Faites glisser pour régler ; éloignez le pointeur du curseur pour des pas plus fins · Alt (⌥) pendant le glissement : montre ce qui est accentué (blanc) · double-clic pour réinitialiser",
@@ -5456,7 +5457,9 @@
       "newPreset": "Nouveau préréglage",
       "newPresetTitle": "Enregistrer les réglages actuels comme préréglage",
       "noFolder": "Aucun dossier",
+      "noThumbnail": "Pas de vignette : ce préréglage change le développement du RAW ou le recadrage ; appliquez-le pour le voir",
       "renameAria": "Renommer {{name}}",
+      "showGrid": "Afficher en vignettes de cette photo",
       "sort": "Trier les préréglages",
       "sortTitle": "Trier les dossiers et préréglages de A à Z",
       "style": "Style",

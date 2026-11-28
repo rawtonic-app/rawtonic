@@ -30,6 +30,7 @@ export function StudioDefringe({ values, disabled, change, onInteraction, copy }
       defaultValue={fallback}
       disabled={disabled}
       onInteraction={onInteraction}
+      peek
       onChange={(next) => change({ [key]: next })}
     />
   );
@@ -93,6 +94,7 @@ export function RegionCurveControls({
       defaultValue={fallback}
       disabled={disabled}
       onInteraction={onInteraction}
+      peek
       onChange={(next) => onChange({ ...value, [key]: next })}
     />
   );

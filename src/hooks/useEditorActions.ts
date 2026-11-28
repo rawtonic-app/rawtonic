@@ -1210,6 +1210,20 @@ export function startToolBefore(tool: string, reset: () => void): boolean {
   return true;
 }
 
+/**
+ * A slider's held label (UI-PEEK): the photograph as `set` (the slider set to
+ * its default) would leave it, shown like the per-tool before until
+ * endToolBefore: no recipe change, no history step. False when `set` changes
+ * nothing or another preview is on screen.
+ */
+export function startValuePeek(name: string, set: () => void): boolean {
+  const state = useEditorStore.getState();
+  if (state.showOriginal || state.previewOverride || state.isSliderDragging) return false;
+  const at = adjustmentsAfter(set);
+  if (!at || at === state.adjustments) return false;
+  return startToolBefore(name, () => updateAdjustments(() => at));
+}
+
 /** Ends the per-tool before; nothing happens when it is not showing. */
 export function endToolBefore() {
   useEditorStore

@@ -3158,6 +3158,7 @@
   "studio": {
     "adjustment": {
       "scrubHint": "Arrastra para ajustar · doble clic para restablecer",
+      "scrubHintPeek": "Arrastra para ajustar · doble clic para restablecer · mantén pulsado el nombre para ver la foto con el valor predeterminado",
       "trackHint": "Arrastra para ajustar; aleja el puntero del control para pasos más finos · Alt (⌥): una décima · doble clic para restablecer",
       "trackHintSharpenGrey": "Arrastra para ajustar; aleja el puntero del control para pasos más finos · Alt (⌥) al arrastrar: muestra la foto en gris · doble clic para restablecer",
       "trackHintSharpenMask": "Arrastra para ajustar; aleja el puntero del control para pasos más finos · Alt (⌥) al arrastrar: muestra lo que se enfoca (blanco) · doble clic para restablecer",
@@ -5456,7 +5457,9 @@
       "newPreset": "Nuevo ajuste preestablecido",
       "newPresetTitle": "Guardar los ajustes actuales como ajuste preestablecido",
       "noFolder": "Sin carpeta",
+      "noThumbnail": "Sin miniatura: este ajuste preestablecido cambia el revelado del RAW o el recorte; aplícalo para verlo",
       "renameAria": "Cambiar nombre de {{name}}",
+      "showGrid": "Mostrar como miniaturas de esta foto",
       "sort": "Ordenar ajustes preestablecidos",
       "sortTitle": "Ordenar carpetas y ajustes de la A a la Z",
       "style": "Estilo",

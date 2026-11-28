@@ -290,6 +290,7 @@ export function StudioColorGrading({
             track="hue"
             disabled={disabled}
             onInteraction={onInteraction}
+            peek
             onChange={(hue) => setWheel({ ...wheel, hue })}
           />
           <AdjustmentControl
@@ -302,6 +303,7 @@ export function StudioColorGrading({
             max={100}
             disabled={disabled}
             onInteraction={onInteraction}
+            peek
             onChange={(saturation) => setWheel({ ...wheel, saturation })}
           />
           <AdjustmentControl
@@ -312,6 +314,7 @@ export function StudioColorGrading({
             value={wheel.luminance}
             disabled={disabled}
             onInteraction={onInteraction}
+            peek
             onChange={(luminance) => setWheel({ ...wheel, luminance })}
           />
         </>
@@ -325,6 +328,7 @@ export function StudioColorGrading({
         defaultValue={50}
         disabled={disabled}
         onInteraction={onInteraction}
+        peek
         onChange={(blending) => change({ colorGrading: { ...grading, blending } })}
       />
       <AdjustmentControl
@@ -332,6 +336,7 @@ export function StudioColorGrading({
         value={grading.balance}
         disabled={disabled}
         onInteraction={onInteraction}
+        peek
         onChange={(balance) => change({ colorGrading: { ...grading, balance } })}
       />
     </ToolGroup>
@@ -395,6 +400,7 @@ function BwToningControls({
           track="hue"
           disabled={disabled}
           onInteraction={onInteraction}
+          peek
           onChange={(hue) => setTone({ hue })}
         />
         <AdjustmentControl
@@ -406,6 +412,7 @@ function BwToningControls({
           defaultValue={0}
           disabled={disabled}
           onInteraction={onInteraction}
+          peek
           onChange={(saturation) => setTone({ saturation })}
         />
         <AdjustmentControl
@@ -417,6 +424,7 @@ function BwToningControls({
           defaultValue={0}
           disabled={disabled}
           onInteraction={onInteraction}
+          peek
           onChange={(density) => setTone({ density })}
         />
       </div>
@@ -434,6 +442,7 @@ function BwToningControls({
         defaultValue={0}
         disabled={disabled}
         onInteraction={onInteraction}
+        peek
         onChange={(balance) => set({ balance })}
       />
       <AdjustmentControl
@@ -444,6 +453,7 @@ function BwToningControls({
         defaultValue={0}
         disabled={disabled}
         onInteraction={onInteraction}
+        peek
         onChange={(paper) => set({ paper })}
       />
     </div>
@@ -551,6 +561,7 @@ export function StudioBlackAndWhite({
             value={mixer[channel]}
             disabled={disabled || !enabled}
             onInteraction={onInteraction}
+            peek
             onChange={(v) => change({ grayMixer: { ...mixer, [channel]: v } })}
           />
         </div>
@@ -598,6 +609,7 @@ export function StudioCalibration({
       value={(calibration as unknown as Record<string, number>)[key] ?? 0}
       disabled={disabled}
       onInteraction={onInteraction}
+      peek
       onChange={(v) => set(key, v)}
     />
   );

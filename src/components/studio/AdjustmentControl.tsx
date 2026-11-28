@@ -1,7 +1,17 @@
 import { formatNumber } from '../../utils/formatNumber';
-import { memo, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import {
+  memo,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { capturePendingSliderClick, useEditorStore } from '../../store/useEditorStore';
+import { endToolBefore, startValuePeek } from '../../hooks/useEditorActions';
 import { selectOnFocus } from '../../utils/selectOnFocus';
 import { MIN_SEND_INTERVAL_MS } from '../../hooks/useDragSend';
 import { resolveKeySteps, stepOf, type KeySteps, type StepSet } from './sliderFeel';
@@ -39,6 +49,12 @@ export interface AdjustmentControlProps {
    * should show and false when it ends (Option let go, or the drag). Option
    * then keeps the drag's speed instead of slowing it to a tenth. */
   optionView?: { onChange(shown: boolean): void; hint: string };
+  /** Holding the label still shows the photo at `defaultValue` (UI-PEEK).
+   * Only for sliders whose `onChange` changes the photo's recipe through
+   * `setAdjustments` and nothing else: the peek runs it with the updates
+   * caught (`adjustmentsAfter`), so any other write (a preference, a brush
+   * setting) would really happen. */
+  peek?: boolean;
   onChange(value: number): void;
   onInteraction?(active: boolean): void;
 }
@@ -47,6 +63,10 @@ export interface AdjustmentControlProps {
 const THUMB = 12;
 /** A press this close to the thumb's centre grabs it without a jump. */
 const GRAB = 8;
+/** How long the label is held still before it shows the photo at the default. */
+export const PEEK_HOLD_MS = 250;
+/** A label press that moves less than this is still a hold, not a scrub. */
+const SCRUB_START = 3;
 // Recognize a following click while its history entry is still pending.
 // Rendering always leaves drag mode at pointer-up.
 const CLICK_SETTLE_MS = 500;
@@ -111,6 +131,7 @@ export default memo(function AdjustmentControl({
   disabled = false,
   wholeSteps = false,
   optionView,
+  peek = false,
   onChange,
   onInteraction
 }: AdjustmentControlProps) {
@@ -151,6 +172,20 @@ export default memo(function AdjustmentControl({
   // Option slows a drag to a tenth, except where it shows a view.
   const slowsDrag = (altKey: boolean) => altKey && !optionView;
   const scrub = useRef<{ x: number; value: number } | null>(null);
+  // The held label's peek at the default: its timer, and whether it shows.
+  const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [peeking, setPeeking] = useState(false);
+  const peekingRef = useRef(false);
+  const stopPeek = () => {
+    if (peekTimer.current !== null) clearTimeout(peekTimer.current);
+    peekTimer.current = null;
+    if (!peekingRef.current) return;
+    peekingRef.current = false;
+    setPeeking(false);
+    endToolBefore();
+  };
+  const stopPeekRef = useRef(stopPeek);
+  stopPeekRef.current = stopPeek;
   // A drag on the track: from the thumb without a jump, a pixel worth the
   // track's own movement (a tenth with Option, less away from the track).
   const fine = useRef<{
@@ -165,6 +200,12 @@ export default memo(function AdjustmentControl({
   const trackStep = scale ? (trackMax - trackMin) / 1000 : step;
   const toTrack = (v: number) => (scale ? scale.toTrack(v) : v);
   const fromTrack = (p: number) => (scale ? scale.fromTrack(p) : p);
+  // Where the default sits on the track (a small tick), when it is on it.
+  const defaultPosition = (toTrack(defaultValue) - trackMin) / (trackMax - trackMin);
+  const defaultAt =
+    Number.isFinite(defaultPosition) && defaultPosition >= 0 && defaultPosition <= 1
+      ? Math.round(defaultPosition * 10000) / 10000
+      : null;
   useEffect(() => {
     if (!active.current) {
       setLocal(value);
@@ -196,6 +237,7 @@ export default memo(function AdjustmentControl({
   useEffect(
     () => () => {
       if (viewShown.current) optionViewCallback.current?.(false);
+      stopPeekRef.current();
       keyHold.current?.();
       if (clickEnd.current !== null) clearTimeout(clickEnd.current);
       if (frame.current !== null) cancelAnimationFrame(frame.current);
@@ -347,10 +389,35 @@ export default memo(function AdjustmentControl({
     if (disabled || e.button !== 0) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
-    begin();
-    showView(e.altKey);
     scrub.current = { x: e.clientX, value: local };
+    // Option scrubs (or shows the control's view) at once.
+    if (e.altKey) {
+      begin();
+      showView(true);
+      return;
+    }
+    // A press held still shows the photo at the default (UI-PEEK); moving
+    // starts the scrub. Nothing is sent until then; the row reads pressed.
+    setDragging(true);
+    if (peek)
+      peekTimer.current = setTimeout(() => {
+        peekTimer.current = null;
+        // At its default already: nothing to show.
+        if (!scrub.current || active.current || pending.current === defaultValue) return;
+        const name = ariaLabel ?? label;
+        if (startValuePeek(name, () => callback.current(defaultValue))) {
+          peekingRef.current = true;
+          setPeeking(true);
+        }
+      }, PEEK_HOLD_MS);
   };
+  // The window losing focus ends a peek, as releasing does.
+  useEffect(() => {
+    if (!peeking) return;
+    const blur = () => stopPeekRef.current();
+    window.addEventListener('blur', blur);
+    return () => window.removeEventListener('blur', blur);
+  }, [peeking]);
   const commitText = () => {
     if (canceled.current) {
       canceled.current = false;
@@ -374,16 +441,21 @@ export default memo(function AdjustmentControl({
   };
   return (
     <div
-      className={`adjustment-control ${disabled ? 'is-disabled' : ''} ${dragging ? 'is-active' : ''}`}
+      className={`adjustment-control ${disabled ? 'is-disabled' : ''} ${dragging || peeking ? 'is-active' : ''} ${peeking ? 'is-peeking' : ''}`}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
     >
       <label
         htmlFor={id}
-        title={t('studio.adjustment.scrubHint')}
+        title={peek ? t('studio.adjustment.scrubHintPeek') : t('studio.adjustment.scrubHint')}
         onPointerDown={scrubStart}
         onPointerMove={(e) => {
-          if (!scrub.current) return;
+          if (!scrub.current || peekingRef.current) return;
+          if (!active.current) {
+            if (Math.abs(e.clientX - scrub.current.x) < SCRUB_START) return;
+            stopPeek();
+            begin();
+          }
           showView(e.altKey);
           update(
             fromTrack(
@@ -395,10 +467,19 @@ export default memo(function AdjustmentControl({
         }}
         onPointerUp={() => {
           if (!scrub.current) return;
+          const scrubbed = active.current;
+          scrub.current = null;
+          stopPeek();
+          if (!scrubbed) return setDragging(false);
           end();
           trackRef.current?.blur();
         }}
-        onPointerCancel={end}
+        onPointerCancel={() => {
+          scrub.current = null;
+          stopPeek();
+          if (active.current) end();
+          else setDragging(false);
+        }}
         // Scrubbing owns the label gesture. Its synthetic click on the track
         // could otherwise give keyboard focus back after pointer-up.
         onClick={(e) => e.preventDefault()}
@@ -409,7 +490,8 @@ export default memo(function AdjustmentControl({
       <input
         id={id}
         ref={trackRef}
-        className={`adjustment-track ${track || ''}`}
+        className={`adjustment-track ${track || ''} ${defaultAt === null ? '' : 'has-default-tick'}`}
+        style={defaultAt === null ? undefined : ({ '--default-at': defaultAt } as CSSProperties)}
         type="range"
         min={trackMin}
         max={trackMax}

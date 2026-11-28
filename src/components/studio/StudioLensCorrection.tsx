@@ -236,6 +236,7 @@ export default function StudioLensCorrection() {
       defaultValue={100}
       unit="%"
       disabled={!ready || !enabled || importedOff || unavailable}
+      peek
       onChange={(value) => setAdjustments((prev) => ({ ...prev, [key]: value }))}
       onInteraction={(active) => setEditor({ isSliderDragging: active })}
     />
@@ -383,6 +384,7 @@ export default function StudioLensCorrection() {
         step={1}
         defaultValue={0}
         disabled={!ready}
+        peek
         onChange={(value) => setAdjustments((prev) => ({ ...prev, lensManualVignetteAmount: value || undefined }))}
         onInteraction={(active) => setEditor({ isSliderDragging: active })}
       />
@@ -394,6 +396,7 @@ export default function StudioLensCorrection() {
         step={1}
         defaultValue={50}
         disabled={!ready || !adjustments.lensManualVignetteAmount}
+        peek
         onChange={(value) =>
           setAdjustments((prev) => ({
             ...prev,

@@ -40,6 +40,10 @@ const SYNC_COMMANDS: &[(&str, &str)] = &[
         "sets a cancel flag or wakes a worker; no I/O",
     ),
     (
+        "cancel_preset_thumbnails",
+        "sets a cancel flag or wakes a worker; no I/O",
+    ),
+    (
         "cancel_profile_thumbnails",
         "sets a cancel flag or wakes a worker; no I/O",
     ),

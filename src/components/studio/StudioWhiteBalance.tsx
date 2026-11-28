@@ -132,6 +132,7 @@ export default function StudioWhiteBalance({
         keys={KELVIN_KEYS}
         track="temperature"
         disabled={disabled}
+        peek
         onChange={(temperature) => custom({ temperature, tint: shown.tint })}
         onInteraction={onInteraction}
       />
@@ -145,6 +146,7 @@ export default function StudioWhiteBalance({
         defaultValue={asShot.tint}
         track="tint"
         disabled={disabled}
+        peek
         onChange={(tint) => custom({ temperature: shown.temperature, tint })}
         onInteraction={onInteraction}
       />

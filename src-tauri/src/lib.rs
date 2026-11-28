@@ -1076,6 +1076,8 @@ fn start(args: Vec<String>) {
             editor_preview::levels_input_histogram,
             profile_thumbnails::profile_thumbnails,
             profile_thumbnails::cancel_profile_thumbnails,
+            profile_thumbnails::preset_thumbnails,
+            profile_thumbnails::cancel_preset_thumbnails,
             gpu_processing::sample_preview_white_balance,
             gpu_processing::sample_preview_grey_world,
             editor_preview::generate_preview_for_path,

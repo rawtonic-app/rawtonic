@@ -1226,6 +1226,9 @@ export default function StudioDevelop() {
       track={track}
       keys={key === 'exposure' ? EXPOSURE_KEYS : undefined}
       optionView={optionViewOf(key)}
+      // AI Denoise lives in the RAW's decode: no held look. (Others whose
+      // default would need the RAW developed again are refused at the hold.)
+      peek={key !== 'aiDenoise'}
       onChange={changeOf(key)}
       onInteraction={
         key === 'grainAmount'
@@ -1278,6 +1281,7 @@ export default function StudioDevelop() {
       step={1}
       defaultValue={fallback}
       disabled={!panelsReady || idle}
+      peek
       onChange={changeOf(key)}
       onInteraction={onInteraction}
     />
@@ -1917,6 +1921,7 @@ export default function StudioDevelop() {
                   minTravel={HSL_TRAVEL_PT}
                   disabled={!panelsReady}
                   onInteraction={onInteraction}
+                  peek
                   onChange={(v) =>
                     change({
                       hsl: {
