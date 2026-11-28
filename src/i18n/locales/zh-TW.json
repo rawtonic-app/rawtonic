@@ -4742,6 +4742,7 @@
       }
     },
     "loadError": {
+      "cannotOpen": "無法開啟",
       "failed": "無法開啟「{{name}}」：{{error}}",
       "nikonHighEfficiency": "此 NEF 檔案使用 Nikon 的高效率壓縮。其編解碼器 (TicoRAW) 受專利保護，因此 Rawtonic 無法解碼。請使用 Adobe DNG Converter 將檔案轉換為 DNG，或將相機設為無損壓縮 RAW。",
       "nikonHighEfficiencyMac": "在 macOS 27 或更新版本上，可以試著在偏好設定中啟用「{{setting}}」。",

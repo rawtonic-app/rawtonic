@@ -88,6 +88,20 @@ it('lays the grid out for its real width from the first frame, not for a guessed
   }
 });
 
+it('shows a short filmstrip error with the complete message on hover and in the Library tile', () => {
+  const message = '“a.NEF” can’t be opened. The RAW file may be damaged.';
+  useProcessStore.setState({ imageErrors: { [files[0].path]: message } });
+
+  const library = grid();
+  expect(library.getByRole('alert').textContent).toBe(message);
+  library.unmount();
+
+  const strip = grid(vi.fn(), true);
+  const label = strip.getByRole('alert');
+  expect(label.textContent).toBe('Can’t open');
+  expect(label.closest('button')?.title).toBe(message);
+});
+
 it('shows a readable label as well as its colour in the grid and filmstrip', () => {
   files[0].tags = ['color:green'];
   try {
