@@ -128,11 +128,10 @@
       "steps": [
         {"op": "tab", "tab": "color"},
         {"op": "tool", "tool": "Color editor"},
-        {"op": "click", "name_key": "studio.color.editor.pickAria"},
-        {"op": "sleep", "ms": 400},
-        {"op": "click_at", "x": 755, "y": 618},
         {"op": "sleep", "ms": 800},
-        {"op": "type", "name_key": "studio.adjustment.value", "var_keys": {"name": "adjustments.color.hue"}, "text": "-20", "enter": true}
+        {"op": "click", "name_key": "studio.color.editor.pickAria"},
+        {"op": "sleep", "ms": 1200},
+        {"op": "click_at", "x": 755, "y": 618}
       ],
       "settle_ms": 2000,
       "crop": {"rect": [0, 40, 1100, 780]}
