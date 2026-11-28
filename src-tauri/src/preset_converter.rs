@@ -486,9 +486,12 @@ fn white_balance(attrs: &HashMap<String, String>, adjustments: &mut Map<String, 
 const LIGHTROOM_TRAVEL: &[(&str, Knots, Knots)] = &[
     // Camera Raw's Dehaze + is gentler than ours: its +50 is our +30.
     (detail::DEHAZE.name(), &[(50.0, 30.0), (100.0, 65.0)], &[]),
-    // Its Shadows +100 lifts a little less than ours; the knot is the one
-    // that leaves no key (dark, middle, bright photos) worse than 1:1 (the
-    // median, 80, made bright photos worse).
+    // Its Shadows +100 lifts a little less than ours. The median best value
+    // (80) made bright photos clearly worse (high-key median +0.68 ΔE00 on
+    // validation, interval above noise), so the knot is the best one whose
+    // dark/middle/bright groups stay within +0.10 of 1:1 on the training
+    // photos: 95, which trades a smaller gain (2.98 → 2.62 against 2.00) for
+    // bright photos at +0.12 on validation (interval +0.05…+0.15).
     (tone::SHADOWS.name(), &[(50.0, 50.0), (100.0, 95.0)], &[]),
     // Its Whites + is an image-wide lift ours reaches only at our +100 (from
     // its +50 on); its +25 is ours.
@@ -1198,6 +1201,26 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         adjustments.insert(
             rawtonic_engine::image_processing::SHARPEN_VERSION_KEY.to_string(),
             json!(rawtonic_engine::image_processing::SHARPEN_VERSION),
+        );
+    }
+
+    // Dehaze's values are in the travel of the response they were measured
+    // with (`LIGHTROOM_TRAVEL`), the newest; without the key a preset would
+    // apply them with response 1. Layers' Dehaze adds to the photo's.
+    let layer_dehazes = adjustments
+        .get(masks::MASKS.name())
+        .and_then(Value::as_array)
+        .is_some_and(|layers| {
+            layers.iter().any(|layer| {
+                layer[masks::ADJUSTMENTS.name()][detail::DEHAZE.name()]
+                    .as_f64()
+                    .is_some_and(|v| v != 0.0)
+            })
+        });
+    if layer_dehazes || adjustments.contains_key(detail::DEHAZE.name()) {
+        adjustments.insert(
+            rawtonic_engine::image_processing::DEHAZE_VERSION_KEY.to_string(),
+            json!(rawtonic_engine::image_processing::DEHAZE_VERSION),
         );
     }
 
@@ -2668,6 +2691,13 @@ mod tests {
         // Dehaze − keeps Lightroom's value (its best value was the same).
         assert_eq!(dehaze("-50"), -50.0);
         assert_eq!(dehaze("-100"), -100.0);
+        // With the response the knots were measured with.
+        let xmp =
+            r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:Dehaze="+50"/></rdf:RDF></x:xmpmeta>"#;
+        assert_eq!(
+            convert_xmp_to_preset(xmp).unwrap().adjustments["dehazeVersion"],
+            json!(rawtonic_engine::image_processing::DEHAZE_VERSION)
+        );
     }
 
     #[test]
