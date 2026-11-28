@@ -266,8 +266,9 @@ fn start(args: Vec<String>) {
     );
 
     // Thumbnails through the monitor profile (browser_colour.rs): WebKitGTK
-    // shows images as device values.
-    #[cfg(target_os = "linux")]
+    // shows images as device values; WebView2 through the system's profile,
+    // not the one chosen in Preferences.
+    #[cfg(any(windows, target_os = "linux"))]
     {
         builder = builder.register_asynchronous_uri_scheme_protocol(
             browser_colour::SCHEME,

@@ -11,7 +11,9 @@
 //! converts both before they reach it (`browser_colour.rs`), unless the
 //! compositor colour-manages the window itself (KWin with a colour
 //! profile): then nothing is converted, as on Windows with HDR or Auto
-//! colour management.
+//! colour management. On Windows WebView2 shows the Library's thumbnails
+//! through the system's profile itself; a profile chosen in Preferences
+//! reaches them through [`webview_thumbnails`].
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -219,6 +221,59 @@ fn resolve(
     }
 }
 
+/// The table for the Library's thumbnails in a webview that converts them
+/// from sRGB into the system's profile itself (Windows, WebView2; notes:
+/// benchmark-results/wqa8-2026-11-28 row 6), for the main window whose
+/// [`resolve`]d status is `status`: only while a chosen profile is in use
+/// (else None: the webview's own conversion is the system's, which is what
+/// the window shows). With the system's profile unknown or unusable
+/// nothing is converted, and the notice says so.
+fn webview_thumbnails(
+    system: &SystemProfile,
+    chosen: Option<&(String, Result<Vec<u8>, String>)>,
+    status: &MonitorStatus,
+) -> (Option<rawtonic_display_profile::DisplayLut>, Option<String>) {
+    // Not in use: none chosen, unreadable or unusable (its own notice), or
+    // the system manages the display's colours.
+    let Some((_, Ok(icc))) = chosen else {
+        return (None, None);
+    };
+    if !status.from_override || status.mode == "system" || status.notice.is_some() {
+        return (None, None);
+    }
+    let not_converted = |why: String| {
+        Some(format!(
+            "The Library's thumbnails are shown through the system's profile, not the chosen one: {why}."
+        ))
+    };
+    let system_icc = match system {
+        SystemProfile::Assigned { icc, .. } => Some(icc.as_slice()),
+        SystemProfile::NoneAssigned => None,
+        SystemProfile::Unavailable(why) => {
+            return (
+                None,
+                not_converted(format!(
+                    "the system's profile could not be looked up ({why})"
+                )),
+            );
+        }
+        SystemProfile::ManagedBySystem => return (None, None),
+    };
+    match rawtonic_display_profile::managed_webview_lut(icc, system_icc) {
+        Ok(lut) => (lut, None),
+        Err(error) => {
+            let name = system_icc
+                .and_then(rawtonic_display_profile::description)
+                .unwrap_or_else(|| "the system's profile".into());
+            log::warn!("Thumbnails for the chosen monitor profile: {error}");
+            (
+                None,
+                not_converted(format!("{name} cannot be used ({error})")),
+            )
+        }
+    }
+}
+
 /// The profile chosen in Preferences: its path and bytes.
 #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 fn chosen(app: &AppHandle) -> Option<(String, Result<Vec<u8>, String>)> {
@@ -373,7 +428,19 @@ fn apply(
     {
         return;
     }
-    let (lut, icc, status) = resolve(inputs.0.clone(), inputs.1.clone());
+    let (lut, icc, mut status) = resolve(inputs.0.clone(), inputs.1.clone());
+    // Windows: the main window's thumbnails under a chosen profile (a
+    // runtime check, so every platform's build type-checks it).
+    let thumbnails = (cfg!(windows) && label == "main").then(|| {
+        let (thumbnails, notice) = webview_thumbnails(&inputs.0, inputs.1.as_ref(), &status);
+        if let Some(notice) = notice {
+            status.notice = Some(match status.notice.take() {
+                Some(earlier) => format!("{earlier} {notice}"),
+                None => notice,
+            });
+        }
+        thumbnails
+    });
     // The profile behind the transform (None: no transform) and the status.
     let now = (icc.filter(|_| lut.is_some()), status.clone());
     // Taken before APPLIED: `attach_display` holds the context while it
@@ -385,7 +452,28 @@ fn apply(
     // Held while installing, so lookups finishing together install in order.
     let mut applied = lock_recover(&APPLIED);
     let applied = applied.get_or_insert_with(Applied::default);
-    if !applied.commit(label, lookup, inputs) || !applied.changed(label, now) {
+    if !applied.commit(label, lookup, inputs) {
+        return;
+    }
+    // A new system profile under the same chosen one changes the
+    // thumbnails' table, not the window's transform or status.
+    if let Some(thumbnails) = thumbnails
+        && crate::browser_colour::set_thumbnails(thumbnails.as_ref())
+    {
+        log::info!(
+            "Library thumbnails: {}",
+            if thumbnails.is_some() {
+                "converted for the chosen monitor profile"
+            } else {
+                "as the webview shows them"
+            }
+        );
+        let _ = app.emit(
+            crate::browser_colour::CHANGED_EVENT,
+            crate::browser_colour::generation(),
+        );
+    }
+    if !applied.changed(label, now) {
         return;
     }
     let installed = set_transform(app, context.as_ref(), label, lut.as_ref());
@@ -693,6 +781,67 @@ mod tests {
             assert!(lut.is_none());
             assert_eq!(status.mode, "srgb");
             assert!(status.notice.is_some(), "{status:?}");
+        }
+    }
+
+    /// The thumbnails' table and notice for `system` under `chosen`, as
+    /// `apply` makes them.
+    fn thumbnails(
+        system: SystemProfile,
+        chosen: Option<(String, Result<Vec<u8>, String>)>,
+    ) -> (Option<rawtonic_display_profile::DisplayLut>, Option<String>) {
+        let (_, _, status) = resolve(system.clone(), chosen.clone());
+        webview_thumbnails(&system, chosen.as_ref(), &status)
+    }
+
+    #[test]
+    fn thumbnails_follow_a_chosen_profile_only() {
+        let adobe = ColorProfile::new_adobe_rgb().encode().unwrap();
+        let system = || SystemProfile::Assigned {
+            icc: p3(),
+            location: "C:\\panel.icm".into(),
+        };
+        let chosen = |icc: &[u8]| Some(("D:\\wide.icc".to_string(), Ok(icc.to_vec())));
+        // No choice: the webview's own conversion, nothing here.
+        assert_eq!(thumbnails(system(), None), (None, None));
+        // The system's own profile chosen: nothing either.
+        assert_eq!(thumbnails(system(), chosen(&p3())), (None, None));
+        // Another one: the table that ends at its values.
+        let (lut, notice) = thumbnails(system(), chosen(&adobe));
+        assert_eq!(
+            lut,
+            rawtonic_display_profile::managed_webview_lut(&adobe, Some(&p3())).unwrap()
+        );
+        assert!(lut.is_some() && notice.is_none());
+        let (lut, _) = thumbnails(SystemProfile::NoneAssigned, chosen(&adobe));
+        assert!(lut.is_some());
+        // Windows manages the display, or the chosen file is unusable:
+        // nothing, the status already says why.
+        assert_eq!(
+            thumbnails(SystemProfile::ManagedBySystem, chosen(&adobe)),
+            (None, None)
+        );
+        assert_eq!(thumbnails(system(), chosen(b"junk")), (None, None));
+        assert_eq!(
+            thumbnails(system(), Some(("gone.icc".into(), Err("not found".into())))),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn thumbnails_stay_as_shown_when_the_system_profile_is_unknown() {
+        let adobe = ColorProfile::new_adobe_rgb().encode().unwrap();
+        let chosen = Some(("wide.icc".to_string(), Ok(adobe)));
+        for system in [
+            SystemProfile::Unavailable("no device".into()),
+            SystemProfile::Assigned {
+                icc: b"junk".to_vec(),
+                location: "C:\\junk.icm".into(),
+            },
+        ] {
+            let (lut, notice) = thumbnails(system, chosen.clone());
+            assert!(lut.is_none());
+            assert!(notice.is_some_and(|n| n.contains("thumbnails")), "a notice");
         }
     }
 

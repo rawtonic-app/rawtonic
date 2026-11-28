@@ -1,5 +1,7 @@
 //! The monitor profile for what the webview shows on Linux (G23/G62, MCM2;
-//! notes: benchmark-results/mcm2-2026-11-27/REPORT.md).
+//! notes: benchmark-results/mcm2-2026-11-27/REPORT.md), and for the
+//! Library's thumbnails on Windows under a profile chosen in Preferences
+//! (G54, MCM3; notes: benchmark-results/mcm3-2026-11-28/REPORT.md).
 //!
 //! WebKitGTK shows images as device values: nothing between the app and
 //! the display converts them. So the streams of photographs the webview
@@ -12,6 +14,15 @@
 //!   with its own display's transform ([`second_frame`]);
 //! - the Library's thumbnails (grid, filmstrip, Loupe), served through the
 //!   `rawtonic-thumb` scheme instead of the asset protocol ([`serve`]).
+//!
+//! On Windows WebView2 converts every image from sRGB into the system's
+//! monitor profile itself, so frames and thumbnails need nothing there;
+//! only a profile chosen in Preferences instead of the system's is not
+//! applied by it. Then the thumbnails are served through the scheme with
+//! [`set_thumbnails`]' table (`managed_webview_lut`): sRGB → the chosen
+//! profile → back through the system's, so the webview's own conversion
+//! ends at the chosen profile's values. Develop's frames are converted by
+//! the native present pass (`monitor_profile.rs`).
 //!
 //! Without a transform (an sRGB display, no profile, the compositor
 //! colour-managing the window itself) frames are encoded from the
@@ -29,11 +40,10 @@ use rayon::prelude::*;
 
 use crate::state::lock::lock_recover;
 
-/// The scheme Linux thumbnails are served by.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+/// The scheme thumbnails are served by (Linux, Windows).
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub const SCHEME: &str = "rawtonic-thumb";
-/// Sent (with the new generation) when the transform changed.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+/// Sent (with the thumbnails' new generation) when a transform changed.
 pub const CHANGED_EVENT: &str = "monitor-colour-changed";
 /// Quality of a converted thumbnail (the cached one is quality 75).
 const THUMBNAIL_QUALITY: u8 = 95;
@@ -51,7 +61,7 @@ struct Current {
 impl Current {
     /// Installs `lut` (None: no transform); whether it differs from the
     /// one installed (then the generation moves on).
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
     fn set(&mut self, lut: Option<&DisplayLut>) -> bool {
         if self.lut.as_deref().map(|(l, _)| l) == lut {
             return false;
@@ -76,6 +86,12 @@ static SECOND: RwLock<Current> = RwLock::new(Current {
     generation: 0,
     lut: None,
 });
+/// The Library's thumbnails' (Linux: the main window's; Windows: the
+/// chosen profile's through the system's, see the module notes).
+static THUMBNAILS: RwLock<Current> = RwLock::new(Current {
+    generation: 0,
+    lut: None,
+});
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn slot(label: &str) -> &'static RwLock<Current> {
@@ -96,13 +112,28 @@ fn second() -> Option<Arc<(DisplayLut, ByteConverter)>> {
 }
 
 /// Installs `lut` for window `label`'s webview streams (None: no
-/// transform); whether it changed.
+/// transform; the main window's thumbnails too); whether it changed.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn set(label: &str, lut: Option<&DisplayLut>) -> bool {
-    slot(label)
+    let frames = slot(label)
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .set(lut);
+    let thumbnails = label != crate::second_window::LABEL && set_thumbnails(lut);
+    frames || thumbnails
+}
+
+/// Installs `lut` for the Library's thumbnails only (None: the cached
+/// files as they are); whether it changed.
+pub fn set_thumbnails(lut: Option<&DisplayLut>) -> bool {
+    THUMBNAILS
         .write()
         .unwrap_or_else(|e| e.into_inner())
         .set(lut)
+}
+
+fn thumbnails() -> (u64, Option<Arc<(DisplayLut, ByteConverter)>>) {
+    THUMBNAILS.read().unwrap_or_else(|e| e.into_inner()).get()
 }
 
 /// Whether the second window converts as the main window does (then it
@@ -119,10 +150,9 @@ pub fn second_frame(image: &image::RgbaImage) -> Cow<'_, image::RgbaImage> {
     frame_with(second().as_deref().map(|(_, c)| c), image)
 }
 
-/// The installed transform's generation.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+/// The thumbnails' transform's generation (their URLs carry it).
 pub fn generation() -> u64 {
-    current().0
+    thumbnails().0
 }
 
 /// `pixels` (8-bit RGBA rows) converted by `lut`, on all threads.
@@ -242,7 +272,7 @@ fn requested_path(uri: &tauri::http::Uri) -> Option<std::path::PathBuf> {
 }
 
 /// Serves a thumbnail request off the main thread.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub fn serve(
     app: tauri::AppHandle,
     request: tauri::http::Request<Vec<u8>>,
@@ -252,7 +282,7 @@ pub fn serve(
         let root = crate::file_management::resolve_thumbnail_cache_dir(&app).ok();
         let body = root
             .zip(requested_path(request.uri()))
-            .and_then(|(root, path)| thumbnail(&root, &path, current()));
+            .and_then(|(root, path)| thumbnail(&root, &path, thumbnails()));
         let response = match body {
             Some(body) => tauri::http::Response::builder()
                 .status(200)

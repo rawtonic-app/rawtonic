@@ -274,43 +274,109 @@ pub fn description(icc: &[u8]) -> Option<String> {
 /// profile `icc`; `None` when the monitor is the frame's own encoding
 /// (within [`IDENTITY_TOLERANCE`]).
 pub fn display_lut(source: Encoding, icc: &[u8]) -> Result<Option<DisplayLut>, ProfileError> {
-    let monitor =
-        ColorProfile::new_from_slice(icc).map_err(|e| ProfileError::Unreadable(e.to_string()))?;
-    if monitor.color_space != DataColorSpace::Rgb {
-        return Err(ProfileError::NotRgb);
-    }
+    let monitor = rgb_profile(icc)?;
     let frames = match source {
         Encoding::Srgb => ColorProfile::new_srgb(),
         Encoding::DisplayP3 => ColorProfile::new_display_p3(),
     };
-    let options = TransformOptions {
+    let transform = frames
+        .create_transform_f32(Layout::Rgb, &monitor, Layout::Rgb, transform_options())
+        .map_err(|e| ProfileError::NotConvertible(e.to_string()))?;
+    table(|input| run(transform.as_ref(), input))
+}
+
+/// The transform for images a colour-managing webview shows (Windows:
+/// WebView2 converts every untagged image from sRGB into the system's
+/// monitor profile `system`, None: no profile, i.e. sRGB) when the monitor
+/// profile chosen in Preferences, `chosen`, is to be shown instead
+/// (notes: benchmark-results/mcm3-2026-11-28/REPORT.md).
+///
+/// It takes each sRGB value to the monitor values `chosen` gives it, then
+/// back through the inverse of `system` to the sRGB value the webview
+/// turns into exactly those monitor values. `None` when that is the image
+/// itself (`chosen` converts as `system` does). Colours of `chosen` that
+/// `system` holds outside sRGB (a wide-gamut system profile) are clipped to
+/// sRGB here and cannot be shown as `chosen` gives them.
+pub fn managed_webview_lut(
+    chosen: &[u8],
+    system: Option<&[u8]>,
+) -> Result<Option<DisplayLut>, ProfileError> {
+    let srgb = ColorProfile::new_srgb();
+    let into_chosen = srgb
+        .create_transform_f32(
+            Layout::Rgb,
+            &rgb_profile(chosen)?,
+            Layout::Rgb,
+            transform_options(),
+        )
+        .map_err(|e| ProfileError::NotConvertible(e.to_string()))?;
+    let back = match system {
+        Some(icc) => Some(
+            rgb_profile(icc)?
+                .create_transform_f32(Layout::Rgb, &srgb, Layout::Rgb, transform_options())
+                .map_err(|e| ProfileError::NotConvertible(e.to_string()))?,
+        ),
+        None => None,
+    };
+    table(|input| {
+        let monitor: Vec<f32> = run(into_chosen.as_ref(), input)?
+            .into_iter()
+            .flatten()
+            .collect();
+        match &back {
+            Some(back) => run(back.as_ref(), &monitor),
+            None => Ok(monitor.as_chunks::<3>().0.to_vec()),
+        }
+    })
+}
+
+/// `icc` read as an RGB profile.
+fn rgb_profile(icc: &[u8]) -> Result<ColorProfile, ProfileError> {
+    let profile =
+        ColorProfile::new_from_slice(icc).map_err(|e| ProfileError::Unreadable(e.to_string()))?;
+    if profile.color_space != DataColorSpace::Rgb {
+        return Err(ProfileError::NotRgb);
+    }
+    Ok(profile)
+}
+
+/// Relative colorimetric, in floating point, without CICP shortcuts.
+fn transform_options() -> TransformOptions {
+    TransformOptions {
         rendering_intent: RenderingIntent::RelativeColorimetric,
         allow_use_cicp_transfer: false,
         prefer_fixed_point: false,
         ..TransformOptions::default()
-    };
-    let transform = frames
-        .create_transform_f32(Layout::Rgb, &monitor, Layout::Rgb, options)
+    }
+}
+
+/// RGB triples through `transform`, clamped to 0…1.
+fn run(
+    transform: &moxcms::TransformF32Executor,
+    input: &[f32],
+) -> Result<Vec<[f32; 3]>, ProfileError> {
+    let mut out = vec![0.0f32; input.len()];
+    transform
+        .transform(input, &mut out)
         .map_err(|e| ProfileError::NotConvertible(e.to_string()))?;
+    if out.iter().any(|v| !v.is_finite()) {
+        return Err(ProfileError::NotConvertible(
+            "values are not numbers".into(),
+        ));
+    }
+    Ok(out
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|c| c.map(|v| v.clamp(0.0, 1.0)))
+        .collect())
+}
 
-    let convert = |input: &[f32]| -> Result<Vec<[f32; 3]>, ProfileError> {
-        let mut out = vec![0.0f32; input.len()];
-        transform
-            .transform(input, &mut out)
-            .map_err(|e| ProfileError::NotConvertible(e.to_string()))?;
-        if out.iter().any(|v| !v.is_finite()) {
-            return Err(ProfileError::NotConvertible(
-                "values are not numbers".into(),
-            ));
-        }
-        Ok(out
-            .as_chunks::<3>()
-            .0
-            .iter()
-            .map(|c| c.map(|v| v.clamp(0.0, 1.0)))
-            .collect())
-    };
-
+/// The table of the transform `convert` (RGB triples in, RGB triples out);
+/// `None` when it moves no grid point by more than [`IDENTITY_TOLERANCE`].
+fn table(
+    convert: impl Fn(&[f32]) -> Result<Vec<[f32; 3]>, ProfileError>,
+) -> Result<Option<DisplayLut>, ProfileError> {
     let n = LUT_SIZE as usize;
     let step = 1.0 / (n - 1) as f32;
     let mut grid = Vec::with_capacity(n * n * n * 3);
@@ -610,6 +676,135 @@ mod tests {
             eprintln!("worst {worst:.3} codes");
             assert!(worst < 0.5, "worst {worst} codes");
         }
+    }
+
+    /// A synthetic panel profile: sRGB primaries, a BT.709-type curve
+    /// (gamma 1/0.45 with a linear toe; a pure power curve would turn the
+    /// colorants' fixed-point crosstalk into codes near black in the
+    /// webview model below).
+    fn gamma_panel() -> Vec<u8> {
+        let mut panel = ColorProfile::new_srgb();
+        let curve = moxcms::ToneReprCurve::Parametric(vec![
+            1.0 / 0.45,
+            1.0 / 1.099,
+            0.099 / 1.099,
+            1.0 / 4.5,
+            0.081,
+        ]);
+        panel.red_trc = Some(curve.clone());
+        panel.green_trc = Some(curve.clone());
+        panel.blue_trc = Some(curve);
+        panel.cicp = None;
+        panel.encode().unwrap()
+    }
+
+    /// What a colour-managing webview shows for the served 8-bit `value`:
+    /// sRGB converted into `system`, to the nearest code.
+    fn webview_shows(system: &[u8], value: [u8; 3]) -> [u8; 3] {
+        let monitor = ColorProfile::new_from_slice(system).unwrap();
+        let transform = ColorProfile::new_srgb()
+            .create_transform_f32(Layout::Rgb, &monitor, Layout::Rgb, transform_options())
+            .unwrap();
+        let out = run(transform.as_ref(), &value.map(|v| v as f32 / 255.0)).unwrap();
+        out[0].map(code)
+    }
+
+    /// The table's 8-bit value for sRGB `patch`, as `ByteConverter` serves it.
+    fn served(lut: &DisplayLut, patch: [u8; 3]) -> [u8; 3] {
+        let mut pixel = [patch[0], patch[1], patch[2], 255];
+        lut.byte_converter().convert_rgba8(&mut pixel);
+        [pixel[0], pixel[1], pixel[2]]
+    }
+
+    #[test]
+    fn webview_thumbnails_are_the_image_itself_without_another_profile() {
+        // No override is no table at all (the app never asks); an override
+        // that converts as the system's does is none either.
+        let srgb = ColorProfile::new_srgb().encode().unwrap();
+        assert_eq!(managed_webview_lut(&srgb, None), Ok(None));
+        assert_eq!(managed_webview_lut(&srgb, Some(&srgb)), Ok(None));
+        for icc in [
+            ColorProfile::new_display_p3().encode().unwrap(),
+            ColorProfile::new_adobe_rgb().encode().unwrap(),
+            gamma_panel(),
+        ] {
+            assert_eq!(managed_webview_lut(&icc, Some(&icc)), Ok(None));
+        }
+    }
+
+    #[test]
+    fn webview_thumbnails_show_the_chosen_profiles_values() {
+        // Override Adobe RGB (wide), system a panel profile: after the
+        // webview's sRGB → panel conversion each patch shows the Adobe RGB
+        // value of the exact maths (±1).
+        let adobe = ColorProfile::new_adobe_rgb().encode().unwrap();
+        let gamma = |v: f64| v.powf(256.0 / 563.0);
+        let panel = gamma_panel();
+        let lut = managed_webview_lut(&adobe, Some(&panel))
+            .unwrap()
+            .expect("a table");
+        // No profile assigned: the webview shows sRGB values as they are.
+        let unprofiled = managed_webview_lut(&adobe, None).unwrap().expect("a table");
+        for patch in PATCHES {
+            let want = expected(patch, ADOBE, gamma);
+            for (shown, how) in [
+                (webview_shows(&panel, served(&lut, patch)), "panel"),
+                (served(&unprofiled, patch), "no profile"),
+            ] {
+                for c in 0..3 {
+                    assert!(
+                        (shown[c] as i16 - want[c] as i16).abs() <= 1,
+                        "{how} {patch:?}: {shown:?} vs {want:?}"
+                    );
+                }
+            }
+        }
+        // Red really moved.
+        assert!(served(&lut, [255, 0, 0])[0] < 240);
+    }
+
+    #[test]
+    fn webview_thumbnails_on_a_wide_system_profile_clip_to_srgb() {
+        // System Display P3, override Adobe RGB: colours inside sRGB in
+        // P3's terms are shown as Adobe RGB gives them; saturated ones
+        // that P3 holds outside sRGB come out as far as sRGB reaches.
+        let adobe = ColorProfile::new_adobe_rgb().encode().unwrap();
+        let p3 = ColorProfile::new_display_p3().encode().unwrap();
+        let gamma = |v: f64| v.powf(256.0 / 563.0);
+        let lut = managed_webview_lut(&adobe, Some(&p3)).unwrap().unwrap();
+        for patch in [
+            [128, 128, 128],
+            [255, 255, 255],
+            [0, 0, 0],
+            [200, 100, 50],
+            [240, 200, 170],
+        ] {
+            let want = expected(patch, ADOBE, gamma);
+            let shown = webview_shows(&p3, served(&lut, patch));
+            for c in 0..3 {
+                assert!(
+                    (shown[c] as i16 - want[c] as i16).abs() <= 1,
+                    "{patch:?}: {shown:?} vs {want:?}"
+                );
+            }
+        }
+        // Adobe RGB's red (219, 0, 0) lies outside sRGB in P3's terms: the
+        // webview shows the clipped colour instead (the limit noted at
+        // `managed_webview_lut`).
+        let red = webview_shows(&p3, served(&lut, [255, 0, 0]));
+        assert!(red[1] > 30 && red[2] > 20, "{red:?}");
+    }
+
+    #[test]
+    fn webview_thumbnails_refuse_unusable_profiles() {
+        let adobe = ColorProfile::new_adobe_rgb().encode().unwrap();
+        let gray = ColorProfile::new_gray_with_gamma(2.2).encode().unwrap();
+        assert!(managed_webview_lut(b"junk", None).is_err());
+        assert!(managed_webview_lut(&adobe, Some(b"junk")).is_err());
+        assert_eq!(
+            managed_webview_lut(&adobe, Some(&gray)),
+            Err(ProfileError::NotRgb)
+        );
     }
 
     #[test]

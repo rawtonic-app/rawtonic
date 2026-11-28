@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **More faithful colour for new RAW edits.** RAWs in the default (neutral) look now get Rawtonic's own base colour correction, fitted to Camera Raw's default rendering of CC0 photos from 282 camera models. On 70 validation photos from 70 other camera models (the set its grid size and smoothness were chosen on; a separate hold-out is not yet scored), the median colour difference to Camera Raw fell from 2.61 to 2.36 ΔE00 (59 of 70 photos closer), skin tones from 3.88 to 3.47; greys stay neutral. It is not yet as close as the best other editors on every photo, and it does not apply with a camera profile, a file's own look, AgX or Classic. Only new edits get it: photos you have edited keep their colours exactly, and their exports are unchanged. Library tiles of RAWs that follow your develop defaults are made again once.
+- Windows: with a monitor profile chosen in Preferences (Display), the Library's thumbnails (grid, filmstrip, loupe) are now shown through that profile like Develop's preview, instead of through the system's profile only (they differed by up to 64 levels per channel on a test laptop). Without a chosen profile nothing changes. Not yet rechecked on a Windows machine; where the system's own profile reaches beyond sRGB, the chosen profile's most saturated colours can be shown only as far as sRGB reaches.
 - German Preferences show Strg and Umschalt for Windows/Linux shortcuts; the level perspective mode is labelled Waagerecht.
 
 ## 0.1.0-alpha.22 — 2026-11-28

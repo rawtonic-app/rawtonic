@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path: string, protocol = 'asset') => `${protocol}://localhost/${encodeURIComponent(path)}`
 }));
-vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => 'macos' }));
+const os = vi.hoisted(() => ({ name: 'macos' }));
+vi.mock('@tauri-apps/plugin-os', () => ({ platform: () => os.name }));
 
 import {
   forMonitorTransform,
@@ -14,7 +15,25 @@ import {
 } from './thumbnailUrl';
 
 describe('thumbnailFileUrl', () => {
-  afterEach(() => setThumbnailPlatformForTests(null));
+  afterEach(() => {
+    setThumbnailPlatformForTests(null);
+    os.name = 'macos';
+  });
+
+  it('goes through the scheme on Linux and Windows, the asset protocol on macOS', () => {
+    // Windows: WebView2 applies only the system's profile; the scheme
+    // serves the file as it is unless a chosen profile is shown (MCM3).
+    for (const [name, scheme] of [
+      ['linux', true],
+      ['windows', true],
+      ['macos', false]
+    ] as const) {
+      setThumbnailPlatformForTests(null);
+      os.name = name;
+      const url = thumbnailFileUrl('C:\\cache\\a_small.jpg');
+      expect(url.startsWith(scheme ? 'rawtonic-thumb://' : 'asset://'), `${name}: ${url}`).toBe(true);
+    }
+  });
 
   it('uses the asset protocol where the system matches images to the display', () => {
     setThumbnailPlatformForTests(false);
