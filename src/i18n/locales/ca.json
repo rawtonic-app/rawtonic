@@ -3157,7 +3157,8 @@
   },
   "studio": {
     "adjustment": {
-      "scrubHint": "Arrossega per ajustar · doble clic per restablir · mantén premut el nom per veure la foto amb el valor per defecte",
+      "scrubHint": "Arrossega per ajustar · doble clic per restablir",
+      "scrubHintPeek": "Arrossega per ajustar · doble clic per restablir · mantén premut el nom per veure la foto amb el valor per defecte",
       "trackHint": "Arrossega per ajustar; allunya el punter del control per a passos més fins · Alt (⌥): una desena part · doble clic per restablir",
       "trackHintSharpenGrey": "Arrossega per ajustar; allunya el punter del control per a passos més fins · Alt (⌥) mentre arrossegues: mostra la foto en gris · doble clic per restablir",
       "trackHintSharpenMask": "Arrossega per ajustar; allunya el punter del control per a passos més fins · Alt (⌥) mentre arrossegues: mostra què s'enfoca (blanc) · doble clic per restablir",

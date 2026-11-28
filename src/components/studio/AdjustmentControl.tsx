@@ -447,7 +447,7 @@ export default memo(function AdjustmentControl({
     >
       <label
         htmlFor={id}
-        title={t('studio.adjustment.scrubHint')}
+        title={peek ? t('studio.adjustment.scrubHintPeek') : t('studio.adjustment.scrubHint')}
         onPointerDown={scrubStart}
         onPointerMove={(e) => {
           if (!scrub.current || peekingRef.current) return;

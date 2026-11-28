@@ -34,7 +34,7 @@ import { appliedStyleOf, revertStyle, withStyleAmount } from '../../utils/applie
 import { presetPreview, presetValues, toolPresetToSave } from './toolPresets';
 import { presetDefaultItems } from './developDefaultsMenus';
 import { noteTool } from '../contribute/usageStats';
-import { contentKey, usePresetThumbnails, type PresetTile } from './presetThumbnails';
+import { contentKey, holdPresetThumbnails, usePresetThumbnails, type PresetTile } from './presetThumbnails';
 
 type Entry = { folder: { id: string; name: string; builtin?: boolean } | null; presets: Preset[] };
 
@@ -120,7 +120,9 @@ export function presetPreviewOf(
 /** A preset's version for its cached tiles: its settings' content. */
 const presetVersions = new WeakMap<object, string>();
 function presetVersion(preset: Preset): string {
-  const adjustments = preset.adjustments as object;
+  const adjustments = preset.adjustments as unknown;
+  // An imported file may hold anything: only objects are weak-map keys.
+  if (typeof adjustments !== 'object' || adjustments === null) return contentKey(adjustments ?? null);
   let version = presetVersions.get(adjustments);
   if (!version) {
     version = contentKey(preset.adjustments);
@@ -325,17 +327,15 @@ export default function StudioPresets() {
   }, [appliedStyle, presets, builtins]);
   // Controls keep their look while the next photograph loads.
   const panelsReady = useEditorStore(panelsShowReady);
-  // An Amount drag is a slider drag (draft renders, one history step, no
-  // preset tiles meanwhile) until the pointer comes up anywhere.
-  const dragAmount = (e: PointerEvent<HTMLInputElement>) => {
+  // A pointer held on Amount: preset tiles wait until it comes up (anywhere).
+  const holdTiles = (e: PointerEvent<HTMLInputElement>) => {
     if (e.button !== 0) return;
-    const { setEditor } = useEditorStore.getState();
-    setEditor({ isSliderDragging: true });
+    const release = holdPresetThumbnails();
     const end = () => {
       window.removeEventListener('pointerup', end, true);
       window.removeEventListener('pointercancel', end, true);
       window.removeEventListener('blur', end);
-      setEditor({ isSliderDragging: false });
+      release();
     };
     window.addEventListener('pointerup', end, true);
     window.addEventListener('pointercancel', end, true);
@@ -886,7 +886,7 @@ export default function StudioPresets() {
             aria-label={t('studio.presets.amount')}
             value={appliedStyle.amount}
             disabled={!panelsReady}
-            onPointerDown={dragAmount}
+            onPointerDown={holdTiles}
             onChange={(e) => changeStyleAmount(Number(e.target.value))}
             onKeyDown={(e) => e.stopPropagation()}
           />
@@ -904,7 +904,7 @@ export default function StudioPresets() {
             step={1}
             aria-label={t('studio.presets.amount')}
             value={amount.value}
-            onPointerDown={dragAmount}
+            onPointerDown={holdTiles}
             onChange={(e) => changeAmount(Number(e.target.value))}
             onKeyDown={(e) => e.stopPropagation()}
           />

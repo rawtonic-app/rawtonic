@@ -83,6 +83,22 @@ export function clearPresetThumbnailCache() {
 
 let generations = 0;
 
+/** A pointer held on the preset Amount: tiles wait as during a slider drag. */
+let held = false;
+const holdListeners = new Set<() => void>();
+/** Holds the tiles until the returned function is called (the Amount's
+ * pointer comes up): no new batch starts and the one in flight stops. */
+export function holdPresetThumbnails(): () => void {
+  held = true;
+  holdListeners.forEach((listener) => listener());
+  return () => {
+    if (!held) return;
+    held = false;
+    holdListeners.forEach((listener) => listener());
+  };
+}
+const paused = () => held || useEditorStore.getState().isSliderDragging;
+
 /**
  * The presets grid's tiles: the open photograph rendered natively with each
  * preset (`preset_thumbnails`, from the shown frame's preview base) for the
@@ -118,15 +134,17 @@ export function usePresetThumbnails(
   // stops the batch in flight; the rest is rendered when it ends.
   useEffect(() => {
     if (!enabled) return;
+    const stop = () => {
+      if (!inFlight.current) return;
+      stoppedForDrag.current = true;
+      void invoke(Invokes.CancelPresetThumbnails, { generation: inFlight.current }).catch(() => undefined);
+    };
     let last = useEditorStore.getState();
-    return useEditorStore.subscribe((state) => {
+    const unsubscribe = useEditorStore.subscribe((state) => {
       const before = last;
       last = state;
-      if (state.isSliderDragging && !before.isSliderDragging && inFlight.current) {
-        stoppedForDrag.current = true;
-        void invoke(Invokes.CancelPresetThumbnails, { generation: inFlight.current }).catch(() => undefined);
-      }
-      if (state.isSliderDragging) return;
+      if (state.isSliderDragging && !before.isSliderDragging) stop();
+      if (paused()) return;
       if (
         state.adjustments !== before.adjustments ||
         before.isSliderDragging ||
@@ -134,6 +152,12 @@ export function usePresetThumbnails(
       )
         bump();
     });
+    const onHold = () => (held ? stop() : paused() || bump());
+    holdListeners.add(onHold);
+    return () => {
+      unsubscribe();
+      holdListeners.delete(onHold);
+    };
   }, [enabled]);
 
   // Which tiles are on screen (a closed panel shows none).
@@ -186,8 +210,7 @@ export function usePresetThumbnails(
     if (!shownSince.current) shownSince.current = performance.now();
     const run = async () => {
       const state = useEditorStore.getState();
-      if (gone || state.isSliderDragging || !state.selectedImage?.isReady || state.selectedImage.path !== imagePath)
-        return;
+      if (gone || paused() || !state.selectedImage?.isReady || state.selectedImage.path !== imagePath) return;
       const recipe = state.adjustments;
       const recipeKey = contentKey(recipe);
       const live = new Set(cache.values());
@@ -218,7 +241,7 @@ export function usePresetThumbnails(
       const size = Math.round(PRESET_TILE_POINTS * Math.min(2, window.devicePixelRatio || 1));
       for (let at = 0; at < want.length && !gone; at += BATCH) {
         // A drag that started meanwhile has the GPU: the rest waits for its end (`bump`).
-        if (useEditorStore.getState().isSliderDragging) return;
+        if (paused()) return;
         const batch = want.slice(at, at + BATCH);
         generation = ++generations;
         inFlight.current = generation;
@@ -236,7 +259,7 @@ export function usePresetThumbnails(
           console.error('Preset thumbnails failed:', error);
           return;
         } finally {
-          inFlight.current = 0;
+          if (inFlight.current === generation) inFlight.current = 0;
         }
         if (gone) return;
         const interrupted = stoppedForDrag.current;

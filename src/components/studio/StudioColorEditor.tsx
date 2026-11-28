@@ -165,6 +165,7 @@ export default function StudioColorEditor({ values, layerId, disabled, change, o
         defaultValue={fallback}
         disabled={disabled}
         onInteraction={onInteraction}
+        peek
         onChange={(v) => setRange({ [key]: v })}
       />
     );

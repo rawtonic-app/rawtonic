@@ -120,6 +120,14 @@ describe('holding a slider label (UI-PEEK)', () => {
     expect(useEditorStore.getState()).toMatchObject({ previewOverride: null, toolBefore: null });
   });
 
+  it('names the hold in the tooltip only where it works', () => {
+    const { label } = renderClarity();
+    expect(label.title).toContain('hold the name');
+    cleanup();
+    render(<AdjustmentControl label="Size" value={40} onChange={vi.fn()} />);
+    expect(screen.getByText('Size').title).not.toContain('hold the name');
+  });
+
   it('marks the default on the track', () => {
     renderClarity({ min: -100, max: 100 });
     const track = screen.getByRole('slider', { name: 'Clarity' });

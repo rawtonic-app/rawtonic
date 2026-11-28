@@ -236,16 +236,30 @@ describe('presets grid (PRESET-THUMB)', () => {
     expect(document.querySelectorAll('.studio-preset-thumb img')).toHaveLength(3);
   });
 
-  it('an Amount drag counts as a slider drag until the pointer comes up', async () => {
+  it('a pointer held on Amount holds the tiles (no new batch, the one in flight stops) until it comes up', async () => {
     await renderPanel();
     // A tool preset applied to the open photo gets its Amount.
     fireEvent.click(screen.getByRole('button', { name: 'Warm evening' }));
     const amount = screen.getByRole('slider', { name: 'Preset amount' });
-    expect((amount as HTMLInputElement).disabled).toBe(false);
+    const pending: ((value: ArrayBuffer) => void)[] = [];
+    answer = () => new Promise<ArrayBuffer>((resolve) => pending.push(resolve));
+    act(() => useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 2 } }));
+    await settle();
+    const calls = tileCalls.length;
+    expect(pending).toHaveLength(1);
     fireEvent.pointerDown(amount, { button: 0 });
-    expect(useEditorStore.getState().isSliderDragging).toBe(true);
-    fireEvent.pointerUp(window);
+    expect(mockInvoke).toHaveBeenCalledWith('cancel_preset_thumbnails', { generation: tileCalls.at(-1)!.generation });
+    // The Amount is not a draft drag: it changes nothing else.
     expect(useEditorStore.getState().isSliderDragging).toBe(false);
+    await act(async () => pending[0](framed(3, [0, 1, 2])));
+    act(() => useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 2.5 } }));
+    await settle();
+    expect(tileCalls).toHaveLength(calls);
+    answer = async (call) => framed(call.variants.length);
+    fireEvent.pointerUp(window);
+    await settle();
+    expect(tileCalls).toHaveLength(calls + 1);
+    expect(document.querySelectorAll('.studio-preset-thumb.is-unavailable')).toHaveLength(0);
   });
 
   it('cancels the tiles still rendering when another photo opens or the panel closes', async () => {
