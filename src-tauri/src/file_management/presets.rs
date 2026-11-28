@@ -572,6 +572,34 @@ mod tests {
         assert_eq!(onto_new["dehaze"].as_f64(), Some(30.0));
     }
 
+    /// Dehaze on a mask alone also states the response it was translated for.
+    #[test]
+    fn a_lightroom_presets_mask_dehaze_states_its_response() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mask.xmp");
+        rawtonic_fs::atomic_write(
+            &path,
+            br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+            <crs:MaskGroupBasedCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="true" crs:LocalDehaze="0.5">
+            <crs:CorrectionMasks><rdf:Seq><rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="1" crs:Radius="0.05" crs:Flow="1" crs:CenterWeight="0"><crs:Dabs><rdf:Seq><rdf:li>d 0.300000 0.500000</rdf:li></rdf:Seq></crs:Dabs></rdf:Description></rdf:li></rdf:Seq></crs:CorrectionMasks>
+            </rdf:Description></rdf:li></rdf:Seq></crs:MaskGroupBasedCorrections></rdf:Description></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        let (items, _) = parse_preset_file_reporting(path.to_str().unwrap()).unwrap();
+        let PresetItem::Preset(preset) = &items[0] else {
+            panic!("not a preset")
+        };
+        assert!(preset.adjustments.get("dehaze").is_none());
+        assert_eq!(
+            preset.adjustments["masks"][0]["adjustments"]["dehaze"].as_f64(),
+            Some(30.0)
+        );
+        assert_eq!(
+            preset.adjustments["dehazeVersion"].as_u64(),
+            Some(rawtonic_engine::image_processing::DEHAZE_VERSION)
+        );
+    }
+
     #[test]
     fn saving_presets_keeps_ai_parameters_without_photo_detection_data() {
         let preset: Preset = serde_json::from_value(serde_json::json!({
