@@ -1,0 +1,7 @@
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Dehaze="+50" crs:Shadows2012="+100" crs:Whites2012="+50">
+      <crs:Name><rdf:Alt><rdf:li>Lightroom travel</rdf:li></rdf:Alt></crs:Name>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
