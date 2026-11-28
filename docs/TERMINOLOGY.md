@@ -1,18 +1,16 @@
 # Terminology
 | Lightroom | Capture One | Rawtonic |
 |---|---|---|
-| Virtual copy | Variant | Version |
-| Preset | Style | Style |
+| Virtual copy | Variant | Virtual copy |
+| Preset | Style | Styles & presets |
 | Export preset | Process recipe | Export recipe |
 | Masking | Layers | Layers |
 | Catalog | Catalog | Catalog |
-| — | Session | Project |
+| — | Session | Session |
 | Pick/reject | Color/rating workflow | Pick/reject |
 | Develop | Adjustments | Develop |
 | Loupe view | Viewer | Loupe |
 | Full Screen Preview | — | Full screen (F) |
 | Synchronize Folder | Synchronize | Synchronize Folder |
 | Previous Import | Recent Imports | Previous Import |
-The inherited editor still exposes some legacy names; workspace-specific vocabulary is a tracked gap.
-
-Rawtonic calls its portable, per-assignment workspace **Project** (German: **Projekt**). Capture One imports keep the source product’s term **Session**. Internal `session` identifiers, commands, naming tokens and on-disk filenames stay compatible with existing libraries.
+Rawtonic calls its portable, per-assignment workspace **Session** (German: **Session**). A **virtual copy** holds another edit of the same photo. **Styles & presets** is the panel for saved adjustments. Internal identifiers, commands, naming tokens and on-disk filenames stay compatible with existing libraries.

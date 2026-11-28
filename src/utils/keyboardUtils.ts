@@ -1020,9 +1020,10 @@ function isValidShortcutKey(code: string): boolean {
   return code in symMap;
 }
 
-export function formatKeyCode(key: string, osPlatform: string, withCtrl = false): string {
-  if (key === 'ctrl') return osPlatform === 'macos' ? '⌘' : 'Ctrl';
-  if (key === 'shift') return 'Shift';
+export function formatKeyCode(key: string, osPlatform: string, withCtrl = false, language = 'en'): string {
+  const german = language.split('-')[0] === 'de';
+  if (key === 'ctrl') return osPlatform === 'macos' ? '⌘' : german ? 'Strg' : 'Ctrl';
+  if (key === 'shift') return german && osPlatform !== 'macos' ? 'Umschalt' : 'Shift';
   if (key === 'alt') return osPlatform === 'macos' ? '⌥' : 'Alt';
   if (key === 'Delete' && osPlatform === 'macos') return '⌫ / Delete / ⌘+⌫';
   const label = codeToDisplayLabel(key, withCtrl);

@@ -11,6 +11,80 @@
     "export": {
       "paths": ["crates/export/src/*", "src/components/studio/StudioExport*.tsx"],
       "terms": ["Export", "Exports", "Export dialog", "Super Resolution", "Save As"]
+    },
+    "import": {
+      "paths": [
+        "src/components/session/*Ingest*",
+        "crates/ingest/src/*",
+        "src/components/session/SessionWorkspace.tsx",
+        "src/components/session/NextCaptureFields.tsx"
+      ],
+      "terms": ["Import", "Hot folder", "Synchronize Folder", "XMP"]
+    },
+    "catalogImport": {
+      "paths": ["crates/interop/src/*"],
+      "terms": ["Lightroom", "Capture One", "Import from Lightroom"]
+    },
+    "library": {
+      "paths": [
+        "src/components/studio/StudioBrowser.tsx",
+        "src/components/studio/StudioCulling.tsx",
+        "src/components/studio/MultiView*.tsx",
+        "src/components/studio/StudioFilters.tsx"
+      ],
+      "terms": ["Library", "Multi view", "Auto-advance", "Culling", "Stacks", "zoom"]
+    },
+    "tether": {
+      "paths": ["crates/tether/src/*", "src/components/session/*Tether*", "docs/TETHER_CAMERAS.md"],
+      "terms": ["Tethering", "tethered"]
+    },
+    "develop": {
+      "paths": [
+        "src/components/studio/StudioHistory.tsx",
+        "src/components/studio/StudioSnapshots.tsx",
+        "src/components/studio/CopySettingsDialog.tsx",
+        "src/components/studio/toolLayout.tsx"
+      ],
+      "terms": ["Before/After", "History", "Snapshots", "Copy adjustments", "Sync", "Paste"]
+    },
+    "color": {
+      "paths": ["src/components/studio/StudioColor*.tsx", "src/components/studio/StudioWhiteBalance.tsx"],
+      "terms": [
+        "White balance",
+        "Color mixer",
+        "Colour mixer",
+        "Color editor",
+        "Color Grading",
+        "Black & white",
+        "Calibration"
+      ]
+    },
+    "sharpening": {
+      "terms": ["Sharpening", "Grain", "Defringe", "Moiré"]
+    },
+    "crop": {
+      "paths": [
+        "src/components/studio/StudioCropControls.tsx",
+        "src/components/studio/StudioUpright.tsx",
+        "src/components/studio/StudioLensCorrection.tsx",
+        "crates/engine/src/embedded_lens.rs"
+      ],
+      "terms": ["Crop", "Straighten", "Upright", "Perspective Correction", "Lens correction"]
+    },
+    "presets": {
+      "paths": ["src/components/studio/StudioPresets.tsx", "src/components/studio/StudioToolPresets.tsx"],
+      "terms": ["Presets", "Styles", "preset thumbnails", "Develop defaults"]
+    },
+    "layers": {
+      "paths": [
+        "src/components/studio/StudioLayers.tsx",
+        "src/components/studio/StudioMaskComponents.tsx",
+        "crates/segment/src/*"
+      ],
+      "terms": ["Masks", "Layers", "Subject", "Sky", "People", "Landscape"]
+    },
+    "shortcuts": {
+      "paths": ["src/utils/keyboardUtils.ts"]
     }
   }
 }

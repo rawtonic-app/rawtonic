@@ -1905,7 +1905,7 @@
     },
     "ingest": {
       "addFiles": "Fotos hinzufügen …",
-      "addFolder": "Ordner hinzufügen …",
+      "addFolder": "Ordner hinzufügen…",
       "addFromCard": "Fotos auf einer Speicherkarte müssen von ihr kopiert werden: Die Karte wird wieder gelöscht und neu verwendet.",
       "addNote": "Die Fotos bleiben am bisherigen Speicherort. Sie ziehen nicht mit dem Katalogordner um; eine portable Kopie oder ein vollständiges Backup nimmt sie mit.",
       "addToAlbum": "Nach dem Import zum Album „{{name}}“ hinzufügen",
@@ -5651,7 +5651,7 @@
       "modes": {
         "auto": {
           "label": "Auto",
-          "title": "Vertikal, wenn das Foto stürzende Linien hat, sonst Ebene"
+          "title": "Vertikal, wenn das Foto stürzende Linien hat, sonst Waagerecht"
         },
         "full": {
           "label": "Voll",
@@ -5662,7 +5662,7 @@
           "title": "Zeichne bis zu zwei vertikale und zwei horizontale Hilfslinien auf das Foto"
         },
         "level": {
-          "label": "Ebene",
+          "label": "Waagerecht",
           "title": "Nur Drehung"
         },
         "off": {
