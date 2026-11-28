@@ -32,6 +32,8 @@
 #                          default: every local or origin docs-* branch not in
 #                          its main;
 #                          `none` for none)
+#     --no-docs-shots      skip the documentation screenshots (stage docs-shots):
+#                          the website keeps the ones it has
 #     --list               list the stages
 #
 # Every stage logs to WORK/logs/STAGE.log and leaves WORK/state/STAGE.ok when it
@@ -45,7 +47,7 @@ REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SCRIPTS="$REPO_ROOT/scripts/release"
 
 STAGES=(preflight bump docs source prev
-  mac-arm64 dmg-arm64 ident mac-x86_64 dmg-x86_64 qa-app gui relay
+  mac-arm64 dmg-arm64 ident mac-x86_64 dmg-x86_64 qa-app gui docs-shots relay
   linux linux-smoke
   windows
   updater creds sums notes site draft)
@@ -55,7 +57,7 @@ PUB_STAGES=(publish site-deploy site-verify)
 usage() { sed -n '3,/^set -uo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 
 DRY=0 BUMP=1 DRAFT=1 PUBLISH=0 SHA_ARG="" PREV="" DATE="" FROM="" ONLY="" ACCEPT_DIFF=0 VERSION=""
-DOCS_REVIEWED="" DOCS_BRANCH_ARGS=()
+DOCS_REVIEWED="" DOCS_BRANCH_ARGS=() DOCS_SHOTS=1
 while [ $# -gt 0 ]; do
   case $1 in
     --dry-run) DRY=1; shift ;;
@@ -70,6 +72,7 @@ while [ $# -gt 0 ]; do
     --accept-ident-diff) ACCEPT_DIFF=1; shift ;;
     --docs-reviewed) DOCS_REVIEWED=$2; [ -n "$2" ] || { echo "release: --docs-reviewed needs the reason" >&2; exit 2; }; shift 2 ;;
     --docs-branch) DOCS_BRANCH_ARGS+=("$2"); shift 2 ;;
+    --no-docs-shots) DOCS_SHOTS=0; shift ;;
     --list) printf '%s\n' "${STAGES[@]}" "${PUB_STAGES[@]}"; exit 0 ;;
     -h|--help) usage 0 ;;
     -*) echo "release: unknown option $1" >&2; usage ;;
@@ -114,6 +117,10 @@ for v in ${DOCS_BRANCHES[@]+"${DOCS_BRANCHES[@]}"}; do
   [[ $v =~ ^[A-Za-z0-9._/-]+$ ]] && [[ $v != *..* ]] || { echo "release: docs branch '$v' may only hold letters, digits and . _ / -" >&2; exit 2; }
 done
 [ ${#DOCS_BRANCHES[@]} -gt 0 ] && DOCS_DESC="${DOCS_BRANCHES[*]}"
+# The documentation screenshots (stage docs-shots): the private demo library and
+# an installed model folder of the QA identifier for the AI tools.
+DOCS_DEMO=${RAWTONIC_DOCS_DEMO:-}
+DOCS_MODELS=${RAWTONIC_DOCS_MODELS:-$HOME/Library/Application Support/$QA_ID/models}
 SITE_URL=https://rawtonic.cc
 read -ra SSH <<< "${RAWTONIC_LINUX_SSH:-}"
 # Remote paths go into command lines on the host unquoted: allow only plain ones.
@@ -165,6 +172,8 @@ describe() {
     ident) echo "previous vs new arm64 app: each photo × each recipe in ${RECIPES:-RECIPES} → 16-bit TIFF, SHA-256 compared (a difference is re-run with fresh HOMEs)";;
     qa-app) echo "in $WTQA, CARGO_TARGET_DIR=$WORK/qatarget: ${LOCK[*]} scripts/tether/bundle_helper.sh; npx tauri build --features qa-control --bundles app --config <tether conf> --config '{\"identifier\":\"$QA_ID\",…}' (VITE_RAWTONIC_QA=1); cargo build --release -p rawtonic-cli";;
     gui) echo "python3 scripts/release/gui_smoke.py --app <QA app> --cli <rawtonic> --raw <CR3> --port $QA_PORT --version $VERSION --work $WORK/gui (fresh HOME: start, quit; What's new; session; Develop frame; export; quit)";;
+    docs-shots) if [ "$DOCS_SHOTS" = 0 ]; then echo "skipped (--no-docs-shots): the website keeps its screenshots"; else
+          echo "the website's screenshot places ({{shot \"id\" …}} in pages/ of origin/main and the docs branches) → WORK/docs-shots/places.txt; python3 scripts/docs-shots/capture.py --app <QA app> --demo ${DOCS_DEMO:-\$RAWTONIC_DOCS_DEMO} --models '$DOCS_MODELS' --places … --out $WORK/docs-shots --port $QA_PORT (fresh HOME, a clone of the demo session, en and de interface; each shot of scripts/docs-shots/shots.json at Retina 2x) → WORK/docs-shots/png/shot-ID[-de].png for site; a failed shot or a place without a shot is listed, never fails the stage; no demo library: skipped with a note"; fi;;
     relay) echo "cargo run --release of a scratch crate on $WT/crates/contribute: send one report to the build's relay and delete it";;
     linux) echo "git archive SHA | ${SSH[*]:-ssh HOST} tar -x -C $LINUX_DIR/$VERSION/src; ${SSH[*]:-ssh HOST} 'flock ${LINUX_LOCK:-LOCK} chrt --other 0 packaging/linux/build-appimage.sh $LINUX_CACHE' (scripts/release/linux.sh build); copy AppImage + .zsync back";;
     linux-smoke) echo "scripts/release/linux.sh smoke on the host: relay string, zsync info, xvfb-run host exports vs the previous AppImage, ubuntu:22.04 ubuntu:24.04 debian:12 fedora:42 container exports";;
@@ -173,7 +182,7 @@ describe() {
     creds) echo "count every signing credential value (Apple and updater key, except the public identity hash) in $LOGS, the built apps, the notes and latest.json: must be 0; gitleaks dir $LOGS";;
     sums) echo "LGPL tarballs (previous release or pinned URL, SHA-256 against scripts/tether/build_libgphoto2.sh); shasum -a 256 * > $ASSETS/SHA256SUMS.txt";;
     notes) echo "python3 scripts/release/notes.py: CHANGELOG section $VERSION + the previous release's install/feedback text → $WORK/notes.md";;
-    site) echo "website clone ${WEBSITE:-\$RAWTONIC_WEBSITE_DIR}: worktree $WEBWT on branch $WEB_BRANCH (the local or origin branch with whatsNew, else from origin/main); the docs check again (a docs branch moved since stage docs is checked anew), then git merge --no-ff of each docs commit of $STATE/docs-branches not in it yet; scripts/release/website.py write: release.json version/date/dateText/tag and every file with size (MiB, half-up) and SHA-256 from $ASSETS/SHA256SUMS.txt; fails unless whatsNew is $VERSION's (en, de); RAWTONIC_CHANGELOG=$WORK/CHANGELOG.md node scripts/build.mjs --strict; commit 'release: $VERSION' on $WEB_BRANCH (not pushed, never deployed)";;
+    site) echo "website clone ${WEBSITE:-\$RAWTONIC_WEBSITE_DIR}: worktree $WEBWT on branch $WEB_BRANCH (the local or origin branch with whatsNew, else from origin/main); the docs check again (a docs branch moved since stage docs is checked anew), then git merge --no-ff of each docs commit of $STATE/docs-branches not in it yet; scripts/release/website.py write: release.json version/date/dateText/tag and every file with size (MiB, half-up) and SHA-256 from $ASSETS/SHA256SUMS.txt; fails unless whatsNew is $VERSION's (en, de); the screenshots of stage docs-shots (if it made any): scripts/images.sh WORK/docs-shots/png, commit 'docs: screenshots of $VERSION'; RAWTONIC_CHANGELOG=$WORK/CHANGELOG.md node scripts/build.mjs --strict; commit 'release: $VERSION' on $WEB_BRANCH (not pushed, never deployed)";;
     draft) if [ "$DRAFT" = 0 ]; then echo "skipped (--no-draft)"; else echo "gh release create $TAG --draft --prerelease --target SHA --title 'Rawtonic $VERSION' --notes-file $WORK/notes.md $ASSETS/* (never published here); every URL in latest.json among the draft's assets (updater_manifest.py verify --names)"; fi;;
     publish) echo "(--publish only) the draft $TAG must target SHA, a tag $TAG on origin (if any) must be SHA, and its files (names, GitHub's sha256 digests) must be the tested ones of $ASSETS/SHA256SUMS.txt; gh api -X PATCH repos/$GH_REPO/releases/ID -f tag_name=$TAG -f target_commitish=SHA -F draft=false -F prerelease=true; then the tag on origin must be SHA and the release no draft";;
     site-deploy) echo "(--publish only) in $WEBWT: git fetch; unless $WEB_BRANCH is in origin/main: detach at origin/main, git merge --no-ff $WEB_BRANCH, node scripts/build.mjs --strict, git push origin HEAD:main; scripts/deploy.sh (tests, build, wrangler deploy)";;
@@ -476,6 +485,47 @@ st_gui() {
   python3 "$SCRIPTS/gui_smoke.py" --app "$WORK/gui-app/Rawtonic QA release.app" --cli "$WORK/gui-app/rawtonic" \
     --raw "$raw" --port "$QA_PORT" --version "$VERSION" --work "$WORK/gui" || fail "GUI smoke"
   originals_unchanged
+}
+
+# Documentation screenshots made by this release's QA build (scripts/docs-shots/):
+# what the website's docs show is always the released interface. A failed shot or
+# a website place without a shot is listed; the stage fails only when the app
+# could not be run at all, and then site keeps the website's earlier screenshots.
+st_docs_shots() {
+  local d=$WORK/docs-shots
+  # Only this run's pictures: none of an earlier run may pass for a shot that fails now.
+  rm -rf "$d/png" "$d/en" "$d/de" "$d/result.json"
+  if [ "$DOCS_SHOTS" = 0 ]; then echo "skipped (--no-docs-shots): the website keeps its screenshots"; return; fi
+  if [ -z "$DOCS_DEMO" ]; then
+    echo "skipped: no demo library (RAWTONIC_DOCS_DEMO; docs/RELEASING.md): the website keeps its screenshots"; return
+  fi
+  need qa-app docs
+  website_clone
+  mkdir -p "$d"
+  # The places every page of what the release ships has: origin/main and the docs branches.
+  local refs=(origin/main) b c
+  while read -r b c; do [ -z "$c" ] || refs+=("$c"); done < "$STATE/docs-branches"
+  git -C "$WEBSITE" grep -h -o -E '\{\{shot "[A-Za-z0-9_-]+"' "${refs[@]}" -- pages \
+    | sed -E 's/.*\{\{shot "([^"]+)"/\1/' | sort -u > "$d/places.txt"
+  echo "screenshot places on the website: $(tr '\n' ' ' < "$d/places.txt")"
+  local models=()
+  if [ -d "$DOCS_MODELS" ]; then models=(--models "$DOCS_MODELS"); else echo "no model folder $DOCS_MODELS: the AI tools would download their models (scripts/models/install_models.sh $QA_ID)"; fi
+  python3 "$REPO_ROOT/scripts/docs-shots/capture.py" --app "$WORK/gui-app/Rawtonic QA release.app" \
+    --demo "$DOCS_DEMO" --places "$d/places.txt" --out "$d" --port "$QA_PORT" --version "$VERSION" \
+    ${models[@]+"${models[@]}"} || fail "the QA app could not be run for the screenshots (above)"
+  # The shots this run made (result.json), under the website's names: shot-ID
+  # (English interface) and shot-ID-LANG.
+  mkdir -p "$d/png"
+  python3 - "$d" <<'PY' || fail "copy the screenshots"
+import json, shutil, sys
+from pathlib import Path
+d = Path(sys.argv[1])
+for shot in json.loads((d / "result.json").read_text())["shots"]:
+    if shot["ok"]:
+        name = f"shot-{shot['id']}" + ("" if shot["lang"] == "en" else f"-{shot['lang']}")
+        shutil.copyfile(shot["file"], d / "png" / f"{name}.png")
+PY
+  echo "docs shots for site: $(find "$d/png" -name '*.png' | wc -l | tr -d ' ') file(s) in $d/png"
 }
 
 st_relay() {
@@ -781,13 +831,39 @@ st_site() {
   echo "docs check of the merged website branch:"
   docs_check --site-ref "$(git -C "$WEBWT" rev-parse HEAD)"
   echo "website branch $WEB_BRANCH at $(git -C "$WEBWT" log -1 --format='%h %s')"
+  # This release's documentation screenshots (stage docs-shots), if it made any.
+  # Nothing but what this stage writes may be uncommitted (a rerun after a failed
+  # attempt finds its own release.json and screenshot files, which it writes anew).
+  local png=$WORK/docs-shots/png shots=0 status other f n
+  [ "$DOCS_SHOTS" = 1 ] && [ -f "$STATE/docs-shots.ok" ] && [ -n "$(find "$png" -name '*.png' 2>/dev/null | head -1)" ] && shots=1
+  # The files this run writes: release.json, and the screenshots made from this
+  # run's captures (images.sh writes them anew). Anything else uncommitted stops it.
+  local mine=(release.json)
+  if [ "$shots" = 1 ]; then
+    for f in "$png"/*.png; do n=$(basename "$f" .png)
+      mine+=("site/assets/$n.jpg" "site/assets/$n-720.avif" "site/assets/$n-1440.avif" "site/assets/$n-720.webp" "site/assets/$n-1440.webp")
+    done
+  fi
+  status=$(git -C "$WEBWT" status --porcelain --untracked-files=all) || fail "git status of $WEBWT"
+  other=$(awk '{print $NF}' <<< "$status" | grep -vxF -f <(printf '%s\n' "${mine[@]}") || true)
+  [ -z "$other" ] || fail "$WEBWT has changes this stage did not make (commit or remove them): $(echo "$other" | tr '\n' ' ')"
+  if [ "$shots" = 1 ]; then
+    (cd "$WEBWT" && scripts/images.sh "$png") || fail "scripts/images.sh (ImageMagick 7 and cwebp)"
+    # Only the files made from this run's captures.
+    local files=("${mine[@]:1}")
+    git -C "$WEBWT" add -- "${files[@]}" || fail "git add"
+    if git -C "$WEBWT" diff --cached --quiet; then echo "the screenshots are unchanged"
+    else git -C "$WEBWT" commit -q -m "docs: screenshots of $VERSION" -- "${files[@]}" || fail "commit"; fi
+  else
+    echo "no new documentation screenshots (--no-docs-shots, or stage docs-shots skipped or failed): the website keeps its own"
+  fi
   python3 "$SCRIPTS/website.py" write --version "$VERSION" --changelog "$WORK/CHANGELOG.md" --assets "$ASSETS" \
     --release-json "$WEBWT/release.json" || fail "the website's release.json (see above)"
   (cd "$WEBWT" && RAWTONIC_CHANGELOG=$WORK/CHANGELOG.md node scripts/build.mjs --strict) \
     || fail "the website's strict build (above: What's new, or a sentence naming an older release — fix it on $WEB_BRANCH)"
   git -C "$WEBWT" add release.json || fail "git add"
   if git -C "$WEBWT" diff --cached --quiet; then echo "release.json already carries these facts"
-  else git -C "$WEBWT" commit -q -m "release: $VERSION" || fail "commit"; fi
+  else git -C "$WEBWT" commit -q -m "release: $VERSION" -- release.json || fail "commit"; fi
   [ -z "$(git -C "$WEBWT" status --porcelain)" ] || fail "$WEBWT has uncommitted changes: commit them on $WEB_BRANCH"
   echo "website: $WEB_BRANCH at $(git -C "$WEBWT" rev-parse --short HEAD), ahead of origin/main by $(git -C "$WEBWT" rev-list --count origin/main..HEAD) commit(s); --publish merges and deploys it"
 }
@@ -908,7 +984,7 @@ chain_mac() {
   run_stage mac-arm64 || return 1
   ( run_stage dmg-arm64 && run_stage ident ) & local smokes=$!
   run_stage mac-x86_64 && run_stage dmg-x86_64
-  run_stage qa-app && run_stage gui
+  if run_stage qa-app; then run_stage gui; run_stage docs-shots; fi
   run_stage relay
   wait $smokes
 }
@@ -936,7 +1012,7 @@ main() {
   if [ "$DRY" = 1 ]; then
     echo "release $VERSION (dry run: nothing is changed) — work folder $WORK"
     if [ "$PUBLISH" = 1 ]; then echo "publish (only on the user's word): ${PUB_STAGES[*]}"
-    else echo "parallel after 'prev': [mac-arm64 → (dmg-arm64, ident) · mac-x86_64 → dmg-x86_64 · qa-app → gui · relay] ∥ [linux → linux-smoke] ∥ [windows]; then updater → creds → sums → notes → site → draft; publish later with --publish"; fi
+    else echo "parallel after 'prev': [mac-arm64 → (dmg-arm64, ident) · mac-x86_64 → dmg-x86_64 · qa-app → gui → docs-shots · relay] ∥ [linux → linux-smoke] ∥ [windows]; then updater → creds → sums → notes → site → draft; publish later with --publish"; fi
     for s in "${RUN_STAGES[@]}"; do printf '\n[%s]\n  %s\n' "$s" "$(describe "$s")"; done
     exit 0
   fi
