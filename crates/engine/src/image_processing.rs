@@ -8529,6 +8529,18 @@ pub fn shadows_as_amounts(settings: &mut serde_json::Value, tone: u64) {
     }
 }
 
+/// As [`shadows_as_amounts`] for Whites: settings whose own and layers'
+/// Whites are slider values of tone version `tone` with them as the amounts
+/// carried settings hold (version 16's slider value), so applied to an edit
+/// of version 17 or later they render as that slider value does at `tone`.
+pub fn whites_as_amounts(settings: &mut serde_json::Value, tone: u64) {
+    let tone =
+        crate::recipe_versions::ToneVersion::of(&serde_json::json!({ TONE_VERSION_KEY: tone }));
+    if let Some(map) = settings.as_object_mut() {
+        express_slider(map, "whites", |value| tone.whites_amount(value));
+    }
+}
+
 /// `map`'s own and its layers' `slider` passed through `express`.
 fn express_slider(
     map: &mut serde_json::Map<String, serde_json::Value>,

@@ -318,6 +318,12 @@ pub(crate) fn parse_preset_file_reporting(
         &mut converted_preset.adjustments,
         rawtonic_engine::recipe_versions::SHADOWS_TRAVEL_TONE_VERSION,
     );
+    // Its Whites are slider values of the tone version new edits get (the
+    // importer's travel map was measured there), carried as amounts too.
+    rawtonic_engine::image_processing::whites_as_amounts(
+        &mut converted_preset.adjustments,
+        rawtonic_engine::image_processing::TONE_VERSION,
+    );
     let (settings, profile) = preset_converter::untranslated_settings(&xmp_content);
     Ok((
         vec![PresetItem::Preset(converted_preset)],
@@ -531,6 +537,67 @@ mod tests {
             &serde_json::json!({"toneVersion": 21}),
         );
         assert_eq!(onto_new["shadows"].as_f64(), Some(50.0));
+    }
+
+    /// A Lightroom preset's Whites and Dehaze land on a new edit at the
+    /// values the importer's travel map gives (Whites +40 → +70, Dehaze +50 →
+    /// +30), with the Dehaze response they were measured with.
+    #[test]
+    fn a_lightroom_presets_whites_and_dehaze_land_in_our_travel() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("travel.xmp");
+        rawtonic_fs::atomic_write(
+            &path,
+            br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Whites2012="+40" crs:Dehaze="+50"/></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        let (items, _) = parse_preset_file_reporting(path.to_str().unwrap()).unwrap();
+        let PresetItem::Preset(preset) = &items[0] else {
+            panic!("not a preset")
+        };
+        assert_eq!(
+            preset.adjustments["dehazeVersion"].as_u64(),
+            Some(rawtonic_engine::image_processing::DEHAZE_VERSION)
+        );
+        let mut onto_new = preset.adjustments.clone();
+        rawtonic_engine::image_processing::express_pasted_whites(
+            &mut onto_new,
+            &serde_json::json!({"toneVersion": rawtonic_engine::image_processing::TONE_VERSION}),
+        );
+        assert!(
+            (onto_new["whites"].as_f64().unwrap() - 70.0).abs() < 1e-6,
+            "{}",
+            onto_new["whites"]
+        );
+        assert_eq!(onto_new["dehaze"].as_f64(), Some(30.0));
+    }
+
+    /// Dehaze on a mask alone also states the response it was translated for.
+    #[test]
+    fn a_lightroom_presets_mask_dehaze_states_its_response() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("mask.xmp");
+        rawtonic_fs::atomic_write(
+            &path,
+            br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+            <crs:MaskGroupBasedCorrections><rdf:Seq><rdf:li><rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionActive="true" crs:LocalDehaze="0.5">
+            <crs:CorrectionMasks><rdf:Seq><rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="1" crs:Radius="0.05" crs:Flow="1" crs:CenterWeight="0"><crs:Dabs><rdf:Seq><rdf:li>d 0.300000 0.500000</rdf:li></rdf:Seq></crs:Dabs></rdf:Description></rdf:li></rdf:Seq></crs:CorrectionMasks>
+            </rdf:Description></rdf:li></rdf:Seq></crs:MaskGroupBasedCorrections></rdf:Description></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        let (items, _) = parse_preset_file_reporting(path.to_str().unwrap()).unwrap();
+        let PresetItem::Preset(preset) = &items[0] else {
+            panic!("not a preset")
+        };
+        assert!(preset.adjustments.get("dehaze").is_none());
+        assert_eq!(
+            preset.adjustments["masks"][0]["adjustments"]["dehaze"].as_f64(),
+            Some(30.0)
+        );
+        assert_eq!(
+            preset.adjustments["dehazeVersion"].as_u64(),
+            Some(rawtonic_engine::image_processing::DEHAZE_VERSION)
+        );
     }
 
     #[test]
