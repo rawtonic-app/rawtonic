@@ -1524,8 +1524,6 @@ fn export(args: ExportArgs) -> Result<()> {
     // First: it loads the Lensfun database, which preparing the recipes
     // (face retouch: lens defaults and lens parameters of recipes saved
     // while the photo could not be read) already reads.
-    let exporter =
-        rawtonic_export::file_export::FileExporter::new(&lensfun_db).map_err(anyhow::Error::msg)?;
     // --adjustments overrides every photo; otherwise each photo's own
     // recipe, as the app's export reads it.
     let recipes: Vec<Option<serde_json::Value>> = named
@@ -1592,7 +1590,9 @@ fn export(args: ExportArgs) -> Result<()> {
         }
         None => recipes,
     };
-    let exporter = if settings.super_resolution {
+    // Missing models are reported before the GPU starts: that is cheaper,
+    // and the user learns what to install even where no GPU can start.
+    let enlarger = if settings.super_resolution {
         let dir = models_dir(models.clone()).context("Super Resolution")?;
         let model = rawtonic_superres::Model::from_dir(&dir).context("Super Resolution")?;
         if model.uses_onnx() {
@@ -1603,9 +1603,15 @@ fn export(args: ExportArgs) -> Result<()> {
             "the Super Resolution Fast model is not installed in {} (tick Super Resolution in the app's Export dialog, or run scripts/models/install_models.sh)",
             dir.display()
         );
-        exporter.with_enlarger(std::sync::Arc::new(SuperResolution(model)))
+        Some(model)
     } else {
-        exporter
+        None
+    };
+    let exporter =
+        rawtonic_export::file_export::FileExporter::new(&lensfun_db).map_err(anyhow::Error::msg)?;
+    let exporter = match enlarger {
+        Some(model) => exporter.with_enlarger(std::sync::Arc::new(SuperResolution(model))),
+        None => exporter,
     };
     let exporter = match &provenance_identity {
         Some(dir) => {

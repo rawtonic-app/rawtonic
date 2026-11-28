@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -109,7 +109,9 @@ function useLinuxWindowFrame(enabled: boolean, maximized: boolean) {
     window.addEventListener('contextmenu', onContextMenu, true);
     return () => window.removeEventListener('contextmenu', onContextMenu, true);
   }, [enabled]);
-  useEffect(() => {
+  // In the same commit as the maximize button's state, so the outline and
+  // the button never disagree for a frame (and tests see them together).
+  useLayoutEffect(() => {
     const root = document.documentElement;
     root.classList.toggle('window-outlined', enabled && !maximized);
     return () => root.classList.remove('window-outlined');

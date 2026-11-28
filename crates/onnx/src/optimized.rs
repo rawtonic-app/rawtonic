@@ -445,8 +445,14 @@ fn key_text(source: &Path, meta: &fs::Metadata, kind: ModelKind, runtime: &str) 
             meta.dev(),
         )
     };
+    // Windows: no change time, and NTFS gives a file renamed into the
+    // model's place within seconds the old creation time, so the file index
+    // tells a replaced model (same length, same clock tick) from the old one.
     #[cfg(not(unix))]
-    let (changed, inode, device) = (ns(meta.created()) as i128, 0u64, 0u64);
+    let (changed, inode, device) = {
+        let (device, inode) = rawtonic_fs::file_identity(source).unwrap_or((0, 0));
+        (ns(meta.created()) as i128, inode, device)
+    };
     format!(
         "{FORMAT} file={name:?} len={} modified={} changed={changed} inode={inode} device={device} model={} provider=CPUExecutionProvider level=all os={} arch={} cpu={:?} runtime={:?}",
         meta.len(),

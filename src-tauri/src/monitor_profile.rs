@@ -529,8 +529,13 @@ mod tests {
     use super::*;
     use moxcms::ColorProfile;
 
+    /// Built once: the encoder writes the creation time into the header,
+    /// so two encodings a second apart differ (CI runs 46052322160,
+    /// 46132927776), and a display's profile read from disk does not.
     fn p3() -> Vec<u8> {
-        ColorProfile::new_display_p3().encode().unwrap()
+        static P3: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+        P3.get_or_init(|| ColorProfile::new_display_p3().encode().unwrap())
+            .clone()
     }
 
     #[test]
