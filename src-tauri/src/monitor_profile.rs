@@ -456,8 +456,10 @@ fn apply(
         return;
     }
     // A new system profile under the same chosen one changes the
-    // thumbnails' table, not the window's transform or status.
-    if let Some(thumbnails) = thumbnails
+    // thumbnails' table, not the window's transform or status. Without a
+    // native display (the native renderer off) Develop's preview is the
+    // webview's too, shown through the system's profile: so are they.
+    if let Some(thumbnails) = thumbnails.map(|t| t.filter(|_| has_native_display(context.as_ref())))
         && crate::browser_colour::set_thumbnails(thumbnails.as_ref())
     {
         log::info!(
@@ -491,6 +493,12 @@ fn apply(
     if label == "main" {
         let _ = app.emit(STATUS_EVENT, &status);
     }
+}
+
+/// Whether the main window has a native display (Develop's photo is drawn
+/// by the native present pass, not the webview).
+fn has_native_display(context: Option<&crate::gpu_processing::GpuContext>) -> bool {
+    context.is_some_and(|context| lock_recover(&context.display).is_some())
 }
 
 /// The status of a transform that `converts` (or not) once set on the

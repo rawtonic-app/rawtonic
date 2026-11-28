@@ -286,17 +286,21 @@ pub fn display_lut(source: Encoding, icc: &[u8]) -> Result<Option<DisplayLut>, P
 }
 
 /// The transform for images a colour-managing webview shows (Windows:
-/// WebView2 converts every untagged image from sRGB into the system's
-/// monitor profile `system`, None: no profile, i.e. sRGB) when the monitor
-/// profile chosen in Preferences, `chosen`, is to be shown instead
-/// (notes: benchmark-results/mcm3-2026-11-28/REPORT.md).
+/// WebView2 converts every untagged image from sRGB into the display it
+/// reads from the system's monitor profile `system`, None: no profile, i.e.
+/// sRGB) when the monitor profile chosen in Preferences, `chosen`, is to be
+/// shown instead (notes: benchmark-results/mcm3-2026-11-28/REPORT.md).
 ///
-/// It takes each sRGB value to the monitor values `chosen` gives it, then
-/// back through the inverse of `system` to the sRGB value the webview
-/// turns into exactly those monitor values. `None` when that is the image
-/// itself (`chosen` converts as `system` does). Colours of `chosen` that
-/// `system` holds outside sRGB (a wide-gamut system profile) are clipped to
-/// sRGB here and cannot be shown as `chosen` gives them.
+/// Chromium takes that display to be the profile's primaries with the sRGB
+/// tone curve, not the profile's own curves
+/// (`ui/display/win/color_profile_reader.cc`: `makeSRGBGamma`). So each
+/// sRGB value goes to the monitor values `chosen` gives it (as Develop's
+/// native pass shows them), then back through [`webview_display`] of
+/// `system` to the sRGB value the webview turns into exactly those monitor
+/// values. `None` when that is the image itself. Colours of `chosen` that
+/// lie outside sRGB in the system's primaries (a wide-gamut system
+/// profile) are clipped to sRGB here and cannot be shown as `chosen` gives
+/// them.
 pub fn managed_webview_lut(
     chosen: &[u8],
     system: Option<&[u8]>,
@@ -312,7 +316,7 @@ pub fn managed_webview_lut(
         .map_err(|e| ProfileError::NotConvertible(e.to_string()))?;
     let back = match system {
         Some(icc) => Some(
-            rgb_profile(icc)?
+            webview_display(icc)?
                 .create_transform_f32(Layout::Rgb, &srgb, Layout::Rgb, transform_options())
                 .map_err(|e| ProfileError::NotConvertible(e.to_string()))?,
         ),
@@ -328,6 +332,36 @@ pub fn managed_webview_lut(
             None => Ok(monitor.as_chunks::<3>().0.to_vec()),
         }
     })
+}
+
+/// The display Chromium on Windows converts images into for the monitor
+/// profile `icc`: its primaries (the matrix's colorants) with the sRGB tone
+/// curve. A profile without a usable matrix (tables only) is refused.
+pub fn webview_display(icc: &[u8]) -> Result<ColorProfile, ProfileError> {
+    let system = rgb_profile(icc)?;
+    let colorants = [
+        system.red_colorant,
+        system.green_colorant,
+        system.blue_colorant,
+    ];
+    // The colorants add up to the PCS white (D50) in a matrix profile.
+    let white = colorants
+        .iter()
+        .fold([0.0f64; 3], |w, c| [w[0] + c.x, w[1] + c.y, w[2] + c.z]);
+    let d50 = [0.9642, 1.0, 0.8249];
+    if colorants.iter().any(|c| c.y <= 0.0)
+        || white.iter().zip(d50).any(|(w, d)| (w - d).abs() > 0.02)
+    {
+        return Err(ProfileError::NotConvertible(
+            "it has no primaries the webview can use (a table-only profile)".into(),
+        ));
+    }
+    let mut display = ColorProfile::new_srgb();
+    display.red_colorant = system.red_colorant;
+    display.green_colorant = system.green_colorant;
+    display.blue_colorant = system.blue_colorant;
+    display.cicp = None;
+    Ok(display)
 }
 
 /// `icc` read as an RGB profile.
@@ -698,10 +732,16 @@ mod tests {
         panel.encode().unwrap()
     }
 
-    /// What a colour-managing webview shows for the served 8-bit `value`:
-    /// sRGB converted into `system`, to the nearest code.
+    /// What WebView2 shows for the served 8-bit `value` on a monitor with
+    /// the profile `system`: sRGB converted into the profile's primaries
+    /// with the sRGB curve (Chromium's `makeSRGBGamma`), to the nearest code.
     fn webview_shows(system: &[u8], value: [u8; 3]) -> [u8; 3] {
-        let monitor = ColorProfile::new_from_slice(system).unwrap();
+        let profile = ColorProfile::new_from_slice(system).unwrap();
+        let mut monitor = ColorProfile::new_srgb();
+        monitor.red_colorant = profile.red_colorant;
+        monitor.green_colorant = profile.green_colorant;
+        monitor.blue_colorant = profile.blue_colorant;
+        monitor.cicp = None;
         let transform = ColorProfile::new_srgb()
             .create_transform_f32(Layout::Rgb, &monitor, Layout::Rgb, transform_options())
             .unwrap();
@@ -719,17 +759,41 @@ mod tests {
     #[test]
     fn webview_thumbnails_are_the_image_itself_without_another_profile() {
         // No override is no table at all (the app never asks); an override
-        // that converts as the system's does is none either.
+        // that converts as the webview does with the system's profile (its
+        // own primaries with the sRGB curve) is none either.
         let srgb = ColorProfile::new_srgb().encode().unwrap();
         assert_eq!(managed_webview_lut(&srgb, None), Ok(None));
         assert_eq!(managed_webview_lut(&srgb, Some(&srgb)), Ok(None));
-        for icc in [
-            ColorProfile::new_display_p3().encode().unwrap(),
-            ColorProfile::new_adobe_rgb().encode().unwrap(),
-            gamma_panel(),
-        ] {
-            assert_eq!(managed_webview_lut(&icc, Some(&icc)), Ok(None));
+        let p3 = ColorProfile::new_display_p3().encode().unwrap();
+        assert_eq!(managed_webview_lut(&p3, Some(&p3)), Ok(None));
+        // A panel profile with sRGB primaries: the webview treats it as sRGB.
+        assert_eq!(managed_webview_lut(&srgb, Some(&gamma_panel())), Ok(None));
+    }
+
+    #[test]
+    fn webview_thumbnails_get_the_profiles_own_curve() {
+        // The system's own profile chosen, with a curve other than sRGB's
+        // (Adobe RGB, gamma 2.2): Develop shows its full transform, the
+        // webview its primaries with the sRGB curve, so the table makes up
+        // the difference, greys included.
+        let adobe = ColorProfile::new_adobe_rgb().encode().unwrap();
+        let gamma = |v: f64| v.powf(256.0 / 563.0);
+        let lut = managed_webview_lut(&adobe, Some(&adobe))
+            .unwrap()
+            .expect("a table");
+        for patch in PATCHES {
+            let want = expected(patch, ADOBE, gamma);
+            let shown = webview_shows(&adobe, served(&lut, patch));
+            for c in 0..3 {
+                assert!(
+                    (shown[c] as i16 - want[c] as i16).abs() <= 1,
+                    "{patch:?}: {shown:?} vs {want:?}"
+                );
+            }
         }
+        // Untreated, the webview's grey would keep sRGB's code.
+        assert_eq!(webview_shows(&adobe, [128, 128, 128]), [128, 128, 128]);
+        assert_eq!(expected([128, 128, 128], ADOBE, gamma), [127, 127, 127]);
     }
 
     #[test]
@@ -805,6 +869,16 @@ mod tests {
             managed_webview_lut(&adobe, Some(&gray)),
             Err(ProfileError::NotRgb)
         );
+        // A system profile without a matrix: no primaries to invert.
+        let mut tables = ColorProfile::new_srgb();
+        tables.red_colorant = Default::default();
+        tables.green_colorant = Default::default();
+        tables.blue_colorant = Default::default();
+        tables.cicp = None;
+        assert!(matches!(
+            managed_webview_lut(&adobe, Some(&tables.encode().unwrap())),
+            Err(ProfileError::NotConvertible(_))
+        ));
     }
 
     #[test]

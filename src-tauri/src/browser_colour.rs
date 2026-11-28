@@ -225,6 +225,20 @@ pub fn convert_thumbnail(lut: &ByteConverter, jpeg: &[u8]) -> Result<Vec<u8>, St
     crate::preview_jpeg::encode_rgbx_444_as_is(&image, THUMBNAIL_QUALITY)
 }
 
+/// Whether `path` names a file inside `root` by its spelling alone: an
+/// absolute path without `.` or `..` steps that starts with `root`.
+fn named_inside(root: &std::path::Path, path: &std::path::Path) -> bool {
+    use std::path::Component;
+    path.is_absolute()
+        && path.components().all(|c| {
+            matches!(
+                c,
+                Component::Prefix(_) | Component::RootDir | Component::Normal(_)
+            )
+        })
+        && path.starts_with(root)
+}
+
 /// The bytes for the thumbnail at `path` in the cache folder `root`: the
 /// file itself without a transform, else its conversion. `None` for a file
 /// outside `root` or one that cannot be read.
@@ -234,7 +248,14 @@ fn thumbnail(
     (generation, lut): (u64, Option<Arc<(DisplayLut, ByteConverter)>>),
 ) -> Option<Arc<Vec<u8>>> {
     use rawtonic_fs::Canonical;
-    let root = root.canonical().ok()?;
+    // The request's path is checked by its spelling before anything asks
+    // the file system about it: on Windows resolving a path opens it, and
+    // a network share's name would reach out to that share.
+    let canonical_root = root.canonical().ok()?;
+    if !named_inside(root, path) && !named_inside(&canonical_root, path) {
+        return None;
+    }
+    let root = canonical_root;
     let path = path.canonical().ok()?;
     if !path.starts_with(&root) || path.extension().is_none_or(|e| e != "jpg") {
         return None;
@@ -271,6 +292,19 @@ fn requested_path(uri: &tauri::http::Uri) -> Option<std::path::PathBuf> {
     Some(std::path::PathBuf::from(path))
 }
 
+/// The request's `Origin` when it is the app's own page (Linux, macOS:
+/// `tauri://localhost`; Windows: `http(s)://tauri.localhost`; the dev
+/// server in debug builds): only it may read the thumbnails' pixels
+/// (colour sampling draws them into a canvas).
+fn app_origin(request: &tauri::http::Request<Vec<u8>>) -> Option<String> {
+    let origin = request.headers().get("Origin")?.to_str().ok()?;
+    let app = matches!(
+        origin,
+        "tauri://localhost" | "http://tauri.localhost" | "https://tauri.localhost"
+    ) || (cfg!(debug_assertions) && origin == "http://localhost:1420");
+    app.then(|| origin.to_string())
+}
+
 /// Serves a thumbnail request off the main thread.
 #[cfg_attr(not(any(windows, target_os = "linux")), allow(dead_code))]
 pub fn serve(
@@ -283,13 +317,19 @@ pub fn serve(
         let body = root
             .zip(requested_path(request.uri()))
             .and_then(|(root, path)| thumbnail(&root, &path, thumbnails()));
+        let origin = app_origin(&request);
         let response = match body {
-            Some(body) => tauri::http::Response::builder()
-                .status(200)
-                .header("Content-Type", "image/jpeg")
-                .header("Access-Control-Allow-Origin", "*")
-                .header("X-Content-Type-Options", "nosniff")
-                .body(body.as_ref().clone()),
+            Some(body) => {
+                let mut response = tauri::http::Response::builder()
+                    .status(200)
+                    .header("Content-Type", "image/jpeg")
+                    .header("X-Content-Type-Options", "nosniff")
+                    .header("Vary", "Origin");
+                if let Some(origin) = origin {
+                    response = response.header("Access-Control-Allow-Origin", origin);
+                }
+                response.body(body.as_ref().clone())
+            }
             None => tauri::http::Response::builder()
                 .status(404)
                 .body(Vec::new()),
@@ -360,6 +400,24 @@ mod tests {
         let elsewhere = outside.path().join("x.jpg");
         std::fs::write(&elsewhere, &jpeg).unwrap();
         assert!(thumbnail(root.path(), &elsewhere, installed.get()).is_none());
+        // Refused by its spelling, before the file system is asked: steps
+        // out of the folder, relative names, another root.
+        let escape = root
+            .path()
+            .join("..")
+            .join(outside.path().file_name().unwrap())
+            .join("x.jpg");
+        assert!(thumbnail(root.path(), &escape, installed.get()).is_none());
+        assert!(!named_inside(root.path(), &escape));
+        assert!(!named_inside(
+            root.path(),
+            std::path::Path::new("abc_small.jpg")
+        ));
+        assert!(!named_inside(
+            root.path(),
+            std::path::Path::new("//server/share/abc_small.jpg")
+        ));
+        assert!(named_inside(root.path(), &file));
 
         // A wide-gamut monitor: each patch as the table gives it (±1 in
         // the frame; the thumbnail, through a second JPEG encode, within
@@ -399,6 +457,28 @@ mod tests {
             *thumbnail(root.path(), &file, installed.get()).unwrap(),
             jpeg
         );
+    }
+
+    #[test]
+    fn only_the_apps_own_page_may_read_the_pixels() {
+        let request = |origin: Option<&str>| {
+            let mut builder =
+                tauri::http::Request::builder().uri("rawtonic-thumb://localhost/x.jpg");
+            if let Some(origin) = origin {
+                builder = builder.header("Origin", origin);
+            }
+            builder.body(Vec::new()).unwrap()
+        };
+        for own in [
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+        ] {
+            assert_eq!(app_origin(&request(Some(own))).as_deref(), Some(own));
+        }
+        assert_eq!(app_origin(&request(Some("https://example.com"))), None);
+        assert_eq!(app_origin(&request(Some("null"))), None);
+        assert_eq!(app_origin(&request(None)), None);
     }
 
     /// The cost of converting a 4K frame (3840 × 2160) on all threads;
