@@ -36,6 +36,7 @@ const renderClarity = (props: Partial<Parameters<typeof AdjustmentControl>[0]> =
       label="Clarity"
       value={useEditorStore.getState().adjustments.clarity as number}
       onChange={onChange}
+      peek
       {...props}
     />
   );
@@ -92,7 +93,7 @@ describe('holding a slider label (UI-PEEK)', () => {
     fireEvent.pointerUp(label, { pointerId: 1 });
   });
 
-  it('a slider at its default, or one that sets a tool, shows no peek', () => {
+  it('a slider at its default, or one not marked for it (a tool or preference setting), shows no peek', () => {
     useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, clarity: 0 } });
     const { label } = renderClarity({ value: 0 });
     fireEvent.pointerDown(label, { button: 0, clientX: 10, pointerId: 1 });
@@ -101,7 +102,7 @@ describe('holding a slider label (UI-PEEK)', () => {
     fireEvent.pointerUp(label, { pointerId: 1 });
     cleanup();
     const brush = vi.fn();
-    render(<AdjustmentControl label="Size" value={40} min={1} max={100} peek={false} onChange={brush} />);
+    render(<AdjustmentControl label="Size" value={40} min={1} max={100} onChange={brush} />);
     const size = screen.getByText('Size');
     size.setPointerCapture = vi.fn();
     fireEvent.pointerDown(size, { button: 0, clientX: 10, pointerId: 1 });

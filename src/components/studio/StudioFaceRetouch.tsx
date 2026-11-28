@@ -965,7 +965,6 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
                 unit=" px"
                 value={protectBrush.size}
                 defaultValue={30}
-                peek={false}
                 onChange={(size) => setEditor({ faceProtect: { ...useEditorStore.getState().faceProtect, size } })}
               />
               <AdjustmentControl
@@ -975,7 +974,6 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
                 max={100}
                 value={protectBrush.feather}
                 defaultValue={50}
-                peek={false}
                 onChange={(feather) =>
                   setEditor({ faceProtect: { ...useEditorStore.getState().faceProtect, feather } })
                 }

@@ -49,8 +49,11 @@ export interface AdjustmentControlProps {
    * should show and false when it ends (Option let go, or the drag). Option
    * then keeps the drag's speed instead of slowing it to a tenth. */
   optionView?: { onChange(shown: boolean): void; hint: string };
-  /** Holding the label still shows the photo at `defaultValue` (UI-PEEK);
-   * false for sliders that set a tool, not the photo (brush size). */
+  /** Holding the label still shows the photo at `defaultValue` (UI-PEEK).
+   * Only for sliders whose `onChange` changes the photo's recipe through
+   * `setAdjustments` and nothing else: the peek runs it with the updates
+   * caught (`adjustmentsAfter`), so any other write (a preference, a brush
+   * setting) would really happen. */
   peek?: boolean;
   onChange(value: number): void;
   onInteraction?(active: boolean): void;
@@ -128,7 +131,7 @@ export default memo(function AdjustmentControl({
   disabled = false,
   wholeSteps = false,
   optionView,
-  peek = true,
+  peek = false,
   onChange,
   onInteraction
 }: AdjustmentControlProps) {

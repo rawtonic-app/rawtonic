@@ -219,6 +219,35 @@ describe('presets grid (PRESET-THUMB)', () => {
     expect(tileCalls.slice(1).map((call) => call.variants.length)).toEqual([4]);
   });
 
+  it('stops the batch in flight when a drag starts and renders its tiles after the drag', async () => {
+    const pending: ((value: ArrayBuffer) => void)[] = [];
+    answer = () => new Promise<ArrayBuffer>((resolve) => pending.push(resolve));
+    await renderPanel();
+    expect(tileCalls).toHaveLength(1);
+    act(() => useEditorStore.setState({ isSliderDragging: true }));
+    expect(mockInvoke).toHaveBeenCalledWith('cancel_preset_thumbnails', { generation: tileCalls[0].generation });
+    // The stopped batch answers with no tiles: they are not marked as undrawable.
+    await act(async () => pending[0](framed(3, [0, 1, 2])));
+    expect(document.querySelectorAll('.studio-preset-thumb.is-unavailable')).toHaveLength(0);
+    answer = async (call) => framed(call.variants.length);
+    act(() => useEditorStore.setState({ isSliderDragging: false }));
+    await settle();
+    expect(tileCalls).toHaveLength(2);
+    expect(document.querySelectorAll('.studio-preset-thumb img')).toHaveLength(3);
+  });
+
+  it('an Amount drag counts as a slider drag until the pointer comes up', async () => {
+    await renderPanel();
+    // A tool preset applied to the open photo gets its Amount.
+    fireEvent.click(screen.getByRole('button', { name: 'Warm evening' }));
+    const amount = screen.getByRole('slider', { name: 'Preset amount' });
+    expect((amount as HTMLInputElement).disabled).toBe(false);
+    fireEvent.pointerDown(amount, { button: 0 });
+    expect(useEditorStore.getState().isSliderDragging).toBe(true);
+    fireEvent.pointerUp(window);
+    expect(useEditorStore.getState().isSliderDragging).toBe(false);
+  });
+
   it('cancels the tiles still rendering when another photo opens or the panel closes', async () => {
     const pending: ((value: ArrayBuffer) => void)[] = [];
     answer = () => new Promise<ArrayBuffer>((resolve) => pending.push(resolve));

@@ -435,6 +435,7 @@ export default function StudioProfileBrowser({
           defaultValue={100}
           disabled={disabled}
           onInteraction={onInteraction}
+          peek
           onChange={(lutIntensity) => setAdjustments((prev) => ({ ...prev, lutIntensity }))}
         />
       )}

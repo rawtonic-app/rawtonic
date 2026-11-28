@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import { openDialog, saveDialog } from '../../utils/fileDialog';
 import {
   ArrowDownAZ,
@@ -325,6 +325,22 @@ export default function StudioPresets() {
   }, [appliedStyle, presets, builtins]);
   // Controls keep their look while the next photograph loads.
   const panelsReady = useEditorStore(panelsShowReady);
+  // An Amount drag is a slider drag (draft renders, one history step, no
+  // preset tiles meanwhile) until the pointer comes up anywhere.
+  const dragAmount = (e: PointerEvent<HTMLInputElement>) => {
+    if (e.button !== 0) return;
+    const { setEditor } = useEditorStore.getState();
+    setEditor({ isSliderDragging: true });
+    const end = () => {
+      window.removeEventListener('pointerup', end, true);
+      window.removeEventListener('pointercancel', end, true);
+      window.removeEventListener('blur', end);
+      setEditor({ isSliderDragging: false });
+    };
+    window.addEventListener('pointerup', end, true);
+    window.addEventListener('pointercancel', end, true);
+    window.addEventListener('blur', end);
+  };
   // List (default) or a grid of the open photo with each preset; remembered.
   const layout = useSettingsStore((s) => (s.appSettings?.presetLayout === 'grid' ? 'grid' : 'list'));
   const setLayout = (next: 'list' | 'grid') => {
@@ -349,11 +365,19 @@ export default function StudioPresets() {
     }
     return [...tiles.values()];
   }, [groups, query, collapsed, imagePath, imageIsRaw]);
+  // Every rendered cell (a favourite has two): the observer watches each.
+  const cellsKey = groups
+    .flatMap((group) =>
+      group.folder && !query.trim() && collapsed.has(group.folder.id)
+        ? []
+        : group.presets.map((preset) => `${group.folder?.id ?? ''}/${preset.id}`)
+    )
+    .join('|');
   const thumbnails = usePresetThumbnails(
     layout === 'grid' && panelOpen,
     imagePath,
     gridTiles,
-    `${gridTiles.map((tile) => tile.key).join('|')}#${renaming ?? ''}`
+    `${cellsKey}#${renaming ?? ''}`
   );
 
   const apply = (preset: Preset) => {
@@ -862,6 +886,7 @@ export default function StudioPresets() {
             aria-label={t('studio.presets.amount')}
             value={appliedStyle.amount}
             disabled={!panelsReady}
+            onPointerDown={dragAmount}
             onChange={(e) => changeStyleAmount(Number(e.target.value))}
             onKeyDown={(e) => e.stopPropagation()}
           />
@@ -879,6 +904,7 @@ export default function StudioPresets() {
             step={1}
             aria-label={t('studio.presets.amount')}
             value={amount.value}
+            onPointerDown={dragAmount}
             onChange={(e) => changeAmount(Number(e.target.value))}
             onKeyDown={(e) => e.stopPropagation()}
           />

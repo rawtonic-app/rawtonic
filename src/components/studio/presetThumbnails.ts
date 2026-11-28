@@ -59,14 +59,16 @@ const cache = new Map<string, string>();
 /** Tiles the native side could not draw on the shown base (a preset with a crop). */
 const unavailable = new Set<string>();
 
-function remember(key: string, url: string, inUse: Set<string>) {
+/** Keeps `url` for `key`; beyond the limit drops the least recently used
+ * tiles, except the one just kept and those on screen (`onScreen`). */
+function remember(key: string, url: string, onScreen: Set<string>) {
   const old = cache.get(key);
   if (old && old !== url) URL.revokeObjectURL(old);
   cache.delete(key);
   cache.set(key, url);
   for (const [k, u] of cache) {
     if (cache.size <= CACHE_LIMIT) break;
-    if (inUse.has(u)) continue;
+    if (k === key || onScreen.has(u)) continue;
     URL.revokeObjectURL(u);
     cache.delete(k);
   }
@@ -108,14 +110,22 @@ export function usePresetThumbnails(
   const [visible, setVisible] = useState<Set<string>>(new Set());
   const shownSince = useRef(0);
   const [tick, bump] = useReducer((n: number) => n + 1, 0);
+  // The batch being rendered, and whether a drag that began meanwhile stopped it.
+  const inFlight = useRef(0);
+  const stoppedForDrag = useRef(false);
 
-  // Edits (not during drags) and, while no base is cached, frames.
+  // Edits (not during drags) and, while no base is cached, frames. A drag
+  // stops the batch in flight; the rest is rendered when it ends.
   useEffect(() => {
     if (!enabled) return;
     let last = useEditorStore.getState();
     return useEditorStore.subscribe((state) => {
       const before = last;
       last = state;
+      if (state.isSliderDragging && !before.isSliderDragging && inFlight.current) {
+        stoppedForDrag.current = true;
+        void invoke(Invokes.CancelPresetThumbnails, { generation: inFlight.current }).catch(() => undefined);
+      }
       if (state.isSliderDragging) return;
       if (
         state.adjustments !== before.adjustments ||
@@ -180,6 +190,7 @@ export function usePresetThumbnails(
         return;
       const recipe = state.adjustments;
       const recipeKey = contentKey(recipe);
+      const live = new Set(cache.values());
       const want: { tile: PresetTile; key: string; variant: Record<string, unknown> }[] = [];
       for (const tile of tilesRef.current) {
         if (!visible.has(tile.key)) continue;
@@ -189,6 +200,9 @@ export function usePresetThumbnails(
           shown.current.set(tile.key, url);
           continue;
         }
+        // Its old tile was dropped from the cache (revoked): not shown any more.
+        const old = shown.current.get(tile.key);
+        if (typeof old === 'string' && !live.has(old)) shown.current.delete(tile.key);
         if (unavailable.has(key)) {
           shown.current.set(tile.key, false);
           continue;
@@ -207,6 +221,8 @@ export function usePresetThumbnails(
         if (useEditorStore.getState().isSliderDragging) return;
         const batch = want.slice(at, at + BATCH);
         generation = ++generations;
+        inFlight.current = generation;
+        stoppedForDrag.current = false;
         let answer: ArrayBuffer;
         try {
           answer = await invoke<ArrayBuffer>(Invokes.PresetThumbnails, {
@@ -219,28 +235,37 @@ export function usePresetThumbnails(
         } catch (error) {
           console.error('Preset thumbnails failed:', error);
           return;
+        } finally {
+          inFlight.current = 0;
         }
         if (gone) return;
+        const interrupted = stoppedForDrag.current;
         if (!answer || answer.byteLength === 0) {
           // No preview base of this recipe yet: again with the next frame.
           waiting.current = true;
           return;
         }
         waiting.current = false;
-        const inUse = new Set([...shown.current.values()].filter((u): u is string => typeof u === 'string'));
+        const onScreen = new Set(
+          [...visible].map((k) => shown.current.get(k)).filter((u): u is string => typeof u === 'string')
+        );
         splitTiles(answer, batch.length).forEach((blob, index) => {
           const { tile, key } = batch[index];
           if (!blob) {
-            // Not cancelled (this run is current): it cannot be drawn on this base.
+            // Stopped for a drag: rendered after it. Otherwise (this run is
+            // current) it cannot be drawn on this base.
+            if (interrupted) return;
             unavailable.add(key);
             shown.current.set(tile.key, false);
             return;
           }
           const url = URL.createObjectURL(blob);
-          remember(key, url, inUse);
+          remember(key, url, onScreen);
           shown.current.set(tile.key, url);
+          onScreen.add(url);
         });
         redraw();
+        if (interrupted) return;
       }
       if (!gone && shownSince.current && [...visible].every((key) => shown.current.has(key))) {
         reportPerformance('presets_grid_visibleTiles', {
