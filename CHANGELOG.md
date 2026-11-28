@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.0-alpha.22 — 2026-11-28
+
 The twenty-second alpha. New: a calmer interface (neutral greys, one accent colour, calmer sliders, fewer icons), preset thumbnails of the open photo, holding a slider's name to see its default, Export with Previous, Z to toggle the zoom with zoom levels from 25 to 1600 %, JPEGs and TIFFs saved with a RAW extension that open, and AI masks on very large photos that stayed above Rawtonic's memory floor in 11 of 11 runs on a 14 GB Windows laptop (one earlier run had gone below it).
 
 ### Highlights
