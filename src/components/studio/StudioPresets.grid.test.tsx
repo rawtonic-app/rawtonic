@@ -132,11 +132,14 @@ describe('presets grid (PRESET-THUMB)', () => {
     await renderPanel();
     expect(document.querySelector('.studio-preset-tiles')).toBeNull();
     expect(tileCalls).toHaveLength(0);
-    fireEvent.click(screen.getByRole('button', { name: 'Show as thumbnails of this photo' }));
+    const toggle = screen.getByRole('button', { name: 'Show as thumbnails of this photo' });
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(toggle);
     expect(useSettingsStore.getState().appSettings?.presetLayout).toBe('grid');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
     await settle();
     expect(document.querySelectorAll('.studio-preset-tile')).toHaveLength(3);
-    fireEvent.click(screen.getByRole('button', { name: 'Show as list' }));
+    fireEvent.click(toggle);
     expect(useSettingsStore.getState().appSettings?.presetLayout).toBe('list');
   });
 
@@ -166,7 +169,7 @@ describe('presets grid (PRESET-THUMB)', () => {
   it('keeps rendered tiles per photo and recipe: showing them again asks for nothing', async () => {
     await renderPanel();
     expect(tileCalls).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Show as list' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show as thumbnails of this photo' }));
     await settle();
     fireEvent.click(screen.getByRole('button', { name: 'Show as thumbnails of this photo' }));
     await settle();
@@ -190,6 +193,30 @@ describe('presets grid (PRESET-THUMB)', () => {
     act(() => useEditorStore.setState({ isSliderDragging: false }));
     await settle();
     expect(tileCalls).toHaveLength(2);
+  });
+
+  it('leaves the remaining batches until a drag that started meanwhile ends', async () => {
+    const many: UserPreset[] = Array.from({ length: 12 }, (_, i) => ({
+      preset: { id: `p${i}`, name: `Look ${i}`, adjustments: { contrast: i + 1 }, presetType: 'tool' as const }
+    }));
+    mockInvoke.mockImplementation(async (command, args) => {
+      if (command === 'load_presets') return many;
+      if (command === 'load_builtin_presets') return [];
+      if (command === 'preset_thumbnails') {
+        const a = args as Record<string, unknown>;
+        tileCalls.push({ variants: a.variants as never, generation: a.generation as number, path: a.path as string });
+        // The drag starts while the first batch renders.
+        useEditorStore.setState({ isSliderDragging: true });
+        return framed((a.variants as unknown[]).length);
+      }
+      return undefined;
+    });
+    await renderPanel();
+    expect(tileCalls).toHaveLength(1);
+    expect(tileCalls[0].variants).toHaveLength(8);
+    act(() => useEditorStore.setState({ isSliderDragging: false }));
+    await settle();
+    expect(tileCalls.slice(1).map((call) => call.variants.length)).toEqual([4]);
   });
 
   it('cancels the tiles still rendering when another photo opens or the panel closes', async () => {
@@ -220,7 +247,7 @@ describe('presets grid (PRESET-THUMB)', () => {
     answer = async (call) => framed(call.variants.length, [0]);
     await renderPanel();
     expect(document.querySelectorAll('.studio-preset-thumb.is-unavailable')).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Show as list' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show as thumbnails of this photo' }));
     await settle();
     fireEvent.click(screen.getByRole('button', { name: 'Show as thumbnails of this photo' }));
     await settle();

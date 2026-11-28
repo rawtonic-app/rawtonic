@@ -203,6 +203,8 @@ export function usePresetThumbnails(
       redraw();
       const size = Math.round(PRESET_TILE_POINTS * Math.min(2, window.devicePixelRatio || 1));
       for (let at = 0; at < want.length && !gone; at += BATCH) {
+        // A drag that started meanwhile has the GPU: the rest waits for its end (`bump`).
+        if (useEditorStore.getState().isSliderDragging) return;
         const batch = want.slice(at, at + BATCH);
         generation = ++generations;
         let answer: ArrayBuffer;

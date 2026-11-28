@@ -7,7 +7,6 @@ import {
   FolderInput,
   FolderPlus,
   LayoutGrid,
-  List,
   Plus,
   Sparkles,
   Star
@@ -667,10 +666,13 @@ export default function StudioPresets() {
       onOpenChange={setPanelOpen}
       actions={
         <>
+          {/* On (pressed, so it stays in the header at rest): thumbnails of
+              the open photo; off: the list (default). */}
           <button
             type="button"
-            title={t(layout === 'grid' ? 'studio.presets.showList' : 'studio.presets.showGrid')}
-            aria-label={t(layout === 'grid' ? 'studio.presets.showList' : 'studio.presets.showGrid')}
+            title={t('studio.presets.showGrid')}
+            aria-label={t('studio.presets.showGrid')}
+            aria-pressed={layout === 'grid'}
             onClick={(e) => {
               e.preventDefault();
               const details = e.currentTarget.closest('details');
@@ -678,7 +680,7 @@ export default function StudioPresets() {
               setLayout(layout === 'grid' ? 'list' : 'grid');
             }}
           >
-            {layout === 'grid' ? <List size={12} /> : <LayoutGrid size={12} />}
+            <LayoutGrid size={12} />
           </button>
           <button
             type="button"
