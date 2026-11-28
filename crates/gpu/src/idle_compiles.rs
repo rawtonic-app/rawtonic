@@ -1186,6 +1186,11 @@ mod tests {
     use super::super::new_raw_edit as new_raw_edit_at_start;
     use super::*;
 
+    /// The Basic-panel superset of a new RAW edit (with the base colour
+    /// table of render version 22), with Glow and without.
+    const BASIC_GLOW: usize = 7335999 | BASE_COLOUR_FEATURE;
+    const BASIC: usize = 5238847 | BASE_COLOUR_FEATURE;
+
     /// Runs this module's test `name` in a process of its own and returns
     /// `false`, or `true` inside that process (the test then runs). These
     /// tests set process-wide state (the compile limit, the idle helper,
@@ -1384,6 +1389,7 @@ mod tests {
         let (plan, exact) = planned_jobs(features, &at_start);
         assert_eq!(exact, features);
         let basic = 5238847
+            | BASE_COLOUR_FEATURE
             | SHADOWS_V19_FEATURE
             | SHADOWS_V20_FEATURE
             | WHITES_V22_FEATURE
@@ -1405,6 +1411,7 @@ mod tests {
         let at_start = new_raw_edit_at_start(None);
         let features = preview_features(&at_start);
         let serving = 5238847
+            | BASE_COLOUR_FEATURE
             | SHADOWS_V19_FEATURE
             | SHADOWS_V20_FEATURE
             | WHITES_V22_FEATURE
@@ -2099,9 +2106,9 @@ mod tests {
         {
             let mut queue = idle.lock();
             queue.worker = true;
-            queue.plan = [IdleJob::Display(7335999), IdleJob::Display(5238847)].into();
+            queue.plan = [IdleJob::Display(BASIC_GLOW), IdleJob::Display(BASIC)].into();
         }
-        assert_eq!(idle.covering(contrast), Some(7335999));
+        assert_eq!(idle.covering(contrast), Some(BASIC_GLOW));
         assert!(idle.lock().rush, "the worker starts it now");
         // Halation is in no planned variant: its frame compiles its own.
         idle.lock().rush = false;
@@ -2109,10 +2116,10 @@ mod tests {
         assert!(!idle.lock().rush);
         // A running job that does not cover the frame: not the next one's
         // turn yet.
-        idle.lock().running = Some(IdleJob::Display(4113));
+        idle.lock().running = Some(IdleJob::Display(RAW_DEFAULT_PREVIEW_FEATURES));
         assert_eq!(idle.covering(contrast), None);
-        idle.lock().running = Some(IdleJob::Display(7335999));
-        assert_eq!(idle.covering(contrast), Some(7335999));
+        idle.lock().running = Some(IdleJob::Display(BASIC_GLOW));
+        assert_eq!(idle.covering(contrast), Some(BASIC_GLOW));
     }
 
     /// A frame no planned variant covers (Halation) waits for its own
@@ -2123,11 +2130,11 @@ mod tests {
     fn a_frame_waits_for_its_own_variant_in_a_helper() {
         let idle = IdleCompiles::new();
         let halation = RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE | HALATION_FEATURE;
-        let own = 7335999 | HALATION_FEATURE;
+        let own = BASIC_GLOW | HALATION_FEATURE;
         // No helper is set in unit tests.
         assert!(!idle.for_frame(own, || unreachable!()));
         assert!(idle.lock().frame_jobs.is_empty());
-        let (planned, frame) = (IdleJob::Display(7335999), IdleJob::Display(own));
+        let (planned, frame) = (IdleJob::Display(BASIC_GLOW), IdleJob::Display(own));
         let asked = 1;
         {
             let mut queue = idle.lock();

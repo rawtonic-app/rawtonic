@@ -263,7 +263,31 @@ fn thumbnail_hash_for_engine(
         true,
         true,
         true,
+        true,
     )
+}
+
+/// The key a tile was cached under before renderVersion 22 gave the
+/// neutral RAW look its base colour table (2026-11-28), exactly as the
+/// release before computed it: a RAW tile of a new edit without the
+/// `base-colour-v1` tag, and 21 as the never-edited defaults' render
+/// version. While the original is unavailable, that tile is better than
+/// none. `None` where the key did not change.
+fn thumbnail_hash_before_base_colour(path_str: &str, adjustments_bytes: &[u8]) -> Option<String> {
+    let before = thumbnail_hash_with(
+        path_str,
+        adjustments_bytes,
+        crate::preview_proxy::ENGINE_VERSION,
+        true,
+        None,
+        true,
+        true,
+        true,
+        true,
+        false,
+    )?;
+    (Some(&before) != compute_thumbnail_cache_hash(path_str, adjustments_bytes).as_ref())
+        .then_some(before)
 }
 
 /// The key a non-RAW tile following the develop defaults (or a Reset's
@@ -281,6 +305,7 @@ fn thumbnail_hash_before_source_gamut(path_str: &str, adjustments_bytes: &[u8]) 
         true,
         true,
         false,
+        true,
     )?;
     (Some(&before) != compute_thumbnail_cache_hash(path_str, adjustments_bytes).as_ref())
         .then_some(before)
@@ -303,6 +328,7 @@ fn thumbnail_hash_before_camera_identity(
         false,
         false,
         false,
+        true,
     )
 }
 
@@ -323,6 +349,7 @@ fn thumbnail_hash_with_display_copy_held(
         false,
         false,
         false,
+        true,
     )
 }
 
@@ -344,6 +371,7 @@ fn thumbnail_hash_with_display_copy_renewed(
         false,
         false,
         false,
+        true,
     )
 }
 
@@ -362,6 +390,7 @@ fn thumbnail_hash_before_refreshes(path_str: &str, adjustments_bytes: &[u8]) -> 
         false,
         false,
         false,
+        true,
     )
 }
 
@@ -379,6 +408,7 @@ fn thumbnail_hash_before_orf_preview(path_str: &str, adjustments_bytes: &[u8]) -
         false,
         false,
         false,
+        true,
     )
 }
 
@@ -402,6 +432,7 @@ fn thumbnail_hash_before_hdr_rolloff(path_str: &str, adjustments_bytes: &[u8]) -
         true,
         false,
         false,
+        true,
     )
 }
 
@@ -416,6 +447,7 @@ fn thumbnail_hash_with(
     orf_preview: bool,
     hdr_rolloff: bool,
     source_gamut: bool,
+    base_colour: bool,
 ) -> Option<String> {
     let (source_path, _) = parse_virtual_path(path_str);
 
@@ -497,6 +529,19 @@ fn thumbnail_hash_with(
     {
         hasher.update(b"\0source-gamut-v1");
     }
+    // A RAW tile of a new edit (a Reset's recipe, develop defaults) gets
+    // the base colour table of renderVersion 22 (`base_colour`): such
+    // tiles are made again once. A never-edited RAW without defaults shows
+    // the camera's preview and keeps its key.
+    if base_colour
+        && is_raw_file(&source_path)
+        && adjustments
+            .as_ref()
+            .is_none_or(rawtonic_engine::image_processing::is_new_recipe)
+        && (with_defaults || adjustments.as_ref().is_some_and(|a| !a.is_null()))
+    {
+        hasher.update(b"\0base-colour-v1");
+    }
     if is_raw_file(&source_path) {
         // A never-edited Olympus / OM System RAW's tile was developed from
         // the sensor data until 2026-11-24; it now shows the camera's preview
@@ -550,11 +595,19 @@ fn thumbnail_hash_with(
             .as_ref()
             .is_none_or(|adjustments| adjustments.get(lens::CORRECTION_MODE.name()).is_none())
         {
+            // The key of a tile from before renderVersion 22's base colour
+            // hashed 21 here (`thumbnail_hash_before_base_colour`).
+            let render_version = if base_colour {
+                rawtonic_engine::image_processing::RENDER_VERSION
+            } else {
+                rawtonic_engine::image_processing::RENDER_VERSION
+                    .min(rawtonic_engine::base_colour::BASE_COLOUR_RENDER_VERSION - 1)
+            };
             hasher.update(
                 format!(
                     "\0never-edited-defaults-{}-{}",
                     rawtonic_engine::source_facts::VERSION,
-                    rawtonic_engine::image_processing::RENDER_VERSION
+                    render_version
                 )
                 .as_bytes(),
             );
@@ -1959,9 +2012,10 @@ fn preferred_thumbnail_hash<'a>(
 }
 
 /// The keys a tile of `path_str` may have been cached under, newest
-/// first: before renderVersion 21's source gamut, before the PQ/HLG roll-off, before ORF maker-note previews, before camera identities, with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
+/// first: before renderVersion 22's base colour, before renderVersion 21's source gamut, before the PQ/HLG roll-off, before ORF maker-note previews, before camera identities, with its display copy renewed (the lookup cannot tell), while its proxy still clamped, then before any.
 fn older_tile_keys(path_str: &str, adjustments_bytes: &[u8]) -> Vec<String> {
     [
+        thumbnail_hash_before_base_colour(path_str, adjustments_bytes),
         thumbnail_hash_before_source_gamut(path_str, adjustments_bytes),
         thumbnail_hash_before_hdr_rolloff(path_str, adjustments_bytes),
         thumbnail_hash_before_orf_preview(path_str, adjustments_bytes),
@@ -2972,6 +3026,58 @@ mod share_lookup_tests {
         std::fs::write(&raw, b"raw").unwrap();
         assert_eq!(
             super::thumbnail_hash_before_source_gamut(&raw.to_string_lossy(), reset),
+            None
+        );
+    }
+
+    /// A RAW tile of a new edit (a Reset's recipe) changes its key with
+    /// renderVersion 22 (`base-colour-v1`); the fallback is the key the
+    /// release before computed, with 21 as the never-edited defaults'
+    /// render version, so a tile cached then is found while the original
+    /// is offline. A saved edit with its lens mode set keeps its key.
+    #[test]
+    fn a_raw_new_edit_tile_is_made_again_for_render_version_22() {
+        let temp = tempfile::tempdir().unwrap();
+        let raw = temp.path().join("IMG_0004.ARW");
+        std::fs::write(&raw, b"not read for the key").unwrap();
+        let path = raw.to_string_lossy().into_owned();
+        let reset = b"{}";
+        let new = super::compute_thumbnail_cache_hash(&path, reset).unwrap();
+        let before = super::thumbnail_hash_before_base_colour(&path, reset).unwrap();
+        assert_ne!(new, before);
+        assert_eq!(super::older_tile_keys(&path, reset).first(), Some(&before));
+        // The release before's key of a saved RAW recipe without a lens
+        // mode, built from its parts (`raw_thumbnail_cache_renders_new_recipes_again`)
+        // with render version 21.
+        let modified = std::fs::metadata(&raw)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let saved = br#"{"exposure":1}"#;
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(path.as_bytes());
+        hasher.update(&modified.to_le_bytes());
+        hasher.update(saved);
+        hasher.update(b"\0embedded-raw-orientation-v1");
+        hasher.update(format!("\0raw-engine-{}", crate::preview_proxy::ENGINE_VERSION).as_bytes());
+        hasher.update(b"\0display-copy-keeps-beyond-srgb-v1\0");
+        hasher.update(
+            format!(
+                "\0never-edited-defaults-{}-21",
+                rawtonic_engine::source_facts::VERSION
+            )
+            .as_bytes(),
+        );
+        assert_eq!(
+            super::thumbnail_hash_before_base_colour(&path, saved),
+            Some(hasher.finalize().to_hex().to_string())
+        );
+        let lens_set = br#"{"renderVersion":21,"exposure":1,"lensCorrectionMode":"auto"}"#;
+        assert_eq!(
+            super::thumbnail_hash_before_base_colour(&path, lens_set),
             None
         );
     }

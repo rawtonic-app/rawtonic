@@ -94,6 +94,10 @@ override DEHAZE_V2: bool = false;
 // Dehaze of `dehazeVersion` 3 (`apply_dehaze_lower_v3`, `apply_dehaze_raise_v3`),
 // for the same reason (gpu_processing.rs `DEHAZE_V3_FEATURE`).
 override DEHAZE_V3: bool = false;
+// The base colour table of renderVersion 22 (`apply_base_colour`), compiled
+// only for recipes that use it, so older recipes' pipelines keep the code
+// they had (gpu_processing.rs `BASE_COLOUR_FEATURE`).
+override BASE_COLOUR: bool = false;
 // The sharpening view (Lightroom's Option-drag on the Sharpening sliders):
 // compiled only into display pipelines made for it (gpu_processing.rs
 // `sharpen_view_pipeline`); exports and other frames never have it, so their
@@ -10189,6 +10193,75 @@ fn luminance_curve_value(val: f32, layer: u32, count: u32) -> f32 {
 // no sRGB powers per pixel), four per word, after the camera tables
 // (preview_layers `luminance_lut`, within a quarter 8-bit level).
 const LUMINANCE_TABLE_BASE: u32 = DCP_TABLE_BASE + 65536u;
+// The base colour table (engine base_colour.rs), after the layers'
+// Luminance tables: (Δa*, Δb*) per node of L* 0–100 step 10 and a*, b*
+// −96…96 step 8 (gpu_processing.rs `BASE_COLOUR_TABLE_OFFSET`).
+const BASE_COLOUR_TABLE_BASE: u32 = LUMINANCE_TABLE_BASE + 257u * 33u;
+
+// The table is on (renderVersion 22) for the neutral RAW look: the Camera
+// Raw tone mapper with the built-in curve and neutral colour (flag 2), no
+// camera profile.
+fn base_colour_active(is_raw: u32) -> bool {
+    let flags = adjustments.global.profile_curve[15];
+    return is_raw == 1u && adjustments.global.tonemapper_mode >= 2u && flags.y > 0.5 && abs(flags.w - 2.0) < 0.5;
+}
+
+fn base_colour_lab_f(t: f32) -> f32 {
+    if (t > 0.008856452) {
+        return pow(t, 1.0 / 3.0);
+    }
+    return t * 7.787037 + 16.0 / 116.0;
+}
+
+fn base_colour_lab_f_inv(f: f32) -> f32 {
+    if (f > 0.20689656) {
+        return f * f * f;
+    }
+    return (f - 16.0 / 116.0) / 7.787037;
+}
+
+// Display (signed sRGB) → CIELAB D65, the table's (Δa*, Δb*) with the
+// correction faded out below chroma 2 (`FADE_CHROMA`), and back. Colours
+// beyond sRGB keep their negative channels.
+fn apply_base_colour(display: vec3<f32>) -> vec3<f32> {
+    let c = decode_signed(display);
+    let x = (0.4124564 * c.r + 0.3575761 * c.g + 0.1804375 * c.b) / 0.95047;
+    let y = 0.2126729 * c.r + 0.7151522 * c.g + 0.0721750 * c.b;
+    let z = (0.0193339 * c.r + 0.1191920 * c.g + 0.9503041 * c.b) / 1.08883;
+    let fx = base_colour_lab_f(x);
+    let fy = base_colour_lab_f(y);
+    let fz = base_colour_lab_f(z);
+    let lab = vec3<f32>(116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz));
+    let u = clamp(lab.x / 10.0, 0.0, 10.0 - 1e-4);
+    let v = clamp((lab.y + 96.0) / 8.0, 0.0, 24.0 - 1e-4);
+    let w = clamp((lab.z + 96.0) / 8.0, 0.0, 24.0 - 1e-4);
+    let i = u32(u);
+    let j = u32(v);
+    let k = u32(w);
+    let f = vec3<f32>(u - f32(i), v - f32(j), w - f32(k));
+    var d = vec2<f32>(0.0);
+    for (var n = 0u; n < 8u; n++) {
+        let di = n >> 2u;
+        let dj = (n >> 1u) & 1u;
+        let dk = n & 1u;
+        let weight = select(1.0 - f.x, f.x, di == 1u) * select(1.0 - f.y, f.y, dj == 1u) * select(1.0 - f.z, f.z, dk == 1u);
+        d += curve_luts[BASE_COLOUR_TABLE_BASE + ((i + di) * 25u + j + dj) * 25u + k + dk].xy * weight;
+    }
+    let t = clamp(length(lab.yz) / 2.0, 0.0, 1.0);
+    let ab = lab.yz + d * (t * t * (3.0 - 2.0 * t));
+    let gy = fy;
+    let gx = gy + ab.x / 500.0;
+    let gz = gy - ab.y / 200.0;
+    let x2 = base_colour_lab_f_inv(gx) * 0.95047;
+    let y2 = y;
+    let z2 = base_colour_lab_f_inv(gz) * 1.08883;
+    let out = vec3<f32>(
+        3.2404542 * x2 - 1.5371385 * y2 - 0.4985314 * z2,
+        -0.9692660 * x2 + 1.8760108 * y2 + 0.0415560 * z2,
+        0.0556434 * x2 - 0.2040259 * y2 + 1.0572252 * z2,
+    );
+    return encode_signed(out);
+}
 fn luminance_table_value(value: f32, layer: u32) -> f32 {
     let position = clamp(value, 0.0, 1.0) * 1024.0;
     let index = min(u32(position), 1023u);
@@ -12213,6 +12286,11 @@ fn main(
         default_tonemapped = linear_to_display(hdr_source_rolloff(composite_rgb_linear, adjustments.global.hdr_headroom));
     } else {
         default_tonemapped = linear_to_display(composite_rgb_linear);
+    }
+    // renderVersion 22: the neutral RAW look's base colour table, on the
+    // look's output before the curve choice (engine base_colour.rs).
+    if (BASE_COLOUR && base_colour_active(is_raw)) {
+        default_tonemapped = apply_base_colour(default_tonemapped);
     }
     // Curve choice on top of the base look (RAW only).
     if (is_raw == 1u && adjustments.global.tonemapper_mode >= 2u) {

@@ -210,6 +210,11 @@ impl RenderVersion {
     pub fn hdr_rolloff(self) -> bool {
         self.0 >= crate::hdr_source::ROLLOFF_RENDER_VERSION
     }
+
+    /// The neutral RAW look gets the base colour table (`base_colour`).
+    pub fn base_colour(self) -> bool {
+        self.0 >= crate::base_colour::BASE_COLOUR_RENDER_VERSION
+    }
 }
 
 /// The tone-slider response from which raised Shadows keep their local

@@ -140,6 +140,12 @@ impl BaseLook {
             } else {
                 0.0
             };
+        // The base colour table (`profile_curve[15][1]`, set by the render
+        // version) belongs to the neutral look alone (flag 2 below; the
+        // shader also asks for that flag and the Camera Raw tone mapper).
+        if !(self.camera_raw && self.profile_curve.is_none() && self.neutral_colour) {
+            global.profile_curve[15][1] = 0.0;
+        }
         if self.camera_raw && global.tonemapper_mode == STANDARD_MODE {
             global.tonemapper_mode = CAMERA_RAW_MODE;
             // Flag in the last slot: 1 = the file's own curve (and colour),

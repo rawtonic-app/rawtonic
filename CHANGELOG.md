@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **More faithful colour for new RAW edits.** RAWs in the default (neutral) look now get Rawtonic's own base colour correction, fitted to Camera Raw's default rendering of CC0 photos from 282 camera models. On 70 validation photos from 70 other camera models (the set its grid size and smoothness were chosen on; a separate hold-out is not yet scored), the median colour difference to Camera Raw fell from 2.61 to 2.36 ΔE00 (59 of 70 photos closer), skin tones from 3.88 to 3.47; greys stay neutral. It is not yet as close as the best other editors on every photo, and it does not apply with a camera profile, a file's own look, AgX or Classic. Only new edits get it: photos you have edited keep their colours exactly, and their exports are unchanged. Library tiles of RAWs that follow your develop defaults are made again once.
+
 ## 0.1.0-alpha.22 — 2026-11-28
 
 The twenty-second alpha. New: a calmer interface (neutral greys, one accent colour, calmer sliders, fewer icons), preset thumbnails of the open photo, holding a slider's name to see its default, Export with Previous, Z to toggle the zoom with zoom levels from 25 to 1600 %, JPEGs and TIFFs saved with a RAW extension that open, and AI masks on very large photos that stayed above Rawtonic's memory floor in 11 of 11 runs on a 14 GB Windows laptop (one earlier run had gone below it).

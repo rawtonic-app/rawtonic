@@ -9,6 +9,7 @@ pub mod applied_style;
 pub mod auto_adjust;
 pub mod auto_straighten;
 pub mod avif;
+pub mod base_colour;
 pub mod baseline_exposure;
 pub mod bw_toning;
 pub mod cache_utils;

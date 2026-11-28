@@ -283,6 +283,7 @@ fn constants(spec: &Spec) -> naga::back::PipelineConstants {
         ("SHADOWS_V20", ((f >> 27) & 1) as f64),
         ("WHITES_V22", ((f >> 28) & 1) as f64),
         ("ANCHOR_V23", ((f >> 29) & 1) as f64),
+        ("BASE_COLOUR", ((f >> 30) & 1) as f64),
     ]
     .into_iter()
     .map(|(k, v)| (k.to_string(), v))
